@@ -6,17 +6,19 @@ milestones merely by listing them.
 
 ## Current state and stopping point
 
-Milestone **1a — Offline status is complete**. The package has a library and thin
-CLI, a schema-1 cache reader, validated domain data, and offline summaries. Stop
-here: synchronization, cache writing/locking, HTTP dependencies, and CI remain in
-1b–1d. Only `status` is implemented; no placeholder `sync` command is present.
+Milestone **1b — First complete sync is complete**, building on 1a commit
+`c5be55b`. The package exposes a real HTTP adapter, normalized snapshots, guarded
+safe replacement, account protection, and thin `sync`/offline `status` commands.
+Stop here. Required I/O safety foundations are implemented; expanded resilience
+verification remains in 1c and macOS/Linux CI remains in 1d.
 
 On 2026-09-27, the official Rust release page and `rustup update stable` both
 confirmed Rust 1.98.1. Installed the exact 1.98.1 toolchain with rustfmt and Clippy,
 and pinned it in `rust-toolchain.toml`, using edition 2024. The repository pin
 selects Rust/Cargo 1.98.1 without changing the user's global 1.82.0 default.
-`Cargo.lock` records the resolved dependencies; `tempfile` is development-only in
-1a. No reqwest, Tokio, wiremock, or proptest dependency was needed.
+`Cargo.lock` records the resolved dependencies. In 1b, reqwest 0.13.5, Tokio
+1.53.1, and tempfile 3.27.0 support HTTP and persistence; wiremock 0.6.5 is a
+development dependency. Proptest remains deferred.
 
 ## Vertical milestones
 
@@ -24,8 +26,8 @@ selects Rust/Cargo 1.98.1 without changing the user's global 1.82.0 default.
 | --- | --- | --- | --- |
 | 0 — Decisions | Complete | Three authoritative, consistent documents | Sourced external facts; proposed structure; Rust rationale; no application initialization |
 | 1a — Offline status | Complete | Package, domain snapshot, cache reader, real `status` command | Fixture-backed integration tests; no token/network dependency; useful errors and summaries |
-| 1b — First complete sync | Not started | HTTP adapter, normalization, safe persistence, thin CLI composition | Mock API → normalized snapshot → disk → offline status succeeds through real components |
-| 1c — Sync resilience | Not started | Pagination, rate limits, deadlines, integrity validation, account protection, locking | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
+| 1b — First complete sync | Complete | HTTP adapter, normalization, safe persistence, thin CLI composition | Mock API → normalized snapshot → disk → offline status succeeds through real components |
+| 1c — Sync resilience | Not started | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
 | 1d — Milestone acceptance | Not started | macOS/Linux CI and reviewed public library surface | All quality gates pass; documented limitations; no placeholder future features |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
@@ -97,12 +99,62 @@ subsequent tests and quality gates succeeded locally.
   library. Do not leak transport DTOs into the public API.
 - Verify the complete retrieval-to-cache-to-status flow, including repeated syncs.
 
+#### 1b delivery and TDD record
+
+Behavior was developed in Red–Green–Refactor cycles. Each row records the observed
+RED, the implemented GREEN, and explicit production/test refactor review followed
+by a focused rerun. Dependency declarations, synthetic source fixtures, and test
+module setup were test-enabling scaffolding.
+
+| Cycle | Observed RED | GREEN and refactor review |
+| --- | --- | --- |
+| Private full replacement | `SyncGuard` absent, round-trip test did not compile | Added serialization, lock ownership, private directories/files, temporary-file flush/sync, atomic persist, and directory sync; reviewed ownership/error stages, no abstraction justified |
+| Cache/account protection | A corrupt existing cache was overwritten | Validate existing caches and new snapshots; refuse account mismatch; refactored shared existing-cache loading and reran all cache tests; basic lock contention/read coexistence also passed |
+| HTTP foundation | `Client` absent | Real bearer/revision requests normalize an empty profile; authentication, redirects, malformed JSON, and oversized responses fail safely; reviewed sanitized errors and bounds, no further change justified |
+| Source normalization | Nonempty assignments returned `InvalidResponse` | Private typed DTOs normalize all three lexical variants, progress, and access exclusions; exact normalized mixed fixture matches; refactored progress iteration to avoid an intermediate allocation |
+| Complete pagination/batching | Empty first pages lost progress; 101-ID request missed bounded mocks; unsafe-page test exposed a later-endpoint false positive and was tightened to fail specifically on pagination | Explicit termination, origin/path/credential checks, repeated-URL detection, and 100-ID batches passed; reviewed ordering and termination, no further refactor justified |
+| Source integrity | Identical duplicates failed; invalid excluded levels/content and missing nullable fields were accepted | Collapse equal retained records, reject conflicts, require nullable source fields, validate content before exclusion; extracted shared subject validation and a small deduplication function for three collections |
+| Retry foundation | Retry/reset helpers absent | Actual HTTP retries obey the two-retry budget and excessive resets fail; fixed-time tests verify 1/2-second backoffs and reset/default calculations; removed an unnecessary unreachable panic branch |
+| CLI command/guidance | `sync` unrecognized; missing-cache text still said sync unavailable | Environment-only token handling, synchronous lock/write around async retrieval, and shared status output; reviewed branch-local environment/runtime use and reran CLI tests |
+| Cross-component acceptance | Local-origin constructor private; constructor accepted unsafe remote HTTP | Validated library origin configuration; complete HTTP → cache → offline subprocess, repeat refresh/removal, and different-account preservation passed; reviewed the small public API and kept endpoint configuration out of CLI options |
+| CLI composition | Extracted composition function absent | Tested the actual binary composition with mock HTTP, asserted the lock is held during requests, rendered and reloaded the same snapshot; reviewed runtime/guard lifetimes, no further refactor justified |
+
+Quality gates passed on macOS/aarch64 with Rust 1.98.1:
+
+- `cargo fmt --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all` — 39 tests passed (11 library HTTP tests, 1 binary composition
+  test, 13 cache, 7 CLI, 6 summary, and 1 cross-component test); none ignored.
+- `git diff --check`; reviewed new/untracked source and fixture files as well.
+
+Also inspected CLI and sync help and the normal dependency graph. Production has
+no `unwrap()`/`expect()`, unsafe code, credential-bearing error sources, DTO exports,
+or token/config persistence. The only environment reads are HOME and the sync
+branch's token read in the binary. Runtime startup, argument parsing, output, and
+exit status remain there; the library owns HTTP, normalization, cache operations,
+and summaries. Dependencies have only the required features enabled.
+
+Sandboxed Cargo could not resolve crates.io or bind local listening ports. The
+approved Cargo runs downloaded dependencies and ran loopback mocks successfully;
+normal tests never contact the real WaniKani service. An attempted paused Tokio
+clock advanced past real socket I/O, so retry delay calculations use a fixed input
+clock and HTTP retry classification/budget tests use real loopback I/O (about six
+seconds for bounded backoffs). No wall-clock timing thresholds are asserted.
+
+Remaining verification is explicit: no live account/API run, Linux execution,
+CI, exhaustive streamed-body/deadline cases, deterministic fault injection around
+replacement/directory sync, or cross-process interruption matrix. Those remain in
+1c/1d; a successful 1b test run does not declare them complete. The post-replacement
+error category exists, but directory-sync failure has not yet been induced in a
+test.
+
 ### 1c — Sync resilience
 
-- Complete pagination, bounded retry behavior, deadlines, response limits,
-  credential-safe URL handling, and structural integrity checks.
-- Exercise reset/removal replacement, permitted absent data, content-access
-  exclusions, writer contention, and interruptions.
+- Expand verification and harden pagination, bounded retries, deadlines, streamed
+  response limits, credential-safe URL handling, and structural integrity.
+  Required safety foundations and representative tests were introduced in 1b.
+- Extend the 1b reset/removal, permitted absence, access-exclusion, and contention
+  cases to failures on later pages, cross-process contention, and interruptions.
 - Verify old-cache preservation on every tested pre-replacement failure. Test
   post-replacement durability errors separately rather than asserting rollback.
 

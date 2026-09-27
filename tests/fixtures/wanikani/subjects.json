@@ -1,0 +1,170 @@
+{
+  "object": "collection",
+  "pages": {
+    "next_url": null
+  },
+  "data": [
+    {
+      "object": "kanji",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "level": 1,
+        "characters": "一",
+        "meanings": [
+          {
+            "meaning": "one",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": "2026-09-27T09:00:00Z",
+        "readings": [
+          {
+            "reading": "いち",
+            "primary": true,
+            "accepted_answer": true,
+            "type": "onyomi"
+          }
+        ],
+        "spaced_repetition_system_id": 1,
+        "meaning_mnemonic": "Unretained synthetic mnemonic",
+        "pronunciation_audios": []
+      },
+      "id": 1
+    },
+    {
+      "object": "vocabulary",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "level": 1,
+        "characters": "一つ",
+        "meanings": [
+          {
+            "meaning": "one thing",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": null,
+        "readings": [
+          {
+            "reading": "ひとつ",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "parts_of_speech": [
+          "noun"
+        ],
+        "context_sentences": [
+          {
+            "ja": "一つあります。",
+            "en": "There is one."
+          }
+        ],
+        "spaced_repetition_system_id": 2,
+        "meaning_mnemonic": "Unretained synthetic mnemonic",
+        "pronunciation_audios": []
+      },
+      "id": 2
+    },
+    {
+      "object": "kana_vocabulary",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "level": 1,
+        "characters": "これ",
+        "meanings": [
+          {
+            "meaning": "this",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": null,
+        "parts_of_speech": [
+          "pronoun"
+        ],
+        "context_sentences": [
+          {
+            "ja": "これは本です。",
+            "en": "This is a book."
+          }
+        ],
+        "spaced_repetition_system_id": 2,
+        "meaning_mnemonic": "Unretained synthetic mnemonic",
+        "pronunciation_audios": []
+      },
+      "id": 3
+    },
+    {
+      "object": "kanji",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "level": 1,
+        "characters": "二",
+        "meanings": [
+          {
+            "meaning": "two",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": null,
+        "readings": [
+          {
+            "reading": "に",
+            "primary": true,
+            "accepted_answer": true,
+            "type": "onyomi"
+          }
+        ],
+        "spaced_repetition_system_id": 1,
+        "meaning_mnemonic": "Unretained synthetic mnemonic",
+        "pronunciation_audios": []
+      },
+      "id": 4
+    },
+    {
+      "object": "vocabulary",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "level": 4,
+        "characters": "一つ",
+        "meanings": [
+          {
+            "meaning": "one thing",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": null,
+        "readings": [
+          {
+            "reading": "ひとつ",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "parts_of_speech": [
+          "noun"
+        ],
+        "context_sentences": [
+          {
+            "ja": "一つあります。",
+            "en": "There is one."
+          }
+        ],
+        "spaced_repetition_system_id": 2,
+        "meaning_mnemonic": "Unretained synthetic mnemonic",
+        "pronunciation_audios": []
+      },
+      "id": 5
+    }
+  ]
+}

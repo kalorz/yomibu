@@ -1,10 +1,11 @@
 # Yomibu
 
-Personalized Japanese reading practice, starting with a Rust CLI. Milestone 1a
-implements offline inspection of a normalized WaniKani cache. Synchronization and
-later practice features are not implemented yet.
+Yomibu is an unofficial WaniKani tool for personalized Japanese reading practice,
+starting with a Rust CLI. Milestone 1b implements full synchronization and offline
+inspection of learner observations. Reading-practice features remain deferred.
 
 ```sh
+WANIKANI_API_TOKEN=... cargo run -- sync
 cargo run -- status
 cargo run -- --data-dir /path/to/data status
 ```
@@ -14,6 +15,14 @@ It needs no token or network and never writes files. Errors return a nonzero exi
 status with recovery guidance. The cache contains source learner state, not a
 fixed definition of “known” material.
 
+Sync reads the token only from the environment, fetches the complete account
+state, and prints the saved summary. It holds an advisory writer lock and replaces
+the cache only after validation. A different account requires another data
+directory. Existing corrupt/unsupported caches are preserved for recovery.
+Network, validation, and pre-replacement write failures leave the previous cache
+usable. An error explicitly reporting uncertain durability means replacement
+already occurred but synchronizing its directory failed.
+
 To try the synthetic example without an account:
 
 ```sh
@@ -22,9 +31,11 @@ cp tests/fixtures/mixed.json "$demo_dir/wanikani.json"
 cargo run -- status --data-dir "$demo_dir"
 ```
 
-The library exposes `cache::load`, domain structs and validation, and
-`Snapshot::summarize`. Argument/environment handling, text output, and exit codes
-belong to the binary. The repository pins Rust 1.98.1 with rustfmt and Clippy.
+The library exposes `wanikani::Client`, `cache::SyncGuard`, `cache::load`, domain
+structs/validation, and `Snapshot::summarize`. Keep a sync guard alive around
+`client.fetch().await` and call `guard.replace(&snapshot)` after retrieval.
+Argument/environment handling, runtime startup, text output, and exit codes belong
+to the binary. The repository pins Rust 1.98.1 with rustfmt and Clippy.
 
 ```sh
 cargo fmt --check
@@ -48,5 +59,17 @@ status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
 - Ordered maps make SRS output deterministic. Unlike Ruby's growable integers,
   Rust integers have fixed widths: review counts widen from `u64` to `u128`
   before aggregation, with conversion to floating point only for percentages.
-- Domain work and local reads stay synchronous. A runtime and async functions
-  would add no value to this milestone.
+- Async is confined to HTTP and retry waits. Validation, summary calculation,
+  locking, and cache persistence stay synchronous.
+- `SyncGuard` owns a file handle: leaving scope releases the lock even when `?`
+  returns early. This replaces manual unlock/ensure bookkeeping.
+- Private transport structs move strings and vectors into domain types. Serde's
+  `Serialize` derives write the owned schema without storing API envelopes.
+- `PartialEq` compares retained resource data for duplicate reconciliation; source
+  timestamps participate, while ignored API preferences and mnemonics do not.
+- `WriteError::BeforeReplacement` and `DurabilityUncertain` model different
+  outcomes. A single generic exception would make safe recovery harder.
+
+The 39-test suite uses local mock servers, isolated directories, and CLI child
+processes. Linux/CI and the broader interruption/durability fault matrix remain
+for 1c/1d; no live account has been used for automated verification.
