@@ -1,4 +1,4 @@
-use super::*;
+use super::{resilience::fails_without_replacing_cache, *};
 use serde_json::{Value, json};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -49,38 +49,16 @@ async fn retrieves_empty_account_with_headers_and_normalizes_profile() {
 }
 
 #[tokio::test]
-async fn http_boundary_rejects_auth_redirects_malformed_and_oversized_responses_without_echoing_secrets()
- {
-    for (response, expected) in [
-        (
-            ResponseTemplate::new(401).set_body_string(TOKEN),
-            "Authentication",
-        ),
-        (
-            ResponseTemplate::new(302)
-                .insert_header("location", format!("https://example.invalid/{TOKEN}")),
-            "302",
-        ),
-        (
-            ResponseTemplate::new(200).set_body_string(format!("{{{TOKEN}")),
-            "Invalid response",
-        ),
-        (
-            ResponseTemplate::new(200).set_body_bytes(vec![b' '; 16 * 1024 * 1024 + 1]),
-            "16 MiB",
-        ),
-    ] {
-        let server = MockServer::start().await;
-        Mock::given(path("/v2/user"))
-            .respond_with(response)
-            .expect(1)
-            .mount(&server)
-            .await;
-        let error = client(&server).fetch().await.unwrap_err();
-        let text = format!("{error} {error:?}");
-        assert!(text.contains(expected), "{text}");
-        assert!(!text.contains(TOKEN), "{text}");
-    }
+async fn malformed_json_never_retries_or_echoes_the_response_body() {
+    let server = MockServer::start().await;
+    Mock::given(path("/v2/user"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(format!("{{{TOKEN}")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let error = fails_without_replacing_cache(&mut client(&server)).await;
+    assert!(matches!(error, Error::InvalidResponse { endpoint: "user" }));
+    assert_secret_free(&error);
 }
 
 fn fixture(endpoint: &str) -> Value {
@@ -159,39 +137,6 @@ async fn follows_explicit_pagination_even_after_empty_pages_on_each_collection()
 }
 
 #[tokio::test]
-async fn rejects_untrusted_or_repeated_pagination_without_sending_credentials() {
-    for suffix in [
-        "/v2/user",
-        "/v2/assignments#fragment",
-        "/v2/assignments",
-        "/v2/assignments?cycle=1",
-        "foreign",
-    ] {
-        let server = MockServer::start().await;
-        let foreign = MockServer::start().await;
-        serve(&server, "user", user()).await;
-        let next = if suffix == "foreign" {
-            format!("{}/v2/assignments", foreign.uri())
-        } else {
-            format!("{}{suffix}", server.uri())
-        };
-        let mut page = collection(vec![]);
-        page["pages"]["next_url"] = json!(next);
-        Mock::given(path("/v2/assignments"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(page))
-            .mount(&server)
-            .await;
-        let result = client(&server).fetch().await;
-        assert!(
-            result.unwrap_err().to_string().contains("pagination"),
-            "wrong failure for {suffix}"
-        );
-        assert!(foreign.received_requests().await.unwrap().is_empty());
-        assert!(server.received_requests().await.unwrap().len() <= 3);
-    }
-}
-
-#[tokio::test]
 async fn requests_subject_ids_in_batches_of_at_most_100() {
     let server = MockServer::start().await;
     serve(&server, "user", user()).await;
@@ -266,52 +211,63 @@ async fn identical_source_duplicates_collapse_but_conflicts_are_rejected() {
 }
 
 #[tokio::test]
-async fn rejects_missing_mismatched_and_invalid_source_data_including_exclusions() {
+async fn invalid_source_data_preserves_the_cache_including_exclusions() {
     let mut cases = Vec::new();
-    let mut missing = fixture("subjects");
-    missing["data"].as_array_mut().unwrap().pop();
-    cases.push(("subjects", missing, "missing requested subject"));
-    let mut mismatch = fixture("assignments");
-    mismatch["data"][0]["data"]["subject_type"] = json!("vocabulary");
-    cases.push(("assignments", mismatch, "mismatched kind"));
-    for (pointer, value, name) in [
+    for (endpoint, pointer, value) in [
+        ("subjects", "/data/4/id", json!(999)),
         (
-            "/data/4/data/level",
-            json!(61),
-            "out-of-range excluded level",
+            "assignments",
+            "/data/0/data/subject_type",
+            json!("vocabulary"),
         ),
+        ("assignments", "/data/3/data/subject_type", json!("kanji")),
+        ("subjects", "/data/4/data/characters", json!("")),
+        ("subjects", "/data/4/data/level", json!(61)),
+        ("subjects", "/data/0/data/readings/0/type", json!("")),
+        ("subjects", "/data/0/object", json!("unknown")),
+        ("assignments", "/data/0/object", json!("unknown")),
+        ("review_statistics", "/data/0/object", json!("unknown")),
         (
-            "/data/4/data/characters",
-            json!(""),
-            "invalid excluded content",
-        ),
-        (
-            "/data/0/data/readings/0/type",
-            json!(""),
-            "blank reading type",
+            "review_statistics",
+            "/data/0/data/percentage_correct",
+            json!(101),
         ),
     ] {
-        let mut body = fixture("subjects");
+        let mut body = fixture(endpoint);
         *body.pointer_mut(pointer).unwrap() = value;
-        cases.push(("subjects", body, name));
+        cases.push((endpoint, pointer, body));
     }
-    let mut body = fixture("assignments");
-    body["data"][0]["data"]
-        .as_object_mut()
-        .unwrap()
-        .remove("burned_at");
-    cases.push(("assignments", body, "missing nullable required field"));
-    let mut body = fixture("assignments");
-    body["pages"].as_object_mut().unwrap().remove("next_url");
-    cases.push(("assignments", body, "missing pagination terminator"));
-    let mut accepted = Vec::new();
-    for (endpoint, body, name) in cases {
+    let mut missing = fixture("subjects");
+    missing["data"].as_array_mut().unwrap().pop();
+    cases.push(("subjects", "missing requested subject", missing));
+    for (pointer, field) in [("/data/0/data", "burned_at"), ("/pages", "next_url")] {
+        let mut body = fixture("assignments");
+        body.pointer_mut(pointer)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        cases.push(("assignments", field, body));
+    }
+    for endpoint in ["assignments", "review_statistics"] {
+        let mut body = fixture(endpoint);
+        let mut duplicate = body["data"][0].clone();
+        duplicate["id"] = json!(999);
+        body["data"].as_array_mut().unwrap().push(duplicate);
+        cases.push((endpoint, "duplicate subject reference", body));
+    }
+    for (endpoint, name, body) in cases {
         let server = changed_server(endpoint, body).await;
-        if client(&server).fetch().await.is_ok() {
-            accepted.push(name);
-        }
+        let error = fails_without_replacing_cache(&mut client(&server)).await;
+        assert!(
+            matches!(
+                error,
+                Error::InvalidResponse { .. } | Error::InvalidSnapshot(_)
+            ),
+            "{endpoint}/{name}: {error}"
+        );
+        assert_secret_free(&error);
     }
-    assert!(accepted.is_empty(), "accepted invalid source: {accepted:?}");
 }
 
 #[tokio::test]
@@ -388,6 +344,20 @@ fn retry_waits_use_source_reset_or_bounded_defaults() {
         HeaderValue::from_str(&(fixed.timestamp() + 121).to_string()).unwrap(),
     );
     assert!(reset_delay(&headers, fixed).is_err());
+    for (value, seconds) in [
+        ("malformed".to_string(), 60),
+        ("-1".to_string(), 60),
+        ("0".to_string(), 0),
+        (fixed.timestamp().to_string(), 0),
+        ((fixed.timestamp() + 120).to_string(), 120),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert("ratelimit-reset", HeaderValue::from_str(&value).unwrap());
+        assert_eq!(
+            reset_delay(&headers, fixed).unwrap(),
+            Duration::from_secs(seconds)
+        );
+    }
 }
 
 #[test]
@@ -404,4 +374,132 @@ fn configured_origin_rejects_insecure_remote_urls_and_url_credentials() {
             "accepted {base}"
         );
     }
+}
+
+#[tokio::test]
+async fn cancelling_a_rate_limit_wait_keeps_the_deadline_for_the_next_fetch() {
+    use std::{
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+
+    let server = MockServer::start().await;
+    let mut client = client(&server);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    client.next_request_at = Some(deadline);
+    {
+        let mut fetch = std::pin::pin!(client.fetch());
+        assert!(matches!(
+            fetch.as_mut().poll(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ));
+    }
+    assert_eq!(client.next_request_at, Some(deadline));
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn hostile_pagination_and_redirects_never_forward_authorization_or_echo_urls() {
+    let foreign = MockServer::start().await;
+    for (template, requests) in [
+        ("{base}/v2/user", 2),
+        ("{base}/v2/assignments", 2),
+        ("{base}/v2/assignments?cycle=1", 3),
+        ("http://{token}@{authority}/v2/assignments", 2),
+        ("http://user:{token}@{authority}/v2/assignments", 2),
+        ("{base}/v2/assignments#{token}", 2),
+        ("{base}/v2/assignments%2f..%2fuser?secret={token}", 2),
+        ("/v2/assignments?secret={token}", 2),
+        ("{foreign}/v2/assignments?secret={token}", 2),
+    ] {
+        let server = MockServer::start().await;
+        serve(&server, "user", user()).await;
+        let next = template
+            .replace("{base}", &server.uri())
+            .replace("{authority}", server.address().to_string().as_str())
+            .replace("{foreign}", &foreign.uri())
+            .replace("{token}", TOKEN);
+        let mut page = collection(vec![]);
+        page["pages"]["next_url"] = json!(next);
+        Mock::given(path("/v2/assignments"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page))
+            .expect(requests - 1)
+            .mount(&server)
+            .await;
+        let error = fails_without_replacing_cache(&mut client(&server)).await;
+        assert!(
+            matches!(
+                error,
+                Error::Pagination {
+                    endpoint: "assignments"
+                }
+            ),
+            "{template}: {error}"
+        );
+        assert_secret_free(&error);
+        assert_eq!(
+            server.received_requests().await.unwrap().len() as u64,
+            requests
+        );
+    }
+    for status in [301, 302, 303, 307, 308] {
+        let server = MockServer::start().await;
+        Mock::given(path("/v2/user"))
+            .respond_with(ResponseTemplate::new(status).insert_header(
+                "location",
+                format!("{}/v2/user?secret={TOKEN}", foreign.uri()),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let error = fails_without_replacing_cache(&mut client(&server)).await;
+        assert!(matches!(error, Error::Http { status: actual, .. } if actual == status));
+        assert_secret_free(&error);
+    }
+    assert!(foreign.received_requests().await.unwrap().is_empty());
+}
+
+fn assert_secret_free(error: &dyn std::error::Error) {
+    let mut current = Some(error);
+    while let Some(error) = current {
+        assert!(!format!("{error} {error:?}").contains(TOKEN));
+        current = error.source();
+    }
+}
+
+#[tokio::test]
+async fn permanent_errors_never_retry_and_transient_categories_share_one_budget() {
+    for status in [400, 401, 403, 404, 422] {
+        let server = MockServer::start().await;
+        Mock::given(path("/v2/user"))
+            .respond_with(ResponseTemplate::new(status).set_body_string(TOKEN))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let error = fails_without_replacing_cache(&mut client(&server)).await;
+        assert_secret_free(&error);
+        match status {
+            401 | 403 => assert!(matches!(error, Error::Authentication)),
+            _ => assert!(matches!(error, Error::Http { status: actual, .. } if actual == status)),
+        }
+    }
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let server = MockServer::start().await;
+    let attempt = AtomicUsize::new(0);
+    Mock::given(path("/v2/user"))
+        .respond_with(move |_: &wiremock::Request| {
+            let status = if attempt.fetch_add(1, Ordering::SeqCst) == 1 {
+                429
+            } else {
+                503
+            };
+            ResponseTemplate::new(status).insert_header("ratelimit-reset", "0")
+        })
+        .expect(3)
+        .mount(&server)
+        .await;
+    assert!(matches!(
+        client(&server).fetch().await,
+        Err(Error::Http { status: 503, .. })
+    ));
 }

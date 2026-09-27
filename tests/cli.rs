@@ -170,3 +170,34 @@ fn missing_cache_guidance_points_to_sync_and_status_ignores_invalid_tokens() {
         .unwrap();
     assert!(stdout(&output).contains("Cached WaniKani observations"));
 }
+
+#[test]
+fn another_process_cannot_sync_while_status_reads_the_locked_cache() {
+    use yomibu::cache::{SyncGuard, load};
+    let dir = tempfile::tempdir().unwrap();
+    cache(dir.path(), include_str!("fixtures/mixed.json"));
+    let guard = SyncGuard::acquire(dir.path()).unwrap();
+    let before = fs::read(dir.path().join("wanikani.json")).unwrap();
+    let token = "synthetic-contending-credential";
+    let output = cli()
+        .env("WANIKANI_API_TOKEN", token)
+        .args(["sync", "--data-dir"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("Another sync holds the lock"), "{error}");
+    assert!(!error.contains(token));
+    let output = cli()
+        .args(["status", "--data-dir"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(stdout(&output), include_str!("fixtures/mixed-status.txt"));
+    assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
+    load(dir.path()).unwrap();
+    drop(guard);
+    assert!(SyncGuard::acquire(dir.path()).is_ok());
+}

@@ -35,3 +35,10 @@ Tests mutate copies for pagination, duplication, invalid content, and resets.
 Requests go exclusively to isolated loopback mock servers, exercising the actual
 HTTP adapter and cache writer. The cross-component test runs the offline status
 binary with a cleared child environment after synchronization.
+
+Milestone 1c also derives later-page errors, access changes, and structural
+conflicts from these fixtures. Raw HTTP tests construct synthetic chunked,
+truncated, oversized, and stalled responses in memory. Storage tests stage
+synthetic partial files and inject operation-boundary errors; child-process tests
+use private temporary directories and per-child controls to stop at known write
+boundaries. None of these controls is part of the CLI or persisted cache schema.

@@ -54,6 +54,10 @@ impl Client {
     /// for loopback IP addresses, so callers can exercise the real adapter locally.
     /// The CLI always uses the default WaniKani HTTPS origin.
     pub fn with_base_url(token: &str, base_url: &str) -> Result<Self, Error> {
+        Self::with_timeout(token, base_url, Duration::from_secs(30))
+    }
+
+    fn with_timeout(token: &str, base_url: &str, request_timeout: Duration) -> Result<Self, Error> {
         if token.trim().is_empty() {
             return Err(Error::Configuration);
         }
@@ -82,7 +86,7 @@ impl Client {
 
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
+            .timeout(request_timeout)
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|_| Error::Configuration)?;
@@ -234,8 +238,10 @@ impl Client {
     ) -> Result<T, Error> {
         let mut attempt = 0;
         loop {
-            if let Some(ready) = self.next_request_at.take() {
+            if let Some(ready) = self.next_request_at {
+                // Cancellation must not let a reused client bypass the remaining wait.
                 tokio::time::sleep_until(ready).await;
+                self.next_request_at = None;
             }
             match self.request(endpoint, url.clone()).await {
                 Ok(bytes) => {
@@ -353,3 +359,6 @@ fn now() -> DateTime<Utc> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod resilience;
