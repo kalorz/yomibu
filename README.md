@@ -1,8 +1,9 @@
 # Yomibu
 
 Yomibu is an unofficial WaniKani tool for personalized Japanese reading practice,
-starting with a Rust CLI. Milestone 1b implements full synchronization and offline
-inspection of learner observations. Reading-practice features remain deferred.
+starting with a Rust CLI. Milestone 1c implements and exercises resilient full
+synchronization and offline inspection of learner observations. Reading-practice
+features remain deferred.
 
 ```sh
 WANIKANI_API_TOKEN=... cargo run -- sync
@@ -69,7 +70,14 @@ status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
   timestamps participate, while ignored API preferences and mnemonics do not.
 - `WriteError::BeforeReplacement` and `DurabilityUncertain` model different
   outcomes. A single generic exception would make safe recovery harder.
+- Dropping an async future cancels its work at an `await`. A saved rate-limit
+  deadline stays in the client until the wait finishes, so a later fetch still
+  observes the reset time.
 
-The 39-test suite uses local mock servers, isolated directories, and CLI child
-processes. Linux/CI and the broader interruption/durability fault matrix remain
-for 1c/1d; no live account has been used for automated verification.
+The 56-entry suite (including two subprocess helpers) uses local mock/raw HTTP
+servers, isolated directories, and child processes. It covers streamed limits,
+deadlines, retry budgets, hostile pagination, later-page failures, storage faults,
+writer contention, and process termination. Killed writers can leave private
+staging files that later reads/writes ignore. Fault injection and process-kill
+tests do not simulate power loss. Linux execution and CI remain for 1d; no live
+account has been used for automated verification.

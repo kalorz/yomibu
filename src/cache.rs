@@ -107,7 +107,25 @@ pub enum WriteError {
 #[derive(Debug)]
 pub struct SyncGuard {
     data_dir: PathBuf,
-    _lock: fs::File,
+    lock: fs::File,
+}
+
+impl Drop for SyncGuard {
+    fn drop(&mut self) {
+        // Closing alone can leave the lock held by a descriptor inherited during
+        // concurrent process creation. Release it at the guard's lifetime boundary.
+        let _ = self.lock.unlock();
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WriteStep {
+    Create,
+    Encode,
+    Flush,
+    SyncFile,
+    Replace,
+    SyncDirectory,
 }
 
 impl SyncGuard {
@@ -132,11 +150,21 @@ impl SyncGuard {
         existing(data_dir)?;
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
-            _lock: lock,
+            lock,
         })
     }
 
     pub fn replace(&self, snapshot: &Snapshot) -> Result<(), WriteError> {
+        self.replace_with(snapshot, |_| Ok(()))
+    }
+
+    // A private checkpoint lets tests fail or interrupt each storage boundary
+    // while exercising the same file operations and error mapping as callers.
+    fn replace_with(
+        &self,
+        snapshot: &Snapshot,
+        mut before: impl FnMut(WriteStep) -> io::Result<()>,
+    ) -> Result<(), WriteError> {
         use std::io::Write;
         snapshot.validate()?;
         if let Some(previous) = existing(&self.data_dir)?
@@ -149,7 +177,9 @@ impl SyncGuard {
             schema_version: u32,
             snapshot: &'a Snapshot,
         }
+        before(WriteStep::Create)?;
         let mut temporary = tempfile::NamedTempFile::new_in(&self.data_dir)?;
+        before(WriteStep::Encode)?;
         serde_json::to_writer(
             &mut temporary,
             &WritableEnvelope {
@@ -157,12 +187,16 @@ impl SyncGuard {
                 snapshot,
             },
         )?;
+        before(WriteStep::Flush)?;
         temporary.flush()?;
+        before(WriteStep::SyncFile)?;
         temporary.as_file().sync_all()?;
+        before(WriteStep::Replace)?;
         temporary
             .persist(self.data_dir.join("wanikani.json"))
             .map_err(|error| WriteError::BeforeReplacement(error.error))?;
-        fs::File::open(&self.data_dir)
+        before(WriteStep::SyncDirectory)
+            .and_then(|()| fs::File::open(&self.data_dir))
             .and_then(|directory| directory.sync_all())
             .map_err(WriteError::DurabilityUncertain)
     }
@@ -175,3 +209,6 @@ fn existing(data_dir: &Path) -> Result<Option<Snapshot>, CacheError> {
         Err(error) => Err(error),
     }
 }
+
+#[cfg(test)]
+mod tests;

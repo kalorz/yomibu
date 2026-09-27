@@ -104,9 +104,9 @@ full refresh synchronization.
 
 ### CLI and local files
 
-Milestone 1a implemented `status`; milestone 1b now adds the complete `sync`
-path, HTTP adapter, cache writer, and advisory lock. Further resilience testing
-and macOS/Linux CI remain in 1c/1d.
+Milestones 1a–1c implement `status`, the complete `sync` path, and resilience
+verification of the HTTP adapter, cache writer, and advisory lock. Milestone 1d
+still owns macOS/Linux CI and the final public-surface review.
 
 The complete milestone 1 command set is:
 
@@ -287,10 +287,46 @@ failure from errors that leave the destination unreplaced.
 Successful sync prints the same cached-observation summary as offline status.
 Tests cover mock API → normalized snapshot → private cache → credential-free
 `status` subprocess, repeated refresh/removal, account mismatch, basic lock
-contention, and the CLI composition's lock lifetime. Broader deadline, streamed
-body, retry timing, interrupted-write, cross-process contention, and
-post-replacement fault tests remain in 1c; Linux and CI remain in 1d. No live
-account verification is claimed.
+contention, and the CLI composition's lock lifetime. Milestone 1c expands these
+checks as described below. Linux and CI remain in 1d. No live account verification
+is claimed.
+
+### Sync resilience (1c)
+
+A client retains its rate-limit deadline if a caller cancels a fetch during the
+wait. Only completion of that wait clears the deadline. Reusing the client
+therefore continues to respect the server's reset time. The 10-second connection
+and 30-second request defaults, two-retry budget, 16 MiB page bound, cache schema,
+public API, and CLI options are unchanged.
+
+Local tests exercise stalled headers and bodies, truncated Content-Length and
+chunked bodies, successful transport recovery, exact-limit and oversized streamed
+pages, and rejection of declared oversized bodies before reading them. Rate-limit
+waits use a manually advanced clock; socket I/O runs with real time. Permanent
+HTTP errors, redirects, credential-bearing pagination, and unsafe/repeated URLs
+fail without leaking credentials. Mixed transient failure categories share the
+same retry budget.
+
+Later-page failures on assignments, statistics, and subjects preserve the old
+cache byte for byte and leave offline status usable. Tests also cover invalid
+excluded content, unexpected/missing subjects, conflicting source data, changing
+access limits, and removal of review-only state without fabricated records.
+
+Private storage checkpoints allow deterministic errors and process interruption
+before temporary-file creation, encoding, flushing, file sync, replacement, and
+directory sync. These are not library configuration or CLI options. Tests verify
+temporary-file cleanup after handled failures, a real rename failure, and a
+synthetic directory-sync failure mapped through the same error boundary as an
+actual directory error. The latter leaves the complete new cache visible and
+returns `DurabilityUncertain`; no rollback is claimed.
+
+Separate processes verify lock contention, offline readers during retrieval,
+termination during retrieval and at each write boundary, lock release on process
+death, and recovery using the same lock file. An already-open reader retains its
+complete old file after replacement. Abrupt termination can leave a private
+staging file; it is ignored by loading and later writes, and is not automatically
+deleted. Process-kill tests do not simulate power loss or establish filesystem
+durability across a machine crash.
 
 ## Rust architecture
 
@@ -339,6 +375,8 @@ Sources: [Rust release](https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/),
 Milestone 1b adds reqwest and Tokio at runtime, promotes tempfile to a runtime
 dependency for safe persistence, and adds wiremock for development. Tokio uses a
 current-thread runtime in the binary; only HTTP and retry waits are asynchronous.
+Milestone 1c adds only Tokio development features for raw local HTTP servers,
+process coordination, and controlled time; no new crates or runtime features.
 Proptest remains deferred because the current behavior is covered by concrete
 contract and integration tests. Exact resolved versions remain in `Cargo.lock`.
 
@@ -384,6 +422,9 @@ fails promptly; status can continue reading the previous snapshot. Use
 [standard-library file locking](https://doc.rust-lang.org/stable/std/fs/struct.File.html#method.try_lock),
 available on current stable Rust. Keep the lock handle alive until sync ends;
 do not delete and recreate a lock file while another process might hold it.
+Dropping the guard explicitly unlocks before closing its file, so a descriptor
+briefly inherited during concurrent process creation cannot extend the lock's
+lifetime beyond the guard.
 
 Write to a uniquely created temporary file in the cache directory, flush and
 synchronize it, atomically replace the destination, then synchronize the parent
@@ -399,7 +440,7 @@ directory; both steps are explicit. See
 ## Planned milestone 1 structure
 
 The tree below shows the milestone 1 structure. The HTTP adapter, summary module,
-usage/provenance documents, and sync tests are implemented through 1b. CI remains
+usage/provenance documents, and resilience tests are implemented through 1c. CI remains
 deferred to 1d. Create remaining files only when their authorized milestone
 contains real functionality.
 
@@ -418,10 +459,13 @@ yomibu/
 │   ├── main.rs
 │   ├── domain.rs
 │   ├── cache.rs
+│   ├── cache/
+│   │   └── tests.rs
 │   ├── summary.rs
 │   └── wanikani/
 │       ├── mod.rs
 │       ├── dto.rs
+│       ├── resilience.rs
 │       └── tests.rs
 └── tests/
     ├── cache.rs

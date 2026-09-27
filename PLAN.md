@@ -6,11 +6,10 @@ milestones merely by listing them.
 
 ## Current state and stopping point
 
-Milestone **1b — First complete sync is complete**, building on 1a commit
-`c5be55b`. The package exposes a real HTTP adapter, normalized snapshots, guarded
-safe replacement, account protection, and thin `sync`/offline `status` commands.
-Stop here. Required I/O safety foundations are implemented; expanded resilience
-verification remains in 1c and macOS/Linux CI remains in 1d.
+Milestone **1c — Sync resilience is complete**, building on 1b commit `8262bf7`.
+The complete sync path now has expanded HTTP, storage-fault, and process-death
+verification, plus cancellation-safe rate-limit waits. Stop after 1c. Linux
+execution, macOS/Linux CI, and the final public library review remain in 1d.
 
 On 2026-09-27, the official Rust release page and `rustup update stable` both
 confirmed Rust 1.98.1. Installed the exact 1.98.1 toolchain with rustfmt and Clippy,
@@ -27,7 +26,7 @@ development dependency. Proptest remains deferred.
 | 0 — Decisions | Complete | Three authoritative, consistent documents | Sourced external facts; proposed structure; Rust rationale; no application initialization |
 | 1a — Offline status | Complete | Package, domain snapshot, cache reader, real `status` command | Fixture-backed integration tests; no token/network dependency; useful errors and summaries |
 | 1b — First complete sync | Complete | HTTP adapter, normalization, safe persistence, thin CLI composition | Mock API → normalized snapshot → disk → offline status succeeds through real components |
-| 1c — Sync resilience | Not started | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
+| 1c — Sync resilience | Complete | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
 | 1d — Milestone acceptance | Not started | macOS/Linux CI and reviewed public library surface | All quality gates pass; documented limitations; no placeholder future features |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
@@ -141,12 +140,11 @@ clock advanced past real socket I/O, so retry delay calculations use a fixed inp
 clock and HTTP retry classification/budget tests use real loopback I/O (about six
 seconds for bounded backoffs). No wall-clock timing thresholds are asserted.
 
-Remaining verification is explicit: no live account/API run, Linux execution,
-CI, exhaustive streamed-body/deadline cases, deterministic fault injection around
-replacement/directory sync, or cross-process interruption matrix. Those remain in
-1c/1d; a successful 1b test run does not declare them complete. The post-replacement
-error category exists, but directory-sync failure has not yet been induced in a
-test.
+At the 1b stopping point, no live account/API run, Linux execution, CI, expanded
+streamed-body/deadline cases, deterministic fault injection around replacement/
+directory sync, or cross-process interruption matrix had been verified. The
+post-replacement error category existed without an induced directory-sync failure.
+The 1c results below address the resilience gaps; Linux/CI remain in 1d.
 
 ### 1c — Sync resilience
 
@@ -157,6 +155,74 @@ test.
   cases to failures on later pages, cross-process contention, and interruptions.
 - Verify old-cache preservation on every tested pre-replacement failure. Test
   post-replacement durability errors separately rather than asserting rollback.
+
+#### 1c delivery and TDD record
+
+The cancellation fix followed a confirmed behavioral RED before any production
+change. Test-enabling private seams were introduced only after their focused
+tests failed to compile. Coverage extensions for guarantees already implemented
+in 1b passed without production changes. Each group received an explicit review
+of production/test naming, duplication, modelling, ownership, and Rust idioms,
+followed by focused reruns and the full gates.
+
+| Cycle / verification group | Observed RED or existing behavior | GREEN and refactor review |
+| --- | --- | --- |
+| Cancelled rate-limit wait | Polling and dropping a fetch erased the pending deadline (`None` instead of the saved instant) | Clear the deadline only after the wait; focused regression passed; reviewed borrowing and cancellation, added the invariant comment, then reran |
+| Storage fault boundaries | Tests could not compile without private checkpoints | Added one private generic callback around the existing write sequence; pre-replacement failures preserve bytes and parsed data, while directory failure exposes the complete new snapshot with `DurabilityUncertain`; consolidated the directory error mapping and staging-file lookup, then reran |
+| HTTP deadlines | Focused stalled-response test could not compile without a private timeout constructor | Factored construction while keeping public defaults; 250 ms test deadlines cover headers and body and exhaust exactly three attempts; refactored shared cache-preservation assertions, then reran |
+| Streamed bodies and retries | Existing 1b behavior passed the new cases | Exact 16 MiB chunked body succeeds; excess chunked/close-delimited bodies and declared oversize fail; truncated length/chunk framing exhaust retries; successful recovery discards partial bytes; shared the raw server's bounded response sequence and reviewed task cleanup |
+| Rate timing, URL safety, and structural integrity | Existing guards passed expanded cases | Controlled time proves successful and 429 reset headers delay reused clients; fixed-clock reset boundaries, permanent errors, mixed transient budgets, hostile URLs, redirects, invalid excluded data, and broken references are covered; reviewed sanitized error chains and test-only helper visibility, no further abstraction justified |
+| Later-page failures and changing state | Existing replacement rules passed the expanded matrix | Authentication, malformed JSON, server/rate errors, missing terminators, conflicts, and cycles on all three collections preserve cache bytes and offline output; access changes and removal of statistics/review-only content replace old state; reviewed fixture isolation and absence assertions, no production change justified |
+| Process interruption and contention | Existing locking/replacement passed separate-process checks | Kill during fetch and at six write boundaries, including a partial staging file; verify complete old/new reads, private staging files, stable lock inode, release/reacquisition, and later replacement; real CLI contention fails while status works; reviewed readiness handshakes and RAII child cleanup, cleared child environments, and shared staging-file lookup, then reran |
+| Actual rename failure | Existing error mapping passed a forced missing-source rename | The real persist operation fails after staging-file removal while old bytes and parsed data survive; reviewed cleanup and error classification, no further change justified |
+
+The subsequent simplification pass merged overlapping HTTP integrity,
+pagination, reset, and storage-fault matrices, removing 103 test lines while
+retaining each distinct safety scenario. APIs and dependencies are unchanged.
+Focused suites and full gates were rerun. The child helper now parks until killed;
+both interruption tests require SIGKILL rather than accepting any failed exit.
+
+Parallel validation exposed a lock-release edge case. A deterministic regression
+with a duplicated lock-file handle failed with `Locked` after dropping its guard.
+Explicit unlock in `SyncGuard::drop` made it pass; closing alone may retain the
+lock through a briefly inherited descriptor during process creation. Refactor
+review renamed `_lock` to `lock`, kept cleanup local to `Drop`, and verified that
+dropping the old duplicate cannot unlock a subsequent guard. Focused storage
+tests and all gates were rerun after that review.
+
+Quality gates passed on macOS/arm64 with the pinned Rust 1.98.1:
+
+- `cargo fmt --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all` — 56 test entries passed: 23 library, 1 binary composition,
+  13 cache, 8 CLI, 6 summary, and 5 cross-component entries. Two entries are
+  subprocess entry points; table-driven tests cover multiple failure scenarios.
+  None ignored.
+- `git diff --check`; reviewed the new test files as well as tracked diffs.
+
+The first sandboxed baseline run could not bind loopback ports. Authorized test
+runs used only local servers and synthetic credentials. No live API request was
+made. Test processes receive their own environment overrides; no process-global
+variables are mutated. Existing 1/2-second retry integration backoffs still use
+real time, but rate-reset timing uses explicit clock advancement, with time
+resumed before real socket I/O. Short deadline tests assert outcomes and request
+counts, not elapsed wall-clock thresholds.
+
+Fault injection is at storage operation boundaries, with a real rename-failure
+case; it does not emulate failing hardware or power loss. Process-kill tests show
+atomic visibility and lock recovery, not survival of a machine crash. Killed
+writers may leave private staging files, which subsequent reads/writes ignore.
+Connect-timeout configuration remains 10 seconds; DNS/TLS blackholes and live
+service behavior are not separately simulated. Linux execution, CI, and final
+public-surface acceptance remain in 1d. No deferred product features, new public
+APIs, cache schema changes, or new crates were added.
+
+Rust notes for a Ruby developer: a dropped async future stops at an `await`, so
+state needed by the next call must remain owned by the client until that wait
+completes. `impl FnMut` provides a small private, statically dispatched test seam
+without a public adapter hierarchy. `Drop` releases normal-scope resources, while
+process-kill tests separately verify the OS's file-lock cleanup when destructors
+do not run.
 
 ### 1d — Milestone acceptance
 
