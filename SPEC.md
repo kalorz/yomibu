@@ -104,7 +104,10 @@ full refresh synchronization.
 
 ### CLI and local files
 
-Implement only these commands:
+Milestone 1a implements only `status`. The `sync` command below belongs to 1b;
+there is no placeholder sync command, HTTP client, cache writer, or lock in 1a.
+
+The complete milestone 1 command set is:
 
 ```sh
 WANIKANI_API_TOKEN=... yomibu sync
@@ -112,8 +115,8 @@ yomibu status
 ```
 
 Both accept a global `--data-dir PATH`. The default is `$HOME/.yomibu`; if HOME is
-unavailable, require an explicit directory. Read `WANIKANI_API_TOKEN` only for
-`sync`. Do not accept or persist a token through a CLI argument or config file.
+unavailable or empty, require an explicit directory. Read `WANIKANI_API_TOKEN`
+only for `sync`. Do not accept or persist a token through a CLI argument or config file.
 
 ```text
 ~/.yomibu/
@@ -203,6 +206,47 @@ average per-subject percentages to calculate aggregate accuracy. Missing,
 corrupt, or unsupported caches produce actionable errors and a nonzero exit
 status. An empty but valid account succeeds.
 
+### Schema 1 and status count semantics (implemented in 1a)
+
+The cache envelope is `{ "schema_version": 1, "snapshot": { ... } }`.
+`Snapshot` contains the synchronization interval, learner, subjects, assignments,
+review statistics, and `unavailable_subjects`. Subject lexical content is tagged
+as `kanji`, `vocabulary`, or `kana_vocabulary`; only the first two have readings.
+The cache contains normalized Yomibu data, not WaniKani response envelopes. See
+`src/domain.rs` for the concrete field types and `tests/fixtures` for synthetic
+examples. Nullable dates use `Option<DateTime<Utc>>`; missing statistics remain
+absent records. Additional JSON fields are tolerated.
+
+An unavailable-subject marker contains an ID and kind and means content was
+excluded by the account's access limit. It does not carry invented lexical data
+or an SRS-system association. Every retained subject or exclusion must be
+referenced by progress. References must resolve with matching kinds. Normalized
+caches reject duplicate resource IDs, multiple assignments/statistics for one
+subject, and overlapping available/excluded content; source duplicate handling
+at the HTTP normalization boundary remains later work. Other validation includes
+required text, positive IDs, source level/access bounds, valid timestamp shapes,
+an ordered synchronization interval, and reported percentages within 0–100.
+
+- Kanji/vocabulary counts count retained lexical subjects, including hidden,
+  unstarted, and burned items. Vocabulary includes kana-only vocabulary and
+  displays that subset separately.
+- Hidden count is the number of distinct subject IDs flagged hidden in any
+  retained subject, assignment, or statistic. Unavailable content counts distinct
+  explicit exclusions. These counts may overlap and are not additive partitions.
+- SRS distribution counts assignments, preserving raw stage numbers and grouping
+  by the retained subject's SRS system. Excluded content has a separate group with
+  no system association. Review-only subjects acquire no invented assignment.
+- Accuracy uses all retained review counters, including hidden and excluded
+  content. Counters are widened before summing; percentages are computed only
+  when the corresponding total is nonzero. Reported source percentages remain
+  available as source state but are never averaged for status.
+
+Loading and summarizing both validate the snapshot; library callers who construct
+or modify domain structs cannot silently obtain a summary of invalid data.
+Status never creates directories or files or reads config/lock contents. Cache
+errors direct users to a valid backup, another directory, or a compatible Yomibu
+version; missing-cache guidance explicitly notes that sync is not yet available.
+
 ## Rust architecture
 
 Use one package with a library target and thin binary. No multi-crate workspace
@@ -225,11 +269,10 @@ is needed.
   production `unwrap()` or `expect()` for recoverable situations. No unsafe code
   is needed for milestone 1.
 
-The verified stable toolchain on 2026-09-27 is Rust 1.98.1; the current stable
-edition is 2024. At initialization, verify the then-current stable release and pin
-that exact version in `rust-toolchain.toml`, with rustfmt and Clippy. Commit
-`Cargo.lock`. Upgrade the pin deliberately with validation rather than relying
-on each developer's global default.
+The stable toolchain reverified and installed on 2026-09-27 is Rust 1.98.1; the
+current stable edition is 2024. Initialization pinned that exact version in `rust-toolchain.toml`,
+with rustfmt and Clippy. Keep `Cargo.lock` committed. Upgrade the pin deliberately
+with validation rather than relying on each developer's global default.
 
 Sources: [Rust release](https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/),
 [edition guide](https://doc.rust-lang.org/edition-guide/rust-2024/index.html),
@@ -247,6 +290,10 @@ Sources: [Rust release](https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/),
 | `anyhow` | Contextual errors at the executable boundary |
 | `tempfile` | Safely created temporary files for atomic replacement |
 | `wiremock`, `proptest` (development) | HTTP contract tests and meaningful property tests |
+
+In 1a, only clap, serde/serde_json, chrono, thiserror, and anyhow are runtime
+dependencies; tempfile is used only for isolated tests. HTTP/runtime, persistence,
+and advanced test dependencies remain deferred.
 
 Enable only required features. Use reqwest's Rustls support. Defer tracing until
 diagnostic needs justify it. Use standard-library facilities for CLI subprocess
@@ -304,8 +351,10 @@ directory; both steps are explicit. See
 
 ## Planned milestone 1 structure
 
-Only the three Markdown documents exist at the documentation milestone. Create
-the remaining files during implementation, when they contain real functionality.
+The tree below is the complete milestone 1 target, not the current scope.
+Milestone 1a adds `src/summary.rs`, `tests/summary.rs`, usage/provenance documents,
+and offline fixtures. The HTTP adapter and CI below remain deferred. Create
+remaining files only when their authorized milestone contains real functionality.
 
 ```text
 yomibu/

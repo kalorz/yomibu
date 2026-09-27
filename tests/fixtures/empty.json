@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "snapshot": {
+    "sync_started_at": "2026-09-27T10:00:00Z",
+    "sync_completed_at": "2026-09-27T10:00:05Z",
+    "learner": {
+      "id": "synthetic-learner",
+      "username": "テスト",
+      "level": 1,
+      "updated_at": "2026-09-27T09:00:00Z",
+      "started_at": "2026-09-01T00:00:00Z",
+      "current_vacation_started_at": null,
+      "subscription": {
+        "active": false,
+        "kind": "free",
+        "max_level_granted": 3,
+        "period_ends_at": null
+      }
+    },
+    "subjects": [],
+    "unavailable_subjects": [],
+    "assignments": [],
+    "review_statistics": []
+  }
+}
