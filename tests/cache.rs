@@ -249,3 +249,103 @@ fn rejects_blank_kanji_reading_classification() {
         serde_json::json!(" "),
     ));
 }
+
+#[test]
+fn locked_writer_round_trips_and_fully_replaces_snapshots_privately() {
+    use std::os::unix::fs::PermissionsExt;
+    use yomibu::cache::SyncGuard;
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("private/nested");
+    let fixture = tempfile::tempdir().unwrap();
+    fs::write(
+        fixture.path().join("wanikani.json"),
+        include_str!("fixtures/mixed.json"),
+    )
+    .unwrap();
+    let mixed = load(fixture.path()).unwrap();
+    let guard = SyncGuard::acquire(&dir).unwrap();
+    guard.replace(&mixed).unwrap();
+    let stored = load(&dir).unwrap();
+    assert_eq!(stored.summarize().unwrap(), mixed.summarize().unwrap());
+    assert_eq!(stored.subjects[1].characters, "一つ");
+    for path in [
+        &dir,
+        &root.path().join("private"),
+        &dir.join("wanikani.json"),
+        &dir.join("wanikani.lock"),
+    ] {
+        assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o077, 0);
+    }
+    fs::write(
+        fixture.path().join("wanikani.json"),
+        include_str!("fixtures/empty.json"),
+    )
+    .unwrap();
+    guard.replace(&load(fixture.path()).unwrap()).unwrap();
+    assert!(load(&dir).unwrap().subjects.is_empty());
+    let mut files: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    files.sort();
+    assert_eq!(files, ["wanikani.json", "wanikani.lock"]);
+}
+
+#[test]
+fn writer_preserves_invalid_caches_and_rejects_other_accounts_or_invalid_snapshots() {
+    use yomibu::cache::SyncGuard;
+    let fixture = tempfile::tempdir().unwrap();
+    fs::write(
+        fixture.path().join("wanikani.json"),
+        include_str!("fixtures/empty.json"),
+    )
+    .unwrap();
+    let mut next = load(fixture.path()).unwrap();
+    for contents in [
+        "{truncated",
+        r#"{"schema_version":999}"#,
+        include_str!("fixtures/empty.json"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("wanikani.json"), contents).unwrap();
+        next.learner.id = "another-account".into();
+        let result = SyncGuard::acquire(dir.path()).and_then(|guard| guard.replace(&next));
+        assert!(result.is_err(), "overwrote protected cache: {contents}");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("wanikani.json")).unwrap(),
+            contents
+        );
+        if contents.contains("synthetic-learner") {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("another --data-dir PATH")
+            );
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let guard = SyncGuard::acquire(dir.path()).unwrap();
+    next.learner.level = 0;
+    assert!(guard.replace(&next).is_err());
+    assert!(!dir.path().join("wanikani.json").exists());
+}
+
+#[test]
+fn writer_lock_fails_promptly_and_status_can_read_until_guard_is_dropped() {
+    use yomibu::cache::SyncGuard;
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("wanikani.json"),
+        include_str!("fixtures/empty.json"),
+    )
+    .unwrap();
+    let guard = SyncGuard::acquire(dir.path()).unwrap();
+    assert!(matches!(
+        SyncGuard::acquire(dir.path()),
+        Err(yomibu::cache::WriteError::Locked)
+    ));
+    assert_eq!(load(dir.path()).unwrap().learner.id, "synthetic-learner");
+    drop(guard);
+    assert!(SyncGuard::acquire(dir.path()).is_ok());
+}

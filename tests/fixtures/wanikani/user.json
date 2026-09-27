@@ -1,0 +1,20 @@
+{
+  "object": "user",
+  "data_updated_at": "2026-09-27T09:00:00Z",
+  "data": {
+    "id": "synthetic-learner",
+    "username": "テスト",
+    "level": 5,
+    "started_at": "2026-09-01T00:00:00Z",
+    "current_vacation_started_at": null,
+    "subscription": {
+      "active": false,
+      "max_level_granted": 3,
+      "period_ends_at": null,
+      "type": "free"
+    },
+    "preferences": {
+      "irrelevant": true
+    }
+  }
+}

@@ -3,16 +3,20 @@ use chrono::SecondsFormat;
 use clap::{Parser, Subcommand};
 use std::{
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
 };
 use yomibu::{
     cache,
     summary::{Accuracy, Summary},
+    wanikani::Client,
 };
 
 #[derive(Parser)]
-#[command(version, about = "Inspect cached WaniKani learner observations")]
+#[command(
+    version,
+    about = "Synchronize and inspect cached observations (unofficial WaniKani tool)"
+)]
 struct Cli {
     /// Directory containing wanikani.json (default: $HOME/.yomibu).
     #[arg(long, global = true, value_name = "PATH")]
@@ -23,6 +27,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Refresh the complete cache using WANIKANI_API_TOKEN.
+    Sync,
     /// Show cached observations without accessing the network.
     Status,
 }
@@ -48,6 +54,16 @@ fn run() -> anyhow::Result<()> {
         })
         .ok_or_else(|| anyhow!("HOME is unavailable; specify --data-dir PATH."))?;
     match cli.command {
+        Command::Sync => {
+            let token = std::env::var("WANIKANI_API_TOKEN")
+                .ok()
+                .filter(|token| !token.trim().is_empty())
+                .ok_or_else(|| {
+                    anyhow!("Set WANIKANI_API_TOKEN in the environment before running yomibu sync.")
+                })?;
+            let snapshot = synchronize(&data_dir, Client::new(&token)?)?;
+            write_status(&mut io::stdout().lock(), &snapshot.summarize()?)?;
+        }
         Command::Status => {
             let snapshot = cache::load(&data_dir)?;
             let summary = snapshot.summarize()?;
@@ -55,6 +71,16 @@ fn run() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn synchronize(data_dir: &Path, mut client: Client) -> anyhow::Result<yomibu::domain::Snapshot> {
+    let guard = cache::SyncGuard::acquire(data_dir)?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let snapshot = runtime.block_on(client.fetch())?;
+    guard.replace(&snapshot)?;
+    Ok(snapshot)
 }
 
 fn write_status(out: &mut impl Write, summary: &Summary<'_>) -> io::Result<()> {
@@ -116,5 +142,44 @@ fn write_accuracy(out: &mut impl Write, label: &str, accuracy: &Accuracy) -> io:
             accuracy.total()
         ),
         None => writeln!(out, "{label} accuracy: no reviews"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+
+    #[test]
+    fn composes_sync_under_lock_and_renders_the_persisted_snapshot() {
+        let setup = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let server = setup.block_on(MockServer::start());
+        let dir = tempfile::tempdir().unwrap();
+        let lock_dir = dir.path().to_path_buf();
+        setup.block_on(async {
+            Mock::given(path("/v2/user")).respond_with(move |_: &wiremock::Request| {
+                assert!(matches!(cache::SyncGuard::acquire(&lock_dir), Err(cache::WriteError::Locked)));
+                ResponseTemplate::new(200).set_body_raw(include_str!("../tests/fixtures/wanikani/user.json"), "application/json")
+            }).expect(1).mount(&server).await;
+            for endpoint in ["assignments", "review_statistics"] {
+                Mock::given(path(format!("/v2/{endpoint}"))).respond_with(ResponseTemplate::new(200).set_body_json(
+                    serde_json::json!({"object":"collection", "pages":{"next_url":null}, "data":[]})
+                )).expect(1).mount(&server).await;
+            }
+        });
+        let client =
+            Client::with_base_url("synthetic-cli-credential", &format!("{}/v2/", server.uri()))
+                .unwrap();
+        let snapshot = synchronize(dir.path(), client).unwrap();
+        assert_eq!(snapshot, cache::load(dir.path()).unwrap());
+        let mut output = Vec::new();
+        write_status(&mut output, &snapshot.summarize().unwrap()).unwrap();
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("User: テスト (level 5)"));
+        assert!(text.contains("Meaning accuracy: no reviews"));
+        assert!(cache::SyncGuard::acquire(dir.path()).is_ok());
     }
 }

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Snapshot {
     pub sync_started_at: DateTime<Utc>,
     pub sync_completed_at: DateTime<Utc>,
@@ -12,7 +12,7 @@ pub struct Snapshot {
     pub review_statistics: Vec<ReviewStatistic>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Learner {
     pub id: String,
     pub username: String,
@@ -23,7 +23,7 @@ pub struct Learner {
     pub subscription: Subscription,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Subscription {
     pub active: bool,
     pub kind: String,
@@ -31,7 +31,7 @@ pub struct Subscription {
     pub period_ends_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum SubjectKind {
     Kanji,
@@ -39,7 +39,7 @@ pub enum SubjectKind {
     KanaVocabulary,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Subject {
     pub id: u64,
     pub level: u32,
@@ -52,7 +52,7 @@ pub struct Subject {
     pub lexical: LexicalContent,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LexicalContent {
     Kanji {
@@ -69,21 +69,21 @@ pub enum LexicalContent {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Meaning {
     pub meaning: String,
     pub primary: bool,
     pub accepted_answer: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Reading {
     pub reading: String,
     pub primary: bool,
     pub accepted_answer: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct KanjiReading {
     pub reading: String,
     pub primary: bool,
@@ -91,20 +91,20 @@ pub struct KanjiReading {
     pub kind: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ContextSentence {
     pub japanese: String,
     pub english: String,
 }
 
 /// An explicit content-access exclusion, never an unexplained missing subject.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct UnavailableSubject {
     pub id: u64,
     pub kind: SubjectKind,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Assignment {
     pub id: u64,
     pub subject_id: u64,
@@ -121,7 +121,7 @@ pub struct Assignment {
     pub resurrected_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ReviewStatistic {
     pub id: u64,
     pub subject_id: u64,
@@ -157,6 +157,39 @@ pub enum ValidationError {
 }
 
 impl Subject {
+    pub(crate) fn validate(&self, max_level: u32) -> Result<(), ValidationError> {
+        require(self.id > 0, "subject.id")?;
+        require(
+            self.level > 0 && self.level <= max_level,
+            "subject.level/content access",
+        )?;
+        require(self.srs_system_id > 0, "subject.srs_system_id")?;
+        require(!self.characters.trim().is_empty(), "subject.characters")?;
+        require(
+            !self.meanings.is_empty() && self.meanings.iter().all(|m| !m.meaning.trim().is_empty()),
+            "subject.meanings",
+        )?;
+        match &self.lexical {
+            LexicalContent::Kanji { readings } => {
+                require(
+                    !readings.is_empty()
+                        && readings
+                            .iter()
+                            .all(|r| !r.reading.trim().is_empty() && !r.kind.trim().is_empty()),
+                    "kanji.readings",
+                )?;
+            }
+            LexicalContent::Vocabulary { readings, .. } => {
+                require(
+                    !readings.is_empty() && readings.iter().all(|r| !r.reading.trim().is_empty()),
+                    "vocabulary.readings",
+                )?;
+            }
+            LexicalContent::KanaVocabulary { .. } => {}
+        }
+        Ok(())
+    }
+
     pub fn kind(&self) -> SubjectKind {
         match self.lexical {
             LexicalContent::Kanji { .. } => SubjectKind::Kanji,
@@ -192,40 +225,7 @@ impl Snapshot {
 
         let mut subjects = BTreeMap::new();
         for subject in &self.subjects {
-            require(subject.id > 0, "subject.id")?;
-            require(
-                subject.level > 0 && subject.level <= self.learner.subscription.max_level_granted,
-                "subject.level/content access",
-            )?;
-            require(subject.srs_system_id > 0, "subject.srs_system_id")?;
-            require(!subject.characters.trim().is_empty(), "subject.characters")?;
-            require(
-                !subject.meanings.is_empty()
-                    && subject
-                        .meanings
-                        .iter()
-                        .all(|m| !m.meaning.trim().is_empty()),
-                "subject.meanings",
-            )?;
-            match &subject.lexical {
-                LexicalContent::Kanji { readings } => {
-                    require(
-                        !readings.is_empty()
-                            && readings
-                                .iter()
-                                .all(|r| !r.reading.trim().is_empty() && !r.kind.trim().is_empty()),
-                        "kanji.readings",
-                    )?;
-                }
-                LexicalContent::Vocabulary { readings, .. } => {
-                    require(
-                        !readings.is_empty()
-                            && readings.iter().all(|r| !r.reading.trim().is_empty()),
-                        "vocabulary.readings",
-                    )?;
-                }
-                LexicalContent::KanaVocabulary { .. } => {}
-            }
+            subject.validate(self.learner.subscription.max_level_granted)?;
             if subjects.insert(subject.id, subject.kind()).is_some() {
                 return Err(ValidationError::Duplicate {
                     collection: "subjects",

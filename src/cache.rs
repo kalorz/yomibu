@@ -17,7 +17,7 @@ pub enum CacheError {
         source: ValidationError,
     },
     #[error(
-        "No cache at {path}; select an existing cache with --data-dir PATH. Synchronization is not available in this version."
+        "No cache at {path}; run yomibu sync with WANIKANI_API_TOKEN set, or select an existing cache with --data-dir PATH."
     )]
     Missing { path: PathBuf },
     #[error("Cannot read cache at {path}; check the path and file permissions.")]
@@ -80,4 +80,98 @@ pub fn load(data_dir: &Path) -> Result<Snapshot, CacheError> {
         .validate()
         .map_err(|source| CacheError::Invalid { path, source })?;
     Ok(envelope.snapshot)
+}
+
+#[derive(Debug, Error)]
+pub enum WriteError {
+    #[error(transparent)]
+    ExistingCache(#[from] CacheError),
+    #[error("Invalid new snapshot; the previous cache has not been replaced: {0}")]
+    InvalidSnapshot(#[from] ValidationError),
+    #[error("This cache belongs to a different WaniKani account; use another --data-dir PATH.")]
+    AccountMismatch,
+    #[error("Cannot prepare or replace cache; the previous cache has not been replaced: {0}")]
+    BeforeReplacement(#[from] io::Error),
+    #[error("Cannot encode snapshot; the previous cache has not been replaced: {0}")]
+    Encode(#[from] serde_json::Error),
+    #[error(
+        "Cache was replaced, but synchronizing its directory failed; durability is uncertain: {0}"
+    )]
+    DurabilityUncertain(io::Error),
+    #[error("Another sync holds the lock; wait for it to finish or use another --data-dir PATH.")]
+    Locked,
+}
+
+/// Owns the advisory lock for the entire fetch-and-replace operation.
+/// Dropping the guard releases the lock without removing the shared lock file.
+#[derive(Debug)]
+pub struct SyncGuard {
+    data_dir: PathBuf,
+    _lock: fs::File,
+}
+
+impl SyncGuard {
+    pub fn acquire(data_dir: &Path) -> Result<Self, WriteError> {
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(data_dir)?;
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(data_dir.join("wanikani.lock"))?;
+        match lock.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => return Err(WriteError::Locked),
+            Err(fs::TryLockError::Error(error)) => return Err(error.into()),
+        }
+        existing(data_dir)?;
+        Ok(Self {
+            data_dir: data_dir.to_path_buf(),
+            _lock: lock,
+        })
+    }
+
+    pub fn replace(&self, snapshot: &Snapshot) -> Result<(), WriteError> {
+        use std::io::Write;
+        snapshot.validate()?;
+        if let Some(previous) = existing(&self.data_dir)?
+            && previous.learner.id != snapshot.learner.id
+        {
+            return Err(WriteError::AccountMismatch);
+        }
+        #[derive(serde::Serialize)]
+        struct WritableEnvelope<'a> {
+            schema_version: u32,
+            snapshot: &'a Snapshot,
+        }
+        let mut temporary = tempfile::NamedTempFile::new_in(&self.data_dir)?;
+        serde_json::to_writer(
+            &mut temporary,
+            &WritableEnvelope {
+                schema_version: 1,
+                snapshot,
+            },
+        )?;
+        temporary.flush()?;
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(self.data_dir.join("wanikani.json"))
+            .map_err(|error| WriteError::BeforeReplacement(error.error))?;
+        fs::File::open(&self.data_dir)
+            .and_then(|directory| directory.sync_all())
+            .map_err(WriteError::DurabilityUncertain)
+    }
+}
+
+fn existing(data_dir: &Path) -> Result<Option<Snapshot>, CacheError> {
+    match load(data_dir) {
+        Ok(snapshot) => Ok(Some(snapshot)),
+        Err(CacheError::Missing { .. }) => Ok(None),
+        Err(error) => Err(error),
+    }
 }

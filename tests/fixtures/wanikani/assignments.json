@@ -1,0 +1,98 @@
+{
+  "object": "collection",
+  "pages": {
+    "next_url": null
+  },
+  "data": [
+    {
+      "object": "assignment",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "subject_id": 1,
+        "srs_stage": 0,
+        "hidden": false,
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": null,
+        "passed_at": null,
+        "burned_at": null,
+        "available_at": null,
+        "resurrected_at": null,
+        "subject_type": "kanji"
+      },
+      "id": 101
+    },
+    {
+      "object": "assignment",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "subject_id": 2,
+        "srs_stage": 9,
+        "hidden": true,
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": "2026-09-27T09:00:00Z",
+        "passed_at": "2026-09-27T09:00:00Z",
+        "burned_at": "2026-09-27T09:00:00Z",
+        "available_at": null,
+        "resurrected_at": null,
+        "subject_type": "vocabulary"
+      },
+      "id": 102
+    },
+    {
+      "object": "assignment",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "subject_id": 3,
+        "srs_stage": 2,
+        "hidden": false,
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": "2026-09-27T09:00:00Z",
+        "passed_at": null,
+        "burned_at": null,
+        "available_at": null,
+        "resurrected_at": null,
+        "subject_type": "kana_vocabulary"
+      },
+      "id": 103
+    },
+    {
+      "object": "assignment",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "subject_id": 5,
+        "srs_stage": 4,
+        "hidden": false,
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": "2026-09-27T09:00:00Z",
+        "passed_at": null,
+        "burned_at": null,
+        "available_at": null,
+        "resurrected_at": null,
+        "subject_type": "vocabulary"
+      },
+      "id": 105
+    },
+    {
+      "object": "assignment",
+      "data_updated_at": "2026-09-27T09:00:00Z",
+      "data": {
+        "subject_id": 999,
+        "srs_stage": 0,
+        "hidden": false,
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": null,
+        "passed_at": null,
+        "burned_at": null,
+        "available_at": null,
+        "resurrected_at": null,
+        "subject_type": "radical"
+      },
+      "id": 999
+    }
+  ]
+}

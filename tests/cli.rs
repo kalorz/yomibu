@@ -128,3 +128,45 @@ fn missing_or_empty_home_requires_an_explicit_directory() {
         assert!(error.contains("--data-dir PATH"), "{error}");
     }
 }
+
+#[test]
+fn sync_requires_an_environment_token_before_creating_files() {
+    for token in [None, Some(""), Some("   ")] {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("data");
+        let mut command = cli();
+        if let Some(token) = token {
+            command.env("WANIKANI_API_TOKEN", token);
+        }
+        let output = command
+            .arg("sync")
+            .arg("--data-dir")
+            .arg(&dir)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("WANIKANI_API_TOKEN"), "{error}");
+        assert!(!dir.exists());
+    }
+}
+
+#[test]
+fn missing_cache_guidance_points_to_sync_and_status_ignores_invalid_tokens() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["status", "--data-dir"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(text.contains("yomibu sync"), "{text}");
+    cache(dir.path(), include_str!("fixtures/empty.json"));
+    let output = cli()
+        .env("WANIKANI_API_TOKEN", "invalid\nsynthetic-token")
+        .args(["status", "--data-dir"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(stdout(&output).contains("Cached WaniKani observations"));
+}

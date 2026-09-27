@@ -104,8 +104,9 @@ full refresh synchronization.
 
 ### CLI and local files
 
-Milestone 1a implements only `status`. The `sync` command below belongs to 1b;
-there is no placeholder sync command, HTTP client, cache writer, or lock in 1a.
+Milestone 1a implemented `status`; milestone 1b now adds the complete `sync`
+path, HTTP adapter, cache writer, and advisory lock. Further resilience testing
+and macOS/Linux CI remain in 1c/1d.
 
 The complete milestone 1 command set is:
 
@@ -222,8 +223,10 @@ excluded by the account's access limit. It does not carry invented lexical data
 or an SRS-system association. Every retained subject or exclusion must be
 referenced by progress. References must resolve with matching kinds. Normalized
 caches reject duplicate resource IDs, multiple assignments/statistics for one
-subject, and overlapping available/excluded content; source duplicate handling
-at the HTTP normalization boundary remains later work. Other validation includes
+subject, and overlapping available/excluded content. At the HTTP normalization boundary,
+identical retained records (including update timestamps) collapse by resource ID;
+conflicting duplicates are rejected. Differences in ignored source fields do not
+create a conflict. Other validation includes
 required text, positive IDs, source level/access bounds, valid timestamp shapes,
 an ordered synchronization interval, and reported percentages within 0–100.
 
@@ -245,7 +248,49 @@ Loading and summarizing both validate the snapshot; library callers who construc
 or modify domain structs cannot silently obtain a summary of invalid data.
 Status never creates directories or files or reads config/lock contents. Cache
 errors direct users to a valid backup, another directory, or a compatible Yomibu
-version; missing-cache guidance explicitly notes that sync is not yet available.
+version; missing-cache guidance points to `yomibu sync` and the token environment
+variable.
+
+### First complete sync implementation (1b)
+
+`wanikani::Client::new` uses the official HTTPS origin. Library callers may use
+`Client::with_base_url` with a trusted HTTPS base URL; plaintext HTTP is accepted
+only for loopback IP addresses, enabling local contract and cross-component tests.
+Base URLs reject embedded credentials, queries, and fragments and must end in `/`.
+The CLI exposes no endpoint override. DTOs remain private in `wanikani::dto`.
+
+Retrieval is sequential: user, assignments, review statistics, then sorted unique
+subject IDs in batches of at most 100. Collections must explicitly terminate with
+`pages.next_url: null`, even after an empty page. Pagination checks origin, exact
+collection path, embedded credentials, fragments, and repeated URLs before sending
+authorization. Declared and streamed page sizes are bounded; redirects are disabled.
+The reusable client retains a rate-limit deadline between requests and refreshes.
+Transport failures and server errors use bounded retries; authentication, malformed
+data, oversized pages, and invalid URLs fail without retrying.
+
+Source nullable dates must be present but may be null. Source subjects are validated
+before applying the learner's content-access limit, so an invalid excluded record
+cannot disappear behind an exclusion marker. Returned subjects must belong to the
+requested batch; unexplained missing subjects still fail validation. No remote
+summary, reviews, study materials, or per-subject lookup is requested.
+
+The CLI acquires `cache::SyncGuard` before retrieval and keeps it through persistence.
+Acquisition rejects an existing corrupt/unsupported cache before network requests.
+`SyncGuard::replace` validates the proposed snapshot and checks the current cache's
+account identity before creating a private temporary file. It writes schema 1,
+flushes and synchronizes the file, persists it atomically, then synchronizes the
+parent directory. New directories use mode 0700; new lock/cache files use 0600
+(subject to umask). Existing directory permissions are not broadened or rewritten.
+`WriteError::DurabilityUncertain` distinguishes post-replacement directory-sync
+failure from errors that leave the destination unreplaced.
+
+Successful sync prints the same cached-observation summary as offline status.
+Tests cover mock API → normalized snapshot → private cache → credential-free
+`status` subprocess, repeated refresh/removal, account mismatch, basic lock
+contention, and the CLI composition's lock lifetime. Broader deadline, streamed
+body, retry timing, interrupted-write, cross-process contention, and
+post-replacement fault tests remain in 1c; Linux and CI remain in 1d. No live
+account verification is claimed.
 
 ## Rust architecture
 
@@ -291,9 +336,11 @@ Sources: [Rust release](https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/),
 | `tempfile` | Safely created temporary files for atomic replacement |
 | `wiremock`, `proptest` (development) | HTTP contract tests and meaningful property tests |
 
-In 1a, only clap, serde/serde_json, chrono, thiserror, and anyhow are runtime
-dependencies; tempfile is used only for isolated tests. HTTP/runtime, persistence,
-and advanced test dependencies remain deferred.
+Milestone 1b adds reqwest and Tokio at runtime, promotes tempfile to a runtime
+dependency for safe persistence, and adds wiremock for development. Tokio uses a
+current-thread runtime in the binary; only HTTP and retry waits are asynchronous.
+Proptest remains deferred because the current behavior is covered by concrete
+contract and integration tests. Exact resolved versions remain in `Cargo.lock`.
 
 Enable only required features. Use reqwest's Rustls support. Defer tracing until
 diagnostic needs justify it. Use standard-library facilities for CLI subprocess
@@ -351,10 +398,10 @@ directory; both steps are explicit. See
 
 ## Planned milestone 1 structure
 
-The tree below is the complete milestone 1 target, not the current scope.
-Milestone 1a adds `src/summary.rs`, `tests/summary.rs`, usage/provenance documents,
-and offline fixtures. The HTTP adapter and CI below remain deferred. Create
-remaining files only when their authorized milestone contains real functionality.
+The tree below shows the milestone 1 structure. The HTTP adapter, summary module,
+usage/provenance documents, and sync tests are implemented through 1b. CI remains
+deferred to 1d. Create remaining files only when their authorized milestone
+contains real functionality.
 
 ```text
 yomibu/
@@ -371,12 +418,16 @@ yomibu/
 │   ├── main.rs
 │   ├── domain.rs
 │   ├── cache.rs
+│   ├── summary.rs
 │   └── wanikani/
 │       ├── mod.rs
-│       └── dto.rs
+│       ├── dto.rs
+│       └── tests.rs
 └── tests/
     ├── cache.rs
     ├── cli.rs
+    ├── summary.rs
+    ├── sync.rs
     └── fixtures/
         └── wanikani/
 ```
