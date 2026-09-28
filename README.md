@@ -50,9 +50,12 @@ cargo test --locked --all
 ```
 
 The [CI workflow](.github/workflows/ci.yml) runs those gates on `ubuntu-latest` and
-`macos-latest` for pushes and pull requests. It installs the repository toolchain,
-requires the committed lockfile, and checks that it stays unchanged. No WaniKani
-secret is required.
+`macos-latest` in parallel for pushes to `main` and pull requests. New commits
+cancel older runs for the same branch or PR. It installs the repository toolchain,
+requires the committed lockfile, and checks that it stays unchanged. Rust
+dependency downloads and compiled dependencies are cached separately by platform
+and compiler; only `main` saves caches, and PRs can restore them. Cache misses
+still run every gate. No WaniKani secret is required.
 
 See [SPEC.md](SPEC.md) for authoritative decisions, [PLAN.md](PLAN.md) for milestone
 status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
@@ -92,8 +95,8 @@ deadlines, retry budgets, hostile pagination, later-page failures, storage fault
 writer contention, and process termination. Killed writers can leave private
 staging files that later reads/writes ignore. Fault injection and process-kill
 tests do not simulate power loss. In 1d, all 56 entries, formatting, and Clippy
-passed on native macOS/arm64 and Debian Linux/arm64 in a container. Workflow lint
-and API documentation checks also passed. GitHub-hosted runs and Ubuntu/x86_64
-execution remain unverified until the workflow is pushed. No live account was
-used. Request deadlines and page limits do not bound total refresh duration or
-collection size. See the 1d record in [PLAN.md](PLAN.md) for full results and limits.
+passed on native macOS/arm64 and Debian Linux/arm64 in a container, then on
+GitHub-hosted Ubuntu/x86_64 and macOS/arm64. Workflow lint and API documentation
+checks also passed. No live account was used. Request deadlines and page limits
+do not bound total refresh duration or collection size. See the 1d record in
+[PLAN.md](PLAN.md) for full results and limits.
