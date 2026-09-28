@@ -1,3 +1,5 @@
+//! Deterministic summaries of validated cached observations.
+
 use crate::domain::{Snapshot, SubjectKind, ValidationError};
 use chrono::{DateTime, Utc};
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,6 +24,8 @@ pub struct Summary<'a> {
 }
 
 impl Snapshot {
+    /// Validate and summarize source state, borrowing the username from this
+    /// snapshot. Accuracy uses aggregate counters, not averaged percentages.
     pub fn summarize(&self) -> Result<Summary<'_>, ValidationError> {
         self.validate()?;
         let mut summary = Summary {

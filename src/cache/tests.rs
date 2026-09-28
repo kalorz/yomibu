@@ -69,6 +69,17 @@ fn storage_faults_report_replacement_and_preserve_a_complete_cache() {
             );
             assert_eq!(fs::read(&path).unwrap(), old_bytes);
         }
+        let cause = std::error::Error::source(&error)
+            .and_then(|source| source.downcast_ref::<io::Error>())
+            .unwrap_or_else(|| panic!("missing I/O cause at {failure:?}: {error}"));
+        assert_eq!(
+            cause.kind(),
+            if remove_staging {
+                io::ErrorKind::NotFound
+            } else {
+                io::ErrorKind::Other
+            }
+        );
         assert_eq!(&load(dir.path()).unwrap(), expected);
         assert_eq!(
             fs::read_dir(dir.path()).unwrap().count(),

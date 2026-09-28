@@ -6,10 +6,12 @@ milestones merely by listing them.
 
 ## Current state and stopping point
 
-Milestone **1c — Sync resilience is complete**, building on 1b commit `8262bf7`.
-The complete sync path now has expanded HTTP, storage-fault, and process-death
-verification, plus cancellation-safe rate-limit waits. Stop after 1c. Linux
-execution, macOS/Linux CI, and the final public library review remain in 1d.
+Milestone **1d — Milestone acceptance is complete**. The macOS/Linux CI workflow
+enforces the committed lockfile and repository toolchain. Public APIs, dependency
+features, credentials, and errors have been reviewed; the durability error now
+exposes its I/O cause. Quality gates passed locally on macOS/arm64 and in an
+isolated Linux/arm64 container. GitHub-hosted execution remains unverified until
+the workflow is pushed. Stop after 1d; later milestones remain unauthorized.
 
 On 2026-09-27, the official Rust release page and `rustup update stable` both
 confirmed Rust 1.98.1. Installed the exact 1.98.1 toolchain with rustfmt and Clippy,
@@ -27,7 +29,7 @@ development dependency. Proptest remains deferred.
 | 1a — Offline status | Complete | Package, domain snapshot, cache reader, real `status` command | Fixture-backed integration tests; no token/network dependency; useful errors and summaries |
 | 1b — First complete sync | Complete | HTTP adapter, normalization, safe persistence, thin CLI composition | Mock API → normalized snapshot → disk → offline status succeeds through real components |
 | 1c — Sync resilience | Complete | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
-| 1d — Milestone acceptance | Not started | macOS/Linux CI and reviewed public library surface | All quality gates pass; documented limitations; no placeholder future features |
+| 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local macOS and Linux gates pass; hosted-run limitation documented; no placeholder future features |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -232,6 +234,93 @@ do not run.
 - Document actual validation results and remaining limitations. Do not make a live
   account or a real API request a prerequisite for the automated test suite.
 
+#### 1d delivery and TDD record
+
+Added `.github/workflows/ci.yml`: push and pull-request events run one matrix on
+`ubuntu-latest` and `macos-latest`, with independent results and a 20-minute job
+deadline. Rustup reads the exact version and components from
+`rust-toolchain.toml`; there is no second toolchain pin. Each job verifies that
+`Cargo.lock` is tracked, runs formatting, Clippy, and tests with lockfile
+enforcement, then checks that the lockfile is unchanged. Checkout is pinned to
+the verified v7.0.1 commit, with read-only contents permission and credential
+persistence disabled. CI requires no WaniKani credential or live account.
+No extra build scripts, caching layer, or testing infrastructure were introduced.
+
+Reviewed the workflow against the official
+[checkout documentation](https://github.com/actions/checkout/tree/v7.0.1),
+[workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax),
+and [Rustup toolchain-file behavior](https://rust-lang.github.io/rustup/overrides.html#the-toolchain-file).
+The Linux run also confirmed that `rustup show active-toolchain` installs the
+file's missing rustfmt/Clippy components.
+
+| Review area | Finding and disposition |
+| --- | --- |
+| Public library surface | Retained the four concrete modules and existing signatures. Added rustdoc for validated public data, borrowed summaries, lock ownership, trusted custom origins, Tokio requirements, client reuse/cancellation, and replacement outcomes. Transport DTOs and fault/timeout seams remain private. |
+| Dependency features | Inspected normal/build and feature graphs: reqwest uses Rustls with defaults off; clap and chrono retain their narrow feature sets; Tokio directly enables `rt`, `time`, and `net`, with `io-util`/`sync` also required transitively. Development features support existing HTTP/clock tests. No `native-tls`, unnecessary direct feature, new crate, or lockfile change was found or introduced. |
+| Secret handling | The binary alone reads HOME and the sync token; status still needs neither credentials nor an HTTP client. Authorization is marked sensitive, the client has no Debug/Serialize implementation, and HTTP errors discard URLs/bodies/transport causes. Existing hostile-URL, redirect, malformed-body, error-chain, and CLI tests passed with synthetic tokens. No credential/config persistence was added. |
+| Errors and recovery | Existing messages distinguish missing/corrupt/unsupported caches, authentication, lock contention, account mismatch, pre-replacement failures, and uncertain durability. Found and fixed the missing I/O cause on `DurabilityUncertain`, retaining its variant and message. |
+| Specification and scope | Cache schema, source-state semantics, CLI options, HTTP limits, and synchronous/async boundaries remain unchanged. No future product feature or abstraction was added. |
+
+The only behavioral change followed strict Red–Green–Refactor:
+
+- **RED:** extended the existing storage-fault matrix to inspect the underlying
+  `io::Error` and its kind. The focused test failed specifically at
+  `SyncDirectory` with “missing I/O cause”; earlier fault boundaries passed.
+- **GREEN:** marked the existing `DurabilityUncertain` field with `#[source]`.
+  The same focused test passed, including actual rename failure and old/new
+  cache preservation assertions.
+- **REFACTOR:** reviewed production and test naming, modelling, duplication,
+  ownership/borrowing, and Rust idioms. Reused the fault matrix and private seam;
+  no additional code abstraction or behavior change was justified. Placed API
+  documentation before derives and reran the focused test successfully.
+
+CI and documentation changes are non-behavioral scaffolding and did not receive
+artificial failing tests.
+
+Validation executed on 2026-09-28 with pinned Rust/Cargo 1.98.1:
+
+| Environment | Formatting | Clippy | Tests |
+| --- | --- | --- | --- |
+| Native macOS/arm64 | Passed | Passed, warnings denied | 56 entries passed, none ignored |
+| Linux/aarch64, Debian 12 container under OrbStack | Passed | Passed, warnings denied | 56 entries passed, none ignored |
+
+Both environments ran `cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`, and
+`cargo test --locked --all`. The 56 entries comprise 23 library, 1 binary, 13
+cache, 8 CLI, 6 summary, and 5 cross-component tests, including two subprocess
+entry points. Linux used the official `rust:1.98.1-slim-bookworm` image, copying
+source from a read-only mount into its own filesystem; the final lockfile matched
+the repository byte for byte. Native tests used authorized loopback networking.
+
+Additional checks passed:
+
+- Actionlint 1.7.12, downloaded to a temporary directory from its official release
+  and checked against the release checksum, reported no workflow errors.
+- Temporary manifest copies with missing and stale lockfiles each failed Clippy
+  with exit 101 specifically because of `--locked`; neither lockfile was created
+  or changed. The repository manifest and lockfile were untouched.
+- `RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps` built the library
+  documentation without warnings; inspected top-level, sync, and status help.
+- Reviewed production code for public exports, environment reads, dynamic errors,
+  unsafe code, and recoverable `unwrap()`/`expect()`; no additional findings.
+- `git diff --check`, review of the new workflow, and unchanged manifest,
+  toolchain, and lockfile checks passed.
+
+Limitations: the workflow has not been pushed or executed on GitHub-hosted
+runners, and the local Linux run covers Debian/arm64, not Ubuntu/x86_64. No live
+WaniKani request, DNS/TLS-blackhole simulation, hardware-fault test, or power-loss
+durability test was performed. Existing process-kill/fault-injection limitations
+from 1c still apply. Per-request deadlines and page-size bounds do not impose a
+total refresh deadline or collection-size bound; this existing API limit is now
+documented. No additional platform support is claimed.
+
+Rust notes for a Ruby developer: formatting an inner error in `Display` does not
+automatically expose it through `std::error::Error::source()`. `#[source]` makes
+the cause inspectable while keeping the meaningful outer enum variant. Cargo
+features are additive across dependencies, so the resolved feature graph matters
+as well as each direct dependency declaration. `--locked` refuses resolution
+changes rather than silently editing the dependency snapshot.
+
 ## Test strategy
 
 | Technique | Meaningful scenarios |
@@ -277,8 +366,8 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all
 ```
 
-Milestone 1d will add CI with equivalent checks on macOS and Linux and lockfile
-enforcement:
+Milestone 1d adds CI with equivalent checks on macOS and Linux and lockfile
+enforcement; use the same locked commands locally:
 
 ```sh
 cargo fmt --check
