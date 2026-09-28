@@ -1,3 +1,5 @@
+//! Synchronous validated cache access and advisory writer locking on macOS/Linux.
+
 use crate::domain::{Snapshot, ValidationError};
 use serde::Deserialize;
 use std::{
@@ -6,6 +8,7 @@ use std::{
 };
 use thiserror::Error;
 
+/// Failures to read or validate an existing cache; loading never modifies it.
 #[derive(Debug, Error)]
 pub enum CacheError {
     #[error(
@@ -82,6 +85,8 @@ pub fn load(data_dir: &Path) -> Result<Snapshot, CacheError> {
     Ok(envelope.snapshot)
 }
 
+/// Persistence failures classified by whether replacement has occurred.
+/// Only `DurabilityUncertain` means the new cache is already visible.
 #[derive(Debug, Error)]
 pub enum WriteError {
     #[error(transparent)]
@@ -97,7 +102,7 @@ pub enum WriteError {
     #[error(
         "Cache was replaced, but synchronizing its directory failed; durability is uncertain: {0}"
     )]
-    DurabilityUncertain(io::Error),
+    DurabilityUncertain(#[source] io::Error),
     #[error("Another sync holds the lock; wait for it to finish or use another --data-dir PATH.")]
     Locked,
 }
@@ -129,6 +134,9 @@ enum WriteStep {
 }
 
 impl SyncGuard {
+    /// Acquire the writer lock without waiting and validate any existing cache.
+    /// Creates private directories and a lock file if needed. Keep this guard
+    /// alive throughout retrieval and replacement; offline readers need no lock.
     pub fn acquire(data_dir: &Path) -> Result<Self, WriteError> {
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
         fs::DirBuilder::new()
@@ -154,6 +162,10 @@ impl SyncGuard {
         })
     }
 
+    /// Validate and atomically replace the cache, refusing a different account.
+    /// Errors before replacement preserve the old cache. On
+    /// [`WriteError::DurabilityUncertain`], the complete new cache is visible but
+    /// its directory sync failed; callers must not assume rollback.
     pub fn replace(&self, snapshot: &Snapshot) -> Result<(), WriteError> {
         self.replace_with(snapshot, |_| Ok(()))
     }

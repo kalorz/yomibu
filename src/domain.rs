@@ -1,6 +1,11 @@
+//! Owned learner observations and lexical data, independent of CLI and transport.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// Source observations collected over an interval, not a definition of "known".
+/// Construction and deserialization alone do not validate the public fields;
+/// use [`Self::validate`] before consuming them directly.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Snapshot {
     pub sync_started_at: DateTime<Utc>,

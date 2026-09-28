@@ -14,6 +14,8 @@ use thiserror::Error;
 
 const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
 
+/// Sanitized retrieval failures; transport URLs, response bodies, and credentials
+/// are deliberately omitted from both messages and underlying error chains.
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("WaniKani rate-limit reset exceeds 120 seconds; retry sync later.")]
@@ -38,6 +40,9 @@ pub enum Error {
     InvalidSnapshot(#[from] ValidationError),
 }
 
+/// Reusable authenticated client with sequential requests and bounded retries.
+/// Owns its authorization header and pending rate-limit deadline. It deliberately
+/// does not implement `Debug` or serialization, keeping credentials private.
 pub struct Client {
     http: reqwest::Client,
     base_url: Url,
@@ -46,12 +51,15 @@ pub struct Client {
 }
 
 impl Client {
+    /// Configure the official WaniKani HTTPS origin without making a request.
+    /// The token is supplied by the caller, never read from the environment.
     pub fn new(token: &str) -> Result<Self, Error> {
         Self::with_base_url(token, "https://api.wanikani.com/v2/")
     }
 
     /// Use a trusted API base URL ending in `/`. Plain HTTP is permitted only
     /// for loopback IP addresses, so callers can exercise the real adapter locally.
+    /// The supplied origin receives the token; callers must trust its operator.
     /// The CLI always uses the default WaniKani HTTPS origin.
     pub fn with_base_url(token: &str, base_url: &str) -> Result<Self, Error> {
         Self::with_timeout(token, base_url, Duration::from_secs(30))
@@ -98,6 +106,11 @@ impl Client {
         })
     }
 
+    /// Fetch and validate a complete refresh without reading or writing a cache.
+    /// Requires a Tokio runtime with I/O and time enabled. Requests have 10-second
+    /// connect and 30-second total deadlines; the entire refresh has no fixed
+    /// deadline. Reuse this client to retain rate-limit state, including after
+    /// cancellation. Observations span the returned synchronization interval.
     pub async fn fetch(&mut self) -> Result<Snapshot, Error> {
         let sync_started_at = now();
         let user: dto::User = self.get("user").await?;

@@ -104,9 +104,10 @@ full refresh synchronization.
 
 ### CLI and local files
 
-Milestones 1a–1c implement `status`, the complete `sync` path, and resilience
-verification of the HTTP adapter, cache writer, and advisory lock. Milestone 1d
-still owns macOS/Linux CI and the final public-surface review.
+Milestones 1a–1d implement `status`, the complete `sync` path, resilience
+verification of the HTTP adapter, cache writer, and advisory lock, macOS/Linux
+CI, and the public-surface review. Actual validation and limitations are recorded
+in `PLAN.md`.
 
 The complete milestone 1 command set is:
 
@@ -288,8 +289,8 @@ Successful sync prints the same cached-observation summary as offline status.
 Tests cover mock API → normalized snapshot → private cache → credential-free
 `status` subprocess, repeated refresh/removal, account mismatch, basic lock
 contention, and the CLI composition's lock lifetime. Milestone 1c expands these
-checks as described below. Linux and CI remain in 1d. No live account verification
-is claimed.
+checks as described below. The 1d acceptance record covers Linux and CI. No live
+account verification is claimed.
 
 ### Sync resilience (1c)
 
@@ -327,6 +328,25 @@ complete old file after replacement. Abrupt termination can leave a private
 staging file; it is ignored by loading and later writes, and is not automatically
 deleted. Process-kill tests do not simulate power loss or establish filesystem
 durability across a machine crash.
+
+### Milestone acceptance (1d)
+
+GitHub Actions runs formatting, Clippy with warnings denied, and all tests on
+macOS and Linux for pushes and pull requests. The workflow uses the repository
+toolchain file, requires a committed `Cargo.lock`, passes `--locked` to Clippy and
+tests, and verifies the lockfile remains unchanged. Tests use local HTTP servers
+and synthetic credentials; CI requires no live WaniKani account.
+
+Public API documentation records the caller's responsibilities: hold `SyncGuard`
+across fetch and replacement, enable Tokio I/O/time for retrieval, trust any
+custom API origin that receives a token, and validate publicly constructed data
+before direct use. Loading, summarization, and replacement validate automatically.
+HTTP errors remain sanitized; `WriteError::DurabilityUncertain` exposes its
+underlying I/O cause without changing the already-replaced outcome.
+
+Quality gates passed on native macOS/arm64 and containerized Debian Linux/arm64.
+GitHub-hosted runs are unverified until the workflow is pushed; see `PLAN.md` for
+the exact checks, TDD evidence, and remaining verification limits.
 
 ## Rust architecture
 
@@ -370,7 +390,7 @@ Sources: [Rust release](https://blog.rust-lang.org/2026/09/03/Rust-1.98.1/),
 | `thiserror` | Typed library errors |
 | `anyhow` | Contextual errors at the executable boundary |
 | `tempfile` | Safely created temporary files for atomic replacement |
-| `wiremock`, `proptest` (development) | HTTP contract tests and meaningful property tests |
+| `wiremock` (development) | Local HTTP contract tests |
 
 Milestone 1b adds reqwest and Tokio at runtime, promotes tempfile to a runtime
 dependency for safe persistence, and adds wiremock for development. Tokio uses a
@@ -379,6 +399,8 @@ Milestone 1c adds only Tokio development features for raw local HTTP servers,
 process coordination, and controlled time; no new crates or runtime features.
 Proptest remains deferred because the current behavior is covered by concrete
 contract and integration tests. Exact resolved versions remain in `Cargo.lock`.
+The 1d feature-graph review retained the existing dependency declarations and
+lockfile without changes.
 
 Enable only required features. Use reqwest's Rustls support. Defer tracing until
 diagnostic needs justify it. Use standard-library facilities for CLI subprocess
@@ -407,6 +429,8 @@ the lockfile. See [reqwest](https://docs.rs/reqwest/latest/reqwest/),
   collection path before attaching credentials; detect repeated pagination URLs.
 - Bound response reads to 16 MiB per page. Reject oversized responses before
   deserialization, including bodies without a trustworthy Content-Length.
+- These bounds apply per request/page, not to the total refresh duration or
+  collection size. There is no whole-refresh deadline in milestone 1.
 - Keep tokens out of serializable types, debug output, errors, fixtures, and
   logs. Report sanitized endpoint/status information rather than response bodies.
   Tests use synthetic credentials only.
@@ -437,12 +461,10 @@ Atomic replacement alone does not synchronize file contents or the parent
 directory; both steps are explicit. See
 [tempfile persistence behavior](https://docs.rs/tempfile/latest/tempfile/struct.NamedTempFile.html#method.persist).
 
-## Planned milestone 1 structure
+## Milestone 1 structure
 
-The tree below shows the milestone 1 structure. The HTTP adapter, summary module,
-usage/provenance documents, and resilience tests are implemented through 1c. CI remains
-deferred to 1d. Create remaining files only when their authorized milestone
-contains real functionality.
+The tree below shows the implemented milestone 1 structure, including the CI
+workflow added in 1d. Later milestones require separate authorization.
 
 ```text
 yomibu/

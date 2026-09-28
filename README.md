@@ -1,9 +1,9 @@
 # Yomibu
 
 Yomibu is an unofficial WaniKani tool for personalized Japanese reading practice,
-starting with a Rust CLI. Milestone 1c implements and exercises resilient full
-synchronization and offline inspection of learner observations. Reading-practice
-features remain deferred.
+starting with a Rust CLI. Milestone 1 is complete through 1d: resilient full
+synchronization, offline inspection of learner observations, and macOS/Linux CI.
+Reading-practice features remain deferred.
 
 ```sh
 WANIKANI_API_TOKEN=... cargo run -- sync
@@ -35,14 +35,24 @@ cargo run -- status --data-dir "$demo_dir"
 The library exposes `wanikani::Client`, `cache::SyncGuard`, `cache::load`, domain
 structs/validation, and `Snapshot::summarize`. Keep a sync guard alive around
 `client.fetch().await` and call `guard.replace(&snapshot)` after retrieval.
+Retrieval requires a Tokio runtime with I/O and time enabled; other operations
+are synchronous. Reuse the client to retain rate-limit state. A custom base URL
+receives the supplied token and must be trusted. Publicly constructed or directly
+deserialized snapshots need validation; load, replace, and summarize validate
+automatically. Build API documentation with `cargo doc --locked --no-deps`.
 Argument/environment handling, runtime startup, text output, and exit codes belong
 to the binary. The repository pins Rust 1.98.1 with rustfmt and Clippy.
 
 ```sh
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all
 ```
+
+The [CI workflow](.github/workflows/ci.yml) runs those gates on `ubuntu-latest` and
+`macos-latest` for pushes and pull requests. It installs the repository toolchain,
+requires the committed lockfile, and checks that it stays unchanged. No WaniKani
+secret is required.
 
 See [SPEC.md](SPEC.md) for authoritative decisions, [PLAN.md](PLAN.md) for milestone
 status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
@@ -70,6 +80,8 @@ status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
   timestamps participate, while ignored API preferences and mnemonics do not.
 - `WriteError::BeforeReplacement` and `DurabilityUncertain` model different
   outcomes. A single generic exception would make safe recovery harder.
+  `#[source]` exposes the underlying I/O cause through the standard error chain;
+  including it in an error's display text alone does not do that.
 - Dropping an async future cancels its work at an `await`. A saved rate-limit
   deadline stays in the client until the wait finishes, so a later fetch still
   observes the reset time.
@@ -79,5 +91,9 @@ servers, isolated directories, and child processes. It covers streamed limits,
 deadlines, retry budgets, hostile pagination, later-page failures, storage faults,
 writer contention, and process termination. Killed writers can leave private
 staging files that later reads/writes ignore. Fault injection and process-kill
-tests do not simulate power loss. Linux execution and CI remain for 1d; no live
-account has been used for automated verification.
+tests do not simulate power loss. In 1d, all 56 entries, formatting, and Clippy
+passed on native macOS/arm64 and Debian Linux/arm64 in a container. Workflow lint
+and API documentation checks also passed. GitHub-hosted runs and Ubuntu/x86_64
+execution remain unverified until the workflow is pushed. No live account was
+used. Request deadlines and page limits do not bound total refresh duration or
+collection size. See the 1d record in [PLAN.md](PLAN.md) for full results and limits.
