@@ -10,8 +10,9 @@ Milestone **1d — Milestone acceptance is complete**. The macOS/Linux CI workfl
 enforces the committed lockfile and repository toolchain. Public APIs, dependency
 features, credentials, and errors have been reviewed; the durability error now
 exposes its I/O cause. Quality gates passed locally on macOS/arm64 and in an
-isolated Linux/arm64 container. GitHub-hosted execution remains unverified until
-the workflow is pushed. Stop after 1d; later milestones remain unauthorized.
+isolated Linux/arm64 container, then on GitHub-hosted Ubuntu/x86_64 and
+macOS/arm64. A CI follow-up adds dependency caching and avoids redundant runs.
+Stop after 1d; later product milestones remain unauthorized.
 
 On 2026-09-27, the official Rust release page and `rustup update stable` both
 confirmed Rust 1.98.1. Installed the exact 1.98.1 toolchain with rustfmt and Clippy,
@@ -29,7 +30,7 @@ development dependency. Proptest remains deferred.
 | 1a — Offline status | Complete | Package, domain snapshot, cache reader, real `status` command | Fixture-backed integration tests; no token/network dependency; useful errors and summaries |
 | 1b — First complete sync | Complete | HTTP adapter, normalization, safe persistence, thin CLI composition | Mock API → normalized snapshot → disk → offline status succeeds through real components |
 | 1c — Sync resilience | Complete | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
-| 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local macOS and Linux gates pass; hosted-run limitation documented; no placeholder future features |
+| 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local and hosted macOS/Linux gates pass; documented limitations; no placeholder future features |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -244,7 +245,8 @@ deadline. Rustup reads the exact version and components from
 enforcement, then checks that the lockfile is unchanged. Checkout is pinned to
 the verified v7.0.1 commit, with read-only contents permission and credential
 persistence disabled. CI requires no WaniKani credential or live account.
-No extra build scripts, caching layer, or testing infrastructure were introduced.
+The initial workflow introduced no extra build scripts, caching layer, or testing
+infrastructure. The caching follow-up is recorded below.
 
 Reviewed the workflow against the official
 [checkout documentation](https://github.com/actions/checkout/tree/v7.0.1),
@@ -306,9 +308,9 @@ Additional checks passed:
 - `git diff --check`, review of the new workflow, and unchanged manifest,
   toolchain, and lockfile checks passed.
 
-Limitations: the workflow has not been pushed or executed on GitHub-hosted
-runners, and the local Linux run covers Debian/arm64, not Ubuntu/x86_64. No live
-WaniKani request, DNS/TLS-blackhole simulation, hardware-fault test, or power-loss
+At initial delivery, hosted runs were unverified; the subsequent successful
+Ubuntu/x86_64 and macOS/arm64 run is recorded below. No live WaniKani request,
+DNS/TLS-blackhole simulation, hardware-fault test, or power-loss
 durability test was performed. Existing process-kill/fault-injection limitations
 from 1c still apply. Per-request deadlines and page-size bounds do not impose a
 total refresh deadline or collection-size bound; this existing API limit is now
@@ -320,6 +322,28 @@ the cause inspectable while keeping the meaningful outer enum variant. Cargo
 features are additive across dependencies, so the resolved feature graph matters
 as well as each direct dependency declaration. `--locked` refuses resolution
 changes rather than silently editing the dependency snapshot.
+
+#### CI caching and scheduling follow-up
+
+The [first hosted run](https://github.com/kalorz/yomibu/actions/runs/36390858621)
+passed every gate and all 56 test entries on both platforms. It took 3m 10s
+overall: Linux ran for 1m 54s and macOS for 3m 02s, starting four seconds apart.
+Actual test execution took about 19–21 seconds per OS; dependency checking and
+compilation dominated the run. No cache was restored or saved in that workflow.
+
+The follow-up pins `Swatinem/rust-cache` v2.9.2 to its verified release commit,
+after toolchain selection and the tracked-lockfile check. It reuses dependency
+downloads and compiled dependencies with the action's platform/compiler/manifest
+keys. Only `main` saves caches; PRs can restore the base branch's caches. Cold
+builds still run all gates. The Rust toolchain itself is not cached by this step.
+See the [action's cache contract](https://github.com/Swatinem/rust-cache/tree/v2.9.2).
+
+Push events are restricted to `main`, while pull-request events cover proposed
+changes, avoiding duplicate branch-push/PR runs. Workflow-level concurrency
+cancels superseded runs for the same ref without serializing the OS matrix.
+Documentation-only skipping remains deferred; both OS jobs retain every gate.
+These CI/documentation edits are exempt from artificial behavioral RED tests.
+Review kept the existing matrix and commands without a new script or helper.
 
 ## Test strategy
 

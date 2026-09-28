@@ -332,10 +332,16 @@ durability across a machine crash.
 ### Milestone acceptance (1d)
 
 GitHub Actions runs formatting, Clippy with warnings denied, and all tests on
-macOS and Linux for pushes and pull requests. The workflow uses the repository
+macOS and Linux in parallel for pushes to `main` and pull requests. Superseded
+runs for the same branch or PR are cancelled. The workflow uses the repository
 toolchain file, requires a committed `Cargo.lock`, passes `--locked` to Clippy and
 tests, and verifies the lockfile remains unchanged. Tests use local HTTP servers
 and synthetic credentials; CI requires no live WaniKani account.
+
+The pinned Rust cache action restores dependency downloads and compiled
+dependencies with platform/compiler/dependency-specific keys. Only `main` saves
+caches; PRs restore them. A cache miss still runs the complete quality gates.
+Documentation changes also run the gates.
 
 Public API documentation records the caller's responsibilities: hold `SyncGuard`
 across fetch and replacement, enable Tokio I/O/time for retrieval, trust any
@@ -344,9 +350,9 @@ before direct use. Loading, summarization, and replacement validate automaticall
 HTTP errors remain sanitized; `WriteError::DurabilityUncertain` exposes its
 underlying I/O cause without changing the already-replaced outcome.
 
-Quality gates passed on native macOS/arm64 and containerized Debian Linux/arm64.
-GitHub-hosted runs are unverified until the workflow is pushed; see `PLAN.md` for
-the exact checks, TDD evidence, and remaining verification limits.
+Quality gates passed on native macOS/arm64, containerized Debian Linux/arm64,
+and GitHub-hosted Ubuntu/x86_64 and macOS/arm64. See `PLAN.md` for the exact checks,
+TDD evidence, CI timings, and remaining verification limits.
 
 ## Rust architecture
 
