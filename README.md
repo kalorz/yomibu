@@ -88,8 +88,11 @@ status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
 - Dropping an async future cancels its work at an `await`. A saved rate-limit
   deadline stays in the client until the wait finishes, so a later fetch still
   observes the reset time.
+- `tokio::join!` overlaps independent HTTP test scenarios on one runtime. Each
+  keeps its own server/cache and real retry waits; a separate virtual-clock test
+  checks the exact backoff deadlines without socket I/O.
 
-The 56-entry suite (including two subprocess helpers) uses local mock/raw HTTP
+The 58-entry suite (including two subprocess helpers) uses local mock/raw HTTP
 servers, isolated directories, and child processes. It covers streamed limits,
 deadlines, retry budgets, hostile pagination, later-page failures, storage faults,
 writer contention, and process termination. Killed writers can leave private
@@ -100,3 +103,8 @@ GitHub-hosted Ubuntu/x86_64 and macOS/arm64. Workflow lint and API documentation
 checks also passed. No live account was used. Request deadlines and page limits
 do not bound total refresh duration or collection size. See the 1d record in
 [PLAN.md](PLAN.md) for full results and limits.
+
+A test scheduling follow-up retained every HTTP/cache scenario and strengthened
+the timer assertions. Native macOS test execution fell from about 17.8s to 8.1s,
+excluding compilation. See the follow-up in [PLAN.md](PLAN.md) for validation and
+hosted CI measurements; runner setup and compilation still contribute to CI time.

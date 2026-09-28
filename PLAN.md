@@ -11,7 +11,8 @@ enforces the committed lockfile and repository toolchain. Public APIs, dependenc
 features, credentials, and errors have been reviewed; the durability error now
 exposes its I/O cause. Quality gates passed locally on macOS/arm64 and in an
 isolated Linux/arm64 container, then on GitHub-hosted Ubuntu/x86_64 and
-macOS/arm64. A CI follow-up adds dependency caching and avoids redundant runs.
+macOS/arm64. Follow-ups add dependency caching, avoid redundant runs, and overlap
+independent HTTP test scenarios while strengthening exact timer checks.
 Stop after 1d; later product milestones remain unauthorized.
 
 On 2026-09-27, the official Rust release page and `rustup update stable` both
@@ -368,6 +369,66 @@ dependencies, lockfile, or test coverage changed.
 Rust note for a Ruby developer: this cache retains compiled dependency artifacts
 as well as downloads. Their compatibility depends on the compiler and target
 platform, so Linux and macOS need separate cache entries.
+
+#### Test execution follow-up
+
+The slow tests spent most of their time in real retry waits of one and two seconds. Three
+independent endpoint matrices serialized those waits, as did pairs of stalled
+and truncated response scenarios. The follow-up uses existing Tokio `join!` and
+local async closures to overlap each group, with at most three independent
+servers/caches in a group. The successful HTTP retry and exhausted retry cases
+are now separate tests. All 21 later-page failure cases retain their request-count,
+error, credential, cache-byte, parsed-state, offline-status, and lock assertions.
+Real socket tests retain their real timers, stalled requests, and retry budgets.
+
+For exact transient timing, a socket-free paused-clock test replaces the two
+duration-value assertions. It verifies that each wait is pending immediately
+before its deadline (one or two seconds) and completes at the deadline. The existing private
+duration helper now owns the existing sleep; production retry behavior stays the
+same. No test-only delay configuration, dependency, public API, or runner was added.
+Paused clocks are not used while real socket I/O is pending.
+
+- **RED:** added the focused timer test first; it failed to compile because the
+  private wait helper did not exist.
+- **GREEN:** moved the existing sleep into that helper; the focused test passed
+  in 0.00s.
+- **REFACTOR:** reviewed naming, duplication, ownership, case isolation, cleanup,
+  and concurrency bounds. Local closures reuse each matrix's assertions; split
+  retry tests distinguish recovery from exhaustion, and the reset test now names
+  its specific responsibility. No further production abstraction was justified.
+  The focused HTTP suite (21 entries) and later-page matrix passed after review.
+  Test scheduling changes are infrastructure refactors and need no artificial
+  behavioral failure.
+
+Validation on 2026-09-28: native macOS/arm64 and a disposable Debian 12
+Linux/arm64 container passed `cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`, and
+`cargo test --locked --all`. All 58 entries passed, none ignored: 25 library,
+1 binary, 13 cache, 8 CLI, 6 summary, and 5 cross-component entries, including
+the same two subprocess helpers. The increase comes from one new timer test
+and splitting an existing test; no scenario was removed. `git diff --check`
+also passed. The container used the pinned Rust 1.98.1 image and a read-only
+source mount, and its lockfile remained byte-identical to the committed file.
+
+| Native macOS execution | Before | After |
+| --- | --- | --- |
+| Library tests | 7.57s | 3.80s |
+| Cross-component tests | 9.55s | 3.85s |
+| All test binaries, summed reported execution | 17.84s | 8.10s |
+
+The Linux container reported 4.23s for the library and 3.88s for cross-component
+tests, or 8.31s summed across all test binaries after the change.
+
+These single-run measurements exclude compilation and process startup; they are
+not timing assertions or a CI runtime guarantee. Real backoffs remain a floor
+for HTTP tests, and hosted setup, cache restoration, compilation, and scheduling
+still take time. Existing live-service, DNS/TLS, and power-loss verification
+limits remain. Product work stops at milestone 1d.
+
+Rust note for a Ruby developer: `join!` polls independent futures on the same
+runtime, so one case can progress while another waits. Each future owns its
+server and temporary directory; unwinding still drops those resources. This
+reduces serialized waiting without weakening the real HTTP boundary checks.
 
 ## Test strategy
 

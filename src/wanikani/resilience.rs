@@ -61,10 +61,7 @@ impl RawServer {
 
 #[tokio::test]
 async fn request_deadline_covers_stalled_headers_and_stalled_body() {
-    for bytes in [
-        Vec::new(),
-        b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{".to_vec(),
-    ] {
+    let check_deadline = async |bytes| {
         let server = RawServer::start(bytes, true).await;
         let mut client = Client::with_timeout(
             "synthetic-deadline-credential",
@@ -80,7 +77,11 @@ async fn request_deadline_covers_stalled_headers_and_stalled_body() {
         .expect("request deadline did not terminate retrieval");
         assert!(matches!(error, Error::Transport { endpoint: "user" }));
         assert_eq!(server.calls.load(Ordering::SeqCst), 3);
-    }
+    };
+    tokio::join!(
+        check_deadline(Vec::new()),
+        check_deadline(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{".to_vec()),
+    );
 }
 
 pub(super) async fn fails_without_replacing_cache(client: &mut Client) -> Error {
@@ -165,10 +166,7 @@ async fn declared_oversize_is_rejected_without_waiting_for_a_body() {
 
 #[tokio::test]
 async fn truncated_bodies_exhaust_transport_retries_and_preserve_the_cache() {
-    for response in [
-        b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{}".to_vec(),
-        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\na\r\n{}".to_vec(),
-    ] {
+    let check_truncation = async |response| {
         let server = RawServer::start(response, false).await;
         let mut client = server.client();
         assert!(matches!(
@@ -176,7 +174,11 @@ async fn truncated_bodies_exhaust_transport_retries_and_preserve_the_cache() {
             Error::Transport { .. }
         ));
         assert_eq!(server.calls.load(Ordering::SeqCst), 3);
-    }
+    };
+    tokio::join!(
+        check_truncation(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n{}".to_vec()),
+        check_truncation(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\na\r\n{}".to_vec()),
+    );
 }
 
 #[tokio::test]
