@@ -303,10 +303,13 @@ public API, and CLI options are unchanged.
 Local tests exercise stalled headers and bodies, truncated Content-Length and
 chunked bodies, successful transport recovery, exact-limit and oversized streamed
 pages, and rejection of declared oversized bodies before reading them. Rate-limit
-waits use a manually advanced clock; socket I/O runs with real time. Permanent
-HTTP errors, redirects, credential-bearing pagination, and unsafe/repeated URLs
-fail without leaking credentials. Mixed transient failure categories share the
-same retry budget.
+waits use a manually advanced clock; socket I/O runs with real time. A separate
+socket-free test checks transient waits immediately before and at the deadlines
+of one and two seconds. Independent HTTP failure scenarios run concurrently, with
+their own servers and caches and the real retry waits. Permanent HTTP errors,
+redirects, credential-bearing pagination, and unsafe/repeated URLs fail without
+leaking credentials. Mixed transient failure categories share the same retry
+budget.
 
 Later-page failures on assignments, statistics, and subjects preserve the old
 cache byte for byte and leave offline status usable. Tests also cover invalid

@@ -271,7 +271,7 @@ impl Client {
                             status: 500..=599, ..
                         }
                         | Error::Transport { .. } => {
-                            tokio::time::sleep(transient_delay(attempt)).await;
+                            wait_for_transient_retry(attempt).await;
                         }
                         _ => return Err(error),
                     }
@@ -330,8 +330,8 @@ impl Client {
     }
 }
 
-fn transient_delay(attempt: u32) -> Duration {
-    Duration::from_secs(u64::from(attempt) + 1)
+async fn wait_for_transient_retry(attempt: u32) {
+    tokio::time::sleep(Duration::from_secs(u64::from(attempt) + 1)).await;
 }
 
 fn reset_delay(headers: &HeaderMap, now: DateTime<Utc>) -> Result<Duration, Error> {

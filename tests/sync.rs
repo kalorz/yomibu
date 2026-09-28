@@ -121,7 +121,7 @@ async fn complete_http_sync_to_disk_to_offline_cli_and_repeat_refresh() {
 #[tokio::test]
 async fn later_page_failures_preserve_complete_cached_observations() {
     use wiremock::matchers::query_param;
-    for endpoint in ["assignments", "review_statistics", "subjects"] {
+    let check_endpoint = async |endpoint: &str| {
         for failure in [
             "authentication",
             "malformed",
@@ -178,7 +178,12 @@ async fn later_page_failures_preserve_complete_cached_observations() {
             assert!(SyncGuard::acquire(dir.path()).is_ok());
             assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
         }
-    }
+    };
+    tokio::join!(
+        check_endpoint("assignments"),
+        check_endpoint("review_statistics"),
+        check_endpoint("subjects"),
+    );
 }
 
 #[tokio::test]

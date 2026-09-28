@@ -271,7 +271,7 @@ async fn invalid_source_data_preserves_the_cache_including_exclusions() {
 }
 
 #[tokio::test]
-async fn transient_failures_retry_at_most_twice_and_rate_resets_are_bounded() {
+async fn transient_failures_can_recover_on_the_last_attempt() {
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -293,6 +293,10 @@ async fn transient_failures_retry_at_most_twice_and_rate_resets_are_bounded() {
     serve(&server, "assignments", collection(vec![])).await;
     serve(&server, "review_statistics", collection(vec![])).await;
     assert!(client(&server).fetch().await.is_ok());
+}
+
+#[tokio::test]
+async fn transient_failures_retry_at_most_twice_and_rate_resets_are_bounded() {
     for status in [503, 429] {
         let server = MockServer::start().await;
         Mock::given(path("/v2/user"))
@@ -318,14 +322,29 @@ async fn transient_failures_retry_at_most_twice_and_rate_resets_are_bounded() {
     );
 }
 
+#[tokio::test(start_paused = true)]
+async fn transient_backoff_waits_until_each_deadline() {
+    use std::{
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+    for (attempt, seconds) in [(0, 1), (1, 2)] {
+        let mut wait = std::pin::pin!(wait_for_transient_retry(attempt));
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(matches!(wait.as_mut().poll(&mut context), Poll::Pending));
+        tokio::time::advance(Duration::from_secs(seconds) - Duration::from_millis(1)).await;
+        assert!(matches!(wait.as_mut().poll(&mut context), Poll::Pending));
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert!(matches!(wait.as_mut().poll(&mut context), Poll::Ready(())));
+    }
+}
+
 #[test]
-fn retry_waits_use_source_reset_or_bounded_defaults() {
+fn rate_resets_use_source_timestamp_or_bounded_defaults() {
     use reqwest::header::HeaderMap;
     let fixed = DateTime::parse_from_rfc3339("2026-09-27T10:00:00Z")
         .unwrap()
         .with_timezone(&Utc);
-    assert_eq!(transient_delay(0), Duration::from_secs(1));
-    assert_eq!(transient_delay(1), Duration::from_secs(2));
     let mut headers = HeaderMap::new();
     assert_eq!(
         reset_delay(&headers, fixed).unwrap(),
