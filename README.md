@@ -97,7 +97,7 @@ servers, isolated directories, and child processes. It covers streamed limits,
 deadlines, retry budgets, hostile pagination, later-page failures, storage faults,
 writer contention, and process termination. Killed writers can leave private
 staging files that later reads/writes ignore. Fault injection and process-kill
-tests do not simulate power loss. In 1d, all 56 entries, formatting, and Clippy
+tests do not simulate power loss. All 58 entries, formatting, and Clippy
 passed on native macOS/arm64 and Debian Linux/arm64 in a container, then on
 GitHub-hosted Ubuntu/x86_64 and macOS/arm64. Workflow lint and API documentation
 checks also passed. No live account was used. Request deadlines and page limits
