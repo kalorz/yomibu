@@ -345,6 +345,30 @@ Documentation-only skipping remains deferred; both OS jobs retain every gate.
 These CI/documentation edits are exempt from artificial behavioral RED tests.
 Review kept the existing matrix and commands without a new script or helper.
 
+Validation on 2026-09-28: actionlint 1.7.12 and `git diff --check` passed.
+The [cold attempt](https://github.com/kalorz/yomibu/actions/runs/36393246817/attempts/1)
+and [warm rerun](https://github.com/kalorz/yomibu/actions/runs/36393246817/attempts/2)
+of commit `04db3a7` both passed formatting, locked Clippy with warnings denied,
+all 56 test entries per OS, and unchanged-lockfile checks. The warm logs confirm
+exact cache hits with distinct Linux/x64 and Darwin/arm64 keys.
+
+| Run | Linux job | macOS job | Overall elapsed |
+| --- | --- | --- | --- |
+| Original uncached workflow | 1m 54s | 3m 02s | 3m 10s |
+| New workflow, populating caches | 1m 35s | 2m 34s | 2m 41s |
+| Same commit, warm caches | 45s | 54s | 1m 04s |
+
+Warm Clippy took about 2s/4s and test compilation 6s/8s on Linux/macOS;
+the full tests still executed. These are individual measurements, not a runtime
+guarantee: queueing, runner changes, dependency/toolchain changes, and cache
+eviction affect later runs. PR scheduling and cancellation were linted/reviewed,
+without creating a synthetic PR or deliberately overlapping runs. No Rust source,
+dependencies, lockfile, or test coverage changed.
+
+Rust note for a Ruby developer: this cache retains compiled dependency artifacts
+as well as downloads. Their compatibility depends on the compiler and target
+platform, so Linux and macOS need separate cache entries.
+
 ## Test strategy
 
 | Technique | Meaningful scenarios |
