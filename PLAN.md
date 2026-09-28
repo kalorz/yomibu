@@ -372,8 +372,8 @@ platform, so Linux and macOS need separate cache entries.
 
 #### Test execution follow-up
 
-The slow tests spent most of their time in real retry waits of one and two seconds. Three
-independent endpoint matrices serialized those waits, as did pairs of stalled
+The slow tests spent most of their time in real retry waits of one and two seconds.
+Three independent endpoint matrices serialized those waits, as did pairs of stalled
 and truncated response scenarios. The follow-up uses existing Tokio `join!` and
 local async closures to overlap each group, with at most three independent
 servers/caches in a group. The successful HTTP retry and exhausted retry cases
@@ -383,8 +383,8 @@ Real socket tests retain their real timers, stalled requests, and retry budgets.
 
 For exact transient timing, a socket-free paused-clock test replaces the two
 duration-value assertions. It verifies that each wait is pending immediately
-before its deadline (one or two seconds) and completes at the deadline. The existing private
-duration helper now owns the existing sleep; production retry behavior stays the
+before its deadline (one or two seconds) and completes at the deadline. The existing
+private duration helper now owns the existing sleep; production retry behavior stays the
 same. No test-only delay configuration, dependency, public API, or runner was added.
 Paused clocks are not used while real socket I/O is pending.
 
@@ -418,6 +418,22 @@ source mount, and its lockfile remained byte-identical to the committed file.
 
 The Linux container reported 4.23s for the library and 3.88s for cross-component
 tests, or 8.31s summed across all test binaries after the change.
+
+The [hosted run for `8757ade`](https://github.com/kalorz/yomibu/actions/runs/36445060921)
+passed every gate and all 58 entries on Ubuntu/x86_64 and macOS/arm64. Both jobs
+restored exact dependency-cache hits. Summed test execution was 10.54s on Linux
+and 10.64s on macOS, excluding test compilation of 6.37s and 12.15s respectively.
+Clippy took 2.16s/5.61s; toolchain setup and cache restoration still contributed
+about 12s/16s. The OS jobs overlapped.
+
+| Hosted run | Linux job | macOS job | Overall elapsed |
+| --- | --- | --- | --- |
+| [Previous commit, `6f79d1b`](https://github.com/kalorz/yomibu/actions/runs/36393872248) | 46s | 1m 09s | 1m 19s |
+| Test follow-up, `8757ade` | 36s | 55s | 1m 06s |
+
+The follow-up did not achieve a workflow below 45s or 30s. An earlier warm run
+already finished in 1m 04s, illustrating the setup/runner variation even though
+test execution is now roughly halved. No fixed hosted runtime is promised.
 
 These single-run measurements exclude compilation and process startup; they are
 not timing assertions or a CI runtime guarantee. Real backoffs remain a floor
