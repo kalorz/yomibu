@@ -201,3 +201,161 @@ fn another_process_cannot_sync_while_status_reads_the_locked_cache() {
     drop(guard);
     assert!(SyncGuard::acquire(dir.path()).is_ok());
 }
+
+#[test]
+fn preview_example_agrees_with_the_direct_library_result() {
+    use yomibu::preview::{CheckOutcome, WordEntry, preview};
+
+    let words = [
+        WordEntry {
+            text: "猫".into(),
+            reading: "ねこ".into(),
+            meaning: "cat".into(),
+        },
+        WordEntry {
+            text: "犬".into(),
+            reading: "いぬ".into(),
+            meaning: "dog".into(),
+        },
+        WordEntry {
+            text: "学校".into(),
+            reading: "がっこう".into(),
+            meaning: "school".into(),
+        },
+    ];
+    let grammar = ["です".into(), "は".into()];
+    let result = preview(&words, &grammar, 2).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let output = cli()
+        .arg("--data-dir")
+        .arg(dir.path())
+        .args([
+            "preview",
+            "--word",
+            "猫:ねこ:cat",
+            "--word",
+            "犬:いぬ:dog",
+            "--word",
+            "学校:がっこう:school",
+            "--grammar",
+            "です",
+            "--grammar",
+            "は",
+            "--take",
+            "2",
+        ])
+        .output()
+        .unwrap();
+    let text = stdout(&output);
+    let selected: Vec<_> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("  Word: "))
+        .collect();
+    let expected: Vec<_> = result
+        .selected
+        .iter()
+        .map(|word| format!("{}:{}:{}", word.text, word.reading, word.meaning))
+        .collect();
+    assert_eq!(selected, expected);
+    let descriptions: Vec<_> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("  Grammar: "))
+        .collect();
+    assert_eq!(descriptions, result.grammar);
+    assert_eq!(result.checks.membership, CheckOutcome::Pass);
+    assert_eq!(result.checks.count, CheckOutcome::Pass);
+    assert_eq!(result.checks.grammar, CheckOutcome::NotAssessed);
+    assert_eq!(
+        result.checks.linguistic_correctness,
+        CheckOutcome::NotAssessed
+    );
+    for expected in [
+        "Supplied-entry membership: pass",
+        "Requested entry count: pass",
+        "Grammar: not assessed",
+        "Readings, meanings, naturalness: not assessed",
+        "Manual candidate preview (not a validated Japanese exercise)",
+    ] {
+        assert!(text.contains(expected), "{text}");
+    }
+}
+
+#[test]
+fn preview_reports_invalid_syntax_and_inputs_without_partial_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let cases = [
+        (vec!["--word", "猫:ねこ:cat"], "--take"),
+        (vec!["--take", "1"], "0 supplied entries"),
+        (vec!["--word", "猫", "--take", "1"], "TEXT:READING:MEANING"),
+        (
+            vec!["--word", "猫:ねこ", "--take", "1"],
+            "TEXT:READING:MEANING",
+        ),
+        (vec!["--word", ":ねこ:cat", "--take", "1"], "blank text"),
+        (vec!["--word", "猫: :cat", "--take", "1"], "blank reading"),
+        (vec!["--word", "猫:ねこ:　", "--take", "1"], "blank meaning"),
+        (vec!["--word", "猫:ねこ:cat", "--take", "0"], "positive"),
+        (
+            vec!["--word", "猫:ねこ:cat", "--take", "2"],
+            "1 supplied entries",
+        ),
+        (
+            vec!["--word", "猫:ねこ:cat", "--take", "many"],
+            "invalid value",
+        ),
+        (
+            vec!["--word", "猫:ねこ:cat", "--grammar", " ", "--take", "1"],
+            "blank description",
+        ),
+    ];
+    for (args, message) in cases {
+        let output = cli()
+            .arg("--data-dir")
+            .arg(dir.path())
+            .arg("preview")
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "accepted {args:?}");
+        assert!(output.stdout.is_empty(), "partial output for {args:?}");
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains(message), "{args:?}: {error}");
+    }
+}
+
+#[test]
+fn preview_needs_no_environment_or_files_even_with_an_unusable_data_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let unusable = root.path().join("not-a-directory");
+    fs::write(&unusable, "untouched").unwrap();
+    let absent = root.path().join("must-not-be-created");
+    for data_dir in [None, Some(&unusable), Some(&absent)] {
+        let mut command = cli();
+        command.current_dir(root.path());
+        if let Some(data_dir) = data_dir {
+            command.arg("--data-dir").arg(data_dir);
+        }
+        let output = command
+            .args(["preview", "--word", "猫:ねこ:cat", "--take", "1"])
+            .output()
+            .unwrap();
+        assert!(stdout(&output).contains("  Word: 猫:ねこ:cat"));
+        assert_eq!(fs::read_to_string(&unusable).unwrap(), "untouched");
+        assert!(!absent.exists());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+}
+
+#[test]
+fn preview_ignores_home_and_invalid_tokens_without_creating_a_default_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let output = cli()
+        .current_dir(root.path())
+        .env("HOME", root.path())
+        .env("WANIKANI_API_TOKEN", "invalid\nsynthetic-preview-token")
+        .args(["preview", "--word", "猫:ねこ:cat", "--take", "1"])
+        .output()
+        .unwrap();
+    assert!(stdout(&output).contains("  Word: 猫:ねこ:cat"));
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}

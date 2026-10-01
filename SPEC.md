@@ -113,9 +113,9 @@ placeholder versions. Local files are sufficient for the CLI proof of concept.
 PostgreSQL is the likely later web database; pgvector remains conditional on a
 real vector-search need.
 
-### Manual candidate preview (next implementation slice)
+### Manual candidate preview (implemented G0)
 
-Before integrating linguistic analysis or an LLM, provide a synchronous library
+Before integrating linguistic analysis or an LLM, G0 provides a synchronous library
 operation and a thin `yomibu preview` command that select the first N supplied
 word entries. This is a real deterministic preview, not an accepted Japanese
 exercise or an automatic fallback for another generator.
@@ -155,6 +155,28 @@ yomibu preview \
   library call exposes equivalent data without parsing arguments or printing.
   Preview does not resolve HOME/data directories, require tokens, create files,
   open stores, synchronize, start an async runtime, or call any service/model.
+
+The public `preview::preview` function accepts word/grammar slices and a `usize`
+count, returning `Result<Preview<'_>, PreviewError>`.
+`WordEntry` has associated `text`, `reading`, and `meaning` strings. All supplied
+entries and grammar descriptions are validated before selection, including the
+unselected suffix. Structured library inputs are retained verbatim; CLI word
+field trimming happens only at the executable boundary. Grammar descriptions
+retain their content, order, and duplicates. No grammar input is also valid.
+
+`Preview` borrows the selected entries and grammar descriptions. Its
+`PreviewChecks` reports membership and count as `CheckOutcome::Pass` or `Fail`,
+and grammar/linguistic correctness as `NotAssessed`. Membership compares the
+complete text/reading/meaning entry, with no normalization or inferred lexical
+equivalence. A separate private function checks the produced selection; its
+tests deliberately supply invalid selections. Invalid input returns
+`PreviewError::InvalidCount`, `BlankWordField`, or `BlankGrammar`; field errors
+identify the one-based input entry. There is no partial result on input failure.
+
+Run the synchronous direct-library example with
+`cargo run --locked --example preview`; see [examples/preview.rs](examples/preview.rs).
+The CLI's global `--data-dir` option is ignored for preview. Only sync/status
+resolve that option or the HOME default.
 
 This slice's detailed delivery and acceptance criteria are in `PLAN.md` under
 **G0 — Manual candidate preview**. File/stdin imports, alternate delimiters,
@@ -671,10 +693,10 @@ directory; both steps are explicit. See
 [ARCHITECTURE.md](ARCHITECTURE.md#files-packages-and-repositories) records the
 current tree, planned modules, dependency direction, ownership, composition
 examples, and public/private repository boundaries. It distinguishes implemented
-sync/status from future generation and Cloud capabilities. Keep one Cargo package
-and one public code repository until actual deployment/dependency needs justify
-another boundary. Private prompts/corpora can use private stores with public
-adapter implementations.
+sync/status and manual preview from future generation and Cloud capabilities.
+Keep one Cargo package and one public code repository until actual deployment/
+dependency needs justify another boundary. Private prompts/corpora can use
+private stores with public adapter implementations.
 
 HTTP adapter tests live beside private adapter code, permitting local-server
 configuration without test-only CLI options. File fault/interruption tests live
