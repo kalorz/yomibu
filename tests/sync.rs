@@ -5,6 +5,8 @@ use wiremock::{
     matchers::{header, method, path},
 };
 use yomibu::{
+    App,
+    adapters::stores::FileLearningStore,
     cache::{self, SyncGuard},
     wanikani::Client,
 };
@@ -29,9 +31,10 @@ async fn serve(server: &MockServer, endpoint: &str, body: Value) {
         .await;
 }
 async fn refresh(client: &mut Client, dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let guard = SyncGuard::acquire(dir)?;
-    let snapshot = client.fetch().await?;
-    guard.replace(&snapshot)?;
+    App::new(FileLearningStore::new(dir))
+        .with_source(client)
+        .sync()
+        .await?;
     Ok(())
 }
 fn offline_status(dir: &Path) -> String {
@@ -105,12 +108,12 @@ async fn complete_http_sync_to_disk_to_offline_cli_and_repeat_refresh() {
     }
     refresh(&mut client, dir.path()).await.unwrap();
     drop(server);
-    let snapshot = cache::load(dir.path()).unwrap();
+    let sync_data = cache::load(dir.path()).unwrap();
     assert!(
-        snapshot.subjects.is_empty()
-            && snapshot.assignments.is_empty()
-            && snapshot.review_statistics.is_empty()
-            && snapshot.unavailable_subjects.is_empty()
+        sync_data.subjects.is_empty()
+            && sync_data.assignments.is_empty()
+            && sync_data.review_statistics.is_empty()
+            && sync_data.unavailable_subjects.is_empty()
     );
     let text = offline_status(dir.path());
     assert!(text.contains("Synchronized kanji: 0"));
@@ -211,19 +214,19 @@ async fn access_changes_and_missing_statistics_replace_source_state_without_stal
             serve(&server, endpoint, body).await;
         }
         refresh(&mut client, dir.path()).await.unwrap();
-        let snapshot = cache::load(dir.path()).unwrap();
-        assert!(snapshot.review_statistics.is_empty());
-        assert_eq!(snapshot.assignments.len(), 4);
+        let sync_data = cache::load(dir.path()).unwrap();
+        assert!(sync_data.review_statistics.is_empty());
+        assert_eq!(sync_data.assignments.len(), 4);
         assert_eq!(
-            snapshot.subjects.len() + snapshot.unavailable_subjects.len(),
+            sync_data.subjects.len() + sync_data.unavailable_subjects.len(),
             4
         );
-        assert!(!snapshot.subjects.iter().any(|s| s.id == 4));
-        assert!(snapshot.subjects.iter().all(|s| s.level <= access));
+        assert!(!sync_data.subjects.iter().any(|s| s.id == 4));
+        assert!(sync_data.subjects.iter().all(|s| s.level <= access));
         if access == 60 {
-            assert!(snapshot.unavailable_subjects.is_empty());
+            assert!(sync_data.unavailable_subjects.is_empty());
         } else {
-            assert!(!snapshot.unavailable_subjects.is_empty());
+            assert!(!sync_data.unavailable_subjects.is_empty());
         }
         assert!(offline_status(dir.path()).contains("Reading accuracy: no reviews"));
     }

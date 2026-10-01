@@ -1,6 +1,6 @@
 //! Synchronous validated cache access and advisory writer locking on macOS/Linux.
 
-use crate::domain::{Snapshot, ValidationError};
+use crate::domain::{ValidationError, WaniKaniSyncData};
 use serde::Deserialize;
 use std::{
     fs, io,
@@ -50,11 +50,12 @@ struct Version {
 
 #[derive(Deserialize)]
 struct Envelope {
-    snapshot: Snapshot,
+    // Schema 1 keeps this wire name independently of the public Rust type name.
+    snapshot: WaniKaniSyncData,
 }
 
 /// Read a schema-1 cache without creating files, locking, or accessing the environment.
-pub fn load(data_dir: &Path) -> Result<Snapshot, CacheError> {
+pub fn load(data_dir: &Path) -> Result<WaniKaniSyncData, CacheError> {
     let path = data_dir.join("wanikani.json");
     let bytes = fs::read(&path).map_err(|source| {
         if source.kind() == io::ErrorKind::NotFound {
@@ -91,13 +92,13 @@ pub fn load(data_dir: &Path) -> Result<Snapshot, CacheError> {
 pub enum WriteError {
     #[error(transparent)]
     ExistingCache(#[from] CacheError),
-    #[error("Invalid new snapshot; the previous cache has not been replaced: {0}")]
-    InvalidSnapshot(#[from] ValidationError),
+    #[error("Invalid new sync data; the previous cache has not been replaced: {0}")]
+    InvalidSyncData(#[from] ValidationError),
     #[error("This cache belongs to a different WaniKani account; use another --data-dir PATH.")]
     AccountMismatch,
     #[error("Cannot prepare or replace cache; the previous cache has not been replaced: {0}")]
     BeforeReplacement(#[from] io::Error),
-    #[error("Cannot encode snapshot; the previous cache has not been replaced: {0}")]
+    #[error("Cannot encode sync data; the previous cache has not been replaced: {0}")]
     Encode(#[from] serde_json::Error),
     #[error(
         "Cache was replaced, but synchronizing its directory failed; durability is uncertain: {0}"
@@ -166,28 +167,28 @@ impl SyncGuard {
     /// Errors before replacement preserve the old cache. On
     /// [`WriteError::DurabilityUncertain`], the complete new cache is visible but
     /// its directory sync failed; callers must not assume rollback.
-    pub fn replace(&self, snapshot: &Snapshot) -> Result<(), WriteError> {
-        self.replace_with(snapshot, |_| Ok(()))
+    pub fn replace(&self, sync_data: &WaniKaniSyncData) -> Result<(), WriteError> {
+        self.replace_with(sync_data, |_| Ok(()))
     }
 
     // A private checkpoint lets tests fail or interrupt each storage boundary
     // while exercising the same file operations and error mapping as callers.
     fn replace_with(
         &self,
-        snapshot: &Snapshot,
+        sync_data: &WaniKaniSyncData,
         mut before: impl FnMut(WriteStep) -> io::Result<()>,
     ) -> Result<(), WriteError> {
         use std::io::Write;
-        snapshot.validate()?;
+        sync_data.validate()?;
         if let Some(previous) = existing(&self.data_dir)?
-            && previous.learner.id != snapshot.learner.id
+            && previous.learner.id != sync_data.learner.id
         {
             return Err(WriteError::AccountMismatch);
         }
         #[derive(serde::Serialize)]
         struct WritableEnvelope<'a> {
             schema_version: u32,
-            snapshot: &'a Snapshot,
+            snapshot: &'a WaniKaniSyncData,
         }
         before(WriteStep::Create)?;
         let mut temporary = tempfile::NamedTempFile::new_in(&self.data_dir)?;
@@ -196,7 +197,7 @@ impl SyncGuard {
             &mut temporary,
             &WritableEnvelope {
                 schema_version: 1,
-                snapshot,
+                snapshot: sync_data,
             },
         )?;
         before(WriteStep::Flush)?;
@@ -214,9 +215,9 @@ impl SyncGuard {
     }
 }
 
-fn existing(data_dir: &Path) -> Result<Option<Snapshot>, CacheError> {
+fn existing(data_dir: &Path) -> Result<Option<WaniKaniSyncData>, CacheError> {
     match load(data_dir) {
-        Ok(snapshot) => Ok(Some(snapshot)),
+        Ok(sync_data) => Ok(Some(sync_data)),
         Err(CacheError::Missing { .. }) => Ok(None),
         Err(error) => Err(error),
     }

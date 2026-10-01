@@ -3,7 +3,8 @@
 Yomibu is an unofficial WaniKani tool for personalized Japanese reading practice,
 starting with a Rust CLI. Milestone 1 is complete through 1d: resilient full
 synchronization, offline inspection of learner observations, and macOS/Linux CI.
-Reading-practice features remain deferred.
+The library now composes these use cases through `App` with file or in-memory
+storage. Reading-practice features remain deferred.
 
 ```sh
 WANIKANI_API_TOKEN=... cargo run -- sync
@@ -32,16 +33,46 @@ cp tests/fixtures/mixed.json "$demo_dir/wanikani.json"
 cargo run -- status --data-dir "$demo_dir"
 ```
 
-The library exposes `wanikani::Client`, `cache::SyncGuard`, `cache::load`, domain
-structs/validation, and `Snapshot::summarize`. Keep a sync guard alive around
-`client.fetch().await` and call `guard.replace(&snapshot)` after retrieval.
-Retrieval requires a Tokio runtime with I/O and time enabled; other operations
-are synchronous. Reuse the client to retain rate-limit state. A custom base URL
-receives the supplied token and must be trusted. Publicly constructed or directly
-deserialized snapshots need validation; load, replace, and summarize validate
-automatically. Build API documentation with `cargo doc --locked --no-deps`.
+The recommended library entry point is `App`. Within a caller-owned Tokio runtime
+with I/O and time enabled:
+
+```rust,ignore
+use yomibu::{App, adapters::{sources::wanikani::Client, stores::FileLearningStore}};
+
+let mut app = App::new(FileLearningStore::new(data_dir))
+    .with_source(Client::new(token)?);
+let report = app.sync().await?;
+let summary = app.status()?;
+```
+
+Replace the store with `InMemoryLearningStore::new()` for volatile storage; the
+sync/status flow stays the same. `report.persistence` says whether the successful
+write was volatile or durably acknowledged. Results own their data. Offline use
+needs only `App::new(store).status()`, with no source or runtime. Store scope is
+one WaniKani account, not an implicit current user. Constructors do not fetch or
+write. Filesystem operations and domain calculations remain synchronous.
+
+Lower-level access through `wanikani::Client`, `cache::SyncGuard`, `cache::load`,
+and domain types remains available via adapter re-exports. Direct callers must
+keep a sync guard alive around retrieval and replacement. Reuse the client to
+retain rate-limit state. A custom base URL receives the supplied token and must
+be trusted. Publicly constructed or directly deserialized sync data needs
+validation; load, replace, and summarize validate automatically. Build API
+documentation with `cargo doc --locked --no-deps` for typed error and cancellation
+contracts; a persistence error does not always imply rollback.
 Argument/environment handling, runtime startup, text output, and exit codes belong
 to the binary. The repository pins Rust 1.98.1 with rustfmt and Clippy.
+
+`domain::WaniKaniSyncData` replaces the earlier `domain::Snapshot` name;
+`InvalidSnapshot` error variants are now `InvalidSyncData`. Rust callers must
+update imports and matches. The schema-1 JSON key remains `snapshot`, so existing
+cache files need no migration. This data covers one account's synchronization
+interval, not the entire catalog or an instantaneous remote state.
+
+The [design vocabulary](SPEC.md#design-vocabulary-and-composition) distinguishes
+implemented types from future components such as `ExerciseGenerator` and
+`LearnerKnowledgePolicy`. Generation, multi-source learners, SQL, and Cloud remain
+future work; [ARCHITECTURE.md](ARCHITECTURE.md) records their intended composition.
 
 ```sh
 cargo fmt --check
@@ -57,8 +88,10 @@ dependency downloads and compiled dependencies are cached separately by platform
 and compiler; only `main` saves caches, and PRs can restore them. Cache misses
 still run every gate. No WaniKani secret is required.
 
-See [SPEC.md](SPEC.md) for authoritative decisions, [PLAN.md](PLAN.md) for milestone
-status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
+See [SPEC.md](SPEC.md) for authoritative requirements,
+[ARCHITECTURE.md](ARCHITECTURE.md) for responsibilities, file/repository structure,
+and composition examples, [PLAN.md](PLAN.md) for milestones and TDD evidence, and
+[AGENTS.md](AGENTS.md) for engineering rules.
 
 ## Rust notes for a Ruby developer
 
@@ -66,8 +99,11 @@ status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
   those shapes explicitly; kana-only vocabulary cannot hold a readings field.
 - `Option` distinguishes absence from a value: missing lifecycle dates, unknown
   SRS systems, and no-review accuracy are different from zero-valued data.
-- Summaries borrow the snapshot's username (`&str`) and inspect collections by
-  reference. No cloned object graph or service-object hierarchy is needed.
+- Summaries own one username string and their aggregates, so they outlive the
+  input and application. Source collections are inspected by reference.
+- `App<Store, Source>` selects dependencies through Rust generics. The compiler
+  checks their contracts; no runtime dependency-injection container is needed.
+  An `Arc` shares an immutable data version without copying its collections.
 - `CacheError` and `ValidationError` are typed library boundaries. `?` propagates
   failures; `anyhow` is confined to executable orchestration and exit handling.
 - Ordered maps make SRS output deterministic. Unlike Ruby's growable integers,
@@ -92,15 +128,16 @@ status and TDD evidence, and [AGENTS.md](AGENTS.md) for engineering rules.
   keeps its own server/cache and real retry waits; a separate virtual-clock test
   checks the exact backoff deadlines without socket I/O.
 
-The 58-entry suite (including two subprocess helpers) uses local mock/raw HTTP
+The test suite (including two subprocess helpers) uses local mock/raw HTTP
 servers, isolated directories, and child processes. It covers streamed limits,
 deadlines, retry budgets, hostile pagination, later-page failures, storage faults,
 writer contention, and process termination. Killed writers can leave private
 staging files that later reads/writes ignore. Fault injection and process-kill
-tests do not simulate power loss. All 58 entries, formatting, and Clippy
-passed on native macOS/arm64 and Debian Linux/arm64 in a container, then on
-GitHub-hosted Ubuntu/x86_64 and macOS/arm64. Workflow lint and API documentation
-checks also passed. No live account was used. Request deadlines and page limits
+tests do not simulate power loss. The pre-migration 58-entry suite, formatting,
+and Clippy passed on native macOS/arm64 and Debian Linux/arm64 in a container,
+then on GitHub-hosted Ubuntu/x86_64 and macOS/arm64. Current migration verification
+is recorded separately in `PLAN.md`; earlier runs do not validate later code.
+No live account was used. Request deadlines and page limits
 do not bound total refresh duration or collection size. See the 1d record in
 [PLAN.md](PLAN.md) for full results and limits.
 
