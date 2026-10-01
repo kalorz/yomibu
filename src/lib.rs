@@ -1,4 +1,8 @@
-//! WaniKani synchronization, validated cache persistence, and offline summaries.
+//! WaniKani synchronization, offline summaries, and manual candidate preview.
+//!
+//! [`preview::preview`] synchronously selects structured word entries and checks
+//! membership/count. It borrows explicit inputs and needs no account, store, or
+//! runtime. Grammar and linguistic correctness remain explicitly unassessed.
 //!
 //! [`App`] coordinates explicit synchronization and offline status for a single
 //! account-scoped store. Supply a file or in-memory store and, for synchronization,
@@ -38,5 +42,6 @@ pub use adapters::stores::file::cache;
 pub use app::App;
 pub mod domain;
 pub mod ports;
+pub mod preview;
 pub mod summary;
 pub use adapters::sources::wanikani;

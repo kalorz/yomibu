@@ -19,10 +19,11 @@ On 2026-10-01 the user authorized the architecture migration for existing
 native macOS verification is recorded below separately from historical CI runs.
 Generation and other later product milestones remain outside this scope.
 
-The 2026-10-01 generation design follow-up records the next Cloud task:
-**G0 — Manual candidate preview**, below. It is planned, not implemented.
-This session changes documentation only. Starting the new Cloud implementation
-task authorizes G0, not the rest of the generation roadmap.
+**G0 — Manual candidate preview is complete** in the subsequent 2026-10-01
+Cloud implementation. The synchronous public library operation, thin CLI,
+independent checks, and runnable direct-library example are delivered below.
+The six TDD cycles and Linux verification are recorded in the G0 section.
+Work stops at G0; the rest of the generation roadmap remains unimplemented.
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
@@ -45,7 +46,7 @@ development dependency. Proptest remains deferred.
 | 1c — Sync resilience | Complete | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
 | 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local and hosted macOS/Linux gates pass; documented limitations; no placeholder future features |
 | Architecture migration | Complete | Library `App`, explicit source/storage contracts, file and in-memory stores, adapter layout, architecture document | Both stores run real sync/status; existing safety and schema contracts preserved; no generation placeholders |
-| G0 — Manual candidate preview | Planned; next Cloud task | Synchronous library operation and `preview` CLI, structured word entries, deterministic selection and independent checks | Direct and CLI calls agree, no storage/network/runtime requirements, explicit assessment limits; existing use cases still pass |
+| G0 — Manual candidate preview | Complete | Synchronous library operation and `preview` CLI, structured word entries, deterministic selection and independent checks | Direct and CLI calls agree, no storage/network/runtime requirements, explicit assessment limits; all 84 tests and required gates pass on Linux/x86_64 |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -57,10 +58,9 @@ than retrofitting unsafe foundations.
 
 ## G0 — Manual candidate preview
 
-This is the next implementation task, before learner-source composition,
-Japanese analysis, or LLM generation. Implement only this section in the first
-Cloud session. Follow `SPEC.md`'s **Manual candidate preview** contract and the
-minimal adaptation described in `ARCHITECTURE.md`.
+This delivered slice precedes learner-source composition, Japanese analysis,
+and LLM generation. It implements `SPEC.md`'s **Manual candidate preview**
+contract and the minimal adaptation described in `ARCHITECTURE.md`.
 
 ### Outcome
 
@@ -113,19 +113,96 @@ the full implementation before its tests.
 
 Definition of done:
 
-- [ ] The example selects exactly `猫:ねこ:cat` and `犬:いぬ:dog` in order.
-- [ ] Required fields, delimiters, counts, duplicates, and meaning/reading
+- [x] The example selects exactly `猫:ねこ:cat` and `犬:いぬ:dog` in order.
+- [x] Required fields, delimiters, counts, duplicates, and meaning/reading
   association have behavioral coverage; invalid inputs never report success.
-- [ ] Result checks can detect invalid candidate data independently of selection.
-- [ ] Grammar inputs survive preparation and remain explicitly unassessed.
-- [ ] Direct library use is synchronous and needs no CLI/runtime/account/store.
-- [ ] The CLI works without HOME, credentials, cache, or filesystem writes.
-- [ ] Existing sync/status and persistence regression tests pass.
-- [ ] `cargo fmt --check`, locked Clippy with all targets/features and warnings
+- [x] Result checks can detect invalid candidate data independently of selection.
+- [x] Grammar inputs survive preparation and remain explicitly unassessed.
+- [x] Direct library use is synchronous and needs no CLI/runtime/account/store.
+- [x] The CLI works without HOME, credentials, cache, or filesystem writes.
+- [x] Existing sync/status and persistence regression tests pass.
+- [x] `cargo fmt --check`, locked Clippy with all targets/features and warnings
   denied, and `cargo test --locked --all` pass; report any platform limitations.
-- [ ] The final diff and public API are reviewed; TDD/refactor evidence is
+- [x] The final diff and public API are reviewed; TDD/refactor evidence is
   recorded; documentation reflects implemented behavior; changes are committed
   and available in a pull request. Do not mark this done at planning time.
+
+### G0 implementation TDD record — 2026-10-01
+
+Started from latest merged `main`, `96b3eda`, after confirming the G0 contract.
+Each row records a confirmed RED before production code, GREEN, and an explicit
+refactor review followed by a focused rerun.
+
+| Cycle | Observed RED | GREEN and refactor review |
+| --- | --- | --- |
+| Structured selection and counts | Integration tests could not import the absent `preview` API | Select a borrowed prefix, preserving duplicates and associated fields; reject zero, excessive counts, and empty input. Three tests passed. Reviewed names, ownership, and test cases; borrowing avoids cloning strings, with no further abstraction justified. |
+| Required word fields | A blank text field was accepted | Validate every supplied entry, including the unselected suffix, for blank text/reading/meaning; return an entry-specific typed error. Four tests passed, including Unicode whitespace cases. Reviewed the compact field loop and test matrix; no additional type/helper or refactor was justified. |
+| Grammar declarations | The result lacked grammar inputs; after retention was added, a blank description was still accepted | Preserve descriptions, order, duplicates, and optional empty grammar input; reject blank descriptions with a typed error. Six tests passed. Reviewed borrowing and validation: share the input lifetime, retain description content verbatim, and avoid a grammar identity/adapter type; no further refactor justified. |
+| Independent checks | Check function/outcome types were absent | Production checks accept supplied entries, reject unsupplied/recombined text-reading-meaning entries, and detect empty/excess selections independently of membership. Public results report grammar and linguistic correctness as unassessed. Three checker tests and six direct API tests passed. Refactored input validation into a private function so validation, selection, and checking are explicit; kept the checker private with no trait or generator seam. Focused suites passed again. |
+| Thin CLI and syntax | The example/error cases failed on the unrecognized `preview` command; delimiter tests could not find the parser | Added executable-only parsing/rendering around the library call. Two parser tests cover ASCII delimiters, boundary trimming, internal whitespace, and meaning colons; two CLI tests compare the documented example to direct library use and cover eleven invalid-input cases. Reviewed ownership, error boundaries, and rendering duplication; shared library field validation and one outcome-rendering loop suffice, with no further abstraction justified. Focused tests passed after formatting/review. |
+| Preview isolation | Preview failed with “HOME is unavailable” in an environment-cleared child process | Resolve data directories only in sync/status through a shared private helper. Preview succeeds with no HOME/token, an unusable or absent explicit directory, and an invalid token; isolated directories and sentinel bytes remain unchanged. All twelve CLI tests passed. Refactor review preserved sync/status error ordering and kept runtime/source construction in sync; no further change justified. The complete CLI suite passed again. |
+
+### G0 verification and review
+
+Executed on Linux/x86_64 with the repository's exact Rust 1.98.1 toolchain:
+
+- `cargo fmt --check` — passed.
+- `cargo clippy --locked --all-targets --all-features -- -D warnings` — passed.
+- `cargo test --locked --all` — 84 test entries passed, none ignored: 28 library,
+  3 binary, 5 App, 13 cache, 12 CLI, 6 preview, 6 store, 6 summary, and 5 sync.
+  This includes the two existing subprocess helpers. The existing rustdoc
+  example also compiled successfully.
+- Ran the documented command above through `env -i` with no HOME/token. Output:
+
+  ```text
+  Manual candidate preview (not a validated Japanese exercise)
+    Word: 猫:ねこ:cat
+    Word: 犬:いぬ:dog
+    Grammar: です
+    Grammar: は
+  Supplied-entry membership: pass
+  Requested entry count: pass
+  Grammar: not assessed
+  Readings, meanings, naturalness: not assessed
+  ```
+
+- `cargo run --locked --example preview` — passed; the synchronous example
+  asserts the same selected entries, retained grammar, and check outcomes, then
+  prints the structured result. The compiled example also passed under `env -i`.
+- Inspected top-level and preview help. `git diff --check` passed. The complete
+  diff, including new source/tests/example files, was reviewed for scope,
+  ownership, public API, errors, and synchronous data flow.
+- `RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps` — passed, including
+  the new public API links.
+
+Final refactor review kept one cohesive preview module and five public data/error
+types needed by callers. Input validation and result checking remain private;
+no substitution need justifies a new trait. The result borrows immutable inputs,
+so words/grammar are not cloned. The CLI alone parses delimiters, reads the
+environment for storage commands, renders output, and selects exit status.
+Manifest, lockfile, toolchain pin, source/store contracts, persistence code,
+schema-1 fixtures, and existing tests are unchanged. Their full regression suite
+passed, including account isolation, writer locking, failure preservation, and
+uncertain durability.
+
+The Cloud environment initially had no Rust installation. Installed the pinned
+toolchain and downloaded the locked dependencies into the workspace; no
+repository dependency/toolchain changes were required. Network-enabled execution
+was needed for fetching/build setup and the full loopback HTTP test suite.
+Preview demonstrations themselves used no network or credentials.
+
+Limitations: this verification ran on Linux/x86_64; no native macOS run is claimed
+for G0. Existing macOS/Linux CI remains in place; earlier hosted results elsewhere
+in this document are historical. No live WaniKani or model call was made.
+Membership proves only exact supplied-entry association, not dictionary truth,
+grammar usage, naturalness, or Japanese correctness. No later milestone started.
+
+Rust notes for a Ruby developer: `Preview<'a>` borrows slices, so the compiler
+prevents changing or dropping the inputs while the result still refers to them.
+`Result<_, PreviewError>` and enum outcomes keep input failures and unassessed
+checks explicit instead of relying on exceptions or truthy values. An ordinary
+synchronous function is sufficient here; no service object, runtime, or new
+trait is needed.
 
 ### Scope limits and next decisions
 
@@ -141,9 +218,9 @@ representative known/unknown and ambiguous cases. Typed model-task composition,
 global budgets, basic naturalness/coherence review, and complete post-repair
 revalidation arrive with real generation. Broader translation judging and
 adaptive selection remain later milestones. No real-model budget is authorized
-by this documentation task.
+by G0.
 
-### Cloud handoff
+### Original Cloud handoff (planning record)
 
 Merge the documentation-only planning PR before starting from `main`. Otherwise,
 explicitly select its branch, `codex/generation-preview-plan`, as the starting
@@ -189,7 +266,8 @@ consistent scope, vocabulary, CLI contracts, and acceptance criteria; checked
 whitespace with `git diff --check`. Only SPEC.md, ARCHITECTURE.md, and PLAN.md are
 changed. No Rust source, tests, dependencies, or CI configuration are changed,
 and no Cargo gates or linguistic/model experiments were run for this
-documentation-only handoff. G0 remains unimplemented.
+documentation-only handoff. At that point G0 remained unimplemented; its delivery
+and verification are now recorded above.
 
 ## Completed milestone records
 

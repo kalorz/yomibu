@@ -8,18 +8,17 @@ every adapter.
 
 ## Delivery boundary
 
-The current migration covers the existing WaniKani `sync` and offline `status`
+The completed migration covers the existing WaniKani `sync` and offline `status`
 use cases, an application entry point, and interchangeable file and in-memory
-stores. Generation, grammar input, multi-source learner management, PostgreSQL,
-Cloud HTTP endpoints, and additional provider integrations follow in later steps.
+stores. Generation, durable grammar input, multi-source learner management,
+PostgreSQL, Cloud HTTP endpoints, and additional provider integrations follow later.
 Keep one Cargo package with a library and a thin CLI binary.
 
-The next implementation slice is **G0 — Manual candidate preview** in `PLAN.md`:
+The completed **G0 — Manual candidate preview** slice in `PLAN.md` adds
 explicit in-memory word/grammar input, deterministic selection, independent
-result checks, and a CLI entry point. This document update implements none of
-it; implementation is handed off to a new Cloud session. G0 does not require
-changing the existing storage/source contracts or building the full future
-generation pipeline.
+result checks, and a CLI entry point. Its synchronous library operation has no
+store, account, runtime, or service dependency. The existing storage/source
+contracts are unchanged; the future generation pipeline remains deferred.
 
 Do not replace the existing safety behavior during migration: source-state
 preservation, full-refresh replacement, account protection, writer exclusion,
@@ -102,9 +101,12 @@ resources and execute work.
 
 For the current CLI:
 
-1. Parse the command and data directory. Only `sync` resolves the WaniKani token.
-2. Construct `FileLearningStore` for that directory and `App`. For `sync`, supply
-   the WaniKani client as the source. `status` needs no source or HTTP client.
+1. Parse the command. Resolve a data directory only for sync/status; only `sync`
+   resolves the WaniKani token. Preview parses structured entries and directly
+   calls the synchronous library operation described below.
+2. For sync/status, construct `FileLearningStore` for that directory and `App`.
+   For `sync`, supply the WaniKani client as the source. `status` needs no source
+   or HTTP client.
 3. `App.sync` acquires a store writer before network retrieval. A corrupt cache
    or conflicting writer fails before fetching. The writer lives across fetch
    and replacement and is released on success, error, or future cancellation.
@@ -218,7 +220,7 @@ validated response shapes. This does not require a heterogeneous task registry
 or arbitrary schema-merging framework. Role-specific contracts and their exact
 Rust ownership/dispatch choices are verified in the implementing slice.
 
-### Minimal adaptation for G0
+### Implemented minimal adaptation for G0
 
 ```text
 CLI argument parsing -> structured word/grammar inputs + requested count
@@ -226,20 +228,21 @@ CLI argument parsing -> structured word/grammar inputs + requested count
                     -> deterministic selection -> independent checks -> report
 ```
 
-Use a cohesive preview module (for example `generation/preview.rs`) and a small
-public entry point. The library owns validation of structured inputs, selection,
-and result checks; CLI delimiter parsing and rendering stay in the executable.
-Do not force transient input through `LearningStore`, `WaniKaniSyncData`, an
-account-scoped `App`, or a source-specific knowledge policy. Word selection is
-not a story, sentence, or accepted exercise, so do not construct those future
-types just to return selected entries.
+`src/preview.rs` exposes `preview(words, grammar, take)` with concrete
+`WordEntry` inputs, a borrowed `Preview` result, `PreviewChecks`, `CheckOutcome`,
+and typed `PreviewError`. Private functions validate all supplied inputs and
+check the produced selection. Borrowed slices retain order, duplicates, and
+associations without copying strings. Complete-entry equality checks membership;
+an independent length check compares the result with the requested count.
+Grammar and linguistic correctness are explicitly unassessed.
 
-The CLI currently resolves HOME/data-dir before dispatching commands. Resolve
-that only for commands needing storage so preview has no filesystem/runtime
-setup. Keep existing sync/status behavior, cache schema, adapter layout, and
-one-package boundary. Inspect whether candidate/check substitution justifies a
-small contract now; use production checks against deliberately invalid candidate
-data to verify their behavior without building a registry or a fake backend.
+CLI delimiter parsing and rendering stay in the executable. A private data-dir
+resolver is called only by sync/status. Transient preview input never passes
+through `LearningStore`, `WaniKaniSyncData`, an account-scoped `App`, or a
+knowledge policy. There is no generator/checker substitution need in this slice:
+unit tests exercise the actual private checker with deliberately invalid data.
+No trait, future text type, registry, or fake backend was added. Existing
+sync/status behavior, cache schema, adapter layout, and package boundary remain.
 
 ## Stores, source data, and consistency
 
@@ -324,8 +327,9 @@ differences behind a uniform success value or automatic fallback.
 
 ## Public contracts and evolution
 
-The implemented entry points are `App.new(store).status()` and
-`App.new(store).with_source(source).sync()`. `SyncReport` contains an owned
+The implemented storage entry points are `App.new(store).status()` and
+`App.new(store).with_source(source).sync()`. Manual preview has the separate
+`preview::preview` entry point described above. `SyncReport` contains an owned
 summary, source synchronization times, and persistence classification. Errors
 retain the source/storage type. In particular, a file
 `WriteError::DurabilityUncertain` must remain distinguishable through `SyncError`;
@@ -360,6 +364,7 @@ src/
   app.rs                     sync/status orchestration and reports
   domain.rs                  retained source data and invariants
   summary.rs                 deterministic source summaries
+  preview.rs                 synchronous manual selection, validation, and checks
   ports.rs                   source and atomic storage capabilities
   adapters/
     mod.rs
@@ -374,6 +379,7 @@ src/
         cache.rs             existing validated persistence and locking
         cache/tests.rs       filesystem fault/interruption tests
 tests/                       use-case, store-contract, CLI and integration tests
+examples/preview.rs          runnable direct library use, without a runtime/store
 ARCHITECTURE.md              this design
 SPEC.md                      product contracts
 PLAN.md                      implementation stages and evidence
