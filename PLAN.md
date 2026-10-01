@@ -19,6 +19,11 @@ On 2026-10-01 the user authorized the architecture migration for existing
 native macOS verification is recorded below separately from historical CI runs.
 Generation and other later product milestones remain outside this scope.
 
+The 2026-10-01 generation design follow-up records the next Cloud task:
+**G0 — Manual candidate preview**, below. It is planned, not implemented.
+This session changes documentation only. Starting the new Cloud implementation
+task authorizes G0, not the rest of the generation roadmap.
+
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
 
@@ -40,6 +45,7 @@ development dependency. Proptest remains deferred.
 | 1c — Sync resilience | Complete | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
 | 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local and hosted macOS/Linux gates pass; documented limitations; no placeholder future features |
 | Architecture migration | Complete | Library `App`, explicit source/storage contracts, file and in-memory stores, adapter layout, architecture document | Both stores run real sync/status; existing safety and schema contracts preserved; no generation placeholders |
+| G0 — Manual candidate preview | Planned; next Cloud task | Synchronous library operation and `preview` CLI, structured word entries, deterministic selection and independent checks | Direct and CLI calls agree, no storage/network/runtime requirements, explicit assessment limits; existing use cases still pass |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -48,6 +54,144 @@ added after implementation or postponed to 1c.
 Basic credential protection, timeouts, and safe persistence apply as soon as the
 respective I/O is introduced; 1c completes and exercises the failure paths rather
 than retrofitting unsafe foundations.
+
+## G0 — Manual candidate preview
+
+This is the next implementation task, before learner-source composition,
+Japanese analysis, or LLM generation. Implement only this section in the first
+Cloud session. Follow `SPEC.md`'s **Manual candidate preview** contract and the
+minimal adaptation described in `ARCHITECTURE.md`.
+
+### Outcome
+
+```sh
+yomibu preview \
+  --word '猫:ねこ:cat' \
+  --word '犬:いぬ:dog' \
+  --word '学校:がっこう:school' \
+  --grammar 'です' --grammar 'は' \
+  --take 2
+```
+
+Returns the first two structured word entries and check results. Grammar and
+linguistic correctness are explicitly unassessed. This is an executable preview,
+not a validated Japanese exercise. The same behavior is callable from Rust with
+structured values, without a store or CLI process.
+
+### Implementation sequence and acceptance
+
+Work through these in small confirmed Red-Green-Refactor cycles. Record the
+observed RED, GREEN, and explicit refactor review as work completes; do not write
+the full implementation before its tests.
+
+1. **Structured input and deterministic selection.** Validate required word
+   fields and grammar descriptions, require a positive count within input size,
+   and retain input order and associations of text/reading/meaning. Cover empty
+   input, invalid counts, duplicates, and the same spelling with different
+   reading/meaning entries. Do not infer lexical equivalence or mastery.
+2. **Independent result checks and reporting.** Check the produced selection
+   against supplied entries and the requested count. Exercise production check
+   logic with a valid selection and deliberately invalid data, including an
+   unsupplied reading/meaning combination and a wrong count. Preserve grammar
+   inputs and report them as unassessed. No tokenizer, model, or fake linguistic
+   assessment is involved. Export only types needed by actual library callers.
+3. **Thin CLI composition.** Add repeatable `--word 'TEXT:READING:MEANING'`,
+   repeatable `--grammar`, and required `--take`. Split at the first two colons,
+   reject missing/blank fields, preserve colons inside meanings, and show useful
+   errors/help. Render the selected entries and assessment limits. Keep syntax
+   parsing outside the library and direct-call behavior equivalent.
+4. **Isolation and regression verification.** Run preview with no HOME or token
+   in an isolated child-process environment and confirm it creates no data
+   directory/cache. Move data-dir resolution into storage-dependent CLI paths;
+   do not change global environment in parallel tests. Existing sync/status,
+   account isolation, locking, and durability semantics must remain covered.
+5. **Review and delivery.** Review naming, ownership, public surface, synchronous
+   flow, and whether any trait is justified by actual substitution. No separate
+   architecture rewrite, adapter migration, workspace split, or generic plugin
+   host. Run the gates below, demonstrate the CLI and direct library use, update
+   this section with actual evidence and limitations, and open a reviewable PR.
+
+Definition of done:
+
+- [ ] The example selects exactly `猫:ねこ:cat` and `犬:いぬ:dog` in order.
+- [ ] Required fields, delimiters, counts, duplicates, and meaning/reading
+  association have behavioral coverage; invalid inputs never report success.
+- [ ] Result checks can detect invalid candidate data independently of selection.
+- [ ] Grammar inputs survive preparation and remain explicitly unassessed.
+- [ ] Direct library use is synchronous and needs no CLI/runtime/account/store.
+- [ ] The CLI works without HOME, credentials, cache, or filesystem writes.
+- [ ] Existing sync/status and persistence regression tests pass.
+- [ ] `cargo fmt --check`, locked Clippy with all targets/features and warnings
+  denied, and `cargo test --locked --all` pass; report any platform limitations.
+- [ ] The final diff and public API are reviewed; TDD/refactor evidence is
+  recorded; documentation reflects implemented behavior; changes are committed
+  and available in a pull request. Do not mark this done at planning time.
+
+### Scope limits and next decisions
+
+G0 does not add file/stdin/JSON imports, real Japanese generation or grammar
+matching, model calls, provider integrations, storage schema changes, or future
+text/plugin types without an executable use. Existing concepts in the target
+architecture are guidance, not a checklist of types to implement.
+
+After G0, continue with learner constraints/retrieval and an evidence-backed
+Japanese analysis slice, then validated generation. Before claiming linguistic
+coverage, select pinned tools/data, review applicable licenses, and evaluate
+representative known/unknown and ambiguous cases. Typed model-task composition,
+global budgets, basic naturalness/coherence review, and complete post-repair
+revalidation arrive with real generation. Broader translation judging and
+adaptive selection remain later milestones. No real-model budget is authorized
+by this documentation task.
+
+### Cloud handoff
+
+Merge the documentation-only planning PR before starting from `main`. Otherwise,
+explicitly select its branch, `codex/generation-preview-plan`, as the starting
+point. A local saved file or commit alone is not the remote handoff. Confirm this
+G0 section exists in the selected checkout before implementation; do not recreate
+decisions from the old shared-chat transcript. The three repository documents
+contain the consolidated direction and are sufficient task context.
+
+Suggested implementation prompt:
+
+```text
+Work in kalorz/yomibu from the latest main containing "G0 — Manual candidate
+preview" in PLAN.md. Read AGENTS.md, SPEC.md, ARCHITECTURE.md, and PLAN.md, then
+inspect the actual implementation before editing. If the G0 plan is absent,
+report the base-branch mismatch rather than inventing the missing requirements.
+
+Implement only G0 end to end on a new codex/ branch: a synchronous public library
+preview and the thin CLI command described in SPEC.md. Preserve structured
+text/reading/meaning associations, grammar declarations, deterministic selection,
+independent membership/count checks, typed errors, and honest unassessed statuses.
+Preview must work without HOME, tokens, a store, network access, or an async
+runtime. Keep existing sync/status behavior and schema-1 persistence intact.
+
+Use strict Red-Green-Refactor, confirming each focused RED before production
+behavior and explicitly reviewing/refactoring after GREEN. Keep the public API
+small and adapt existing code incrementally; do not scaffold the future text
+hierarchy, language analysis, model integration, or a general plugin framework.
+Proceed autonomously on routine reversible choices; do not stop after a plan.
+
+Run cargo fmt --check, cargo clippy --locked --all-targets --all-features -- -D
+warnings, and cargo test --locked --all. Demonstrate the example command and
+direct library use. Update PLAN.md with actual TDD/refactor evidence, check
+results, and limitations; keep the specification and architecture aligned.
+Review the complete diff, commit and push the implementation, and open a PR.
+Report the PR link, commit, verification, and brief Rust notes for a Ruby
+developer. Do not merge automatically or start the following milestone.
+```
+
+### Planning verification — 2026-10-01
+
+Prepared from merged `main` at `b2b50e8`. Reviewed the three-document diff for
+consistent scope, vocabulary, CLI contracts, and acceptance criteria; checked
+whitespace with `git diff --check`. Only SPEC.md, ARCHITECTURE.md, and PLAN.md are
+changed. No Rust source, tests, dependencies, or CI configuration are changed,
+and no Cargo gates or linguistic/model experiments were run for this
+documentation-only handoff. G0 remains unimplemented.
+
+## Completed milestone records
 
 ### 1a — Offline status
 
@@ -669,7 +813,8 @@ package; the completed 1a checks are recorded above.
 
 ## Later milestones
 
-These require separate design work and are not part of milestone 1:
+These follow G0 and require separate implementation authorization. They are not
+part of the completed sync/status milestone or the first Cloud preview task:
 
 1. **Learner constraints and retrieval:** grammar knowledge as learner data,
    initially entered through a local file, an explicit revisable
@@ -681,15 +826,18 @@ These require separate design work and are not part of milestone 1:
    on demand from preserved progress and manual declarations. Future provider
    grammar identifiers remain independent; no semantic cross-provider mapping
    or canonical catalog is required.
-2. **Validated generation:** deterministic Japanese validation, followed by real
-   best-of-two generation and bounded repair for simple sentences and short
-   stories. Include focused, grounded sense/reading checks when supporting
-   ambiguous targets. Acceptance: select a valid passage or report failure
+2. **Validated generation:** evidence-backed Japanese analysis and explicit
+   pass/fail/inconclusive checks, real best-of-two generation, a minimal combined
+   naturalness/coherence review, and bounded repair for sentences and stories.
+   Include focused, grounded sense/reading checks when supporting ambiguous
+   targets. Acceptance: select an acceptable passage or report failure
    without silently relaxing constraints; length and complexity do not authorize
    unfamiliar vocabulary or kanji. Use the `ExerciseGenerator` responsibility,
    with candidate production behind `CandidateGenerator`, prompt sets from
    `PromptStore`, and an explicitly selected `LanguageModel`. Introduce only the
-   substitution points demonstrated by the implementing milestone.
+   substitution points demonstrated by the implementing milestone. Bound model
+   invocations per phase and globally, including retries; repaired candidates
+   receive fresh analysis and full reassessment.
 3. **Reading practice:** reading quizzes with kana/romaji normalization and
    persisted attempts. Acceptance: deterministic comparison against contextually
    validated readings and useful mistake records. Rephrase or reject ambiguous
@@ -698,7 +846,8 @@ These require separate design work and are not part of milestone 1:
 4. **Meaning and usage evaluation:** multilingual translation judging and grounded
    semantic criticism beyond the focused target checks already introduced.
    Acceptance: evaluate preserved meaning without requiring one canonical
-   translation; assess broader naturalness and grammar suitability.
+   translation; extend the basic naturalness/coherence review and focused
+   reading/sense assessment already introduced with generation.
 5. **Adaptive selection:** combine WaniKani statistics with Yomibu mistakes.
    Acceptance: target choices use both sources and can be explained without
    introducing an SRS.
