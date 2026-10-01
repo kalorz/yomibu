@@ -191,11 +191,17 @@ repository dependency/toolchain changes were required. Network-enabled execution
 was needed for fetching/build setup and the full loopback HTTP test suite.
 Preview demonstrations themselves used no network or credentials.
 
-Limitations: this verification ran on Linux/x86_64; no native macOS run is claimed
-for G0. Existing macOS/Linux CI remains in place; earlier hosted results elsewhere
-in this document are historical. No live WaniKani or model call was made.
-Membership proves only exact supplied-entry association, not dictionary truth,
-grammar usage, naturalness, or Japanese correctness. No later milestone started.
+Hosted verification of implementation commit `f77809a` also passed on both
+Ubuntu and macOS in [CI run 36921406965](https://github.com/kalorz/yomibu/actions/runs/36921406965).
+Both jobs completed formatting, locked Clippy, all tests, and unchanged-lockfile
+checks successfully. This is G0 evidence; earlier hosted results elsewhere in
+this document remain historical. The follow-up recording this run changes only
+this document.
+
+Limitations: local execution was on Linux/x86_64; macOS was verified through
+GitHub-hosted CI. No live WaniKani or model call was made. Membership proves only
+exact supplied-entry association, not dictionary truth, grammar usage,
+naturalness, or Japanese correctness. No later milestone started.
 
 Rust notes for a Ruby developer: `Preview<'a>` borrows slices, so the compiler
 prevents changing or dropping the inputs while the result still refers to them.
