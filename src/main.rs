@@ -7,7 +7,9 @@ use std::{
     process::ExitCode,
 };
 use yomibu::{
-    cache,
+    App,
+    adapters::stores::FileLearningStore,
+    app::SyncReport,
     summary::{Accuracy, Summary},
     wanikani::Client,
 };
@@ -61,29 +63,26 @@ fn run() -> anyhow::Result<()> {
                 .ok_or_else(|| {
                     anyhow!("Set WANIKANI_API_TOKEN in the environment before running yomibu sync.")
                 })?;
-            let snapshot = synchronize(&data_dir, Client::new(&token)?)?;
-            write_status(&mut io::stdout().lock(), &snapshot.summarize()?)?;
+            let report = synchronize(&data_dir, Client::new(&token)?)?;
+            write_status(&mut io::stdout().lock(), &report.summary)?;
         }
         Command::Status => {
-            let snapshot = cache::load(&data_dir)?;
-            let summary = snapshot.summarize()?;
+            let summary = App::new(FileLearningStore::new(&data_dir)).status()?;
             write_status(&mut io::stdout().lock(), &summary)?;
         }
     }
     Ok(())
 }
 
-fn synchronize(data_dir: &Path, mut client: Client) -> anyhow::Result<yomibu::domain::Snapshot> {
-    let guard = cache::SyncGuard::acquire(data_dir)?;
+fn synchronize(data_dir: &Path, client: Client) -> anyhow::Result<SyncReport> {
+    let mut app = App::new(FileLearningStore::new(data_dir)).with_source(client);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let snapshot = runtime.block_on(client.fetch())?;
-    guard.replace(&snapshot)?;
-    Ok(snapshot)
+    Ok(runtime.block_on(app.sync())?)
 }
 
-fn write_status(out: &mut impl Write, summary: &Summary<'_>) -> io::Result<()> {
+fn write_status(out: &mut impl Write, summary: &Summary) -> io::Result<()> {
     writeln!(out, "Cached WaniKani observations")?;
     writeln!(out, "User: {} (level {})", summary.username, summary.level)?;
     writeln!(
@@ -149,9 +148,10 @@ fn write_accuracy(out: &mut impl Write, label: &str, accuracy: &Accuracy) -> io:
 mod tests {
     use super::*;
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+    use yomibu::cache;
 
     #[test]
-    fn composes_sync_under_lock_and_renders_the_persisted_snapshot() {
+    fn composes_sync_under_lock_and_renders_the_persisted_sync_data() {
         let setup = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -173,10 +173,13 @@ mod tests {
         let client =
             Client::with_base_url("synthetic-cli-credential", &format!("{}/v2/", server.uri()))
                 .unwrap();
-        let snapshot = synchronize(dir.path(), client).unwrap();
-        assert_eq!(snapshot, cache::load(dir.path()).unwrap());
+        let report = synchronize(dir.path(), client).unwrap();
+        assert_eq!(
+            report.summary,
+            cache::load(dir.path()).unwrap().summarize().unwrap()
+        );
         let mut output = Vec::new();
-        write_status(&mut output, &snapshot.summarize().unwrap()).unwrap();
+        write_status(&mut output, &report.summary).unwrap();
         let text = String::from_utf8(output).unwrap();
         assert!(text.contains("User: テスト (level 5)"));
         assert!(text.contains("Meaning accuracy: no reviews"));

@@ -88,13 +88,13 @@ pub(super) async fn fails_without_replacing_cache(client: &mut Client) -> Error 
     use crate::cache::{self, SyncGuard};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("wanikani.json");
-    let bytes = include_bytes!("../../tests/fixtures/mixed.json");
+    let bytes = include_bytes!("../../../../tests/fixtures/mixed.json");
     std::fs::write(&path, bytes).unwrap();
     let original = cache::load(dir.path()).unwrap();
     let guard = SyncGuard::acquire(dir.path()).unwrap();
     let result = client.fetch().await;
-    if let Ok(snapshot) = &result {
-        guard.replace(snapshot).unwrap();
+    if let Ok(sync_data) = &result {
+        guard.replace(sync_data).unwrap();
     }
     let error = result.unwrap_err();
     assert_eq!(std::fs::read(path).unwrap(), bytes);
