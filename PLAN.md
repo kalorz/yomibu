@@ -2,7 +2,8 @@
 
 `SPEC.md` is the authoritative product and architecture baseline. This document
 tracks delivery order and acceptance criteria; it does not authorize future
-milestones merely by listing them.
+milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
+composition, and file/package/repository boundaries.
 
 ## Current state and stopping point
 
@@ -13,7 +14,13 @@ exposes its I/O cause. Quality gates passed locally on macOS/arm64 and in an
 isolated Linux/arm64 container, then on GitHub-hosted Ubuntu/x86_64 and
 macOS/arm64. Follow-ups add dependency caching, avoid redundant runs, and overlap
 independent HTTP test scenarios while strengthening exact timer checks.
-Stop after 1d; later product milestones remain unauthorized.
+On 2026-10-01 the user authorized the architecture migration for existing
+`sync/status` described in `ARCHITECTURE.md`. That migration is complete; its
+native macOS verification is recorded below separately from historical CI runs.
+Generation and other later product milestones remain outside this scope.
+
+The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
+renames the existing sync-data type. It does not start a new product milestone.
 
 On 2026-09-27, the official Rust release page and `rustup update stable` both
 confirmed Rust 1.98.1. Installed the exact 1.98.1 toolchain with rustfmt and Clippy,
@@ -32,6 +39,7 @@ development dependency. Proptest remains deferred.
 | 1b — First complete sync | Complete | HTTP adapter, normalization, safe persistence, thin CLI composition | Mock API → normalized snapshot → disk → offline status succeeds through real components |
 | 1c — Sync resilience | Complete | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
 | 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local and hosted macOS/Linux gates pass; documented limitations; no placeholder future features |
+| Architecture migration | Complete | Library `App`, explicit source/storage contracts, file and in-memory stores, adapter layout, architecture document | Both stores run real sync/status; existing safety and schema contracts preserved; no generation placeholders |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -446,6 +454,143 @@ runtime, so one case can progress while another waits. Each future owns its
 server and temporary directory; unwinding still drops those resources. This
 reduces serialized waiting without weakening the real HTTP boundary checks.
 
+## Naming and design follow-up — 2026-09-30
+
+Accepted the responsibility vocabulary in `SPEC.md`, including
+`SourceConnection`, `LearnerProgress`, `LearnerKnowledge`,
+`LearnerKnowledgePolicy`, `PromptTemplate`, `ModelRequest`, `PromptStore`,
+`CandidateGenerator`, and `ExerciseGenerator`. Future adapters use the
+`InMemory...` prefix. These names define a direction, not a list of scaffolding
+to add. Grammar entries retain provider identity; no cross-provider grammar
+ontology is required. Code may remain public while Cloud supplies private data.
+
+Renamed the implemented `domain::Snapshot` to `domain::WaniKaniSyncData`, matching
+its account scope and synchronization interval. Renamed the validation-error
+variants from `InvalidSnapshot` to `InvalidSyncData`, updated callers, local
+variables, test names, and documentation. This changes Rust source API names and
+diagnostic wording; it does not change validation, network requests, or storage
+behavior. No compatibility alias is retained in this unpublished library.
+The private persistence envelope keeps its `snapshot` field and schema version 1;
+existing JSON fixtures remain unchanged.
+
+The future composition retains explicit dependencies and optional sync. Direct
+in-memory data is enough for one-off generation, local CLI storage remains
+file-backed, and Cloud selects its stores. `LearnerKnowledge` is derived on
+demand. Separate writes from reads without adding event sourcing, a command bus,
+or a separate read database. No future types, traits, adapters, or crates were
+implemented in this follow-up.
+
+This is a naming refactor and documentation update, with no new behavioral path
+requiring an artificial failing test. Before the rename, all 19 existing cache
+and summary integration tests passed.
+
+Refactor review covered production and test naming, responsibilities, duplication,
+ownership/borrowing, and Rust idioms. Kept the existing modules, owned sync data,
+borrowed summaries, private persistence envelope, and behavioral assertions;
+no further abstraction or refactor was justified. One missed test-variable rename
+was found by compilation and corrected before the final checks.
+
+Post-change verification on native macOS passed:
+
+- `cargo fmt --check`
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`
+- `cargo test --locked --all` — all 58 entries passed, including the two
+  subprocess helpers; none ignored. The first sandboxed attempt could not bind
+  loopback sockets; the authorized rerun passed with local test servers.
+- `RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps`
+- `git diff --check` and review of the complete diff; schema fixtures, dependency
+  manifest, lockfile, and toolchain pin remain unchanged.
+
+Existing fixture reads, writer round trips, and HTTP-to-cache-to-CLI tests verify
+schema-1 compatibility. No live API, model, Linux, or hosted CI run was performed
+for this naming follow-up; earlier platform results remain historical evidence.
+
+Rust note for a Ruby developer: renaming a Rust struct does not rename its JSON
+fields. The private cache envelope preserves the disk format independently of
+the public type name. Public source code also does not require every Rust type
+or test helper to be exported with `pub`.
+
+## Architecture migration — 2026-10-01
+
+Implemented the accepted first slice: existing sync/status behind library `App`,
+with explicit source and store dependencies. `App` has no runtime/environment
+ownership or current-user state. Status needs no source; sync returns an owned
+summary and explicit volatile/durable persistence outcome, preserving typed
+source and storage errors. The CLI now composes these use cases instead of
+implementing synchronization itself.
+
+Moved WaniKani under `adapters/sources/wanikani` and file persistence under
+`adapters/stores/file`. Root `wanikani` and `cache` module paths remain re-exports.
+Added `InMemoryLearningStore`, which shares immutable versions only across
+explicitly cloned handles, validates account/data invariants, and reserves a
+writer across retrieval without holding a data lock during network I/O.
+The physical `LearningStore` publishes related material and progress together.
+Separate logical material/progress read capabilities await actual generation
+queries; a third snapshot repository was not introduced.
+
+The current source/storage contracts intentionally remain scoped to normalized
+WaniKani data and one account per store. They do not yet provide a generic
+multi-provider ontology, multi-tenant authorization, or asynchronous SQL/remote
+storage. `ARCHITECTURE.md` records these limits, all six scenario checks, future
+generation/Cloud composition, and public code/private asset repository boundaries.
+No new dependency, crate, runtime feature, cache schema, or future placeholder was
+added. Source API changes include the new entry points and an owned `Summary`
+(no lifetime parameter); only the username string is copied, not source vectors.
+
+### TDD and refactor record
+
+Each new behavioral slice began with the listed failing test. Module relocation,
+documentation, and routing existing callers through a tested use case were
+refactors rather than artificial behavioral RED cycles.
+
+| Cycle | Observed RED | GREEN and explicit refactor review |
+| --- | --- | --- |
+| Store publication/read contract | Store adapters and ports absent; shared tests failed to compile | Both stores publish complete versions, old readers retain their version, file construction is lazy and schema 1 persists. Reviewed duplication and ownership; used `Arc` reads without cloning the source graph. Focused tests passed. |
+| Memory replacement integrity | Memory accepted an invalid synchronization interval | Validate before publication and reject a different account; shared memory/file assertions verify preservation and subsequent writes. Reviewed responsibilities and error paths; domain validation remains shared and backend commit checks remain local. Focused tests passed. |
+| Writer reservation | A second memory handle could reserve a concurrent writer | Added a private shared state and an owned reservation released by `Drop`; data locks cover only reads/publication. Reviewed ownership, cancellation, and naming; no mutex guard crosses an await. Six store tests passed after formatting/refactor review. |
+| App and owned results | `App` and `LearningSource` absent | Same sync/status use case passes with both stores, and results outlive the App. Reviewed result ownership; an owned summary avoids a second summary type or cloning complete input data. App/store/summary tests passed. |
+| Real source composition | WaniKani client and borrowed client did not implement `LearningSource` | Added delegation to the existing HTTP adapter, including borrowed clients. Real HTTP publishes to memory; existing full sync/failure/process tests now call App. Reviewed shared flow and removed duplicate orchestration from CLI/test helpers; focused App, sync, CLI and binary tests passed. |
+
+Additional acceptance assertions passed for cancelling a polled sync (including
+`Send` futures with both stores), source/validation failure preservation, and
+locked/corrupt stores preventing retrieval while retaining typed errors. These
+verify guarantees already supplied by the composed validation and writer guards;
+they are not reported as additional observed RED cycles.
+
+Final refactor review covered all new and moved production/test code, names,
+module direction, typed errors, ownership, duplicated flow, and Rust idioms.
+Kept concrete domain calculations, private DTOs, schema-1 envelopes, and the
+existing file fault/interruption seams. No additional abstraction was justified.
+No production panic shortcuts, new global state, or environment mutation were
+introduced. Existing source/file tests and the full suite passed after review.
+
+### Verification
+
+Native macOS/arm64 with the pinned Rust 1.98.1 passed:
+
+- `cargo fmt --check`
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`
+- `cargo test --locked --all`: 69 test entries passed (25 library, 1 binary,
+  5 App, 13 cache, 8 CLI, 6 store, 6 summary, 5 sync), including two existing
+  subprocess helpers; none ignored. One additional rustdoc example compiled.
+- `RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps`
+- `git diff --check`; reviewed new/untracked files as well as tracked diffs.
+
+Local HTTP tests ran with authorization to bind loopback sockets. No live API,
+credentials, model, Linux/container, or hosted CI run was used for this migration.
+Earlier platform results are historical only. Real file fault/process tests
+remain coverage of their stated boundaries, not a power-loss simulation. Request
+deadlines still do not bound the total refresh duration or collection size.
+
+Rust notes for a Ruby developer: generic `App<Store, Source>` checks adapter
+contracts at compile time without a dependency container. An owned writer token
+releases its reservation on return, failure, or cancellation. `Arc` shares an
+immutable version, while an owned summary can outlive both App and source data.
+
+Next steps remain the separately authorized milestones below: learner/progress
+and material read models with knowledge derivation, then validated generation
+using explicit prompt/model dependencies. This migration does not start them.
+
 ## Test strategy
 
 | Technique | Meaningful scenarios |
@@ -472,6 +617,24 @@ CLI child processes.
 
 Test behavior and invariants rather than copying implementation logic. Do not add
 snapshots, property tests, or coverage targets solely to increase a metric.
+
+For future generation tests, run real knowledge derivation, prompt preparation,
+response parsing, and validation with scripted model responses at the model
+boundary. Call counts are appropriate when they verify a cost or retry budget;
+internal helper-call sequences are not contracts. Scripted responses never serve
+as automatic production fallbacks or evidence of real model quality.
+
+Use real in-memory adapters for application tests when their storage semantics
+are sufficient. Exercise common invariants across implementations and verify
+backend-specific durability and concurrency against the actual backend. Retain
+local HTTP and real-file tests; future PostgreSQL tests use an isolated database.
+An in-memory store does not test SQL or filesystem behavior. Do not require
+`create_null()`, a test mode, or a new trait for every component.
+
+Selected influences: [Testing Without Mocks](https://www.jamesshore.com/v2/projects/nullables/testing-without-mocks)
+for behavioral tests with real collaborators and explicit infrastructure
+boundaries, and [CQRS](https://martinfowler.com/bliki/CQRS.html) for distinguishing
+update models from derived read models. Neither is a mandatory architecture kit.
 
 ## Validation commands
 
@@ -509,18 +672,24 @@ package; the completed 1a checks are recorded above.
 These require separate design work and are not part of milestone 1:
 
 1. **Learner constraints and retrieval:** grammar knowledge as learner data,
-   initially entered through a local file, an explicit revisable knowledge
-   policy, manual targets, and structured lexical retrieval. Targets identify
-   the word, intended reading, and intended sense. Acceptance: explainable
+   initially entered through a local file, an explicit revisable
+   `LearnerKnowledgePolicy`, manual targets, and structured lexical retrieval.
+   Targets identify the word, intended reading, and intended sense. Acceptance: explainable
    target/context selection from real learner data with no mandatory vector
    search. When database persistence is introduced, grammar belongs alongside
-   other learner data; files may remain import/export.
+   other learner data; files may remain import/export. Derive `LearnerKnowledge`
+   on demand from preserved progress and manual declarations. Future provider
+   grammar identifiers remain independent; no semantic cross-provider mapping
+   or canonical catalog is required.
 2. **Validated generation:** deterministic Japanese validation, followed by real
    best-of-two generation and bounded repair for simple sentences and short
    stories. Include focused, grounded sense/reading checks when supporting
    ambiguous targets. Acceptance: select a valid passage or report failure
    without silently relaxing constraints; length and complexity do not authorize
-   unfamiliar vocabulary or kanji.
+   unfamiliar vocabulary or kanji. Use the `ExerciseGenerator` responsibility,
+   with candidate production behind `CandidateGenerator`, prompt sets from
+   `PromptStore`, and an explicitly selected `LanguageModel`. Introduce only the
+   substitution points demonstrated by the implementing milestone.
 3. **Reading practice:** reading quizzes with kana/romaji normalization and
    persisted attempts. Acceptance: deterministic comparison against contextually
    validated readings and useful mistake records. Rephrase or reject ambiguous

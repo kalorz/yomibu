@@ -9,15 +9,15 @@ fn loads_an_empty_account_with_unicode_and_utc_times() {
         include_str!("fixtures/empty.json"),
     )
     .unwrap();
-    let snapshot = load(dir.path()).unwrap();
-    assert_eq!(snapshot.learner.id, "synthetic-learner");
-    assert_eq!(snapshot.learner.username, "テスト");
-    assert_eq!(snapshot.learner.level, 1);
-    assert_eq!(snapshot.learner.subscription.max_level_granted, 3);
-    assert_eq!(snapshot.learner.current_vacation_started_at, None);
-    assert_eq!(snapshot.learner.subscription.period_ends_at, None);
+    let sync_data = load(dir.path()).unwrap();
+    assert_eq!(sync_data.learner.id, "synthetic-learner");
+    assert_eq!(sync_data.learner.username, "テスト");
+    assert_eq!(sync_data.learner.level, 1);
+    assert_eq!(sync_data.learner.subscription.max_level_granted, 3);
+    assert_eq!(sync_data.learner.current_vacation_started_at, None);
+    assert_eq!(sync_data.learner.subscription.period_ends_at, None);
     assert_eq!(
-        snapshot.sync_completed_at.to_rfc3339(),
+        sync_data.sync_completed_at.to_rfc3339(),
         "2026-09-27T10:00:05+00:00"
     );
 }
@@ -74,9 +74,9 @@ fn preserves_subject_variants_progress_and_absence() {
         include_str!("fixtures/mixed.json"),
     )
     .unwrap();
-    let snapshot = load(dir.path()).unwrap();
-    assert_eq!(snapshot.subjects.len(), 4);
-    let kanji = &snapshot.subjects[0];
+    let sync_data = load(dir.path()).unwrap();
+    assert_eq!(sync_data.subjects.len(), 4);
+    let kanji = &sync_data.subjects[0];
     assert_eq!(kanji.characters, "一");
     assert!(kanji.meanings[0].accepted_answer);
     assert!(kanji.hidden_at.is_some());
@@ -89,7 +89,7 @@ fn preserves_subject_variants_progress_and_absence() {
         readings,
         parts_of_speech,
         context_sentences,
-    } = &snapshot.subjects[1].lexical
+    } = &sync_data.subjects[1].lexical
     else {
         panic!("expected vocabulary")
     };
@@ -97,16 +97,21 @@ fn preserves_subject_variants_progress_and_absence() {
     assert_eq!(parts_of_speech, &["noun"]);
     assert_eq!(context_sentences[0].japanese, "一つあります。");
     assert!(matches!(
-        &snapshot.subjects[2].lexical,
+        &sync_data.subjects[2].lexical,
         LexicalContent::KanaVocabulary { .. }
     ));
-    assert_eq!(snapshot.assignments[0].srs_stage, 0);
-    assert_eq!(snapshot.assignments[0].started_at, None);
-    assert!(snapshot.assignments[1].burned_at.is_some());
-    assert_eq!(snapshot.unavailable_subjects[0].id, 5);
-    assert!(!snapshot.review_statistics.iter().any(|r| r.subject_id == 3));
-    assert_eq!(snapshot.review_statistics[0].reading_max_streak, 9);
-    assert_eq!(snapshot.review_statistics[0].percentage_correct, 91);
+    assert_eq!(sync_data.assignments[0].srs_stage, 0);
+    assert_eq!(sync_data.assignments[0].started_at, None);
+    assert!(sync_data.assignments[1].burned_at.is_some());
+    assert_eq!(sync_data.unavailable_subjects[0].id, 5);
+    assert!(
+        !sync_data
+            .review_statistics
+            .iter()
+            .any(|r| r.subject_id == 3)
+    );
+    assert_eq!(sync_data.review_statistics[0].reading_max_streak, 9);
+    assert_eq!(sync_data.review_statistics[0].percentage_correct, 91);
 }
 
 fn rejects_change(pointer: &str, replacement: serde_json::Value) -> bool {
@@ -251,7 +256,7 @@ fn rejects_blank_kanji_reading_classification() {
 }
 
 #[test]
-fn locked_writer_round_trips_and_fully_replaces_snapshots_privately() {
+fn locked_writer_round_trips_and_fully_replaces_sync_data_privately() {
     use std::os::unix::fs::PermissionsExt;
     use yomibu::cache::SyncGuard;
     let root = tempfile::tempdir().unwrap();
@@ -292,7 +297,7 @@ fn locked_writer_round_trips_and_fully_replaces_snapshots_privately() {
 }
 
 #[test]
-fn writer_preserves_invalid_caches_and_rejects_other_accounts_or_invalid_snapshots() {
+fn writer_preserves_invalid_caches_and_rejects_other_accounts_or_invalid_sync_data() {
     use yomibu::cache::SyncGuard;
     let fixture = tempfile::tempdir().unwrap();
     fs::write(

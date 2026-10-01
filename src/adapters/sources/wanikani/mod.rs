@@ -1,7 +1,7 @@
 //! WaniKani v2 retrieval. Transport shapes and credentials stay inside this adapter.
 mod dto;
 
-use crate::domain::{Snapshot, Subject, UnavailableSubject, ValidationError};
+use crate::domain::{Subject, UnavailableSubject, ValidationError, WaniKaniSyncData};
 use chrono::{DateTime, Utc};
 use reqwest::{
     Url,
@@ -36,8 +36,8 @@ pub enum Error {
     InvalidResponse { endpoint: &'static str },
     #[error("WaniKani {endpoint} response exceeds 16 MiB.")]
     ResponseTooLarge { endpoint: &'static str },
-    #[error("Invalid WaniKani snapshot: {0}")]
-    InvalidSnapshot(#[from] ValidationError),
+    #[error("Invalid WaniKani sync data: {0}")]
+    InvalidSyncData(#[from] ValidationError),
 }
 
 /// Reusable authenticated client with sequential requests and bounded retries.
@@ -48,6 +48,14 @@ pub struct Client {
     base_url: Url,
     authorization: HeaderValue,
     next_request_at: Option<tokio::time::Instant>,
+}
+
+impl crate::ports::LearningSource for Client {
+    type Error = Error;
+
+    async fn fetch(&mut self) -> Result<WaniKaniSyncData, Self::Error> {
+        Client::fetch(self).await
+    }
 }
 
 impl Client {
@@ -111,7 +119,7 @@ impl Client {
     /// connect and 30-second total deadlines; the entire refresh has no fixed
     /// deadline. Reuse this client to retain rate-limit state, including after
     /// cancellation. Observations span the returned synchronization interval.
-    pub async fn fetch(&mut self) -> Result<Snapshot, Error> {
+    pub async fn fetch(&mut self) -> Result<WaniKaniSyncData, Error> {
         let sync_started_at = now();
         let user: dto::User = self.get("user").await?;
         if user.object != "user" {
@@ -185,7 +193,7 @@ impl Client {
                 kind: s.kind(),
             })
             .collect();
-        let snapshot = Snapshot {
+        let sync_data = WaniKaniSyncData {
             sync_started_at,
             sync_completed_at: now(),
             learner,
@@ -194,8 +202,8 @@ impl Client {
             assignments,
             review_statistics,
         };
-        snapshot.validate()?;
-        Ok(snapshot)
+        sync_data.validate()?;
+        Ok(sync_data)
     }
 
     async fn get<T: DeserializeOwned>(&mut self, endpoint: &'static str) -> Result<T, Error> {

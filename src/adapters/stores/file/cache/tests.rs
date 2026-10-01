@@ -1,14 +1,14 @@
 use super::*;
 
-fn seeded_cache() -> (tempfile::TempDir, Snapshot) {
+fn seeded_cache() -> (tempfile::TempDir, WaniKaniSyncData) {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("wanikani.json"),
-        include_str!("../../tests/fixtures/mixed.json"),
+        include_str!("../../../../../tests/fixtures/mixed.json"),
     )
     .unwrap();
     let mut next = load(dir.path()).unwrap();
-    next.learner.username = "new complete snapshot".into();
+    next.learner.username = "new complete sync data".into();
     (dir, next)
 }
 
@@ -105,7 +105,7 @@ fn writer_child() {
     let stop = std::env::var("YOMIBU_TEST_WRITE_STEP").unwrap();
     let dir = PathBuf::from(dir);
     let mut next = load(&dir).unwrap();
-    next.learner.username = "new complete snapshot".into();
+    next.learner.username = "new complete sync data".into();
     let guard = SyncGuard::acquire(&dir).unwrap();
     guard
         .replace_with(&next, |step| {
@@ -143,7 +143,11 @@ impl WriterChild {
         let mut child = Self(
             Command::new(std::env::current_exe().unwrap())
                 .env_clear()
-                .args(["--exact", "cache::tests::writer_child", "--nocapture"])
+                .args([
+                    "--exact",
+                    "adapters::stores::file::cache::tests::writer_child",
+                    "--nocapture",
+                ])
                 .env("YOMIBU_TEST_CACHE_DIR", dir)
                 .env("YOMIBU_TEST_WRITE_STEP", format!("{step:?}"))
                 .stdout(Stdio::piped())
