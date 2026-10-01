@@ -14,6 +14,13 @@ stores. Generation, grammar input, multi-source learner management, PostgreSQL,
 Cloud HTTP endpoints, and additional provider integrations follow in later steps.
 Keep one Cargo package with a library and a thin CLI binary.
 
+The next implementation slice is **G0 — Manual candidate preview** in `PLAN.md`:
+explicit in-memory word/grammar input, deterministic selection, independent
+result checks, and a CLI entry point. This document update implements none of
+it; implementation is handed off to a new Cloud session. G0 does not require
+changing the existing storage/source contracts or building the full future
+generation pipeline.
+
 Do not replace the existing safety behavior during migration: source-state
 preservation, full-refresh replacement, account protection, writer exclusion,
 schema-1 compatibility, credential isolation, and distinct pre-replacement and
@@ -133,6 +140,106 @@ Shared clients/pools/stores live as long as the application. A request owns its
 learner selection, immutable inputs, budget, and result. Read a coherent input
 version and pin prompt-set identity/version for each generation; release database
 transactions before awaiting the model. New source data affects later requests.
+
+## Generation structure and extension boundaries
+
+The following is the target responsibility model, not G0's implementation list:
+
+```text
+LearnerKnowledge + GenerationRequest
+                -> GenerationPlan
+                -> CandidateGenerator
+                -> Candidate[]
+                -> Analysis + required checks
+                -> Combined review when required
+                -> Selection
+                     -> accepted exercise
+                     -> bounded repair -> NEW candidate -> full reassessment
+```
+
+Keep `LearnerKnowledge` and `LearnerKnowledgePolicy`; the discussion's
+`KnowledgeProfile` and `KnowledgeProfileBuilder` do not introduce parallel
+responsibilities. Knowledge about a vocabulary use keeps its written form,
+reading, and meaning associated. A provider grammar entry and a recognizer that
+can detect it are different facts; unsupported recognition is explicit and does
+not imply equivalence across providers.
+
+The logical text and analysis structures are:
+
+```text
+Candidate (immutable identity, content, generator provenance)
+  GeneratedText
+    Sentence -> text
+    Story -> optional title + Paragraph[] -> Sentence[] -> text
+
+TextAnalysis (candidate identity, analyzer/dictionary versions)
+  ParagraphAnalysis[]
+    SentenceAnalysis[]
+      tokens + morphology + proposed readings
+      grammar matches + complexity measurements
+```
+
+These diagrams need not become one public Rust struct per line. Choose enums
+where distinct content variants require distinct payloads; introduce dialogue
+or poetry variants only with an actual supported use case. Fragments may refer
+to ranges in one immutable text representation. Tokens are analysis products,
+not authoritative content supplied by a generator. Sentence segmentation and
+other derived boundaries must also be attributed to their producer, not treated
+as independent linguistic evidence merely because they have a type.
+
+Generate a story as a coherent whole. Apply checks at their meaningful scopes,
+including multi-token expressions and whole-story coherence. Titles also need
+the applicable learner constraints. Findings carry a candidate reference and an
+unambiguous location; token indices additionally identify the relevant analysis.
+Document whether ranges use UTF-8 bytes or another unit. Editing creates a new
+candidate (optionally linked to its parent), followed initially by full analysis
+and assessment. Incremental invalidation is deferred.
+
+Separate execution from judgment. A completed check has pass/fail/inconclusive
+and findings; an execution failure remains a typed error, and a skipped check is
+reported as not run. Required outcomes gate acceptance; quality measurements
+rank eligible candidates. Keep weights and thresholds in explicit selection
+configuration. Do not invent calibrated confidence from an arbitrary LLM score.
+Measure false acceptance/rejection, unresolved cases, success before repair,
+cost/latency, and learner-reported reading friction when evaluating real text.
+
+Group components by concern while using small contracts for roles. For example,
+a vocabulary component may contribute generation restrictions, check a candidate,
+and propose repair information. An analyzer or candidate generator may implement
+only its own role. Ordinary functions suffice for fixed deterministic behavior;
+traits need a demonstrated substitution. Avoid a global context/service locator,
+optional-hook mega-trait, execution DAG, or plugin manifests.
+
+Trusted extension logic returns typed task contributions or uses explicitly
+provided capabilities. The orchestration owns phase execution and the shared
+model budget; no independent model calls hide in validators or retries. Prompt
+composition consumes typed inputs plus replaceable prompt content and decodes
+validated response shapes. This does not require a heterogeneous task registry
+or arbitrary schema-merging framework. Role-specific contracts and their exact
+Rust ownership/dispatch choices are verified in the implementing slice.
+
+### Minimal adaptation for G0
+
+```text
+CLI argument parsing -> structured word/grammar inputs + requested count
+                    -> synchronous library preview
+                    -> deterministic selection -> independent checks -> report
+```
+
+Use a cohesive preview module (for example `generation/preview.rs`) and a small
+public entry point. The library owns validation of structured inputs, selection,
+and result checks; CLI delimiter parsing and rendering stay in the executable.
+Do not force transient input through `LearningStore`, `WaniKaniSyncData`, an
+account-scoped `App`, or a source-specific knowledge policy. Word selection is
+not a story, sentence, or accepted exercise, so do not construct those future
+types just to return selected entries.
+
+The CLI currently resolves HOME/data-dir before dispatching commands. Resolve
+that only for commands needing storage so preview has no filesystem/runtime
+setup. Keep existing sync/status behavior, cache schema, adapter layout, and
+one-package boundary. Inspect whether candidate/check substitution justifies a
+small contract now; use production checks against deliberately invalid candidate
+data to verify their behavior without building a registry or a fake backend.
 
 ## Stores, source data, and consistency
 
