@@ -1,12 +1,12 @@
 //! Deterministic summaries of validated cached observations.
 
-use crate::domain::{Snapshot, SubjectKind, ValidationError};
+use crate::domain::{SubjectKind, ValidationError, WaniKaniSyncData};
 use chrono::{DateTime, Utc};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, PartialEq)]
-pub struct Summary<'a> {
-    pub username: &'a str,
+pub struct Summary {
+    pub username: String,
     pub level: u32,
     pub sync_started_at: DateTime<Utc>,
     pub sync_completed_at: DateTime<Utc>,
@@ -23,13 +23,13 @@ pub struct Summary<'a> {
     pub meaning_accuracy: Accuracy,
 }
 
-impl Snapshot {
-    /// Validate and summarize source state, borrowing the username from this
-    /// snapshot. Accuracy uses aggregate counters, not averaged percentages.
-    pub fn summarize(&self) -> Result<Summary<'_>, ValidationError> {
+impl WaniKaniSyncData {
+    /// Validate and summarize source state into a result independent of the
+    /// input's lifetime. Accuracy uses aggregate counters, not averaged percentages.
+    pub fn summarize(&self) -> Result<Summary, ValidationError> {
         self.validate()?;
         let mut summary = Summary {
-            username: &self.learner.username,
+            username: self.learner.username.clone(),
             level: self.learner.level,
             sync_started_at: self.sync_started_at,
             sync_completed_at: self.sync_completed_at,

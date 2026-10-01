@@ -7,7 +7,10 @@ use wiremock::{
 
 const TOKEN: &str = "synthetic-test-credential";
 fn user() -> Value {
-    serde_json::from_str(include_str!("../../tests/fixtures/wanikani/user.json")).unwrap()
+    serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/wanikani/user.json"
+    ))
+    .unwrap()
 }
 fn collection(data: Vec<Value>) -> Value {
     json!({"object":"collection", "pages":{"next_url":null}, "data":data})
@@ -32,19 +35,19 @@ async fn retrieves_empty_account_with_headers_and_normalizes_profile() {
     serve(&server, "user", user()).await;
     serve(&server, "assignments", collection(vec![])).await;
     serve(&server, "review_statistics", collection(vec![])).await;
-    let snapshot = client(&server).fetch().await.unwrap();
-    snapshot.validate().unwrap();
-    assert_eq!(snapshot.learner.id, "synthetic-learner");
-    assert_eq!(snapshot.learner.username, "テスト");
-    assert_eq!(snapshot.learner.subscription.kind, "free");
-    assert_eq!(snapshot.learner.current_vacation_started_at, None);
-    assert_eq!(snapshot.learner.subscription.period_ends_at, None);
+    let sync_data = client(&server).fetch().await.unwrap();
+    sync_data.validate().unwrap();
+    assert_eq!(sync_data.learner.id, "synthetic-learner");
+    assert_eq!(sync_data.learner.username, "テスト");
+    assert_eq!(sync_data.learner.subscription.kind, "free");
+    assert_eq!(sync_data.learner.current_vacation_started_at, None);
+    assert_eq!(sync_data.learner.subscription.period_ends_at, None);
     assert_eq!(
-        snapshot.learner.updated_at.to_rfc3339(),
+        sync_data.learner.updated_at.to_rfc3339(),
         "2026-09-27T09:00:00+00:00"
     );
-    assert!(snapshot.subjects.is_empty());
-    assert!(snapshot.sync_started_at <= snapshot.sync_completed_at);
+    assert!(sync_data.subjects.is_empty());
+    assert!(sync_data.sync_started_at <= sync_data.sync_completed_at);
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
 }
 
@@ -63,9 +66,11 @@ async fn malformed_json_never_retries_or_echoes_the_response_body() {
 
 fn fixture(endpoint: &str) -> Value {
     serde_json::from_str(match endpoint {
-        "assignments" => include_str!("../../tests/fixtures/wanikani/assignments.json"),
-        "review_statistics" => include_str!("../../tests/fixtures/wanikani/review_statistics.json"),
-        "subjects" => include_str!("../../tests/fixtures/wanikani/subjects.json"),
+        "assignments" => include_str!("../../../../tests/fixtures/wanikani/assignments.json"),
+        "review_statistics" => {
+            include_str!("../../../../tests/fixtures/wanikani/review_statistics.json")
+        }
+        "subjects" => include_str!("../../../../tests/fixtures/wanikani/subjects.json"),
         _ => panic!("unknown test fixture"),
     })
     .unwrap()
@@ -83,10 +88,10 @@ async fn mixed_server() -> MockServer {
 #[tokio::test]
 async fn normalizes_all_subject_shapes_and_progress_without_inventing_absence() {
     let server = mixed_server().await;
-    let snapshot = client(&server).fetch().await.unwrap();
-    let mut actual = serde_json::to_value(&snapshot).unwrap();
+    let sync_data = client(&server).fetch().await.unwrap();
+    let mut actual = serde_json::to_value(&sync_data).unwrap();
     let expected: Value =
-        serde_json::from_str(include_str!("../../tests/fixtures/mixed.json")).unwrap();
+        serde_json::from_str(include_str!("../../../../tests/fixtures/mixed.json")).unwrap();
     actual["sync_started_at"] = expected["snapshot"]["sync_started_at"].clone();
     actual["sync_completed_at"] = expected["snapshot"]["sync_completed_at"].clone();
     assert_eq!(actual, expected["snapshot"]);
@@ -129,10 +134,10 @@ async fn follows_explicit_pagination_even_after_empty_pages_on_each_collection()
                 serve(&server, endpoint, fixture(endpoint)).await;
             }
         }
-        let snapshot = client(&server).fetch().await.unwrap();
-        assert_eq!(snapshot.subjects.len(), 4);
-        assert_eq!(snapshot.assignments.len(), 4);
-        assert_eq!(snapshot.review_statistics.len(), 4);
+        let sync_data = client(&server).fetch().await.unwrap();
+        assert_eq!(sync_data.subjects.len(), 4);
+        assert_eq!(sync_data.assignments.len(), 4);
+        assert_eq!(sync_data.review_statistics.len(), 4);
     }
 }
 
@@ -194,12 +199,12 @@ async fn identical_source_duplicates_collapse_but_conflicts_are_rejected() {
         let record = body["data"][0].clone();
         body["data"].as_array_mut().unwrap().push(record);
         let server = changed_server(endpoint, body.clone()).await;
-        let snapshot = client(&server).fetch().await.unwrap();
+        let sync_data = client(&server).fetch().await.unwrap();
         assert_eq!(
             (
-                snapshot.subjects.len(),
-                snapshot.assignments.len(),
-                snapshot.review_statistics.len()
+                sync_data.subjects.len(),
+                sync_data.assignments.len(),
+                sync_data.review_statistics.len()
             ),
             (4, 4, 4)
         );
@@ -262,7 +267,7 @@ async fn invalid_source_data_preserves_the_cache_including_exclusions() {
         assert!(
             matches!(
                 error,
-                Error::InvalidResponse { .. } | Error::InvalidSnapshot(_)
+                Error::InvalidResponse { .. } | Error::InvalidSyncData(_)
             ),
             "{endpoint}/{name}: {error}"
         );

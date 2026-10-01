@@ -3,11 +3,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// Source observations collected over an interval, not a definition of "known".
+/// Normalized data collected for one WaniKani account during a synchronization.
+/// Includes progress and its associated accessible material, not the full catalog
+/// or an instantaneous view of the remote system. It does not define "known".
 /// Construction and deserialization alone do not validate the public fields;
 /// use [`Self::validate`] before consuming them directly.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub struct Snapshot {
+pub struct WaniKaniSyncData {
     pub sync_started_at: DateTime<Utc>,
     pub sync_completed_at: DateTime<Utc>,
     pub learner: Learner,
@@ -17,6 +19,7 @@ pub struct Snapshot {
     pub review_statistics: Vec<ReviewStatistic>,
 }
 
+/// WaniKani account information; its ID belongs to WaniKani, not to Yomibu.
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Learner {
     pub id: String,
@@ -204,7 +207,7 @@ impl Subject {
     }
 }
 
-impl Snapshot {
+impl WaniKaniSyncData {
     /// Validate normalized cache data before using it for summaries.
     pub fn validate(&self) -> Result<(), ValidationError> {
         use std::collections::{BTreeMap, BTreeSet};

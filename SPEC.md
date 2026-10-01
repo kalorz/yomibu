@@ -1,7 +1,9 @@
 # Yomibu specification
 
 This is the authoritative product and architecture baseline, accepted on
-2026-09-27. Changes to these decisions must be reflected here and in `PLAN.md`.
+2026-09-27, with vocabulary clarified on 2026-09-30 and the existing-use-case
+architecture migration authorized on 2026-10-01. Changes to these decisions must
+be reflected here, in [ARCHITECTURE.md](ARCHITECTURE.md), and in `PLAN.md`.
 Future capabilities described below are direction, not authorization to implement
 them in milestone 1.
 
@@ -73,7 +75,7 @@ translation. Do not build a Yomibu SRS initially.
 
 | Source | Responsibility |
 | --- | --- |
-| WaniKani | Primary learner knowledge, lexical information, review statistics, and context sentences |
+| WaniKani | Source learner progress, lexical information, review statistics, and context sentences |
 | Yomibu history | Attempts and mistakes made in Yomibu |
 | Yomibu grammar knowledge | Learner data, initially entered through a local file |
 | JMdict | Optional enrichment for useful reading/sense distinctions, not a mandatory lookup |
@@ -84,8 +86,12 @@ such as desired passage length. Its initial file is an input and persistence
 mechanism, not a permanent domain boundary. When a database is introduced, store
 grammar knowledge alongside vocabulary progress and attempt history; files may
 remain optional import/export rather than a competing authoritative copy.
-Bunpro may later supply grammar state through mapped grammar identifiers and
-source information. Do not implement that integration or its schema now.
+Future grammar integrations retain provider-scoped identifiers and source
+descriptions. Entries from different providers remain independent, even when
+their descriptions look similar; do not require a canonical grammar catalog or
+infer equivalence between Bunpro and Renshuu. Manual declarations use
+user-provided descriptions and automatically assigned technical identifiers.
+Do not implement those integrations or their schemas now.
 
 Retrieval starts with structured lookups. RAG does not require vector search.
 Embeddings become appropriate only for a demonstrated retrieval problem, such as
@@ -96,6 +102,103 @@ embeddings, vector database, PostgreSQL, Bunpro, JMdict, or web interface, inclu
 placeholder versions. Local files are sufficient for the CLI proof of concept.
 PostgreSQL is the likely later web database; pgvector remains conditional on a
 real vector-search need.
+
+## Design vocabulary and composition
+
+This vocabulary records the accepted direction. `WaniKaniSyncData`, `App`,
+`LearningSource`, `LearningStore`, `SourceSyncWriter`, and the file/in-memory
+stores exist for the current single-account sync/status slice. The remaining
+names do not authorize placeholder types, traits, or future product features.
+
+| Name | Responsibility |
+| --- | --- |
+| `WaniKaniSyncData` | Holds normalized account data, progress, associated accessible material, and exclusions collected during one WaniKani synchronization interval. |
+| `LearningSource` | Retrieves normalized data for the current WaniKani synchronization slice without persisting it; generalization awaits another real integration. |
+| `LearningStore` | Reads a coherent source-data version and reserves an exclusive writer in the current physical account-scoped store. |
+| `SourceSyncWriter` | Owns one synchronization reservation and validates/publishes its related material and progress together. |
+| `SourceConnection` | Identifies one learner's connection to a particular provider account or input, separately from the provider kind and the Yomibu learner identity. |
+| `LearnerProgress` | Preserves source progress and manual learner declarations, with their provenance, without fixing a definition of mastery. |
+| `LearnerKnowledge` | Describes the material treated as known after applying the chosen rules to selected learner progress. |
+| `LearnerKnowledgePolicy` | Deterministically derives learner knowledge from progress without fetching sources, persisting results, or inventing cross-provider grammar equivalences. |
+| `LanguageMaterialStore` | Provides stored language material independently of an individual learner's progress, subject to the caller's access rights. |
+| `LearnerProgressStore` | Provides learner progress within the explicitly selected learner and source-connection scope; synchronized updates publish through the shared writer boundary. |
+| `ExampleSearch` | Retrieves usage examples matching explicit search criteria. |
+| `PromptTemplate` | Describes reusable prompt content with inputs to be supplied for a particular model task. |
+| `PromptStore` | Provides identified, versioned sets of prompt templates. |
+| `ModelRequest` | Contains the prepared input and options for one model invocation. |
+| `LanguageModel` | Executes a prepared model request using the explicitly selected model backend. |
+| `CandidateGenerator` | Produces exercise candidates that still require validation. |
+| `PromptedCandidateGenerator` | Uses a prompt store and language model to produce candidates for the defined generation task. |
+| `ExerciseGenerator` | Prepares context, obtains candidates, validates them, and selects or repairs within the budget, returning an accepted exercise result or a typed failure. |
+| `App` | Coordinates library use cases, including explicit synchronization, learner-data loading, knowledge preparation, and exercise generation. |
+
+Use these responsibility names consistently rather than interchangeable
+`Repository`, `Storage`, `Service`, `Runner`, or `Executor` suffixes. `Store`
+identifies stored-data access; each contract must still specify write support,
+durability, consistency, and failure outcomes. `Search` names retrieval by
+criteria, `Client` communication with a particular external service, and `Policy`
+deterministic decision rules. Not every responsibility needs a trait or a separate
+struct. Add an extension point when an actual caller needs to substitute it.
+
+Use `InMemory...`, not `Memory...`, for an adapter backed by process memory.
+Use backend or provider names for other adapters, such as `FilePromptStore` and
+`PostgresPromptStore`. Private data does not require a `Private...` adapter.
+Keep `LearnerKnowledgePolicy`; use `ExerciseGenerator` instead of
+`GenerationEngine`. Stored prompt templates and prepared model requests have
+different contracts and must not both be called `Prompt`.
+
+A source is a provider or input of material/progress; a connection selects a
+specific account or input for a learner. An observation is a recorded source fact,
+not proof of mastery and not necessarily an event in an append-only history.
+The current `domain::Learner` contains WaniKani account information; its ID must
+not become the identity of a future multi-source Yomibu learner. Keep application
+settings, learner data/source selections, and individual exercise requests
+separate instead of combining them in `ProfileConfiguration`.
+
+### Data flow and storage boundaries
+
+The composition root in the CLI or Cloud reads settings and resolves secret
+references, opens the required resources, and constructs dependencies. Creating
+`App` or a generator does not synchronize sources, start background work, or
+generate an exercise. Resource loading/connection has explicit operations.
+Future multi-learner calls supply the learner/input; shared objects have no mutable
+current user. The current sync/status API uses the store as an explicit single
+WaniKani account scope, refusing replacement by another account.
+
+The intended flow is arguments/request -> settings and secret resolution ->
+dependency construction -> optional explicit sync -> learner-progress read ->
+knowledge derivation -> material/example retrieval -> generation and validation
+-> result. Generation does not implicitly sync or update learner progress.
+Document any persistence of generated results separately from generation.
+
+Keep material and learner-progress responsibilities separate even when one file
+or database stores both. A sync result such as `WaniKaniSyncData` is a transfer
+value, not a third repository. Publish related material and progress consistently;
+refreshing one connection must not overwrite another connection or manual input.
+Read a coherent input version for each generation without holding a write
+transaction across a model call. Domain separation between material and progress
+is independent of separating reads from writes.
+
+For one-off use, pass progress and material directly to the library; an existing
+value does not need a store merely to be passed to the next function. In-memory
+adapters are valid when storage-shaped access is useful. They provide no durability
+after process exit and do not imply offline model execution. The CLI keeps local
+files by default; Cloud chooses its stores explicitly. A missing real dependency
+must not silently fall back to a scripted model or discard writes.
+
+Use a derived `LearnerKnowledge` value on demand rather than persisting a second
+authoritative definition of progress. No command bus, event sourcing, separate
+read database, or mandatory nullable factory is required. Generation remains a
+costly operation with external effects even if it does not persist its result.
+If a materialized knowledge view becomes necessary, identify the input versions
+and knowledge-policy version on which it depends.
+
+Code and adapters can remain public while runtime data stays private. Public
+prompt basics and future private prompt sets use the same contract; retain the
+set version for a generation. Public source code does not imply exporting every
+Rust type with `pub`. Start with modules in the existing package; group future
+integrations by role (for example `adapters/sources/wanikani`) when those modules
+are actually needed. Do not create a crate or repository solely for every port.
 
 ## Milestone 1: WaniKani synchronization
 
@@ -146,7 +249,7 @@ Milestone 1 neither creates nor parses it and does not persist grammar knowledge
   Reject unexpected missing requested subjects, conflicting duplicates,
   mismatched subject types, and invalid required data. Accept documented nulls
   and tolerate additional response fields.
-- Store synchronization start and completion times. The snapshot contains
+- Store synchronization start and completion times. `WaniKaniSyncData` contains
   observations collected during that interval; it is not a transactionally
   consistent snapshot of the remote system.
 - A complete refresh replaces prior records rather than merging them, so removed
@@ -211,8 +314,12 @@ status. An empty but valid account succeeds.
 ### Schema 1 and status count semantics (implemented in 1a)
 
 The cache envelope is `{ "schema_version": 1, "snapshot": { ... } }`.
-`Snapshot` contains the synchronization interval, learner, subjects, assignments,
-review statistics, and `unavailable_subjects`. Subject lexical content is tagged
+The persisted `snapshot` key is retained for schema-1 compatibility; it does not
+promise an instantaneous view of the remote system. The public Rust type was
+renamed from `Snapshot` to `WaniKaniSyncData` on 2026-09-30 without changing the
+cache layout. `InvalidSnapshot` error variants became `InvalidSyncData`.
+`WaniKaniSyncData` contains the synchronization interval, learner, subjects,
+assignments, review statistics, and `unavailable_subjects`. Subject lexical content is tagged
 as `kanji`, `vocabulary`, or `kana_vocabulary`; only the first two have readings.
 The cache contains normalized Yomibu data, not WaniKani response envelopes. See
 `src/domain.rs` for the concrete field types and `tests/fixtures` for synthetic
@@ -245,7 +352,7 @@ an ordered synchronization interval, and reported percentages within 0–100.
   when the corresponding total is nonzero. Reported source percentages remain
   available as source state but are never averaged for status.
 
-Loading and summarizing both validate the snapshot; library callers who construct
+Loading and summarizing both validate the sync data; library callers who construct
 or modify domain structs cannot silently obtain a summary of invalid data.
 Status never creates directories or files or reads config/lock contents. Cache
 errors direct users to a valid backup, another directory, or a compatible Yomibu
@@ -277,7 +384,7 @@ summary, reviews, study materials, or per-subject lookup is requested.
 
 The CLI acquires `cache::SyncGuard` before retrieval and keeps it through persistence.
 Acquisition rejects an existing corrupt/unsupported cache before network requests.
-`SyncGuard::replace` validates the proposed snapshot and checks the current cache's
+`SyncGuard::replace` validates the proposed sync data and checks the current cache's
 account identity before creating a private temporary file. It writes schema 1,
 flushes and synchronizes the file, persists it atomically, then synchronizes the
 parent directory. New directories use mode 0700; new lock/cache files use 0600
@@ -286,7 +393,7 @@ parent directory. New directories use mode 0700; new lock/cache files use 0600
 failure from errors that leave the destination unreplaced.
 
 Successful sync prints the same cached-observation summary as offline status.
-Tests cover mock API → normalized snapshot → private cache → credential-free
+Tests cover mock API → normalized sync data → private cache → credential-free
 `status` subprocess, repeated refresh/removal, account mismatch, basic lock
 contention, and the CLI composition's lock lifetime. Milestone 1c expands these
 checks as described below. The 1d acceptance record covers Linux and CI. No live
@@ -364,17 +471,22 @@ is needed.
 
 - The binary owns argument parsing, environment access, runtime startup,
   presentation, and exit status.
-- The HTTP adapter asynchronously produces a normalized snapshot.
+- The HTTP adapter asynchronously produces normalized `WaniKaniSyncData`.
 - Domain validation and summary calculation are synchronous.
 - Cache loading, locking, and persistence are synchronous library operations.
-  The CLI performs them outside its async fetch operation.
-- Expose only the client, snapshot/domain types, cache operations, summary result,
-  and meaningful typed errors. Keep WaniKani transport DTOs private.
-- Use concrete types and functions initially. No repository traits, service-object
-  hierarchy, or dependency-injection framework is needed.
-- Use ownership and borrowing deliberately: move data when building the snapshot
+  `App.sync` calls them around async retrieval on the caller's thread. A future
+  busy server needs asynchronous storage contracts or bounded blocking execution.
+- `App` owns or borrows explicit dependencies through generic parameters. Its
+  source and storage traits support the demonstrated WaniKani/file/memory paths;
+  no dependency-injection framework or dynamic dispatch is required.
+- Expose use cases/reports, narrow extension contracts, adapters, domain data,
+  and meaningful typed errors. Keep transport DTOs and storage internals private.
+  Root `cache` and `wanikani` paths remain re-exports of the moved adapters.
+- Concrete types and functions remain the default for deterministic behavior.
+- Use ownership and borrowing deliberately: move data when building the sync data
   and borrow it for read-only work. Avoid cloning solely to bypass ownership
-  design problems.
+  design problems. Store reads return immutable `Arc<WaniKaniSyncData>` versions;
+  summaries own their username and aggregates, without copying source collections.
 - Use `Option` for real absence and `Result` for recoverable errors. Do not use
   production `unwrap()` or `expect()` for recoverable situations. No unsafe code
   is needed for milestone 1.
@@ -451,7 +563,7 @@ explicitly; introduce migrations only when needed. Preserve corrupt existing
 caches for recovery rather than silently overwriting them.
 
 Hold a separate advisory lock for the entire sync operation. A second writer
-fails promptly; status can continue reading the previous snapshot. Use
+fails promptly; status can continue reading the previous sync data. Use
 [standard-library file locking](https://doc.rust-lang.org/stable/std/fs/struct.File.html#method.try_lock),
 available on current stable Rust. Keep the lock handle alive until sync ends;
 do not delete and recreate a lock file while another process might hold it.
@@ -470,46 +582,20 @@ Atomic replacement alone does not synchronize file contents or the parent
 directory; both steps are explicit. See
 [tempfile persistence behavior](https://docs.rs/tempfile/latest/tempfile/struct.NamedTempFile.html#method.persist).
 
-## Milestone 1 structure
+## Code and repository structure
 
-The tree below shows the implemented milestone 1 structure, including the CI
-workflow added in 1d. Later milestones require separate authorization.
+[ARCHITECTURE.md](ARCHITECTURE.md#files-packages-and-repositories) records the
+current tree, planned modules, dependency direction, ownership, composition
+examples, and public/private repository boundaries. It distinguishes implemented
+sync/status from future generation and Cloud capabilities. Keep one Cargo package
+and one public code repository until actual deployment/dependency needs justify
+another boundary. Private prompts/corpora can use private stores with public
+adapter implementations.
 
-```text
-yomibu/
-├── SPEC.md
-├── PLAN.md
-├── AGENTS.md
-├── Cargo.toml
-├── Cargo.lock
-├── rust-toolchain.toml
-├── .gitignore
-├── .github/workflows/ci.yml
-├── src/
-│   ├── lib.rs
-│   ├── main.rs
-│   ├── domain.rs
-│   ├── cache.rs
-│   ├── cache/
-│   │   └── tests.rs
-│   ├── summary.rs
-│   └── wanikani/
-│       ├── mod.rs
-│       ├── dto.rs
-│       ├── resilience.rs
-│       └── tests.rs
-└── tests/
-    ├── cache.rs
-    ├── cli.rs
-    ├── summary.rs
-    ├── sync.rs
-    └── fixtures/
-        └── wanikani/
-```
-
-HTTP adapter tests may live beside private adapter code, permitting mock-server
-configuration without exposing test-only CLI options. Module placement does not
-change their role as tests across the HTTP boundary.
+HTTP adapter tests live beside private adapter code, permitting local-server
+configuration without test-only CLI options. File fault/interruption tests live
+beside the file adapter. Shared storage cases and application tests exercise the
+same use cases with real file and in-memory backends.
 
 ## Rust notes for a Ruby developer
 
@@ -520,7 +606,7 @@ change their role as tests across the HTTP boundary.
   record containing zero counters. Pattern matching keeps that distinction
   explicit.
 - **Ownership clarifies data flow.** Move decoded strings and collections into
-  the snapshot; borrow it for summaries and serialization. A shared mutable
+  the sync data; borrow it for summaries and serialization. A shared mutable
   object graph is unnecessary.
 - **Typed errors support callers.** Library users can distinguish authentication,
   invalid data, and storage failures. `?` propagates errors without flattening

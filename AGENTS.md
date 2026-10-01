@@ -1,11 +1,15 @@
 # Repository engineering rules
 
-- Read `SPEC.md` for authoritative decisions and `PLAN.md` for milestones. Keep
-  both aligned with accepted changes; future milestones are not implicit scope.
+- Read `SPEC.md` for authoritative decisions, `ARCHITECTURE.md` for composition
+  and code/repository boundaries, and `PLAN.md` for milestones. Keep them aligned
+  with accepted changes; future milestones are not implicit scope.
 - Make routine reversible implementation decisions autonomously. Ask about
   consequential product choices or difficult-to-reverse changes.
 - Preserve the CLI/library separation and explicit data flow. Prefer concrete
   types, small public APIs, and Rust idioms over Ruby service-object patterns.
+- Follow the design vocabulary in `SPEC.md`; use `InMemory...` for memory-backed
+  adapters and keep source progress distinct from derived learner knowledge.
+  Future vocabulary is not a requirement to create placeholder types or traits.
 - Use stable Rust, the repository toolchain pin once initialized, and cargo fmt.
   Add dependencies, traits, or other abstractions only for demonstrated needs.
 - Use enums, newtypes, `Option`, and typed `Result` boundaries where they improve
@@ -21,6 +25,9 @@
   Test real domain behavior; use local HTTP mock servers and isolated temporary
   directories. Add regression tests for non-trivial bugs. Never use real secrets
   in fixtures or mutate process-global environment for parallel tests.
+- In-memory adapters test application behavior, not backend durability. Keep
+  real adapter-boundary tests; do not require nullable factories or silently
+  substitute test responses for unavailable production dependencies.
 - Before declaring an implementation milestone complete, run:
 
   ```sh
