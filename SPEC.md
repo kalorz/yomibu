@@ -2,7 +2,8 @@
 
 This is the authoritative product and architecture baseline, accepted on
 2026-09-27, with vocabulary clarified on 2026-09-30 and the existing-use-case
-architecture migration authorized on 2026-10-01. Changes to these decisions must
+architecture migration authorized on 2026-10-01, followed by the generation
+design and Cloud handoff on the same date. Changes to these decisions must
 be reflected here, in [ARCHITECTURE.md](ARCHITECTURE.md), and in `PLAN.md`.
 Future capabilities described below are direction, not authorization to implement
 them in milestone 1.
@@ -27,11 +28,12 @@ include web applications, native applications, and an MCP server.
    difficulty and Yomibu mistakes.
 3. Retrieve structured lexical information and examples for the targets.
 4. Generate two short, coherent candidate passages in one LLM request.
-5. Validate candidates deterministically, select the best valid candidate, and
-   use an LLM repair loop only when none pass.
-6. Add broader grounded criticism for naturalness and grammar suitability, plus
-   reading/translation quizzes. Focused checks of intended sense and contextual
-   reading are required as soon as ambiguous targets are supported.
+5. Analyze candidates, run explicit constraint checks, and include a minimal
+   naturalness/coherence review in the first usable generation milestone. Select
+   an acceptable candidate and use bounded repair only when none are acceptable.
+6. Later extend grounded criticism and reading/translation quizzes. Focused
+   checks of intended sense and contextual reading are required as soon as
+   ambiguous targets are supported.
 7. Preserve attempts and mistakes for future target selection.
 
 The pedagogical goal is zero unknown kanji and vocabulary, deliberate practice of
@@ -50,6 +52,14 @@ Do not define a permanent meaning of "known" in milestone 1. Preserve the source
 learning state so policy can evolve independently. Later validation must address
 inflections, particles, lexical ambiguity, and words absent from WaniKani.
 Membership checks alone cannot establish complete linguistic correctness.
+
+Comfortable, enjoyable reading is a product goal to evaluate with learner
+feedback, not a property established by a validator score. Separate mandatory
+constraints from quality ranking: a high soft score cannot compensate for a
+failed mandatory check. A completed check returns pass, fail, or inconclusive;
+execution errors and checks not run are separate states. Missing analysis is not
+evidence of correctness. An inconclusive mandatory check must be resolved through
+an explicitly supported assessment or prevent acceptance, never silently pass.
 
 ### Intended readings and senses
 
@@ -103,6 +113,54 @@ placeholder versions. Local files are sufficient for the CLI proof of concept.
 PostgreSQL is the likely later web database; pgvector remains conditional on a
 real vector-search need.
 
+### Manual candidate preview (next implementation slice)
+
+Before integrating linguistic analysis or an LLM, provide a synchronous library
+operation and a thin `yomibu preview` command that select the first N supplied
+word entries. This is a real deterministic preview, not an accepted Japanese
+exercise or an automatic fallback for another generator.
+
+```sh
+yomibu preview \
+  --word '猫:ねこ:cat' \
+  --word '犬:いぬ:dog' \
+  --word '学校:がっこう:school' \
+  --grammar 'です' \
+  --grammar 'は' \
+  --take 2
+```
+
+- Each repeatable `--word` value contains text, reading, and meaning. Split only
+  at the first two ASCII colons; further colons belong to the meaning. Trim field
+  boundaries, preserve internal content, and reject missing or blank fields.
+  This shorthand does not support colons in the text or reading fields.
+- The library receives structured entries, not CLI-delimited strings. Keep the
+  three fields associated: another reading or meaning of the same written form
+  is not implicitly supplied or allowed. These are user declarations, not verified
+  dictionary facts. Do not infer other readings, synonyms, inflections, or mastery.
+- `--take` is required and positive, and cannot exceed the supplied entry count.
+  Preserve entry order and duplicates; select the first N entries, retaining
+  text, reading, and meaning. The count concerns entries, not unique words or
+  generation candidates. Invalid input produces a typed library error and a
+  nonzero CLI exit with a useful explanation, rather than partial success.
+- Repeatable `--grammar` values are nonblank manual descriptions. Retain them
+  with the preview inputs and explicitly report grammar as not assessed. No
+  grammar matcher, provider mapping, durable identity, or learner registration
+  is required for these transient inputs.
+- Return selected entries and an explicit report checking membership in the
+  supplied entries and the requested count. Run these checks on the produced
+  result; do not have the selector assert its own success. Readings, meanings,
+  naturalness, and grammar are not linguistically verified by this slice.
+- The CLI renders the structured result and its limited assessment. The direct
+  library call exposes equivalent data without parsing arguments or printing.
+  Preview does not resolve HOME/data directories, require tokens, create files,
+  open stores, synchronize, start an async runtime, or call any service/model.
+
+This slice's detailed delivery and acceptance criteria are in `PLAN.md` under
+**G0 — Manual candidate preview**. File/stdin imports, alternate delimiters,
+JSON input, Japanese text generation, model adapters, and a plugin host are
+outside G0. Existing sync/status and schema-1 persistence retain their contracts.
+
 ## Design vocabulary and composition
 
 This vocabulary records the accepted direction. `WaniKaniSyncData`, `App`,
@@ -146,6 +204,32 @@ Use backend or provider names for other adapters, such as `FilePromptStore` and
 Keep `LearnerKnowledgePolicy`; use `ExerciseGenerator` instead of
 `GenerationEngine`. Stored prompt templates and prepared model requests have
 different contracts and must not both be called `Prompt`.
+
+The future generation model distinguishes an immutable candidate, its text
+structure, analysis tied to that candidate, check outcomes, and the accepted
+exercise. `Story -> Paragraph -> Sentence` is the logical text hierarchy; tokens
+and morphological/grammar hypotheses belong to analysis. Findings identify the
+candidate and their exact text/analysis scope. Repair creates a new candidate;
+initially reanalyze and reassess it in full. Do not reuse old findings as evidence
+about edited text. Concrete representations and public exports follow actual
+use cases, not every node in a conceptual diagram.
+
+Generation is an extension point alongside analysis and checking. Components
+may cover one concern across several phases through small role-specific
+contracts; no umbrella plugin trait, manifest, dependency graph, discovery
+system, or new crate is required. Trusted in-process components follow explicit
+I/O boundaries; Rust traits do not provide a sandbox.
+
+Typed model-task inputs/outputs coexist with replaceable, versioned prompt
+content. Compose compatible contributions into at most one model invocation
+per execution of the generation, review, or repair phase. Also bound the total
+invocations, repair iterations, and candidate count across the operation, with
+explicit deadlines and token/cost limits where supported. Retries count toward
+the total and must not be hidden in adapters; a phase must not silently split
+into multiple invocations. Incompatible contributions or an oversized request
+produce an explicit limitation. A parsed typed response is not proof of its
+linguistic correctness, and checks combined in one call are not independent
+judges. No automatic retry follows uncertain model completion.
 
 A source is a provider or input of material/progress; a connection selects a
 specific account or input for a learner. An observation is a recorded source fact,
