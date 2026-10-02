@@ -10,6 +10,7 @@ use yomibu::{
     App,
     adapters::stores::FileLearningStore,
     app::SyncReport,
+    preview::{CheckOutcome, Preview, WordEntry, preview},
     summary::{Accuracy, Summary},
     wanikani::Client,
 };
@@ -17,10 +18,10 @@ use yomibu::{
 #[derive(Parser)]
 #[command(
     version,
-    about = "Synchronize and inspect cached observations (unofficial WaniKani tool)"
+    about = "Preview manual word entries or sync/inspect WaniKani observations (unofficial tool)"
 )]
 struct Cli {
-    /// Directory containing wanikani.json (default: $HOME/.yomibu).
+    /// Sync/status directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview).
     #[arg(long, global = true, value_name = "PATH")]
     data_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -33,6 +34,18 @@ enum Command {
     Sync,
     /// Show cached observations without accessing the network.
     Status,
+    /// Select supplied word entries; grammar and linguistic correctness are not assessed.
+    Preview {
+        /// Word entry; split at the first two colons, trim fields, retain meaning colons.
+        #[arg(long = "word", value_name = "TEXT:READING:MEANING")]
+        words: Vec<String>,
+        /// Nonblank manual grammar description (repeatable; not assessed).
+        #[arg(long, value_name = "DESCRIPTION")]
+        grammar: Vec<String>,
+        /// Number of entries to select in input order (positive, within input size).
+        #[arg(long, value_name = "N")]
+        take: usize,
+    },
 }
 
 fn main() -> ExitCode {
@@ -47,16 +60,9 @@ fn main() -> ExitCode {
 
 fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let data_dir = cli
-        .data_dir
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .filter(|home| !home.is_empty())
-                .map(|home| PathBuf::from(home).join(".yomibu"))
-        })
-        .ok_or_else(|| anyhow!("HOME is unavailable; specify --data-dir PATH."))?;
     match cli.command {
         Command::Sync => {
+            let data_dir = resolve_data_dir(cli.data_dir)?;
             let token = std::env::var("WANIKANI_API_TOKEN")
                 .ok()
                 .filter(|token| !token.trim().is_empty())
@@ -67,9 +73,82 @@ fn run() -> anyhow::Result<()> {
             write_status(&mut io::stdout().lock(), &report.summary)?;
         }
         Command::Status => {
+            let data_dir = resolve_data_dir(cli.data_dir)?;
             let summary = App::new(FileLearningStore::new(&data_dir)).status()?;
             write_status(&mut io::stdout().lock(), &summary)?;
         }
+        Command::Preview {
+            words,
+            grammar,
+            take,
+        } => {
+            let words = words
+                .iter()
+                .map(|word| parse_word(word))
+                .collect::<Result<Vec<_>, _>>()?;
+            let result = preview(&words, &grammar, take)?;
+            write_preview(&mut io::stdout().lock(), &result)?;
+        }
+    }
+    Ok(())
+}
+
+fn resolve_data_dir(data_dir: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    data_dir
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|home| !home.is_empty())
+                .map(|home| PathBuf::from(home).join(".yomibu"))
+        })
+        .ok_or_else(|| anyhow!("HOME is unavailable; specify --data-dir PATH."))
+}
+
+fn parse_word(value: &str) -> anyhow::Result<WordEntry> {
+    let mut fields = value.splitn(3, ':');
+    match (fields.next(), fields.next(), fields.next()) {
+        (Some(text), Some(reading), Some(meaning)) => Ok(WordEntry {
+            text: text.trim().into(),
+            reading: reading.trim().into(),
+            meaning: meaning.trim().into(),
+        }),
+        _ => Err(anyhow!(
+            "Expected --word TEXT:READING:MEANING with two ASCII colons."
+        )),
+    }
+}
+
+fn write_preview(out: &mut impl Write, result: &Preview<'_>) -> io::Result<()> {
+    writeln!(
+        out,
+        "Manual candidate preview (not a validated Japanese exercise)"
+    )?;
+    for word in result.selected {
+        writeln!(
+            out,
+            "  Word: {}:{}:{}",
+            word.text.escape_debug(),
+            word.reading.escape_debug(),
+            word.meaning.escape_debug()
+        )?;
+    }
+    for description in result.grammar {
+        writeln!(out, "  Grammar: {}", description.escape_debug())?;
+    }
+    for (label, outcome) in [
+        ("Supplied-entry membership", result.checks.membership),
+        ("Requested entry count", result.checks.count),
+        ("Grammar", result.checks.grammar),
+        (
+            "Readings, meanings, naturalness",
+            result.checks.linguistic_correctness,
+        ),
+    ] {
+        let outcome = match outcome {
+            CheckOutcome::Pass => "pass",
+            CheckOutcome::Fail => "fail",
+            CheckOutcome::NotAssessed => "not assessed",
+        };
+        writeln!(out, "{label}: {outcome}")?;
     }
     Ok(())
 }
@@ -149,6 +228,26 @@ mod tests {
     use super::*;
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
     use yomibu::cache;
+
+    #[test]
+    fn word_syntax_trims_boundaries_and_preserves_internal_content_and_meaning_colons() {
+        assert_eq!(
+            parse_word(" \u{3000}猫 \t: ねこ : cat: a  feline : ").unwrap(),
+            WordEntry {
+                text: "猫".into(),
+                reading: "ねこ".into(),
+                meaning: "cat: a  feline :".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn word_syntax_requires_two_ascii_delimiters() {
+        for value in ["", "猫", "猫:ねこ", "猫：ねこ：cat"] {
+            let error = parse_word(value).unwrap_err();
+            assert!(error.to_string().contains("TEXT:READING:MEANING"));
+        }
+    }
 
     #[test]
     fn composes_sync_under_lock_and_renders_the_persisted_sync_data() {
