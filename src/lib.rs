@@ -41,6 +41,7 @@ pub mod app;
 pub use adapters::stores::file::cache;
 pub use app::App;
 pub mod domain;
+pub mod grammar;
 pub mod ports;
 pub mod preview;
 pub mod summary;
