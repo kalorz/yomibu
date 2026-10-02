@@ -12,6 +12,11 @@ response envelopes. IDs, learner identity, times, and counters are invented.
   burned assignment, two SRS systems, a review-only subject, absent kana-only
   review statistics, and hidden flags in each source collection. Hidden source
   observations may differ across the synchronization interval.
+- `preparation.json`: copy of `mixed.json` with assignment 102's hidden flag
+  cleared, allowing the exact vocabulary target `一つ:ひとつ:one thing`. All
+  identities, dates, and progress are synthetic. Original fixtures are unchanged.
+- `grammar.json`: manual familiarity assertions used by the preparation demo;
+  not a grammar catalog or an assertion that its example uses these declarations.
 - `mixed-status.txt`: deterministic CLI output for the mixed cache. Reading
   accuracy is 9/11, meaning accuracy is 10/20; neither averages per-item rates.
 
