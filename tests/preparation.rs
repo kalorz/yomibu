@@ -102,7 +102,11 @@ fn policy_order_is_stable_and_invalid_direct_input_is_rejected() {
     data.subjects.reverse();
     data.assignments.reverse();
     let known = policy.derive(&data, &grammar).unwrap();
-    let ids: Vec<_> = known.materials.iter().map(|entry| entry.subject_id).collect();
+    let ids: Vec<_> = known
+        .materials
+        .iter()
+        .map(|entry| entry.subject_id)
+        .collect();
     assert_eq!(ids, vec![1, 2, 3, 4, 5]);
     data.subjects.clear();
     assert!(policy.derive(&data, &grammar).is_err());
