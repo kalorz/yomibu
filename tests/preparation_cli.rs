@@ -284,14 +284,20 @@ fn report_explains_each_cached_subject_decision_and_source_interval() {
             .unwrap(),
     );
     let source = yomibu::cache::load(dir.path()).unwrap();
-    assert!(text.contains(&source.sync_started_at.to_rfc3339_opts(
-        chrono::SecondsFormat::AutoSi,
-        true
-    )));
-    assert!(text.contains(&source.sync_completed_at.to_rfc3339_opts(
-        chrono::SecondsFormat::AutoSi,
-        true
-    )));
+    assert!(
+        text.contains(
+            &source
+                .sync_started_at
+                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)
+        )
+    );
+    assert!(
+        text.contains(
+            &source
+                .sync_completed_at
+                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)
+        )
+    );
     for expected in [
         "Subject 1 (Kanji): excluded: Hidden",
         "Subject 2 (Vocabulary): eligible under lesson-started",
