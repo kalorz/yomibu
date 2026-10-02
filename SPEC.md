@@ -227,8 +227,8 @@ accepted gloss, and READING an exact cached accepted reading. No paraphrase,
 normalization, inferred reading, or reading/gloss Cartesian product is supported.
 A request never declares a word known. Detect multiple exact lexical matches
 before applying policy; eligibility cannot disambiguate records. Resolve only
-eligible vocabulary records;
-kanji knowledge cannot establish vocabulary knowledge. Missing, ambiguous,
+eligible vocabulary records; kanji knowledge cannot establish vocabulary
+knowledge. Missing, ambiguous,
 unsupported, or policy-ineligible targets fail explicitly without partial success.
 Kana-only records retain their lack of source readings; do not fabricate one.
 
@@ -264,7 +264,8 @@ This vocabulary records the accepted direction. `WaniKaniSyncData`, `App`,
 `LearningSource`, `LearningStore`, `SourceSyncWriter`, and the file/in-memory
 stores exist for single-account sync/status. `LearnerKnowledgePolicy` and
 `LearnerKnowledge` now implement the concrete WaniKani/manual-input preparation
-slice. The remaining names do not authorize placeholder types, traits, or future product features.
+slice. The remaining names do not authorize placeholder types, traits, or future
+product features.
 
 | Name | Responsibility |
 | --- | --- |
@@ -769,7 +770,8 @@ directory; both steps are explicit. See
 [ARCHITECTURE.md](ARCHITECTURE.md#files-packages-and-repositories) records the
 current tree, planned modules, dependency direction, ownership, composition
 examples, and public/private repository boundaries. It distinguishes implemented
-sync/status, manual preview, and offline preparation from future generation and Cloud capabilities.
+sync/status, manual preview, and offline preparation from future generation and
+Cloud capabilities.
 Keep one Cargo package and one public code repository until actual deployment/
 dependency needs justify another boundary. Private prompts/corpora can use
 private stores with public adapter implementations.

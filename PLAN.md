@@ -25,8 +25,8 @@ independent checks, and runnable direct-library example are delivered below.
 The original six TDD cycles, review follow-ups, and verification are recorded in
 the G0 section.
 The next offline learner-constraints/retrieval slice was approved on 2026-10-02
-and is implemented below; final hosted demonstration verification is in progress.
-Generation remains unimplemented.
+and is complete within the bounded slice below. Generation remains unimplemented;
+the broader milestone's real-learner demonstration remains unverified.
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
@@ -50,7 +50,7 @@ development dependency. Proptest remains deferred.
 | 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local and hosted macOS/Linux gates pass; documented limitations; no placeholder future features |
 | Architecture migration | Complete | Library `App`, explicit source/storage contracts, file and in-memory stores, adapter layout, architecture document | Both stores run real sync/status; existing safety and schema contracts preserved; no generation placeholders |
 | G0 — Manual candidate preview | Complete | Synchronous library operation and `preview` CLI, structured word entries, deterministic selection and independent checks | Direct and CLI calls agree, no storage/network/runtime requirements, explicit assessment limits; all 85 tests and required gates pass on Linux/x86_64 |
-| Offline preparation slice | Implemented; final verification pending | Local grammar input, revisable knowledge policy, explicit targets, cached lexical evidence | Synchronous CLI/library agreement, explainable decisions, typed failures, unchanged schema-1 source data; real-learner demonstration remains unverified |
+| Offline preparation slice | Complete within approved scope | Local grammar input, revisable knowledge policy, explicit targets, cached lexical evidence | Synchronous CLI/library agreement, explainable decisions, typed failures, unchanged schema-1 source data; real-learner demonstration remains unverified |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -367,10 +367,10 @@ Acceptance:
 - [x] Targets preserve complete tuples and cannot override learner eligibility.
 - [x] Retrieval has explicit missing/ambiguous/unsupported outcomes and provenance.
 - [x] CLI/direct calls agree; no implicit sync, runtime, credentials, or writes.
-- [ ] Runnable synthetic demonstrations and assessment limits are documented.
+- [x] Runnable synthetic demonstrations and assessment limits are documented.
 - [x] Existing G0, sync/status, schema-1 and durability regressions pass.
-- [ ] Required locked quality gates pass on the final implementation.
-- [ ] Full diff/public API review, commit/push, and PR delivery are complete.
+- [x] Required locked quality gates pass on the final implementation.
+- [x] Full diff/public API review, commit/push, and PR delivery are complete.
 
 Develop one behavior at a time: observed RED, minimal GREEN, explicit refactor
 review, and focused/full reruns. Record actual evidence below; do not write
@@ -404,7 +404,7 @@ kind, and policy inclusion or typed exclusion. Both platforms passed at
 formatting, locked Clippy, all 103 test entries (including two existing subprocess
 helpers), one rustdoc example, and unchanged-lockfile checks. The explicit
 refactor review kept one loop over the already-derived decisions; it adds no
-second interpretation of policy. Final CI below reruns it after that review.
+second interpretation of policy. The final CI run below passed after that review.
 Formatting failures during these cycles were corrected separately and are not
 counted as behavioral REDs.
 
@@ -425,7 +425,29 @@ Rust lifetimes make these borrowed views safe without cloning the source graph;
 enums keep ineligible and unassessed states explicit.
 
 [PR #4](https://github.com/kalorz/yomibu/pull/4) contains the branch and observed
-TDD history. Final demonstration verification and diff review remain pending.
+TDD history. The complete diff was reviewed, including all new source, tests,
+fixtures, examples, documentation, and CI changes. No placeholder implementation
+or unintended source/persistence/G0 changes remain.
+
+### Final slice verification
+
+Commit `8fdb850` passed [CI run 37032161587](https://github.com/kalorz/yomibu/actions/runs/37032161587)
+on GitHub-hosted Ubuntu/x86_64 and macOS/arm64 using the pinned Rust 1.98.1:
+
+- `cargo fmt --check`
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`
+- `cargo test --locked --all`: 103 test entries passed, none ignored, plus one
+  compiled rustdoc example.
+- Both documented CLI commands and `cargo run --locked --example preview` /
+  `cargo run --locked --example prepare` passed. Preparation selected subject 2,
+  assignment 102, and its attached example; decisions were 2 eligible and 3
+  excluded. All four linguistic assessment limits remained unassessed.
+- `RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps` passed.
+- `git diff --check` against the PR base and the unchanged-lockfile check passed.
+
+The final follow-up records this evidence and wraps documentation only. Hosted
+CI also checks each subsequent PR commit. No local test execution, live WaniKani
+request, private learner data, model call, or linguistic validation was performed.
 The broader milestone's real-learner demonstration remains unverified: automated
 fixtures and demonstrations are synthetic. No linguistic guarantee is claimed.
 
@@ -1062,8 +1084,8 @@ not part of that slice:
    target/context selection from real learner data with no mandatory vector
    search. The implemented slice uses the real cache reader, but a private learner
    demonstration has not been run; synthetic verification does not complete that
-   broader acceptance criterion. When database persistence is introduced, grammar belongs alongside
-   other learner data; files may remain import/export. Derive `LearnerKnowledge`
+   broader acceptance criterion. When database persistence is introduced, grammar
+   belongs alongside other learner data; files may remain import/export. Derive `LearnerKnowledge`
    on demand from preserved progress and manual declarations. Future provider
    grammar identifiers remain independent; no semantic cross-provider mapping
    or canonical catalog is required.
