@@ -44,6 +44,7 @@ pub mod domain;
 pub mod grammar;
 pub mod knowledge;
 pub mod ports;
+pub mod preparation;
 pub mod preview;
 pub mod summary;
 pub use adapters::sources::wanikani;
