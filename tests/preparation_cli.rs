@@ -101,8 +101,14 @@ fn prepare_errors_have_no_partial_report_or_implicit_target_declaration() {
     let cases = [
         (vec![], "--target"),
         (vec!["--target", "一つ"], "WORD:READING:SENSE"),
-        (vec!["--target", "一つ: :one thing"], "blank intended_reading"),
-        (vec!["--target", "一つ:ひとつ:single thing"], "exact accepted"),
+        (
+            vec!["--target", "一つ: :one thing"],
+            "blank intended_reading",
+        ),
+        (
+            vec!["--target", "一つ:ひとつ:single thing"],
+            "exact accepted",
+        ),
         (
             vec![
                 "--target",
