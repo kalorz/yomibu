@@ -34,8 +34,8 @@ cp tests/fixtures/mixed.json "$demo_dir/wanikani.json"
 cargo run -- status --data-dir "$demo_dir"
 ```
 
-For synchronization and status, the recommended library entry point is `App`. Within a caller-owned Tokio runtime
-with I/O and time enabled:
+For synchronization and status, the recommended library entry point is `App`.
+Within a caller-owned Tokio runtime with I/O and time enabled:
 
 ```rust,ignore
 use yomibu::{App, adapters::{sources::wanikani::Client, stores::FileLearningStore}};

@@ -30,8 +30,8 @@
 //! ```
 //!
 //! Network synchronization needs a caller-owned Tokio runtime with I/O and time
-//! enabled. File operations, validation, summaries, and preparation are synchronous. Read [`App::sync`]
-//! for cancellation and persistence outcomes; backend errors remain typed.
+//! enabled. File operations, validation, summaries, and preparation are synchronous.
+//! Read [`App::sync`] for cancellation and persistence outcomes; backend errors remain typed.
 //! [`app::SyncReport`] distinguishes volatile retention from durable persistence.
 //!
 //! Lower-level access remains available through [`wanikani::Client::fetch`],

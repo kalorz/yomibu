@@ -79,8 +79,8 @@ slice. Generalize that source contract when a second real integration requires
 it; do not erase provider semantics preemptively.
 
 `FileLearningStore` and `InMemoryLearningStore` are physical backends. Their
-current coherent read serves offline source summaries and preparation. Later material/progress
-read ports can share the same backend and transaction boundary. This is not a
+current coherent read serves offline source summaries and preparation. Later
+material/progress read ports can share the same backend and transaction boundary. This is not a
 third repository of snapshots: `WaniKaniSyncData` is the transfer value containing
 related material and progress from one synchronization interval.
 
@@ -248,8 +248,8 @@ Grammar and linguistic correctness are explicitly unassessed.
 CLI delimiter parsing and rendering stay in the executable. Rendering applies
 `str::escape_debug` to word fields and grammar descriptions, keeping declarations
 on one line and control sequences visible without mutating the library inputs.
-A private data-dir resolver serves sync/status/prepare, but not preview. Transient preview
-input never passes through `LearningStore`, `WaniKaniSyncData`, an account-scoped `App`, or a
+A private data-dir resolver serves sync/status/prepare, but not preview.
+Transient preview input never passes through `LearningStore`, `WaniKaniSyncData`, an account-scoped `App`, or a
 knowledge policy. There is no generator/checker substitution need in this slice:
 unit tests exercise the actual private checker with deliberately invalid data.
 No trait, future text type, registry, or fake backend was added. Existing
@@ -421,7 +421,7 @@ src/
   ports.rs                   source and atomic storage capabilities
   adapters/
     mod.rs
-    grammar_file.rs          explicit read-only versioned JSON input
+    grammar_file.rs           explicit read-only versioned JSON input
     sources/
       mod.rs
       wanikani/              HTTP client, private DTOs, boundary tests
