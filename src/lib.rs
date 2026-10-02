@@ -1,8 +1,16 @@
-//! WaniKani synchronization, offline summaries, and manual candidate preview.
+//! WaniKani synchronization, offline summaries, preview, and context preparation.
 //!
 //! [`preview::preview`] synchronously selects structured word entries and checks
 //! membership/count. It borrows explicit inputs and needs no account, store, or
 //! runtime. Grammar and linguistic correctness remain explicitly unassessed.
+//!
+//! [`preparation::prepare_context`] derives revisable knowledge and retrieves
+//! cached lexical evidence for explicit word/reading/sense targets. It borrows
+//! source observations, validated manual grammar declarations, and targets;
+//! no store or runtime is required. [`knowledge::LearnerKnowledgePolicy`] selects
+//! the concrete source-evidence rule. [`adapters::grammar_file`] explicitly loads
+//! versioned manual assertions without writing or interpreting grammar.
+//! Retrieval does not establish reading/sense association or example suitability.
 //!
 //! [`App`] coordinates explicit synchronization and offline status for a single
 //! account-scoped store. Supply a file or in-memory store and, for synchronization,
@@ -21,9 +29,9 @@
 //! # }
 //! ```
 //!
-//! Retrieval needs a caller-owned Tokio runtime with I/O and time enabled. File
-//! operations, validation, and summaries are synchronous. Read [`App::sync`]
-//! for cancellation and persistence outcomes; backend errors remain typed.
+//! Network synchronization needs a caller-owned Tokio runtime with I/O and time
+//! enabled. File operations, validation, summaries, and preparation are synchronous.
+//! Read [`App::sync`] for cancellation and persistence outcomes; backend errors remain typed.
 //! [`app::SyncReport`] distinguishes volatile retention from durable persistence.
 //!
 //! Lower-level access remains available through [`wanikani::Client::fetch`],
@@ -33,15 +41,19 @@
 //!
 //! [`cache::load`] and [`domain::WaniKaniSyncData::summarize`] support offline inspection.
 //! Public domain fields allow callers to construct data; loading, replacement,
-//! and summarization each validate it. This library does not read credentials or
-//! paths from the environment, start a runtime, or print output.
+//! summarization, knowledge derivation, and preparation each validate it. This
+//! library does not read credentials or paths from the environment, start a
+//! runtime, or print output.
 
 pub mod adapters;
 pub mod app;
 pub use adapters::stores::file::cache;
 pub use app::App;
 pub mod domain;
+pub mod grammar;
+pub mod knowledge;
 pub mod ports;
+pub mod preparation;
 pub mod preview;
 pub mod summary;
 pub use adapters::sources::wanikani;

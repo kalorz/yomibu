@@ -182,7 +182,7 @@ identify the one-based input entry. There is no partial result on input failure.
 
 Run the synchronous direct-library example with
 `cargo run --locked --example preview`; see [examples/preview.rs](examples/preview.rs).
-The CLI's global `--data-dir` option is ignored for preview. Only sync/status
+The CLI's global `--data-dir` option is ignored for preview. Sync/status/prepare
 resolve that option or the HOME default.
 
 This slice's detailed delivery and acceptance criteria are in `PLAN.md` under
@@ -190,12 +190,86 @@ This slice's detailed delivery and acceptance criteria are in `PLAN.md` under
 JSON input, Japanese text generation, model adapters, and a plugin host are
 outside G0. Existing sync/status and schema-1 persistence retain their contracts.
 
+## Learner constraints and retrieval — approved preparation slice
+
+This slice implements synchronous, offline practice-context preparation through
+`preparation::prepare_context` and a thin `yomibu prepare` command. Its result is
+retrieval evidence, not an accepted exercise.
+
+Read one coherent schema-1 WaniKani cache and one explicit grammar input. Preserve
+the source observations and manual declarations; derive `LearnerKnowledge` on
+demand with an explicit `LearnerKnowledgePolicy`. Never persist the derived
+classification or alter synchronization/status behavior.
+
+The default `lesson-started` rule requires a recorded assignment `started_at`;
+the alternative `recorded-pass` rule requires `passed_at`. Both exclude
+unavailable material and subjects hidden in any retained subject, assignment, or
+review-statistic record. Review-only material is not eligible. No SRS-stage,
+accuracy, recency, or linguistic-mastery threshold is implied. Eligibility is a
+source-subject decision, not proof of knowledge of every reading or sense.
+Report the selected policy, synchronization interval, source evidence, and
+inclusion/exclusion reasons. Unavailable content has only its retained identifier
+and kind; do not invent its spelling.
+For each decision, the CLI shows content availability and `hidden_at`, assignment
+identity/hidden state and `started_at`/`passed_at`, and review-statistic
+identity/hidden state. Missing records remain explicit, including evidence that
+did not determine the highest-precedence exclusion.
+
+Grammar input is a separate local JSON document:
+`{"version":1,"declarations":["です","は as a topic marker"]}`.
+Each entry asserts learner familiarity for practice. Preserve descriptions
+verbatim and keep duplicates independent. Assign one-based technical entry IDs
+scoped to the loaded input; there is no cross-edit identity promise or write-back.
+Empty declarations are valid. Reject blank descriptions, malformed input, and
+unsupported versions. The file preserves learner assertions, not policy-derived
+knowledge. No grammar recognizer or provider equivalence is implied.
+
+Each repeatable `--target WORD:READING:SENSE` preserves one intended use. The CLI
+splits at the first two ASCII colons and trims field boundaries; library inputs
+are structured and retained verbatim. Here SENSE must match an exact cached
+accepted gloss, and READING an exact cached accepted reading. No paraphrase,
+normalization, inferred reading, or reading/gloss Cartesian product is supported.
+A request never declares a word known. Detect multiple exact lexical matches
+before applying policy; eligibility cannot disambiguate records. Resolve only
+eligible vocabulary records; kanji knowledge cannot establish vocabulary
+knowledge. Missing, ambiguous,
+unsupported, or policy-ineligible targets fail explicitly without partial success.
+Kana-only records retain their lack of source readings; do not fabricate one.
+
+Return the selected subjects' readings, meanings, answer flags, parts of speech,
+and all attached examples in source order. Keep target request order and
+duplicates. Matching separate source fields does not verify their association:
+reading/sense correctness and example suitability remain unassessed. Examples
+are selected by subject attachment, not by proven correspondence to the intended
+use or learner constraints. Missing examples are explicit empty results; there
+is no synthetic or network fallback.
+
+The preparation path requires no token, HTTP client, async runtime, implicit sync,
+or writes. The CLI owns argument/environment handling and escaped presentation;
+the library accepts existing values without requiring a store. The existing
+`LearningStore::load` supports file/memory composition. No new trait, generator
+substitution, plugin host, model integration, linguistic analysis, external
+dictionary, or later milestone is included.
+
+`GrammarDeclarations::from_descriptions` creates validated manual inputs;
+`adapters::grammar_file::{load, parse}` provides the explicit read boundary.
+`LearnerKnowledgePolicy::derive` returns all decisions in subject-ID order with
+borrowed material, assignment, and review-statistic evidence.
+`prepare_context(source, grammar, policy, targets)` returns a borrowed
+`PreparedContext` or a typed `PrepareError`. The result preserves policy, learner
+ID, synchronization interval, grammar assertions, and target/source associations.
+Exclusion precedence is unavailable content, hidden evidence, no assignment,
+then the selected missing lifecycle timestamp. Other evidence remains available.
+See README.md and `examples/prepare.rs` for CLI and direct-library usage.
+
 ## Design vocabulary and composition
 
 This vocabulary records the accepted direction. `WaniKaniSyncData`, `App`,
 `LearningSource`, `LearningStore`, `SourceSyncWriter`, and the file/in-memory
-stores exist for the current single-account sync/status slice. The remaining
-names do not authorize placeholder types, traits, or future product features.
+stores exist for single-account sync/status. `LearnerKnowledgePolicy` and
+`LearnerKnowledge` now implement the concrete WaniKani/manual-input preparation
+slice. The remaining names do not authorize placeholder types, traits, or future
+product features.
 
 | Name | Responsibility |
 | --- | --- |
@@ -700,7 +774,8 @@ directory; both steps are explicit. See
 [ARCHITECTURE.md](ARCHITECTURE.md#files-packages-and-repositories) records the
 current tree, planned modules, dependency direction, ownership, composition
 examples, and public/private repository boundaries. It distinguishes implemented
-sync/status and manual preview from future generation and Cloud capabilities.
+sync/status, manual preview, and offline preparation from future generation and
+Cloud capabilities.
 Keep one Cargo package and one public code repository until actual deployment/
 dependency needs justify another boundary. Private prompts/corpora can use
 private stores with public adapter implementations.

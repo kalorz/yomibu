@@ -26,6 +26,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Install the repository toolchain
         # Rustup reads the version and components from rust-toolchain.toml.
         run: rustup show active-toolchain
@@ -41,5 +42,23 @@ jobs:
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Test
         run: cargo test --locked --all
+      - name: Run documented synthetic demonstrations
+        shell: bash
+        run: |
+          cargo run --locked -- preview --word '猫:ねこ:cat' --word '犬:いぬ:dog' --grammar 'です' --take 2
+          cargo run --locked --example preview
+          cargo run --locked --example prepare
+          yomibu_demo_dir=$(mktemp -d)
+          trap 'rm -rf "$yomibu_demo_dir"' EXIT
+          cp tests/fixtures/preparation.json "$yomibu_demo_dir/wanikani.json"
+          cp tests/fixtures/grammar.json "$yomibu_demo_dir/grammar.json"
+          cargo run --locked -- prepare --data-dir "$yomibu_demo_dir" \
+            --grammar-file "$yomibu_demo_dir/grammar.json" --target '一つ:ひとつ:one thing'
+      - name: Build API documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --no-deps
+      - name: Check diff whitespace
+        run: git diff --check "${{ github.event.pull_request.base.sha || github.event.before }}" HEAD
       - name: Verify lockfile is unchanged
         run: git diff --exit-code -- Cargo.lock
