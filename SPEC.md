@@ -190,6 +190,62 @@ This slice's detailed delivery and acceptance criteria are in `PLAN.md` under
 JSON input, Japanese text generation, model adapters, and a plugin host are
 outside G0. Existing sync/status and schema-1 persistence retain their contracts.
 
+## Learner constraints and retrieval — approved preparation slice
+
+The next slice adds synchronous, offline practice-context preparation through
+`prepare_context` and a thin `yomibu prepare` command. It is currently in
+implementation. Its result is retrieval evidence, not an accepted exercise.
+
+Read one coherent schema-1 WaniKani cache and one explicit grammar input. Preserve
+the source observations and manual declarations; derive `LearnerKnowledge` on
+demand with an explicit `LearnerKnowledgePolicy`. Never persist the derived
+classification or alter synchronization/status behavior.
+
+The default `lesson-started` rule requires a recorded assignment `started_at`;
+the alternative `recorded-pass` rule requires `passed_at`. Both exclude
+unavailable material and subjects hidden in any retained subject, assignment, or
+review-statistic record. Review-only material is not eligible. No SRS-stage,
+accuracy, recency, or linguistic-mastery threshold is implied. Eligibility is a
+source-subject decision, not proof of knowledge of every reading or sense.
+Report the selected policy, synchronization interval, source evidence, and
+inclusion/exclusion reasons. Unavailable content has only its retained identifier
+and kind; do not invent its spelling.
+
+Grammar input is a separate local JSON document:
+`{"version":1,"declarations":["です","は as a topic marker"]}`.
+Each entry asserts learner familiarity for practice. Preserve descriptions
+verbatim and keep duplicates independent. Assign one-based technical entry IDs
+scoped to the loaded input; there is no cross-edit identity promise or write-back.
+Empty declarations are valid. Reject blank descriptions, malformed input, and
+unsupported versions. The file preserves learner assertions, not policy-derived
+knowledge. No grammar recognizer or provider equivalence is implied.
+
+Each repeatable `--target WORD:READING:SENSE` preserves one intended use. The CLI
+splits at the first two ASCII colons and trims field boundaries; library inputs
+are structured and retained verbatim. Here SENSE must match an exact cached
+accepted gloss, and READING an exact cached accepted reading. No paraphrase,
+normalization, inferred reading, or reading/gloss Cartesian product is supported.
+A request never declares a word known. Resolve only eligible vocabulary records;
+kanji knowledge cannot establish vocabulary knowledge. Missing, ambiguous,
+unsupported, or policy-ineligible targets fail explicitly without partial success.
+Kana-only records retain their lack of source readings; do not fabricate one.
+
+Return the selected subjects' readings, meanings, answer flags, parts of speech,
+and all attached examples in source order. Keep target request order and
+duplicates. Matching separate source fields does not verify their association:
+reading/sense correctness and example suitability remain unassessed. Examples
+are selected by subject attachment, not by proven correspondence to the intended
+use or learner constraints. Missing examples are explicit empty results; there
+is no synthetic or network fallback.
+
+The preparation path requires no token, HTTP client, async runtime, implicit sync,
+or writes. The CLI owns argument/environment handling and escaped presentation;
+the library accepts existing values without requiring a store. The existing
+`LearningStore::load` supports file/memory composition. No new trait, generator
+substitution, plugin host, model integration, linguistic analysis, external
+dictionary, or later milestone is included. Concrete public signatures and actual
+verification will be recorded as implementation completes.
+
 ## Design vocabulary and composition
 
 This vocabulary records the accepted direction. `WaniKaniSyncData`, `App`,
