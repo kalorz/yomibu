@@ -44,7 +44,8 @@ pub fn parse(text: &str) -> Result<GrammarDeclarations, Error> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Input {
-        version: u32,
+        #[serde(rename = "version")]
+        _version: u32,
         declarations: Vec<String>,
     }
     let invalid_json = |source| Error::InvalidJson { source };
@@ -55,6 +56,5 @@ pub fn parse(text: &str) -> Result<GrammarDeclarations, Error> {
         });
     }
     let input: Input = serde_json::from_str(text).map_err(invalid_json)?;
-    let _ = input.version;
     Ok(GrammarDeclarations::from_descriptions(input.declarations)?)
 }

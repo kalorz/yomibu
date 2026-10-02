@@ -376,7 +376,12 @@ unverified demonstration unless an authorized private cache becomes available.
 
 ### Implementation evidence
 
-Pending the first grammar-input RED.
+Initial grammar cycles are recorded in commit history. Confirmed REDs: missing
+`grammar` module (`db700412`, run 36994881967), blank assertion accepted
+(`99291d6`, run 36995270179), and missing file adapter (`4896ebb`, run 36995571545).
+Each received a minimal GREEN, followed by explicit ownership/error/API review.
+The preservation test passed again in the blank-validation RED. The file-input
+refactor removes an unnecessary dummy read; its CI rerun is pending.
 
 ## Completed milestone records
 
