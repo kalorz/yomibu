@@ -112,7 +112,9 @@ hidden flag, and material without an assignment. SRS stage, accuracy, and elapse
 time are not cutoffs. A target request does not declare knowledge.
 
 The report includes policy decisions, source IDs and timestamps, lexical fields,
-manual assertions, and all source-attached examples. Exact reading/gloss field
+manual assertions, and all source-attached examples. Each decision includes
+content availability, hidden evidence from all three source records, and recorded
+lesson-start/pass timestamps; missing records are explicit. Exact reading/gloss field
 matches do not establish their linguistic association or the suitability of an
 example. Grammar, reading/sense association, example suitability, and linguistic
 correctness remain explicitly unassessed. Absent, unsupported, ambiguous, or

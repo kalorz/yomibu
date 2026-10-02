@@ -209,6 +209,30 @@ fn write_prepared(out: &mut impl Write, result: &PreparedContext<'_>) -> io::Res
             KnowledgeDecision::Eligible => writeln!(out, "eligible under {policy}")?,
             KnowledgeDecision::Excluded(reason) => writeln!(out, "excluded: {reason:?}")?,
         }
+        match entry.material {
+            Some(subject) => writeln!(
+                out,
+                "    Content: available; hidden_at: {:?}",
+                subject.hidden_at
+            )?,
+            None => writeln!(out, "    Content: unavailable (access limit)")?,
+        }
+        match entry.assignment {
+            Some(assignment) => writeln!(
+                out,
+                "    Assignment: {}; hidden: {}; started_at: {:?}; passed_at: {:?}",
+                assignment.id, assignment.hidden, assignment.started_at, assignment.passed_at
+            )?,
+            None => writeln!(out, "    Assignment: none recorded")?,
+        }
+        match entry.review_statistic {
+            Some(statistic) => writeln!(
+                out,
+                "    Review statistic: {}; hidden: {}",
+                statistic.id, statistic.hidden
+            )?,
+            None => writeln!(out, "    Review statistic: none recorded")?,
+        }
     }
     for selected in &result.targets {
         let target = selected.target;
