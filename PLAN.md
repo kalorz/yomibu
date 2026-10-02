@@ -24,7 +24,8 @@ Cloud implementation. The synchronous public library operation, thin CLI,
 independent checks, and runnable direct-library example are delivered below.
 The original six TDD cycles, review follow-ups, and verification are recorded in
 the G0 section.
-Work stops at G0; the rest of the generation roadmap remains unimplemented.
+The next offline learner-constraints/retrieval slice was approved on 2026-10-02
+and is in progress below; generation remains unimplemented.
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
@@ -333,6 +334,49 @@ changed. No Rust source, tests, dependencies, or CI configuration are changed,
 and no Cargo gates or linguistic/model experiments were run for this
 documentation-only handoff. At that point G0 remained unimplemented; its delivery
 and verification are now recorded above.
+
+## Learner constraints and retrieval — approved preparation slice
+
+Approved on 2026-10-02: implement only offline practice-context preparation from
+preserved WaniKani progress, local manual grammar assertions, a revisable concrete
+knowledge policy, and explicit word/reading/sense targets. SPEC.md defines the
+behavior and ARCHITECTURE.md the composition boundaries.
+
+The default uses a recorded lesson start; recorded pass is an explicit alternative.
+Both exclude unavailable/hidden material and require an assignment. Grammar
+descriptions assert familiarity; technical IDs are local to the loaded input.
+Lexical retrieval uses only cached WaniKani data, with exact accepted fields and
+explicit unassessed reading/sense association and example suitability.
+
+Implementation starts from main `22b7c92` on
+`codex/learner-context-preparation`. PR #3 and both Greptile fixes were verified
+in main. The authoritative G0 documents agree with the code; README omits G0 and
+will be brought up to date.
+
+The cloud executor failed provisioning and remains unavailable. No local work
+was inspected or changed. Work uses GitHub commits on the separate branch and
+the existing Ubuntu/macOS PR CI for observed Red–Green–Refactor execution. No
+local execution, private learner cache, or real-data demonstration is claimed.
+
+Acceptance:
+- [ ] Grammar input preserves assertions/duplicates/identity and rejects invalid input.
+- [ ] Policy decisions are explainable and recomputable without mutating source data.
+- [ ] Targets preserve complete tuples and cannot override learner eligibility.
+- [ ] Retrieval has explicit missing/ambiguous/unsupported outcomes and provenance.
+- [ ] CLI/direct calls agree; no implicit sync, runtime, credentials, or writes.
+- [ ] Runnable synthetic demonstrations and assessment limits are documented.
+- [ ] Existing G0, sync/status, schema-1 and durability regressions pass.
+- [ ] Required locked quality gates pass on the final implementation.
+- [ ] Full diff/public API review, commit/push, and PR delivery are complete.
+
+Develop one behavior at a time: observed RED, minimal GREEN, explicit refactor
+review, and focused/full reruns. Record actual evidence below; do not write
+production behavior before its failing test. Real learner data remains a separate
+unverified demonstration unless an authorized private cache becomes available.
+
+### Implementation evidence
+
+Pending the first grammar-input RED.
 
 ## Completed milestone records
 

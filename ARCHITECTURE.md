@@ -250,6 +250,35 @@ unit tests exercise the actual private checker with deliberately invalid data.
 No trait, future text type, registry, or fake backend was added. Existing
 sync/status behavior, cache schema, adapter layout, and package boundary remain.
 
+## Approved offline preparation slice
+
+This next slice is in implementation. Its explicit flow is:
+
+```text
+CLI -> one LearningStore read + explicit grammar-file read
+    -> synchronous prepare_context(source, grammar, policy, targets)
+    -> knowledge derivation + structured lexical retrieval -> explanatory report
+```
+
+The standalone operation borrows the already-loaded WaniKani version and manual
+grammar declarations. The selected concrete `LearnerKnowledgePolicy` derives
+knowledge without fetching, saving, reading the environment, or consulting the
+clock. The result preserves policy and source evidence, target associations,
+grammar assertions, and unassessed linguistic limits. Source-subject eligibility
+must not be represented as proof of every reading/sense combination.
+
+Grammar declarations belong to learner data; their separate versioned JSON input
+does not change WaniKani schema 1. One-based declaration IDs are scoped to the
+loaded input, not a cross-edit or cross-provider ontology. File loading is an
+explicit adapter operation, while derivation and retrieval remain synchronous
+deterministic library logic.
+
+The existing `LearningStore` provides the demonstrated file/memory substitution.
+One lexical source and concrete policy alternatives do not justify a new trait.
+Do not retrofit G0, add a material-store hierarchy, or introduce a registry.
+Retrieval uses associated source fields without claiming linguistic validation;
+source examples are not automatically safe practice passages.
+
 ## Stores, source data, and consistency
 
 | Backend | Retention and failures | Verification |
