@@ -111,22 +111,21 @@ impl LearnerKnowledgePolicy {
                 } else {
                     match assignment {
                         None => Excluded(NoAssignment),
-                        Some(assignment) => match self.wanikani {
-                            WaniKaniKnowledgeRule::LessonStarted => {
-                                if assignment.started_at.is_some() {
-                                    Eligible
-                                } else {
-                                    Excluded(NoRecordedLessonStart)
+                        Some(assignment) => {
+                            let (recorded, missing) = match self.wanikani {
+                                WaniKaniKnowledgeRule::LessonStarted => {
+                                    (assignment.started_at.is_some(), NoRecordedLessonStart)
                                 }
-                            }
-                            WaniKaniKnowledgeRule::RecordedPass => {
-                                if assignment.passed_at.is_some() {
-                                    Eligible
-                                } else {
-                                    Excluded(NoRecordedPass)
+                                WaniKaniKnowledgeRule::RecordedPass => {
+                                    (assignment.passed_at.is_some(), NoRecordedPass)
                                 }
+                            };
+                            if recorded {
+                                Eligible
+                            } else {
+                                Excluded(missing)
                             }
-                        },
+                        }
                     }
                 };
                 MaterialKnowledge {
