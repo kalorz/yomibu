@@ -203,6 +203,13 @@ fn write_prepared(out: &mut impl Write, result: &PreparedContext<'_>) -> io::Res
         "Eligible cached subjects: {eligible}; excluded: {}",
         knowledge.materials.len() - eligible
     )?;
+    for entry in &knowledge.materials {
+        write!(out, "  Subject {} ({:?}): ", entry.subject_id, entry.kind)?;
+        match entry.decision {
+            KnowledgeDecision::Eligible => writeln!(out, "eligible under {policy}")?,
+            KnowledgeDecision::Excluded(reason) => writeln!(out, "excluded: {reason:?}")?,
+        }
+    }
     for selected in &result.targets {
         let target = selected.target;
         writeln!(
