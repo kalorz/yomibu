@@ -281,6 +281,35 @@ fn preview_example_agrees_with_the_direct_library_result() {
 }
 
 #[test]
+fn preview_escapes_declarations_so_they_cannot_create_report_lines_or_terminal_controls() {
+    let output = cli()
+        .args([
+            "preview",
+            "--word",
+            "猫\n犬:ね\rこ\t字:cat\n  Word: 偽:よみ:fake\\n\u{1b}[2J",
+            "--grammar",
+            "です\nGrammar: pass\r\t\u{1b}[31m\\nは\u{2028}偽\u{2029}末",
+            "--take",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    let text = stdout(&output);
+    assert_eq!(
+        text.lines().collect::<Vec<_>>(),
+        [
+            "Manual candidate preview (not a validated Japanese exercise)",
+            r"  Word: 猫\n犬:ね\rこ\t字:cat\n  Word: 偽:よみ:fake\\n\u{1b}[2J",
+            r"  Grammar: です\nGrammar: pass\r\t\u{1b}[31m\\nは\u{2028}偽\u{2029}末",
+            "Supplied-entry membership: pass",
+            "Requested entry count: pass",
+            "Grammar: not assessed",
+            "Readings, meanings, naturalness: not assessed",
+        ]
+    );
+}
+
+#[test]
 fn preview_reports_invalid_syntax_and_inputs_without_partial_output() {
     let dir = tempfile::tempdir().unwrap();
     let cases = [

@@ -151,8 +151,13 @@ yomibu preview \
   supplied entries and the requested count. Run these checks on the produced
   result; do not have the selector assert its own success. Readings, meanings,
   naturalness, and grammar are not linguistically verified by this slice.
-- The CLI renders the structured result and its limited assessment. The direct
-  library call exposes equivalent data without parsing arguments or printing.
+- The CLI renders each selected word entry and grammar description on one line,
+  using Rust's `str::escape_debug` for each field. Control characters, line
+  separators, backslashes, and quotes are displayed as escapes so declarations
+  cannot introduce extra report lines or terminal control sequences. Ordinary
+  Japanese text remains readable; the underlying structured values are unchanged.
+  The CLI reports the limited assessment. The direct library call exposes
+  equivalent data without parsing arguments or printing.
   Preview does not resolve HOME/data directories, require tokens, create files,
   open stores, synchronize, start an async runtime, or call any service/model.
 
@@ -168,9 +173,11 @@ retain their content, order, and duplicates. No grammar input is also valid.
 `PreviewChecks` reports membership and count as `CheckOutcome::Pass` or `Fail`,
 and grammar/linguistic correctness as `NotAssessed`. Membership compares the
 complete text/reading/meaning entry, with no normalization or inferred lexical
-equivalence. A separate private function checks the produced selection; its
-tests deliberately supply invalid selections. Invalid input returns
-`PreviewError::InvalidCount`, `BlankWordField`, or `BlankGrammar`; field errors
+equivalence. A temporary borrowed hash set indexes supplied entries for membership
+checks; it does not deduplicate or reorder the selected output. A separate private
+function checks the produced selection; its tests deliberately supply invalid
+selections. Invalid input returns `PreviewError::InvalidCount`, `BlankWordField`,
+or `BlankGrammar`; field errors
 identify the one-based input entry. There is no partial result on input failure.
 
 Run the synchronous direct-library example with

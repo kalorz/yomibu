@@ -126,11 +126,13 @@ fn write_preview(out: &mut impl Write, result: &Preview<'_>) -> io::Result<()> {
         writeln!(
             out,
             "  Word: {}:{}:{}",
-            word.text, word.reading, word.meaning
+            word.text.escape_debug(),
+            word.reading.escape_debug(),
+            word.meaning.escape_debug()
         )?;
     }
     for description in result.grammar {
-        writeln!(out, "  Grammar: {description}")?;
+        writeln!(out, "  Grammar: {}", description.escape_debug())?;
     }
     for (label, outcome) in [
         ("Supplied-entry membership", result.checks.membership),

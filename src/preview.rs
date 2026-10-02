@@ -1,9 +1,10 @@
 //! Deterministic manual word selection, without storage or linguistic analysis.
 
+use std::collections::HashSet;
 use thiserror::Error;
 
 /// One user-declared use; text, reading, and meaning stay associated.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct WordEntry {
     pub text: String,
     pub reading: String,
@@ -104,6 +105,7 @@ fn validate_inputs(
 }
 
 fn check_selection(supplied: &[WordEntry], selected: &[WordEntry], take: usize) -> PreviewChecks {
+    let supplied: HashSet<_> = supplied.iter().collect();
     PreviewChecks {
         membership: if selected.iter().all(|word| supplied.contains(word)) {
             CheckOutcome::Pass

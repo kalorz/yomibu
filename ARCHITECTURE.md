@@ -232,13 +232,19 @@ CLI argument parsing -> structured word/grammar inputs + requested count
 `WordEntry` inputs, a borrowed `Preview` result, `PreviewChecks`, `CheckOutcome`,
 and typed `PreviewError`. Private functions validate all supplied inputs and
 check the produced selection. Borrowed slices retain order, duplicates, and
-associations without copying strings. Complete-entry equality checks membership;
-an independent length check compares the result with the requested count.
+associations without copying strings. A temporary `HashSet<&WordEntry>` checks
+complete-entry membership with expected O(n + k) entry operations for n supplied
+and k selected entries, plus string hashing cost and O(n) auxiliary storage.
+`Hash` and equality are derived over all three fields. The set serves lookup
+only; the original slice supplies ordered output with duplicates intact.
+An independent length check compares the result with the requested count.
 Grammar and linguistic correctness are explicitly unassessed.
 
-CLI delimiter parsing and rendering stay in the executable. A private data-dir
-resolver is called only by sync/status. Transient preview input never passes
-through `LearningStore`, `WaniKaniSyncData`, an account-scoped `App`, or a
+CLI delimiter parsing and rendering stay in the executable. Rendering applies
+`str::escape_debug` to word fields and grammar descriptions, keeping declarations
+on one line and control sequences visible without mutating the library inputs.
+A private data-dir resolver is called only by sync/status. Transient preview
+input never passes through `LearningStore`, `WaniKaniSyncData`, an account-scoped `App`, or a
 knowledge policy. There is no generator/checker substitution need in this slice:
 unit tests exercise the actual private checker with deliberately invalid data.
 No trait, future text type, registry, or fake backend was added. Existing

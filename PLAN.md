@@ -22,7 +22,8 @@ Generation and other later product milestones remain outside this scope.
 **G0 — Manual candidate preview is complete** in the subsequent 2026-10-01
 Cloud implementation. The synchronous public library operation, thin CLI,
 independent checks, and runnable direct-library example are delivered below.
-The six TDD cycles and Linux verification are recorded in the G0 section.
+The original six TDD cycles, review follow-ups, and verification are recorded in
+the G0 section.
 Work stops at G0; the rest of the generation roadmap remains unimplemented.
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
@@ -46,7 +47,7 @@ development dependency. Proptest remains deferred.
 | 1c — Sync resilience | Complete | Expanded failure-path verification and hardening of the 1b safety foundations | Failure cases preserve a usable complete cache; concurrent access and post-replacement errors behave as specified |
 | 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local and hosted macOS/Linux gates pass; documented limitations; no placeholder future features |
 | Architecture migration | Complete | Library `App`, explicit source/storage contracts, file and in-memory stores, adapter layout, architecture document | Both stores run real sync/status; existing safety and schema contracts preserved; no generation placeholders |
-| G0 — Manual candidate preview | Complete | Synchronous library operation and `preview` CLI, structured word entries, deterministic selection and independent checks | Direct and CLI calls agree, no storage/network/runtime requirements, explicit assessment limits; all 84 tests and required gates pass on Linux/x86_64 |
+| G0 — Manual candidate preview | Complete | Synchronous library operation and `preview` CLI, structured word entries, deterministic selection and independent checks | Direct and CLI calls agree, no storage/network/runtime requirements, explicit assessment limits; all 85 tests and required gates pass on Linux/x86_64 |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -209,6 +210,64 @@ prevents changing or dropping the inputs while the result still refers to them.
 checks explicit instead of relying on exceptions or truthy values. An ordinary
 synchronous function is sufficient here; no service object, runtime, or new
 trait is needed.
+
+### G0 review follow-up — rendering and membership lookup
+
+Addressed the two findings in Greptile's [PR #3 review](https://github.com/kalorz/yomibu/pull/3#issuecomment-5939929148).
+
+- **Rendering RED:** a new subprocess regression failed because embedded newlines
+  created extra word/assessment lines and terminal controls were emitted raw.
+  **GREEN:** apply `str::escape_debug` when rendering each word field and grammar
+  description. The test covers all three word fields, grammar, LF/CR/tab, terminal
+  escape sequences, Unicode line/paragraph separators, and literal backslashes.
+  The library inputs remain unchanged. **REFACTOR:** reviewed production/test
+  code and kept the standard borrowed display iterator, avoiding allocated
+  replacement strings, input restrictions, or a custom escaping helper. No
+  further refactor was justified; all thirteen CLI tests passed after review.
+- **Membership refactor:** the supplied-prefix lookup made N(N+1)/2 comparisons
+  for N distinct selected entries. Existing independent checker and public API
+  tests passed before changing this behavior-preserving implementation. Replaced
+  repeated slice scans with one borrowed `HashSet`; `WordEntry` derives `Hash`
+  alongside complete-entry equality. The result still comes from the original
+  slice, preserving order and duplicates. No new type, dependency, or adapter was
+  introduced. This is a performance refactor, not a new behavioral contract;
+  no artificial failing behavior test or timing assertion was added. Reviewed
+  ownership, exact-entry matching, hashing cost, and auxiliary memory. All three
+  checker tests and six public preview tests passed again after that review.
+
+A temporary direct-library probe measured the median of three calls per size,
+with distinct, fixed-width text entries and `take` equal to input size. Input
+construction and output were outside the timed calls. The same debug-build probe
+was linked against the library before and after the refactor:
+
+| Entries | Slice scans | Borrowed hash set |
+| --- | --- | --- |
+| 1,000 | 7.590 ms | 1.367 ms |
+| 2,000 | 30.242 ms | 2.716 ms |
+| 4,000 | 120.492 ms | 5.431 ms |
+| 8,000 | 456.895 ms | 11.184 ms |
+
+These are local Linux/x86_64 diagnostic measurements, not release benchmarks,
+CI thresholds, or a worst-case timing guarantee. The new check trades O(n)
+borrowed-entry storage and string hashing for expected O(n + k) entry operations;
+hash collisions still use exact equality. No production input limit was added.
+
+Follow-up verification on Linux/x86_64 with pinned Rust 1.98.1 passed:
+
+- `cargo fmt --check`.
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`.
+- `cargo test --locked --all` — 85 test entries passed, none ignored, plus the
+  existing rustdoc example. The only added test is the rendering regression;
+  existing source, storage, sync/status, and preview coverage remains intact.
+- Reviewed the complete follow-up diff and public API; `git diff --check` passed.
+  All three design documents reflect the fixes. Dependencies, toolchain pin,
+  schema-1 persistence, and sync/status implementation remain unchanged.
+
+Rust note for a Ruby developer: `HashSet<&WordEntry>` stores references and uses
+the entry's derived value hash/equality, without copying its strings. It supports
+membership lookup; it does not supply output ordering or remove output duplicates.
+`escape_debug()` is a display iterator, so escaping does not modify source values
+or require allocating replacement strings.
 
 ### Scope limits and next decisions
 
