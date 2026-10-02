@@ -1,7 +1,9 @@
 //! Revisable, deterministic eligibility derived from preserved learner evidence.
 
 use crate::{
-    domain::{Assignment, ReviewStatistic, Subject, SubjectKind, ValidationError, WaniKaniSyncData},
+    domain::{
+        Assignment, ReviewStatistic, Subject, SubjectKind, ValidationError, WaniKaniSyncData,
+    },
     grammar::{GrammarDeclaration, GrammarDeclarations},
 };
 use chrono::{DateTime, Utc};
