@@ -186,8 +186,12 @@ fn write_prepared(out: &mut impl Write, result: &PreparedContext<'_>) -> io::Res
     writeln!(
         out,
         "Source sync interval: {} / {}",
-        knowledge.sync_started_at.to_rfc3339_opts(SecondsFormat::AutoSi, true),
-        knowledge.sync_completed_at.to_rfc3339_opts(SecondsFormat::AutoSi, true)
+        knowledge
+            .sync_started_at
+            .to_rfc3339_opts(SecondsFormat::AutoSi, true),
+        knowledge
+            .sync_completed_at
+            .to_rfc3339_opts(SecondsFormat::AutoSi, true)
     )?;
     let eligible = knowledge
         .materials
