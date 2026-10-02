@@ -211,3 +211,55 @@ fn absent_cache_is_not_created_and_home_is_only_needed_without_an_explicit_direc
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("HOME is unavailable"));
 }
+
+#[test]
+fn rendering_escapes_declarations_and_source_fields_while_preserving_sense_colons() {
+    let (dir, grammar) = setup();
+    let mut data: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/preparation.json")).unwrap();
+    data["snapshot"]["learner"]["id"] = "synthetic\nlearner".into();
+    let subject = &mut data["snapshot"]["subjects"][1];
+    subject["characters"] = "一つ\n偽".into();
+    subject["meanings"][0]["meaning"] = "one thing: unit\nfake".into();
+    subject["lexical"]["readings"][0]["reading"] = "ひとつ\r字".into();
+    subject["lexical"]["parts_of_speech"][0] = "noun\nforged".into();
+    subject["lexical"]["context_sentences"][0]["japanese"] = "例\n偽\u{1b}[2J".into();
+    subject["lexical"]["context_sentences"][0]["english"] = "example\ttext".into();
+    fs::write(
+        dir.path().join("wanikani.json"),
+        serde_json::to_vec(&data).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        &grammar,
+        r#"{"version":1,"declarations":["です\nGrammar: pass\u001b[31m"]}"#,
+    )
+    .unwrap();
+    let text = stdout(
+        cli()
+            .args(["prepare", "--data-dir"])
+            .arg(dir.path())
+            .arg("--grammar-file")
+            .arg(&grammar)
+            .args(["--target", "一つ\n偽:ひとつ\r字:one thing: unit\nfake"])
+            .output()
+            .unwrap(),
+    );
+    for expected in [
+        r"Learner: synthetic\nlearner",
+        r"Target: 一つ\n偽:ひとつ\r字:one thing: unit\nfake",
+        r"Part of speech: noun\nforged",
+        r"Example (source-attached): 例\n偽\u{1b}[2J / example\ttext",
+        r"Grammar 1: です\nGrammar: pass\u{1b}[31m",
+    ] {
+        assert!(text.contains(expected), "{text}");
+    }
+    assert!(!text.contains('\u{1b}'));
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.starts_with("  Target: "))
+            .count(),
+        1
+    );
+    assert!(!text.lines().any(|line| line == "Grammar: pass"));
+}
