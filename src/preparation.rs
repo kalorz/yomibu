@@ -58,10 +58,7 @@ pub enum PrepareError {
     )]
     UnsupportedUse { entry: usize },
     #[error("Target entry {entry} matches multiple source subjects: {subject_ids:?}.")]
-    AmbiguousTarget {
-        entry: usize,
-        subject_ids: Vec<u64>,
-    },
+    AmbiguousTarget { entry: usize, subject_ids: Vec<u64> },
     #[error("Target entry {entry}, subject {subject_id}, is excluded by policy: {reason:?}.")]
     IneligibleTarget {
         entry: usize,
