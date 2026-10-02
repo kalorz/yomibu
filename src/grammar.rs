@@ -26,11 +26,17 @@ impl GrammarDeclarations {
         let entries = descriptions
             .into_iter()
             .enumerate()
-            .map(|(index, description)| GrammarDeclaration {
-                id: index + 1,
-                description: description.into(),
+            .map(|(index, description)| {
+                let description = description.into();
+                if description.trim().is_empty() {
+                    return Err(GrammarError::BlankDescription { entry: index + 1 });
+                }
+                Ok(GrammarDeclaration {
+                    id: index + 1,
+                    description,
+                })
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
         Ok(Self { entries })
     }
 
