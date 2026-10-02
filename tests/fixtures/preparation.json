@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "snapshot": {
+    "sync_started_at": "2026-09-27T10:00:00Z",
+    "sync_completed_at": "2026-09-27T10:00:05Z",
+    "learner": {
+      "id": "synthetic-learner",
+      "username": "テスト",
+      "level": 5,
+      "updated_at": "2026-09-27T09:00:00Z",
+      "started_at": "2026-09-01T00:00:00Z",
+      "current_vacation_started_at": null,
+      "subscription": {
+        "active": false,
+        "kind": "free",
+        "max_level_granted": 3,
+        "period_ends_at": null
+      }
+    },
+    "subjects": [
+      {
+        "id": 1,
+        "level": 1,
+        "characters": "一",
+        "meanings": [
+          {
+            "meaning": "one",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": "2026-09-27T09:00:00Z",
+        "srs_system_id": 1,
+        "lexical": {
+          "kind": "kanji",
+          "readings": [
+            {
+              "reading": "いち",
+              "primary": true,
+              "accepted_answer": true,
+              "kind": "onyomi"
+            }
+          ]
+        }
+      },
+      {
+        "id": 2,
+        "level": 1,
+        "characters": "一つ",
+        "meanings": [
+          {
+            "meaning": "one thing",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": null,
+        "srs_system_id": 2,
+        "lexical": {
+          "kind": "vocabulary",
+          "readings": [
+            {
+              "reading": "ひとつ",
+              "primary": true,
+              "accepted_answer": true
+            }
+          ],
+          "parts_of_speech": [
+            "noun"
+          ],
+          "context_sentences": [
+            {
+              "japanese": "一つあります。",
+              "english": "There is one."
+            }
+          ]
+        }
+      },
+      {
+        "id": 3,
+        "level": 1,
+        "characters": "これ",
+        "meanings": [
+          {
+            "meaning": "this",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": null,
+        "srs_system_id": 2,
+        "lexical": {
+          "kind": "kana_vocabulary",
+          "parts_of_speech": [
+            "pronoun"
+          ],
+          "context_sentences": [
+            {
+              "japanese": "これは本です。",
+              "english": "This is a book."
+            }
+          ]
+        }
+      },
+      {
+        "id": 4,
+        "level": 1,
+        "characters": "二",
+        "meanings": [
+          {
+            "meaning": "two",
+            "primary": true,
+            "accepted_answer": true
+          }
+        ],
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden_at": null,
+        "srs_system_id": 1,
+        "lexical": {
+          "kind": "kanji",
+          "readings": [
+            {
+              "reading": "に",
+              "primary": true,
+              "accepted_answer": true,
+              "kind": "onyomi"
+            }
+          ]
+        }
+      }
+    ],
+    "unavailable_subjects": [
+      {
+        "id": 5,
+        "kind": "vocabulary"
+      }
+    ],
+    "assignments": [
+      {
+        "id": 101,
+        "subject_id": 1,
+        "subject_kind": "kanji",
+        "srs_stage": 0,
+        "hidden": false,
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": null,
+        "passed_at": null,
+        "burned_at": null,
+        "available_at": null,
+        "resurrected_at": null
+      },
+      {
+        "id": 102,
+        "subject_id": 2,
+        "subject_kind": "vocabulary",
+        "srs_stage": 9,
+        "hidden": false,
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": "2026-09-27T09:00:00Z",
+        "passed_at": "2026-09-27T09:00:00Z",
+        "burned_at": "2026-09-27T09:00:00Z",
+        "available_at": null,
+        "resurrected_at": null
+      },
+      {
+        "id": 103,
+        "subject_id": 3,
+        "subject_kind": "kana_vocabulary",
+        "srs_stage": 2,
+        "hidden": false,
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": "2026-09-27T09:00:00Z",
+        "passed_at": null,
+        "burned_at": null,
+        "available_at": null,
+        "resurrected_at": null
+      },
+      {
+        "id": 105,
+        "subject_id": 5,
+        "subject_kind": "vocabulary",
+        "srs_stage": 4,
+        "hidden": false,
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "unlocked_at": "2026-09-27T09:00:00Z",
+        "started_at": "2026-09-27T09:00:00Z",
+        "passed_at": null,
+        "burned_at": null,
+        "available_at": null,
+        "resurrected_at": null
+      }
+    ],
+    "review_statistics": [
+      {
+        "id": 201,
+        "subject_id": 1,
+        "subject_kind": "kanji",
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden": false,
+        "reading_correct": 9,
+        "reading_incorrect": 1,
+        "reading_current_streak": 0,
+        "reading_max_streak": 9,
+        "meaning_correct": 1,
+        "meaning_incorrect": 0,
+        "meaning_current_streak": 1,
+        "meaning_max_streak": 1,
+        "percentage_correct": 91
+      },
+      {
+        "id": 202,
+        "subject_id": 2,
+        "subject_kind": "vocabulary",
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden": false,
+        "reading_correct": 0,
+        "reading_incorrect": 1,
+        "reading_current_streak": 0,
+        "reading_max_streak": 0,
+        "meaning_correct": 1,
+        "meaning_incorrect": 9,
+        "meaning_current_streak": 1,
+        "meaning_max_streak": 1,
+        "percentage_correct": 9
+      },
+      {
+        "id": 204,
+        "subject_id": 4,
+        "subject_kind": "kanji",
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden": false,
+        "reading_correct": 0,
+        "reading_incorrect": 0,
+        "reading_current_streak": 0,
+        "reading_max_streak": 0,
+        "meaning_correct": 0,
+        "meaning_incorrect": 0,
+        "meaning_current_streak": 0,
+        "meaning_max_streak": 0,
+        "percentage_correct": 0
+      },
+      {
+        "id": 205,
+        "subject_id": 5,
+        "subject_kind": "vocabulary",
+        "updated_at": "2026-09-27T09:00:00Z",
+        "created_at": "2026-09-27T09:00:00Z",
+        "hidden": true,
+        "reading_correct": 0,
+        "reading_incorrect": 0,
+        "reading_current_streak": 0,
+        "reading_max_streak": 0,
+        "meaning_correct": 8,
+        "meaning_incorrect": 1,
+        "meaning_current_streak": 8,
+        "meaning_max_streak": 8,
+        "percentage_correct": 89
+      }
+    ]
+  }
+}
