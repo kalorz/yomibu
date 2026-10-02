@@ -271,6 +271,8 @@ knowledge without fetching, saving, reading the environment, or consulting the
 clock. The result preserves policy and source evidence, target associations,
 grammar assertions, and unassessed linguistic limits. Source-subject eligibility
 must not be represented as proof of every reading/sense combination.
+The CLI renders the retained content, assignment, and review-statistic evidence
+beside each decision, including absences, without reimplementing policy rules.
 
 Grammar declarations belong to learner data; their separate versioned JSON input
 does not change WaniKani schema 1. One-based declaration IDs are scoped to the

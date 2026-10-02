@@ -355,10 +355,11 @@ Implementation starts from main `22b7c92` on
 in main. The authoritative G0 documents agree with the code; README omitted G0 and
 is now updated with both runnable slices.
 
-The cloud executor failed provisioning and remains unavailable. No local work
-was inspected or changed. Work uses GitHub commits on the separate branch and
-the existing Ubuntu/macOS PR CI for observed Red–Green–Refactor execution. No
-local execution, private learner cache, or real-data demonstration is claimed.
+During the original implementation the cloud executor failed provisioning. No
+local work was inspected or changed in that session. Implementation used GitHub
+commits on the separate branch and the existing Ubuntu/macOS PR CI for observed
+Red–Green–Refactor execution. Local execution became available in the review
+follow-up below; no private learner cache or real-data demonstration is claimed.
 
 Acceptance:
 
@@ -450,6 +451,62 @@ CI also checks each subsequent PR commit. No local test execution, live WaniKani
 request, private learner data, model call, or linguistic validation was performed.
 The broader milestone's real-learner demonstration remains unverified: automated
 fixtures and demonstrations are synthetic. No linguistic guarantee is claimed.
+
+### PR #4 review follow-up — 2026-10-02
+
+Read all Greptile summary reviews, submissions, inline comments, and threads.
+The one finding, [excluded subjects lack evidence](https://github.com/kalorz/yomibu/pull/4#discussion_r4167630466),
+is valid against SPEC's explainability requirement: the library retained the
+evidence, but the CLI showed only identity, kind, and exclusion reason.
+
+- **RED:** added `report_attaches_retained_evidence_to_each_policy_decision`.
+  The focused test failed because the hidden subject's report omitted
+  `Content: available; hidden_at: Some(2026-09-27T09:00:00Z)`.
+- **GREEN:** render retained content availability/hidden timestamp, assignment
+  ID/hidden flag/start/pass timestamps, and review-statistic ID/hidden flag
+  beneath every decision. Explicit absences do not become fabricated records.
+  The regression passed across each hidden source, both missing lifecycle dates,
+  missing assignments/statistics, and unavailable content with retained progress.
+  It also checks unchanged cache bytes and no newly created files.
+- **REFACTOR:** reviewed naming, duplication, modelling, borrowing, and tests.
+  Three direct `Option` matches render borrowed evidence without cloning or
+  interpreting policy again. The existing decision loop and isolated subprocess
+  fixture suffice; no new helper, trait, or further refactor was justified.
+  All seven preparation CLI tests passed again after this review.
+
+The resumed workspace provides shell/filesystem access and cached Rust 1.98.1.
+The original `/workspace/yomibu` checkout was clean and left untouched. Work uses
+an isolated checkout on the existing PR branch. Initially, sandboxed Git could
+not reach the proxy, so the GitHub connector supplied the exact head and tree,
+both verified by Git hashes. With shell network permission, a normal fetch then
+restored full history and confirmed main `22b7c92` and PR head `322bc80` had not
+advanced. No reset or discarded work was needed.
+
+Local Linux/x86_64 verification passed:
+
+- `cargo fmt --check` and
+  `cargo clippy --locked --all-targets --all-features -- -D warnings`.
+- `cargo test --locked --all`: 104 test entries, including the two existing
+  subprocess helpers, plus one compiled rustdoc example; none ignored. The first
+  sandboxed attempt failed on denied loopback binds; the rerun with network
+  permission passed using only local mock servers and synthetic credentials.
+- Documented preview CLI and both direct-library examples; preparation CLI
+  with both lesson-started and recorded-pass policies; synthetic status matched
+  its golden output. Preparation left cache and grammar bytes unchanged.
+- `RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps`.
+- Complete PR/follow-up diff and public API review, `git diff --check`, and
+  unchanged dependency/lockfile/toolchain checks. G0 and both earlier Greptile
+  fixes, sync/status, source/store contracts, and schema-1 persistence are intact.
+
+SPEC, ARCHITECTURE, and README now describe evidence beside each decision.
+There are no deferred findings from this review. Hosted verification of this
+follow-up is reported on the PR rather than inferred from earlier green runs.
+No live learner/API/model or linguistic validation was performed. Synthetic
+results do not fulfill the broader real-learner demonstration requirement.
+
+Rust note for a Ruby developer: matching `Option<&T>` distinguishes an absent
+record from a present record whose optional timestamp is missing, while borrowing
+lets the CLI display the original facts without copying or persisting them.
 
 ## Completed milestone records
 

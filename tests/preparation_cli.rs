@@ -308,3 +308,85 @@ fn report_explains_each_cached_subject_decision_and_source_interval() {
         assert!(text.contains(expected), "{text}");
     }
 }
+
+#[test]
+fn report_attaches_retained_evidence_to_each_policy_decision() {
+    for (hidden_source, policy, reason) in [
+        ("subject", "lesson-started", "Hidden"),
+        ("assignment", "lesson-started", "Hidden"),
+        ("statistic", "lesson-started", "Hidden"),
+        ("none", "lesson-started", "NoRecordedLessonStart"),
+        ("none", "recorded-pass", "NoRecordedPass"),
+    ] {
+        let (dir, grammar) = setup();
+        let mut data: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/preparation.json")).unwrap();
+        let snapshot = &mut data["snapshot"];
+        if hidden_source != "subject" {
+            snapshot["subjects"][0]["hidden_at"] = serde_json::Value::Null;
+        }
+        snapshot["assignments"][0]["hidden"] = (hidden_source == "assignment").into();
+        snapshot["review_statistics"][0]["hidden"] = (hidden_source == "statistic").into();
+        if policy == "recorded-pass" {
+            snapshot["assignments"][0]["started_at"] = "2026-09-27T09:00:00Z".into();
+        }
+        let path = dir.path().join("wanikani.json");
+        let bytes = serde_json::to_vec(&data).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        let text = stdout(
+            cli()
+                .args(["prepare", "--data-dir"])
+                .arg(dir.path())
+                .arg("--grammar-file")
+                .arg(&grammar)
+                .args([
+                    "--knowledge-policy",
+                    policy,
+                    "--target",
+                    "一つ:ひとつ:one thing",
+                ])
+                .output()
+                .unwrap(),
+        );
+        let first = text
+            .split("  Subject 1 (Kanji): ")
+            .nth(1)
+            .unwrap()
+            .split("  Subject 2")
+            .next()
+            .unwrap();
+        let hidden_at = if hidden_source == "subject" {
+            "Some(2026-09-27T09:00:00Z)"
+        } else {
+            "None"
+        };
+        let started_at = if policy == "recorded-pass" {
+            "Some(2026-09-27T09:00:00Z)"
+        } else {
+            "None"
+        };
+        for expected in [
+            format!("excluded: {reason}"),
+            format!("Content: available; hidden_at: {hidden_at}"),
+            format!(
+                "Assignment: 101; hidden: {}; started_at: {started_at}; passed_at: None",
+                hidden_source == "assignment"
+            ),
+            format!(
+                "Review statistic: 201; hidden: {}",
+                hidden_source == "statistic"
+            ),
+        ] {
+            assert!(first.contains(&expected), "missing {expected:?}:\n{first}");
+        }
+        for expected in [
+            "  Subject 4 (Kanji): excluded: NoAssignment\n    Content: available; hidden_at: None\n    Assignment: none recorded\n    Review statistic: 204; hidden: false\n",
+            "  Subject 5 (Vocabulary): excluded: ContentUnavailable\n    Content: unavailable (access limit)\n    Assignment: 105; hidden: false; started_at: Some(2026-09-27T09:00:00Z); passed_at: None\n    Review statistic: 205; hidden: true\n",
+            "    Assignment: 103; hidden: false; started_at: Some(2026-09-27T09:00:00Z); passed_at: None\n    Review statistic: none recorded\n",
+        ] {
+            assert!(text.contains(expected), "missing {expected:?}:\n{text}");
+        }
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+    }
+}

@@ -210,6 +210,10 @@ source-subject decision, not proof of knowledge of every reading or sense.
 Report the selected policy, synchronization interval, source evidence, and
 inclusion/exclusion reasons. Unavailable content has only its retained identifier
 and kind; do not invent its spelling.
+For each decision, the CLI shows content availability and `hidden_at`, assignment
+identity/hidden state and `started_at`/`passed_at`, and review-statistic
+identity/hidden state. Missing records remain explicit, including evidence that
+did not determine the highest-precedence exclusion.
 
 Grammar input is a separate local JSON document:
 `{"version":1,"declarations":["です","は as a topic marker"]}`.
