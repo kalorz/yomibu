@@ -381,7 +381,14 @@ Initial grammar cycles are recorded in commit history. Confirmed REDs: missing
 (`99291d6`, run 36995270179), and missing file adapter (`4896ebb`, run 36995571545).
 Each received a minimal GREEN, followed by explicit ownership/error/API review.
 The preservation test passed again in the blank-validation RED. The file-input
-refactor removes an unnecessary dummy read; its CI rerun is pending.
+refactor removed an unnecessary dummy read; Ubuntu CI rerun 36996003851 passed.
+Knowledge derivation RED was confirmed at `9d3ed01` (run 36996345316), then both
+platforms passed at `337a0f7` (run 36996845899). The explicit refactor consolidated
+timestamp decisions; its Ubuntu rerun 36997118549 passed. Retrieval RED was
+confirmed at `0ef5ca6` (run 36997244224); both platforms passed at `1377265`
+(run 36997692088). Retrieval refactor review covered borrowing, indexing, exact
+fields, ambiguity, errors and public surface; no further change was justified.
+CLI tests now exercise the next behavior and rerun existing domain suites.
 
 ## Completed milestone records
 
