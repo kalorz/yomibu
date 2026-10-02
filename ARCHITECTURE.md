@@ -1,6 +1,6 @@
 # Yomibu architecture
 
-Accepted direction as of 2026-10-01. `SPEC.md` defines product requirements and
+Accepted direction as of 2026-10-02. `SPEC.md` defines product requirements and
 invariants; this document defines responsibilities, composition, and code
 boundaries; `PLAN.md` records delivery and verification. Future examples here
 describe intended contracts, not implemented features or authorization to build
@@ -10,8 +10,10 @@ every adapter.
 
 The completed migration covers the existing WaniKani `sync` and offline `status`
 use cases, an application entry point, and interchangeable file and in-memory
-stores. Generation, durable grammar input, multi-source learner management,
-PostgreSQL, Cloud HTTP endpoints, and additional provider integrations follow later.
+stores. Offline preparation adds explicit grammar-file input, on-demand knowledge
+policy, and cached lexical retrieval. Generation, grammar database persistence,
+multi-source learner management, PostgreSQL, Cloud HTTP endpoints, and additional
+provider integrations follow later.
 Keep one Cargo package with a library and a thin CLI binary.
 
 The completed **G0 — Manual candidate preview** slice in `PLAN.md` adds
@@ -77,7 +79,7 @@ slice. Generalize that source contract when a second real integration requires
 it; do not erase provider semantics preemptively.
 
 `FileLearningStore` and `InMemoryLearningStore` are physical backends. Their
-current coherent read serves offline source summaries. Later material/progress
+current coherent read serves offline source summaries and preparation. Later material/progress
 read ports can share the same backend and transaction boundary. This is not a
 third repository of snapshots: `WaniKaniSyncData` is the transfer value containing
 related material and progress from one synchronization interval.
@@ -101,7 +103,7 @@ resources and execute work.
 
 For the current CLI:
 
-1. Parse the command. Resolve a data directory only for sync/status; only `sync`
+1. Parse the command. Resolve a data directory for sync/status/prepare; only `sync`
    resolves the WaniKani token. Preview parses structured entries and directly
    calls the synchronous library operation described below.
 2. For sync/status, construct `FileLearningStore` for that directory and `App`.
@@ -116,6 +118,9 @@ For the current CLI:
    in-memory retention versus acknowledged durable persistence.
 6. `App.status` loads a coherent data version and computes an owned summary. It
    never fetches, resolves secrets, or writes. The CLI renders the result.
+7. `prepare` reads one version through `LearningStore::load` and its explicit
+   grammar file, calls `prepare_context`, then renders the complete result.
+   It constructs no source/runtime, holds no writer, and saves no classification.
 
 One current store instance/directory is an explicit account scope. It must not
 switch to a different account after its first successful write. This is not yet
@@ -243,16 +248,16 @@ Grammar and linguistic correctness are explicitly unassessed.
 CLI delimiter parsing and rendering stay in the executable. Rendering applies
 `str::escape_debug` to word fields and grammar descriptions, keeping declarations
 on one line and control sequences visible without mutating the library inputs.
-A private data-dir resolver is called only by sync/status. Transient preview
+A private data-dir resolver serves sync/status/prepare, but not preview. Transient preview
 input never passes through `LearningStore`, `WaniKaniSyncData`, an account-scoped `App`, or a
 knowledge policy. There is no generator/checker substitution need in this slice:
 unit tests exercise the actual private checker with deliberately invalid data.
 No trait, future text type, registry, or fake backend was added. Existing
 sync/status behavior, cache schema, adapter layout, and package boundary remain.
 
-## Approved offline preparation slice
+## Implemented offline preparation slice
 
-This next slice is in implementation. Its explicit flow is:
+Its explicit flow is:
 
 ```text
 CLI -> one LearningStore read + explicit grammar-file read
@@ -278,6 +283,16 @@ One lexical source and concrete policy alternatives do not justify a new trait.
 Do not retrofit G0, add a material-store hierarchy, or introduce a registry.
 Retrieval uses associated source fields without claiming linguistic validation;
 source examples are not automatically safe practice passages.
+
+`grammar.rs` owns validated manual declarations. `knowledge.rs` owns concrete
+policy choices and borrowed `LearnerKnowledge` evidence. `preparation.rs` exposes
+`PracticeTarget`, `PreparedContext`, retrieved target evidence, typed errors, and
+explicit unassessed aspects. It indexes available vocabulary by exact word, then
+matches accepted reading/gloss fields without synthesizing combinations. Multiple
+matches are errors before eligibility is considered. Input order and duplicates
+survive selection; source examples remain ordered and unfiltered. Private helpers
+validate target fields and match one source record. There is no new storage port,
+policy trait, generator, or checker abstraction.
 
 ## Stores, source data, and consistency
 
@@ -400,9 +415,13 @@ src/
   domain.rs                  retained source data and invariants
   summary.rs                 deterministic source summaries
   preview.rs                 synchronous manual selection, validation, and checks
+  grammar.rs                 validated manual familiarity declarations
+  knowledge.rs               on-demand policy decisions and borrowed evidence
+  preparation.rs             exact cached lexical retrieval for explicit targets
   ports.rs                   source and atomic storage capabilities
   adapters/
     mod.rs
+    grammar_file.rs          explicit read-only versioned JSON input
     sources/
       mod.rs
       wanikani/              HTTP client, private DTOs, boundary tests
@@ -414,7 +433,8 @@ src/
         cache.rs             existing validated persistence and locking
         cache/tests.rs       filesystem fault/interruption tests
 tests/                       use-case, store-contract, CLI and integration tests
-examples/preview.rs          runnable direct library use, without a runtime/store
+examples/preview.rs          runnable direct manual preview
+examples/prepare.rs          runnable direct preparation from synthetic values
 ARCHITECTURE.md              this design
 SPEC.md                      product contracts
 PLAN.md                      implementation stages and evidence
