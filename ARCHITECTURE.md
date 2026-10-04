@@ -346,6 +346,15 @@ logs preserve exclusions, family lineage, references and disagreements; changing
 a draft does not change the analyzer or erase exposure for holdout separation.
 G0, preparation, source/store boundaries, sync/status, and schema 1 are preserved.
 
+The separate [post-A1 safeguard](docs/A1_FOLLOWUP.md) changes only the concrete
+evaluator's treatment of recognized object/predicate combinations. It borrows the
+object noun and particle to retain the combination's original span. Transitive
+word evidence still cannot assess a multiword use, so Particles and Scope retain
+uncertainty, combined with any existing permission failures. Other bounded checks
+remain visible. This restriction also affects ordinary object sentences; there
+is no phrase list, semantic adapter, new input format, or acceptance path. The
+checkpoint and subsequent commits distinguish this code from the scored A1 run.
+
 ## Stores, source data, and consistency
 
 | Backend | Retention and failures | Verification |

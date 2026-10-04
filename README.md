@@ -12,9 +12,12 @@ of 2026-10-03; eligibility is not mastery and linguistic validity is unassessed.
 A1 now has a bounded offline analyzer and synthetic evaluation example. Its
 engineering tests are separate from reference review and held-out accuracy.
 The investigation and private scoring are complete: held-out targets passed,
-but three unsupported challenge Pass results make this implementation a **no-go**
+but three unsupported challenge Pass results make the frozen implementation a **no-go**
 for the next stage. Model judgments remain provisional. See the
 [implementation and evidence status](docs/A1_IMPLEMENTATION.md).
+The separate [code follow-up](docs/A1_FOLLOWUP.md) now keeps object/predicate
+combinations unresolved, including ordinary object sentences. It does not revise
+the completed A1 score or establish a go decision.
 
 ```sh
 WANIKANI_API_TOKEN=... cargo run -- sync
@@ -215,6 +218,14 @@ matches. One span discrepancy remains recorded. A1 is complete with a no-go;
 held-out success does not override the failed challenge safeguard. See the
 [evaluation status](docs/A1_EVALUATION_STATUS.md). No accepted exercises or
 independently validated linguistic ground truth are claimed.
+
+Current code keeps Particles and Scope Inconclusive for object/predicate
+combinations whose multiword use it cannot assess, even when the verb has an
+explicit transitive-use binding. Existing permission failures still produce Fail.
+This addresses the three exposed Pass results by reducing supported coverage;
+it also withholds Pass from two ordinary visible development positives. The
+[follow-up record](docs/A1_FOLLOWUP.md) separates these development results from
+the preserved historical evaluation.
 
 The [design vocabulary](SPEC.md#design-vocabulary-and-composition) distinguishes
 implemented knowledge/preparation types from future components such as
