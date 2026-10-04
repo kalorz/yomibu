@@ -350,9 +350,10 @@ applicability. The [Scope clarification](docs/A1_SCOPE_CLARIFICATION.md) records
 this existing v0.3 interpretation for reference reconciliation before freeze.
 
 Every report lists naturalness, multiword expressions, and contextual reading/sense
-as unassessed. A literal-looking idiom can pass bounded structural checks; that
-is not supported exercise acceptance and an unsupported challenge Pass blocks
-the protocol's go decision. There is no ad hoc phrase blacklist or general validator.
+as unassessed. In the frozen A1 implementation, a literal-looking idiom could pass
+bounded structural checks; three such challenge results blocked the protocol's
+go decision. The separately recorded follow-up below restricts object-combination
+coverage. There is no ad hoc phrase blacklist or general validator.
 
 `examples/a1.rs` is the thin synthetic evaluation executable, accepting an explicit
 dictionary path and versioned JSON packet, at most 1 MiB/60 cases. It keeps completed
@@ -376,10 +377,31 @@ The custodian's scoring receipt reports all held-out targets met: 24/24 outcome
 and 120/120 check judgments match, with 11/12 exact negative reason/span matches.
 The remaining nested-span discrepancy is preserved without revising the reference.
 The investigation is complete with a no-go because the challenge safeguard failed.
-No hidden reference labels were opened here, and no post-score change or rerun was
-made. Held-out fixtures remain private absent a separate release decision. See
-[evaluation status](docs/A1_EVALUATION_STATUS.md); no linguistic
+No hidden reference labels were opened here, and no change or rerun was made for
+that scored investigation. Held-out fixtures remain private absent a separate
+release decision. See [evaluation status](docs/A1_EVALUATION_STATUS.md); no linguistic
 acceptance or exercise-acceptance claim follows.
+
+### Separate object-combination safeguard — 2026-10-04
+
+The authorized follow-up starts from local A1 checkpoint `f1237d4`. It uses only
+visible development material and leaves the completed evaluation, frozen references,
+and held-out discrepancy intact. It does not rerun the scored holdout.
+
+A transitive-use binding describes one vocabulary tuple; it cannot resolve an
+object/predicate combination. For a recognized object + を + regular polite verb,
+Particles and Scope therefore retain Inconclusive when permissions are present,
+even with `direct_object: true`. Existing permission failures still determine Fail
+and retain their decisive spans; the unresolved combination is reported alongside
+them. Its finding spans the object through the predicate, excluding a preceding
+topic and the optional final 。. Per-word vocabulary and morphological checks
+remain separately observable.
+
+This deliberately reduces coverage for ordinary object sentences as well as the
+three exposed multiword cases. It does not identify idioms or supply contextual
+evidence. No phrase exceptions, new bindings, dependencies, or broader grammar
+support are introduced. See the [follow-up record](docs/A1_FOLLOWUP.md) for TDD,
+visible-only results, verification and limitations; none revises the A1 no-go.
 
 ## Design vocabulary and composition
 
