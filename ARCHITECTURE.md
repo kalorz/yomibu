@@ -378,8 +378,11 @@ Text includes every check and finding with quoted original byte-span excerpts;
 JSON serializes the complete evidence and limitations without interpreting it.
 Text and diagnostics use Rust display escaping. JSON keeps Serde's encoding and
 additionally escapes DEL and nonprinting Unicode as JSON UTF-16 escapes, retaining
-the original decoded strings. Argument errors are escaped at the binary boundary;
-help/version keep normal stdout presentation and successful exit status.
+the original decoded strings. At the binary boundary, argument errors escape
+Clap's invalid argument/value/subcommand contexts before formatting, preserving
+diagnostic line breaks and indentation. The fixed `yomibu` binary name prevents
+untrusted executable names from entering usage/help. Help/version keep normal
+stdout presentation and successful exit status.
 Errors propagate outside completed judgments, and no evaluation is printed when
 input, dictionary initialization, analysis, or evaluation fails.
 

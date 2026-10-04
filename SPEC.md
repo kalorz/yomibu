@@ -447,6 +447,8 @@ unassessed. A Pass never establishes an accepted exercise.
 Completed Pass, Fail and Inconclusive all exit zero. Invalid inputs or execution
 errors exit nonzero with an escaped, contextual stderr diagnostic and no evaluation
 on stdout. They are never converted to linguistic Fail or completed checks.
+Argument diagnostics preserve line breaks and indentation while escaping supplied
+values; usage and help use the fixed executable name `yomibu`.
 There is no structured error-report contract in this version.
 
 The dictionary path is mandatory, loaded only through the existing pinned adapter.

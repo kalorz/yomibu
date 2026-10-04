@@ -251,6 +251,8 @@ Completed outcomes use `{"Completed":"Pass"}`, `{"Completed":"Fail"}`, or
 `{"Completed":"Inconclusive"}` and all exit successfully. Input/execution errors
 exit nonzero, print an escaped diagnostic to stderr and publish no evaluation on
 stdout, including with `--json`.
+Argument errors retain readable usage/help lines while escaping supplied values;
+usage and help always name the executable `yomibu`.
 
 The dictionary path is mandatory. Missing or unpinned dictionaries fail explicitly.
 Analysis reads only the supplied input and dictionary files; it needs no HOME,
