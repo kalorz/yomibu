@@ -11,7 +11,8 @@ every adapter.
 The completed migration covers the existing WaniKani `sync` and offline `status`
 use cases, an application entry point, and interchangeable file and in-memory
 stores. Offline preparation adds explicit grammar-file input, on-demand knowledge
-policy, and cached lexical retrieval. Generation, grammar database persistence,
+policy, and cached lexical retrieval. G1 adds one explicit experimental provider
+request and independent bounded assessment, described below. Validated generation, grammar database persistence,
 multi-source learner management, PostgreSQL, Cloud HTTP endpoints, and additional
 provider integrations follow later.
 Keep one Cargo package with a library and a thin CLI binary.
@@ -394,6 +395,56 @@ This CLI does not revise A1's historical no-go or the later object-combination
 restriction. Real-adapter subprocess tests compare CLI output to direct library
 evaluation and check errors, spans, escaping and absence of writes.
 
+## G1 experimental candidate composition
+
+```text
+CLI opt-in + explicit paths -> bounded input + existing binding validation
+                           -> pinned dictionary -> explicit credential/client/runtime
+                           -> one OpenAI POST -> immutable pair and provenance
+                           -> independent synchronous Sudachi/evaluate per candidate
+                           -> both results or separate execution errors -> report/exit
+```
+
+`adapters::openai::Client` is the single concrete provider adapter. Private DTOs
+enforce completed Responses envelopes and the strict two-string payload. It sends
+one versioned compiled prompt and explicit data with fixed model/schema/settings;
+limits, sanitized typed errors, response parsing and request provenance stay here.
+There is no SDK, generic model trait, prompt store, retry loop or persistence.
+`Client::new` uses the official endpoint; `with_base_url` accepts that exact base
+or numeric loopback HTTP without URL credentials/query/fragment for adapter tests.
+The production executable offers no endpoint flag or environment override.
+
+`generation::GeneratedCandidates` owns `[String; 2]` and provenance, borrowing the
+original immutable `GrammarDeclarations`/`EvaluationBindings`. Its synchronous
+`assess(&SudachiAnalyzer)` returns two `CandidateAssessment` values that borrow
+the original texts. Completed values retain analysis and evaluation; typed errors
+retain available analysis without inventing completed checks. A boxed Evaluation
+keeps the enum compact; it does not introduce a new assessment abstraction.
+No analyzer trait, self-referential result, accepted-exercise type or learner store
+is needed. `EvaluationBindings::validate` exposes the same validation for preflight;
+`evaluate` still validates analysis first, then bindings, preserving error precedence.
+
+The binary's `generate.rs` owns the input/report DTOs, credential lookup and runtime
+startup. `cli_support.rs` shares bounded file reads, check rendering and safe JSON
+encoding with `analyze.rs`. The latter retains its output and fully offline flow.
+Only the binary maps errors to exit codes. Reports borrow completed evidence and
+keep execution errors separate from Fail/Inconclusive; all untrusted presentation
+fields are escaped before composing readable output.
+
+The same CLI entry takes a lazy, non-null concrete OpenAI client constructor.
+Production supplies `Client::new`; the binary's test subprocess helper supplies a
+loopback constructor explicitly. The helper and its environment variables exist
+only under `cfg(test)`; no alternate production mode or fake tokenizer ships.
+Tests run the real provider adapter, real pinned Sudachi and evaluator, with
+synthetic keys and isolated HTTP servers/directories. Typed downstream-error
+report tests are labelled boundary tests, not induced real-analyzer failures.
+
+G1 never selects accepted exercises. A1's historical no-go, 24/24 outcomes,
+120/120 judgments, 11/12 exact negative matches, frozen records and object safeguard
+remain unchanged. The later validated-generation architecture elsewhere in this
+document remains deferred. See [SPEC](SPEC.md#g1--experimental-single-sentence-candidates)
+for contracts and [G1 usage](docs/G1.md) for privacy, spending and the separate smoke.
+
 ## Stores, source data, and consistency
 
 | Backend | Retention and failures | Verification |
@@ -495,7 +546,7 @@ stable; preserve schema-1 disk compatibility independently of source API changes
 There is no frozen generic source ontology or promise of drop-in asynchronous
 storage for this first slice.
 
-Future generation results must identify the accepted exercise, validation
+Future validated-generation results must identify the accepted exercise, validation
 outcome, policy/input/prompt revisions, and consumed attempts/model usage when
 known. Distinguish invalid constraints, unavailable context, rejected candidates,
 model/transport failure, deadline/cancellation, and exhausted budget. Successful
@@ -512,6 +563,8 @@ src/
   lib.rs                     public entry points
   main.rs                    CLI composition and rendering
   analyze.rs                 binary-private analysis input and rendering
+  generate.rs                binary-private opt-in, input and candidate reports
+  cli_support.rs             shared bounded reads and terminal presentation
   app.rs                     sync/status orchestration and reports
   domain.rs                  retained source data and invariants
   summary.rs                 deterministic source summaries
@@ -521,10 +574,13 @@ src/
   preparation.rs             exact cached lexical retrieval for explicit targets
   analysis.rs                bounded sentence and original C/A morphological evidence
   evaluation.rs              synchronous bounded checks and explicit bindings
+  generation.rs              experimental pair, provenance and independent assessment
   ports.rs                   source and atomic storage capabilities
   adapters/
     mod.rs
     grammar_file.rs           explicit read-only versioned JSON input
+    openai.rs                 one bounded Responses attempt and private DTOs
+    openai_tests.rs           real socket deadline/body-bound tests
     sudachi.rs                explicit checksum-pinned analyzer adapter
     sudachi.json              embedded analyzer configuration
     sources/
@@ -548,7 +604,8 @@ PLAN.md                      implementation stages and evidence
 
 As working functionality arrives, split `domain.rs` into `domain/learner.rs`,
 `materials.rs`, `progress.rs`, and `exercise.rs`; add `knowledge/` and
-`generation/`. Put model adapters in `adapters/models/`, prompt adapters in
+`generation/` when the implemented scope outgrows the concrete G1 module.
+Group future model adapters in `adapters/models/`, prompt adapters in
 `adapters/prompts/`, and corpus adapters in `adapters/examples/`. WaniKani stays
 under `adapters/sources/wanikani`; Bunpro joins that category when implemented.
 Create files for cohesive responsibilities, not one file for each field/type.

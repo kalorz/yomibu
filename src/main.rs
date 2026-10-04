@@ -11,7 +11,11 @@ use std::{
 };
 use yomibu::{
     App,
-    adapters::{grammar_file, stores::FileLearningStore},
+    adapters::{
+        grammar_file,
+        openai::{Client as OpenAiClient, ProviderError},
+        stores::FileLearningStore,
+    },
     app::SyncReport,
     domain::LexicalContent,
     knowledge::{KnowledgeDecision, LearnerKnowledgePolicy, WaniKaniKnowledgeRule},
@@ -23,15 +27,20 @@ use yomibu::{
 };
 
 mod analyze;
+mod cli_support;
+mod generate;
+
+#[cfg(test)]
+mod generate_tests;
 
 #[derive(Parser)]
 #[command(
     version,
     bin_name = "yomibu",
-    about = "Analyze supplied text, prepare practice context, preview entries, or sync/inspect WaniKani (unofficial tool)"
+    about = "Generate experimental candidates, analyze supplied text, prepare practice context, preview entries, or sync/inspect WaniKani (unofficial tool)"
 )]
 struct Cli {
-    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze).
+    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze/generate-candidates).
     #[arg(long, global = true, value_name = "PATH")]
     data_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -40,6 +49,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Request two experimental sentences from OpenAI; never accepted exercises.
+    GenerateCandidates {
+        /// Authorize one paid model attempt sending the supplied permissions/grammar.
+        #[arg(long, required = true)]
+        allow_model_call: bool,
+        /// Explicit path to the pinned SudachiDict Core 20260723 V0 dictionary.
+        #[arg(long, value_name = "PATH")]
+        dictionary: PathBuf,
+        /// Version-1 JSON grammar declarations and explicit vocabulary/grammar bindings.
+        #[arg(long, value_name = "PATH")]
+        input: PathBuf,
+        /// Emit both candidates, checks, errors, provenance and original UTF-8 spans.
+        #[arg(long)]
+        json: bool,
+    },
     /// Run bounded offline checks on one manually supplied sentence.
     Analyze {
         /// Explicit path to the pinned SudachiDict Core 20260723 V0 dictionary.
@@ -89,25 +113,28 @@ enum PolicyChoice {
 }
 
 fn main() -> ExitCode {
-    let cli = match Cli::try_parse() {
+    ExitCode::from(entry(std::env::args_os(), OpenAiClient::new))
+}
+
+fn entry(
+    args: impl IntoIterator<Item = impl Into<std::ffi::OsString> + Clone>,
+    make_client: impl FnOnce(&str) -> Result<OpenAiClient, ProviderError>,
+) -> u8 {
+    let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(error) => {
             if error.use_stderr() {
-                eprint!("{}", escape_argument_error(error));
-                return ExitCode::from(2);
+                let _ = write!(io::stderr().lock(), "{}", escape_argument_error(error));
+                return 2;
             }
-            return if error.print().is_ok() {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::FAILURE
-            };
+            return if error.print().is_ok() { 0 } else { 1 };
         }
     };
-    match run(cli) {
-        Ok(()) => ExitCode::SUCCESS,
+    match run(cli, make_client) {
+        Ok(()) => 0,
         Err(error) => {
-            eprintln!("error: {error}");
-            ExitCode::FAILURE
+            let _ = writeln!(io::stderr().lock(), "error: {error}");
+            1
         }
     }
 }
@@ -127,8 +154,24 @@ fn escape_argument_error(mut error: clap::Error) -> clap::Error {
     error
 }
 
-fn run(cli: Cli) -> anyhow::Result<()> {
+fn run(
+    cli: Cli,
+    make_client: impl FnOnce(&str) -> Result<OpenAiClient, ProviderError>,
+) -> anyhow::Result<()> {
     match cli.command {
+        Command::GenerateCandidates {
+            dictionary,
+            input,
+            json,
+            ..
+        } => generate::run(
+            &dictionary,
+            &input,
+            json,
+            make_client,
+            &mut io::stdout().lock(),
+        )
+        .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
         Command::Analyze {
             dictionary,
             input,
