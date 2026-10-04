@@ -310,6 +310,15 @@ is explicitly loaded into owned memory; there are no ambient files or runtime
 downloads. C/A units and original spans remain in the report. Exact artifact pins,
 setup/license notices, and verification are in [A1 implementation](docs/A1_IMPLEMENTATION.md).
 
+Explicit setup verifies size and SHA-256 for the dictionary and both notices,
+then publishes a complete bundle through `target/a1/current` in one atomic link
+replacement. It verifies all three files before cache reuse. Completed bundles
+remain available to existing readers; pre-publication failure preserves the prior
+bundle, while failed directory synchronization after publication reports uncertain
+durability. Legacy flat files are retained; current examples use
+`target/a1/current/system_core.dic`. This setup hardening does not change the pinned
+analyzer/dictionary, frozen references, or completed A1 results.
+
 `analysis::Sentence` validates nonblank input and counts at most 100 Unicode scalar
 values. `evaluation::evaluate` is synchronous and takes concrete analysis, unchanged
 free-form declarations, and explicit word/rule bindings. Vocabulary tuples retain

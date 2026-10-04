@@ -15,16 +15,33 @@ From the repository root, with Python 3.8+ for the one-time setup:
 
 ```sh
 python3 scripts/setup_a1_dictionary.py
-cargo run --locked --example a1 -- target/a1/system_core.dic tests/fixtures/a1/smoke.json
+cargo run --locked --example a1 -- target/a1/current/system_core.dic tests/fixtures/a1/smoke.json
 ```
 
 Setup explicitly downloads the pinned public dictionary archive (about 72 MB),
-checks its bytes and SHA-256, extracts only the required dictionary and publisher
-notices, checks the dictionary, and replaces files only after verification.
+checks its bytes and SHA-256, and extracts only the required dictionary and publisher
+notices. Exact size/SHA-256 pins for all three files are checked before publication
+and before reusing an installed bundle. The fast path resolves `current` once so
+concurrent publication cannot mix its file checks across bundles.
 The archive can instead be supplied with `--archive /path/to/pinned.zip`.
-Existing usable dictionary bytes remain until the verified replacement is ready.
-Files stay under ignored `target/a1/`; no dictionary is committed. Deleting target
-requires setup again. Neither the library nor example downloads anything.
+
+Each complete bundle lives in a unique directory under ignored `target/a1/`.
+Setup synchronizes its files/directories, then atomically replaces the `current`
+symlink and synchronizes the parent directory. Failure before publication preserves
+the old complete bundle; a post-publication directory-sync error explicitly reports
+uncertain durability with the new complete bundle still visible. Old bundles and
+unreferenced complete bundles left by failures are retained for existing readers;
+interrupted staging directories are ignored. Tests do not simulate power loss.
+
+The current dictionary path is `target/a1/current/system_core.dic`. Rerun explicit
+setup to populate this layout; old flat files remain untouched and are not used by
+the new fast path. Deleting target requires setup again. No dictionary is committed,
+and neither the library nor example downloads anything. Installer boundary tests
+run offline with tiny synthetic archives:
+
+```sh
+python3 -B -m unittest discover -s scripts -p 'test_setup_a1_dictionary.py' -v
+```
 
 The example accepts exactly a dictionary path and synthetic JSON path. It has no
 learner-store, environment credential, sync, HTTP, or model composition. The
@@ -54,13 +71,19 @@ private labels. The example never reads a reference key.
 | Dictionary | SudachiDict Core 20260723 **V0** |
 | Publisher ZIP | 72,276,502 bytes; SHA-256 `b6e835f63440f97474c2da45d80950f73746e632e40bbfc168b4041729135e1f` |
 | Extracted dictionary | 217,466,039 bytes; SHA-256 `53fa281d11eef3769712fe1c3c892117338f9892bee6daf4dad51daa5281bb6f` |
+| LEGAL | 6,037 bytes; SHA-256 `725a8776b38e058b185e905594bc9a2437dbf3787df022fffeefedb9a84e4665` |
+| LICENSE-2.0.txt | 11,358 bytes; SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
 | Built-in configuration | `src/adapters/sudachi.json`; SHA-256 `45cde6f1eba960c32475e267dfa422e51b1f215e3fa142162079d711eff77e4c` |
 
-The hashes were calculated from the exact official HTTPS download on 2026-10-03;
+The original hashes were calculated from the exact official HTTPS download on 2026-10-03;
 they are reproducibility pins, not publisher signatures or independently supplied
 checksums. Compatibility was exercised by loading this pair and running real
 C/A adapter tests. Upstream documents the V0/V1 break for 0.6/0.7; there is no
 upgrade to a floating 0.7 release.
+
+The two notice pins were added on 2026-10-04 from a fresh temporary download whose
+complete archive bytes matched the existing size and SHA-256 pin. The dictionary,
+analyzer, configuration and frozen evaluation inputs did not change.
 
 Sources: [v0.6.11 release](https://github.com/WorksApplications/sudachi.rs/releases/tag/v0.6.11),
 [pinned implementation](https://github.com/WorksApplications/sudachi.rs/tree/90fd6068c80c2fc3b63e0dbab0e341475bad4d8f),
