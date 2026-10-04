@@ -62,6 +62,13 @@ unsupported challenge Pass results determine the no-go. No further review round
 or rerun is required to complete this investigation. See
 [evaluation status](docs/A1_EVALUATION_STATUS.md).
 
+The user subsequently authorized a separate code revision for the exposed
+unsupported Pass results. Local checkpoint `f1237d4` preserves completed A1 on
+`codex/a1-offline-analysis`; `codex/a1-unsupported-pass` continues from it.
+The [follow-up record](docs/A1_FOLLOWUP.md) documents the conservative object-use
+restriction and its reduced visible coverage. The scored holdout is not rerun,
+and the completed A1 results and no-go remain unchanged.
+
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
 
@@ -1099,6 +1106,40 @@ Local verification on macOS arm64 / Rust 1.98.1 / Python 3.14.8:
 - Reviewed the complete diff, including the new Python test file; `git diff --check`
   passed. Hosted CI results are recorded separately on the PR.
 
+## A1 follow-up — object-combination safeguard, 2026-10-04
+
+Fetched origin before implementation; it remained at `4931913`. Preserved all
+existing files and branches. At the user's request, reviewed and committed the
+unchanged completed A1 baseline as local checkpoint `f1237d4`, excluding the saved
+follow-up test edits. Private evidence, held-out files, learner data, dictionaries
+and build artifacts are outside the commit. No push was requested or performed.
+
+The separate follow-up retains Inconclusive for an object/predicate combination
+even with a transitive vocabulary binding. Existing permission failures and their
+spans survive. Confirmed RED, minimal GREEN, explicit refactor review and focused
+reruns are recorded in [A1 follow-up](docs/A1_FOLLOWUP.md). The unchanged visible
+packet now produces 10 Pass, 13 Fail and 13 Inconclusive across 36 cases, with all
+180 checks completed and no execution errors. The three unsupported Pass cases
+are unresolved; two ordinary development positives also lose Pass. This is an
+explicit coverage tradeoff, not new linguistic evidence or a repaired A1 score.
+
+Verification passed on native macOS/arm64 with the repository toolchain:
+
+- `cargo fmt --check`.
+- `cargo clippy --locked --offline --all-targets --all-features -- -D warnings`.
+- `cargo test --locked --offline --all`: 124 test entries plus one rustdoc,
+  zero failures or ignored tests. Local mock-server ports were explicitly allowed;
+  dependencies and A1 analysis stayed offline.
+- Reviewed the complete follow-up diff, including the new record, for scope,
+  ownership, naming, failure precedence and original spans. No further production
+  refactor was justified. `git diff --check` passed. Preservation checks confirmed
+  unchanged historical evaluation, all frozen public inputs/review packets,
+  dependency lockfile and analyzer/configuration pins.
+
+No Linux or hosted CI run is claimed for this revision. Existing live-service and
+linguistic-validation limits remain. Rust note: the object evidence is a pair of
+borrowed tokens; preserving its span requires no token or sentence copy.
+
 ## Completed milestone records
 
 ### 1a — Offline status
@@ -1723,10 +1764,10 @@ package; the completed 1a checks are recorded above.
 
 The offline preparation slice and its real-learner acceptance are complete above.
 A1 implementation, manual reference review, frozen evaluation and private scoring
-are complete with a no-go for this implementation. A proposed follow-up is to
-address unsupported challenge Pass results in a separately recorded revision;
-this does not authorize generation or a claim of new blind evidence from the
-scored holdout. Remaining implementation work requires separate authorization:
+are complete with a no-go for the frozen implementation. The separately authorized
+object-combination follow-up is recorded above; it does not authorize generation
+or a claim of new blind evidence from the scored holdout. Remaining implementation
+work requires separate authorization:
 
 1. **Learner constraints and retrieval:** grammar knowledge as learner data,
    initially entered through a local file, an explicit revisable

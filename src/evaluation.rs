@@ -18,6 +18,7 @@ pub struct VocabularyEntry {
     pub reading: String,
     pub sense: String,
     /// Explicit synthetic evidence for this lexical use; never inferred from を.
+    /// Does not assess an object/predicate combination or resolve multiword uses.
     pub direct_object: bool,
 }
 
@@ -151,6 +152,8 @@ pub enum EvaluationError {
 /// Dictionary hypotheses and sense labels are not contextual linguistic proof.
 /// An unsupported construction is Inconclusive; a supported permission violation
 /// is Fail. Neither is an execution error. This operation performs no I/O.
+/// Object/predicate combinations keep Particles and Scope unresolved even with
+/// a transitive-use binding; independent permission failures are retained.
 pub fn evaluate(
     analysis: &SentenceAnalysis<'_>,
     grammar: &GrammarDeclarations,
@@ -196,7 +199,7 @@ pub fn evaluate(
         && is_particle(wo, "を", text)
     {
         predicate = rest;
-        Some(*wo)
+        Some((*noun, *wo))
     } else {
         None
     };
@@ -236,23 +239,33 @@ pub fn evaluate(
         particles = permission(bindings, GrammarRule::TopicWa, wa.span.clone());
     }
     if scope.state == CheckState::Completed(CheckOutcome::Pass)
-        && let Some(wo) = object
+        && let Some((noun, wo)) = object
     {
         let verb = predicate[0];
         let mut uses = bindings
             .vocabulary
             .iter()
             .filter(|word| word.written_form == verb.dictionary_form);
-        let supported = uses.next().is_some_and(|first| {
+        let transitive_use = uses.next().is_some_and(|first| {
             first.direct_object
                 && reading_matches(first, verb, text)
                 && uses.all(|word| word == first)
         });
-        if supported {
+        if transitive_use {
             particles = combine(
                 particles,
                 permission(bindings, GrammarRule::ObjectWo, wo.span.clone()),
             );
+            // Transitivity of one word cannot resolve its use in a multiword expression.
+            let unresolved = || {
+                problem(
+                    CheckOutcome::Inconclusive,
+                    noun.span.start..predicate[predicate.len() - 1].span.end,
+                    "object/predicate combination has no multiword-expression assessment",
+                )
+            };
+            particles = combine(particles, unresolved());
+            scope = unresolved();
         } else {
             particles = combine(
                 particles,

@@ -29,6 +29,27 @@ fn word(written_form: &str, reading: &str, sense: &str) -> VocabularyEntry {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct VisibleCase {
+    id: String,
+    sentence: String,
+    grammar: Vec<String>,
+    bindings: EvaluationBindings,
+}
+
+fn visible_case(id: &str) -> VisibleCase {
+    #[derive(serde::Deserialize)]
+    struct Packet {
+        cases: Vec<VisibleCase>,
+    }
+    serde_json::from_str::<Packet>(include_str!("fixtures/a1/review-draft-v2.json"))
+        .unwrap()
+        .cases
+        .into_iter()
+        .find(|case| case.id == id)
+        .expect("case must exist in the frozen visible packet")
+}
+
 #[test]
 fn vocabulary_checks_whole_identity_without_promoting_components_or_dictionary_guesses() {
     let grammar = GrammarDeclarations::from_descriptions(["an arbitrary declaration"]).unwrap();
@@ -308,7 +329,7 @@ fn a_single_nominal_topic_is_checked_separately_from_its_predicate() {
 }
 
 #[test]
-fn object_wo_requires_both_scoped_grammar_and_explicit_transitive_use() {
+fn object_wo_checks_permissions_without_claiming_compositional_support() {
     let grammar =
         GrammarDeclarations::from_descriptions(["topic", "object", "polite verb"]).unwrap();
     let mut read = word("読む", "ヨム", "read written material");
@@ -349,9 +370,15 @@ fn object_wo_requires_both_scoped_grammar_and_explicit_transitive_use() {
         let report = evaluate(&analysis, &grammar, &bindings).unwrap();
         assert_eq!(
             report.outcome(),
-            CheckState::Completed(CheckOutcome::Pass),
+            CheckState::Completed(CheckOutcome::Inconclusive),
             "{report:?} {analysis:?}"
         );
+        for kind in [CheckKind::Particles, CheckKind::Scope] {
+            assert_eq!(
+                report.check(kind).state,
+                CheckState::Completed(CheckOutcome::Inconclusive)
+            );
+        }
         bindings.vocabulary[2].direct_object = false;
         let report = evaluate(&analysis, &grammar, &bindings).unwrap();
         assert_eq!(
@@ -378,6 +405,101 @@ fn object_wo_requires_both_scoped_grammar_and_explicit_transitive_use() {
     let report = evaluate(&analysis, &grammar, &bindings).unwrap();
     assert_eq!(
         report.outcome(),
+        CheckState::Completed(CheckOutcome::Inconclusive)
+    );
+}
+
+#[test]
+fn object_transitivity_does_not_resolve_visible_multiword_uses() {
+    for (id, text) in [
+        ("9a9f3acbee", "手を貸します。"),
+        ("4edc1c61c7", "油を売ります。"),
+        ("0d61be162d", "目を通します。"),
+    ] {
+        let case = visible_case(id);
+        assert_eq!(case.sentence, text);
+        let grammar = GrammarDeclarations::from_descriptions(case.grammar).unwrap();
+        let analysis = analyzer()
+            .analyze(Sentence::new(&case.sentence).unwrap())
+            .unwrap();
+        let report = evaluate(&analysis, &grammar, &case.bindings).unwrap();
+        assert_eq!(
+            report.outcome(),
+            CheckState::Completed(CheckOutcome::Inconclusive),
+            "{id}: {report:?}"
+        );
+        for kind in [CheckKind::Particles, CheckKind::Scope] {
+            let check = report.check(kind);
+            assert_eq!(
+                check.state,
+                CheckState::Completed(CheckOutcome::Inconclusive)
+            );
+            assert_eq!(check.findings.len(), 1);
+            assert_eq!(check.findings[0].span, 0..18);
+            assert_eq!(
+                check.findings[0].reason,
+                "object/predicate combination has no multiword-expression assessment"
+            );
+        }
+        for kind in [
+            CheckKind::Vocabulary,
+            CheckKind::Inflection,
+            CheckKind::Nominal,
+        ] {
+            assert_eq!(
+                report.check(kind).state,
+                CheckState::Completed(CheckOutcome::Pass)
+            );
+        }
+    }
+}
+
+#[test]
+fn object_uncertainty_preserves_permission_failures_and_original_spans() {
+    for (id, kind, failure_span, combination_span) in [
+        ("81d78d6bc2", CheckKind::Particles, 6..9, 0..21),
+        ("c81dc42489", CheckKind::Particles, 3..6, 6..27),
+    ] {
+        let case = visible_case(id);
+        let grammar = GrammarDeclarations::from_descriptions(case.grammar).unwrap();
+        let analysis = analyzer()
+            .analyze(Sentence::new(&case.sentence).unwrap())
+            .unwrap();
+        let report = evaluate(&analysis, &grammar, &case.bindings).unwrap();
+        assert_eq!(report.outcome(), CheckState::Completed(CheckOutcome::Fail));
+        let check = report.check(kind);
+        assert_eq!(check.state, CheckState::Completed(CheckOutcome::Fail));
+        assert_eq!(check.findings[0].span, failure_span);
+        assert_eq!(
+            check.findings[0].reason,
+            "recognized form has no permission binding"
+        );
+        let scope = report.check(CheckKind::Scope);
+        assert_eq!(
+            scope.state,
+            CheckState::Completed(CheckOutcome::Inconclusive)
+        );
+        assert_eq!(scope.findings[0].span, combination_span);
+        assert_eq!(check.findings[1], scope.findings[0]);
+    }
+
+    let mut case = visible_case("9a9f3acbee");
+    let grammar = GrammarDeclarations::from_descriptions(case.grammar).unwrap();
+    let analysis = analyzer()
+        .analyze(Sentence::new(&case.sentence).unwrap())
+        .unwrap();
+    case.bindings
+        .grammar
+        .retain(|binding| binding.rule != GrammarRule::PoliteNonPast);
+    let report = evaluate(&analysis, &grammar, &case.bindings).unwrap();
+    assert_eq!(report.outcome(), CheckState::Completed(CheckOutcome::Fail));
+    assert_eq!(
+        report.check(CheckKind::Inflection).state,
+        CheckState::Completed(CheckOutcome::Fail)
+    );
+    assert_eq!(report.check(CheckKind::Inflection).findings[0].span, 12..18);
+    assert_eq!(
+        report.check(CheckKind::Scope).state,
         CheckState::Completed(CheckOutcome::Inconclusive)
     );
 }
