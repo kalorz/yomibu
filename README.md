@@ -7,6 +7,15 @@ The library composes sync/status through `App` with file or in-memory storage.
 Manual candidate preview and offline learner-context preparation are available.
 Japanese generation and validated reading exercises remain deferred.
 
+Offline preparation implementation and real-learner acceptance are complete as
+of 2026-10-03; eligibility is not mastery and linguistic validity is unassessed.
+A1 now has a bounded offline analyzer and synthetic evaluation example. Its
+engineering tests are separate from reference review and held-out accuracy.
+The investigation and private scoring are complete: held-out targets passed,
+but three unsupported challenge Pass results make this implementation a **no-go**
+for the next stage. Model judgments remain provisional. See the
+[implementation and evidence status](docs/A1_IMPLEMENTATION.md).
+
 ```sh
 WANIKANI_API_TOKEN=... cargo run -- sync
 cargo run -- status
@@ -171,10 +180,50 @@ with `GrammarDeclarations::from_descriptions` or use the explicit file adapter.
 without requiring targets. No new trait is needed for this one lexical source
 and two concrete policy choices.
 
+## Bounded offline analysis (A1)
+
+```sh
+# Explicit one-time download of the pinned public dictionary, outside Git:
+python3 scripts/setup_a1_dictionary.py
+cargo run --locked --example a1 -- target/a1/system_core.dic tests/fixtures/a1/smoke.json
+```
+
+This runs three original synthetic smoke cases through the real analyzer. Reports
+retain whole words/components, original spans, explicit grammar permissions, and
+Pass/Fail/Inconclusive outcomes separately from errors/NotRun. They never certify
+accepted exercises. Naturalness, idioms, and contextual reading/sense remain
+unassessed. No learner data, token, sync, runtime model, or general analysis CLI
+is involved. See [setup, API boundaries, pins, and limits](docs/A1_IMPLEMENTATION.md).
+
+The [active visible draft, revision 2](tests/fixtures/a1/review-draft-v2.json)
+now has **frozen provisional references and a completed visible evaluation**. Review of the
+[preserved original](tests/fixtures/a1/review-draft.json) and one focused
+clarification left two proposed positives unresolved. Both affected pairs were
+replaced before freezing, with the full history retained. Revision 2 keeps
+24 supported development outcomes and all 12 challenge references after the
+four replacement reviews were reconciled. The
+[holdout custodian prompt](docs/A1_HOLDOUT_CUSTODIAN_PROMPT.md)
+keeps the 24 held-out core references in a separate context. On 2026-10-04 the
+custodian reports all 24 reviewed, reconciled and frozen, after replacing ten
+exposed cases with history retained. The visible run matches all 24 development
+outcomes and negative reason/span checks, but three unsupported challenge Pass
+results prevent a bounded go. The released held-out input matched its freeze hash
+and ran once offline using the frozen executable: 24 cases, 120 completed checks,
+zero execution errors. The private scoring receipt reports all held-out targets
+met: 24/24 outcomes, 120/120 check judgments, and 11/12 exact negative reason/span
+matches. One span discrepancy remains recorded. A1 is complete with a no-go;
+held-out success does not override the failed challenge safeguard. See the
+[evaluation status](docs/A1_EVALUATION_STATUS.md). No accepted exercises or
+independently validated linguistic ground truth are claimed.
+
 The [design vocabulary](SPEC.md#design-vocabulary-and-composition) distinguishes
 implemented knowledge/preparation types from future components such as
 `ExerciseGenerator`. Generation, multi-source learners, SQL, and Cloud remain
 future work; [ARCHITECTURE.md](ARCHITECTURE.md) records their intended composition.
+
+Real A1 adapter tests require the pinned dictionary. Run the setup command above
+first (Python 3.8+); tests fail clearly if it is unavailable and never download or
+substitute it automatically. Subsequent analysis and tests use the local file.
 
 ```sh
 cargo fmt --check
@@ -185,7 +234,7 @@ cargo test --locked --all
 The [CI workflow](.github/workflows/ci.yml) runs those gates on `ubuntu-latest` and
 `macos-latest` in parallel for pushes to `main` and pull requests. New commits
 cancel older runs for the same branch or PR. It installs the repository toolchain,
-requires the committed lockfile, and checks that it stays unchanged. Both CLI
+requires the committed lockfile, and checks that it stays unchanged. It explicitly prepares the pinned A1 dictionary. Both CLI
 and direct-library demonstrations run with synthetic input; CI also checks diff
 whitespace and builds API documentation with warnings denied. Rust
 dependency downloads and compiled dependencies are cached separately by platform
@@ -217,6 +266,10 @@ and composition examples, [PLAN.md](PLAN.md) for milestones and TDD evidence, an
   references, the compiler ensures these inputs remain alive while the result is
   used. Enum decisions and typed errors make exclusions and unsupported uses
   explicit. Changing policy recomputes a view rather than rewriting learner data.
+- `Sentence<'a>` borrows unchanged input; A1's enums distinguish a completed
+  judgment from uncertainty, an execution error, or a check not run. The concrete
+  analyzer owns verified dictionary bytes. Boxing a large upstream error preserves
+  its source without enlarging every successful Result.
 - Async is confined to HTTP and retry waits. Validation, summary calculation,
   locking, and cache persistence stay synchronous.
 - `SyncGuard` owns a file handle: leaving scope releases the lock even when `?`

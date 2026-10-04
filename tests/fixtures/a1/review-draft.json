@@ -1,0 +1,1004 @@
+{
+  "format_version": 1,
+  "synthetic": true,
+  "reuse": "CC0-1.0",
+  "cases": [
+    {
+      "id": "d600db2919",
+      "sentence": "歯医者です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "歯",
+            "reading": "ハ",
+            "sense": "tooth",
+            "direct_object": false
+          },
+          {
+            "written_form": "医者",
+            "reading": "イシャ",
+            "sense": "doctor",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "a58b945b50",
+      "sentence": "生です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "生",
+            "reading": "ナマ",
+            "sense": "raw",
+            "direct_object": false
+          },
+          {
+            "written_form": "生",
+            "reading": "セイ",
+            "sense": "life",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dd2b7cbf3c",
+      "sentence": "犬は動物です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "犬",
+            "reading": "イヌ",
+            "sense": "dog",
+            "direct_object": false
+          },
+          {
+            "written_form": "動物",
+            "reading": "ドウブツ",
+            "sense": "animal",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "27c6fec3c4",
+      "sentence": "新聞を読みます。",
+      "grammar": [
+        "Synthetic evaluation permission 1",
+        "Synthetic evaluation permission 2"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "新聞",
+            "reading": "シンブン",
+            "sense": "newspaper",
+            "direct_object": false
+          },
+          {
+            "written_form": "読む",
+            "reading": "ヨム",
+            "sense": "read written material",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "ObjectWo"
+          },
+          {
+            "declaration_id": 2,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "2560199579",
+      "sentence": "見ません。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "見る",
+            "reading": "ミル",
+            "sense": "see",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PoliteNegativeNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c9a935c2fd",
+      "sentence": "はしです。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "はし",
+            "reading": "ハシ",
+            "sense": "bridge",
+            "direct_object": false
+          },
+          {
+            "written_form": "はし",
+            "reading": "ハシ",
+            "sense": "chopsticks",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "865b0d7fdf",
+      "sentence": "泳ぎました。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "泳ぐ",
+            "reading": "オヨグ",
+            "sense": "swim",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "9a9f3acbee",
+      "sentence": "手を貸します。",
+      "grammar": [
+        "Synthetic evaluation permission 1",
+        "Synthetic evaluation permission 2"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "手",
+            "reading": "テ",
+            "sense": "hand",
+            "direct_object": false
+          },
+          {
+            "written_form": "貸す",
+            "reading": "カス",
+            "sense": "lend",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "ObjectWo"
+          },
+          {
+            "declaration_id": 2,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "4edc1c61c7",
+      "sentence": "油を売ります。",
+      "grammar": [
+        "Synthetic evaluation permission 1",
+        "Synthetic evaluation permission 2"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "油",
+            "reading": "アブラ",
+            "sense": "oil",
+            "direct_object": false
+          },
+          {
+            "written_form": "売る",
+            "reading": "ウル",
+            "sense": "sell",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "ObjectWo"
+          },
+          {
+            "declaration_id": 2,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "5136b9f4de",
+      "sentence": "泳ぎました。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "泳ぐ",
+            "reading": "オヨグ",
+            "sense": "swim",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PolitePast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "7a39662c7f",
+      "sentence": "待ちませんでした。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "待つ",
+            "reading": "マツ",
+            "sense": "wait",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PoliteNegativePast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b54cac9e0c",
+      "sentence": "猫は動物です。",
+      "grammar": [
+        "Synthetic evaluation permission 1",
+        "Synthetic evaluation permission 2"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "猫",
+            "reading": "ネコ",
+            "sense": "cat",
+            "direct_object": false
+          },
+          {
+            "written_form": "動物",
+            "reading": "ドウブツ",
+            "sense": "animal",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "TopicWa"
+          },
+          {
+            "declaration_id": 2,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "802a5c9060",
+      "sentence": "鳥です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "鳥",
+            "reading": "トリ",
+            "sense": "bird",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b71c1b4d91",
+      "sentence": "見ません。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "見る",
+            "reading": "ミル",
+            "sense": "see",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "d85b64d799",
+      "sentence": "鳥です。",
+      "grammar": [],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "鳥",
+            "reading": "トリ",
+            "sense": "bird",
+            "direct_object": false
+          }
+        ],
+        "grammar": []
+      }
+    },
+    {
+      "id": "50c401b504",
+      "sentence": "人気です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "人気",
+            "reading": "ニンキ",
+            "sense": "popularity",
+            "direct_object": false
+          },
+          {
+            "written_form": "人気",
+            "reading": "ヒトケ",
+            "sense": "sign of people",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "8bbd872ab1",
+      "sentence": "今日です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "今日",
+            "reading": "キョウ",
+            "sense": "today",
+            "direct_object": false
+          },
+          {
+            "written_form": "今日",
+            "reading": "コンニチ",
+            "sense": "these days",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "3e518ace22",
+      "sentence": "犬は動物です。",
+      "grammar": [
+        "Synthetic evaluation permission 1",
+        "Synthetic evaluation permission 2"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "犬",
+            "reading": "イヌ",
+            "sense": "dog",
+            "direct_object": false
+          },
+          {
+            "written_form": "動物",
+            "reading": "ドウブツ",
+            "sense": "animal",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "TopicWa"
+          },
+          {
+            "declaration_id": 2,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "a001b6cc4a",
+      "sentence": "食べます。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "食べる",
+            "reading": "タベル",
+            "sense": "eat",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "0d61be162d",
+      "sentence": "目を通します。",
+      "grammar": [
+        "Synthetic evaluation permission 1",
+        "Synthetic evaluation permission 2"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "目",
+            "reading": "メ",
+            "sense": "eye",
+            "direct_object": false
+          },
+          {
+            "written_form": "通す",
+            "reading": "トオス",
+            "sense": "pass something through",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "ObjectWo"
+          },
+          {
+            "declaration_id": 2,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "c4ebf7e8b6",
+      "sentence": "開きます。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "開く",
+            "reading": "アク",
+            "sense": "open intransitively",
+            "direct_object": false
+          },
+          {
+            "written_form": "開く",
+            "reading": "ヒラク",
+            "sense": "open something",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "1ac5cdd77e",
+      "sentence": "食べます。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "食べる",
+            "reading": "タベル",
+            "sense": "eat",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "2d314b23dd",
+      "sentence": "犬です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "猫",
+            "reading": "ネコ",
+            "sense": "cat",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "181db29d7c",
+      "sentence": "本です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "da9f69af42",
+      "sentence": "猫は動物です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "猫",
+            "reading": "ネコ",
+            "sense": "cat",
+            "direct_object": false
+          },
+          {
+            "written_form": "動物",
+            "reading": "ドウブツ",
+            "sense": "animal",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "TopicWa"
+          }
+        ]
+      }
+    },
+    {
+      "id": "0e7920c662",
+      "sentence": "国際空港です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "国際",
+            "reading": "コクサイ",
+            "sense": "international",
+            "direct_object": false
+          },
+          {
+            "written_form": "空港",
+            "reading": "クウコウ",
+            "sense": "airport",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "bc7756a199",
+      "sentence": "犬です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "犬",
+            "reading": "イヌ",
+            "sense": "dog",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "a07766b071",
+      "sentence": "犬は水を飲みます。",
+      "grammar": [
+        "Synthetic evaluation permission 1",
+        "Synthetic evaluation permission 2",
+        "Synthetic evaluation permission 3"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "犬",
+            "reading": "イヌ",
+            "sense": "dog",
+            "direct_object": false
+          },
+          {
+            "written_form": "水",
+            "reading": "ミズ",
+            "sense": "water",
+            "direct_object": false
+          },
+          {
+            "written_form": "飲む",
+            "reading": "ノム",
+            "sense": "drink",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "TopicWa"
+          },
+          {
+            "declaration_id": 2,
+            "rule": "ObjectWo"
+          },
+          {
+            "declaration_id": 3,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "b5554d6a5c",
+      "sentence": "東京都です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "東京都",
+            "reading": "トウキョウト",
+            "sense": "Tokyo Metropolis",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "16bdd7e5ef",
+      "sentence": "本です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "本",
+            "reading": "ホン",
+            "sense": "book",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "81d78d6bc2",
+      "sentence": "新聞を読みます。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "新聞",
+            "reading": "シンブン",
+            "sense": "newspaper",
+            "direct_object": false
+          },
+          {
+            "written_form": "読む",
+            "reading": "ヨム",
+            "sense": "read written material",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "9bb06c2263",
+      "sentence": "東京都です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "東京",
+            "reading": "トウキョウ",
+            "sense": "Tokyo",
+            "direct_object": false
+          },
+          {
+            "written_form": "都",
+            "reading": "ト",
+            "sense": "metropolis",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "d468fe9eb3",
+      "sentence": "上手です。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "上手",
+            "reading": "ジョウズ",
+            "sense": "skillful",
+            "direct_object": false
+          },
+          {
+            "written_form": "上手",
+            "reading": "カミテ",
+            "sense": "upper side",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "2e264f2909",
+      "sentence": "待ちませんでした。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "待つ",
+            "reading": "マツ",
+            "sense": "wait",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "PolitePast"
+          }
+        ]
+      }
+    },
+    {
+      "id": "519b3abdaa",
+      "sentence": "顔が広いです。",
+      "grammar": [
+        "Synthetic evaluation permission 1"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "顔",
+            "reading": "カオ",
+            "sense": "face",
+            "direct_object": false
+          },
+          {
+            "written_form": "広い",
+            "reading": "ヒロイ",
+            "sense": "wide",
+            "direct_object": false
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "NominalDesu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "3cc30854a6",
+      "sentence": "犬は水を飲みます。",
+      "grammar": [
+        "Synthetic evaluation permission 1",
+        "Synthetic evaluation permission 2"
+      ],
+      "bindings": {
+        "vocabulary": [
+          {
+            "written_form": "犬",
+            "reading": "イヌ",
+            "sense": "dog",
+            "direct_object": false
+          },
+          {
+            "written_form": "水",
+            "reading": "ミズ",
+            "sense": "water",
+            "direct_object": false
+          },
+          {
+            "written_form": "飲む",
+            "reading": "ノム",
+            "sense": "drink",
+            "direct_object": true
+          }
+        ],
+        "grammar": [
+          {
+            "declaration_id": 1,
+            "rule": "ObjectWo"
+          },
+          {
+            "declaration_id": 2,
+            "rule": "PoliteNonPast"
+          }
+        ]
+      }
+    }
+  ]
+}
