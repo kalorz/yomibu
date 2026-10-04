@@ -282,10 +282,11 @@ and run integrity. The overall recommendation is one of:
   required-check coverage cannot support the decision. Describe the actual cause;
   do not attribute it to measured linguistic failure by the analyzer.
 
-An honest documented no-go can complete the investigation. Current manual-review
-coverage is recorded in [implementation status](A1_IMPLEMENTATION.md);
-benchmark/held-out runs are **not performed**. Only engineering contract tests
-and a separate smoke demonstration have run.
+An honest documented no-go can complete the investigation. A1's visible evaluation,
+single held-out run and private scoring are now complete with a no-go; see the
+[evaluation status](A1_EVALUATION_STATUS.md). Preserve that result and its remaining
+span discrepancy. The protocol is historical evidence, not authorization to repeat
+the scored holdout or its completed review process.
 
 ## Privacy and publication
 
