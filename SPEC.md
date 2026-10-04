@@ -5,7 +5,8 @@ This is the authoritative product and architecture baseline, accepted on
 architecture migration authorized on 2026-10-01, followed by the generation
 design and Cloud handoff on the same date, and bounded A1 evaluation scope
 accepted on 2026-10-03, with A1 implementation subsequently approved that day,
-and a separate offline analysis CLI authorized on 2026-10-04. Changes must
+and a separate offline analysis CLI and G1 experimental candidates authorized on
+2026-10-04. Changes must
 be reflected here, in [ARCHITECTURE.md](ARCHITECTURE.md), and in `PLAN.md`.
 Future capabilities described below are direction, not authorization to implement
 them in milestone 1.
@@ -459,6 +460,121 @@ and performs no HOME lookup, learner access, credential lookup, sync, network,
 download, persistence, telemetry, or async runtime startup. Argument/file/output
 work belongs to the executable; library analysis/evaluation remain independently
 callable. See README for runnable synthetic examples and PLAN for TDD/check evidence.
+
+## G1 — experimental single-sentence candidates
+
+G1 permits explicitly requested experimental generation of two bounded sentence
+candidates from supplied declarations and existing permission bindings. One
+provider request is followed by the existing offline analysis and evaluation.
+G1 neither selects nor accepts exercises, performs naturalness review, repairs
+candidates nor resolves linguistic uncertainty. Its provider request has zero
+retries. Existing WaniKani retry behavior remains unchanged. This is a narrow
+exception to the later validated-generation pipeline, not its completion.
+
+```text
+yomibu generate-candidates --allow-model-call --dictionary PATH --input PATH [--json]
+```
+
+Each invocation requires the opt-in and both paths. Input is the offline analyze
+version-1 envelope without `sentence`: all of `version`, `grammar` and `bindings`
+are required. Reject unknown/duplicate/missing fields, invalid JSON/UTF-8, other
+versions and invalid existing bindings. Read at most 65,537 bytes and reject over
+65,536. Retain descriptions, vocabulary tuples, explicit booleans, duplicates and
+order without normalization. Empty arrays grant no permissions. Reuse the seven
+existing rules and one-based declaration IDs; descriptions never grant bindings,
+and permissions are not targets that must all appear. No new reading validator
+is introduced. Sense/direct-object labels remain user assertions.
+
+Preflight validates arguments, bounded input and bindings, then explicitly loads
+the pinned dictionary, reads `OPENAI_API_KEY`, constructs client/runtime, and
+serializes/bounds the request. Any preflight failure sends zero requests.
+The command ignores `--data-dir`; it performs no HOME/data-directory discovery,
+learner/cache access, sync, dictionary setup, runtime persistence or telemetry.
+`analyze` remains entirely offline, including no credential lookup or runtime.
+
+The concrete runtime is OpenAI Responses with `gpt-6-luna`, Standard processing
+(`service_tier: default`), reasoning `none`, output limit 1,024 tokens, no tools,
+no streaming/background work, `store: false`, truncation disabled, and explicit
+prompt caching without breakpoints. This runtime choice does not select the
+coding agent. A compiled `g1-sentence-v1` developer prompt and one user JSON
+message request exactly two strings; the model cannot grant permissions or
+bindings, provide evaluator judgments, or override failed/uncertain checks.
+
+Exactly one HTTP attempt follows successful preflight; connection failure may
+prevent transmission. Disable redirects, environment/system proxies and reqwest
+protocol retries. Connect timeout is 5 seconds; the 30-second request deadline
+includes body retrieval. Serialize once, reject bodies over 16,384 bytes, and
+hash/send the same bytes. Bound responses to 65,536 bytes, checking declared size
+and each chunk. No retry or fallback follows any failure or uncertain completion.
+
+Require a completed provider response and exactly one completed assistant text
+payload, permitting documented reasoning items only as ignored metadata. Reject
+refusal, reported errors/incompleteness, unknown output kinds/tool calls, missing
+required response ID/model/status/output, invalid JSON/UTF-8 and malformed payloads.
+The inner object must contain only `candidates`, exactly two strings, with no
+duplicate field. Wrong counts/types, extra fields, fences, prose and truncation
+are whole-response errors; never salvage a candidate. Additive envelope metadata
+is allowed. Usage, returned tier and HTTP request ID may be absent (`null`).
+
+Preserve both decoded strings and their order, including identical strings.
+Independently apply `Sentence::new` (nonblank, at most 100 Unicode scalar values),
+real pinned `SudachiAnalyzer`, then `evaluation::evaluate` with the unchanged input.
+Do not trim, normalize or add sentence segmentation. Blank/overlong candidates
+are candidate execution errors, retaining the other result. Analyzer/evaluator
+errors remain typed; keep analysis if evaluation failed. Never fabricate completed
+checks for an execution error or let one candidate erase the other's findings.
+
+Text begins `Experimental sentence candidates — not accepted exercises` and
+displays both texts, completed outcomes, all five checks/coverage/reasons, original
+half-open UTF-8 byte spans with escaped excerpts, generation and pinned analysis
+provenance, and assessment limitations. No ranking or winner exists. Naturalness,
+multiword expressions and contextual reading/sense remain unassessed.
+
+JSON version 1 contains `kind: "experimental_sentence_candidates"`, `notice`, exact
+decoded `input`, `generation` and two indexed `candidates`. Each candidate has
+`index`, original `text`, nullable `analysis`, and tagged `assessment`. Completed
+assessments have `status: "completed"`, unchanged `outcome` and full `evaluation`.
+Errors have `status: "execution_error"`, `stage`, stable `code`, safe `message`,
+and all five `checks` marked `NotRun`, with no completed outcome/evaluation.
+Generation provenance records provider, requested/returned model and tier, prompt
+revision, SHA-256 and length of exact request bytes, response ID, optional HTTP
+request ID, request count and optional provider token counts. Returned identity
+and usage are provider claims, not immutable model pins or billing verification.
+Terminal escaping preserves original decoded JSON and byte spans.
+
+| Situation | Stdout | Stderr | Exit |
+| --- | --- | --- | --- |
+| Both evaluations complete, including Fail/Inconclusive | Full report | Empty | 0 |
+| Any candidate execution error | Both candidates and available results | Concise execution diagnostic | 1 |
+| Preflight/transport/whole-response error | Empty | Safe contextual diagnostic | 1 |
+| Missing opt-in/arguments or other argument error | Empty | Readable escaped usage diagnostic | 2 |
+| Help/version | Normal help/version | Empty | 0 |
+| Output write failure | May be partial | Diagnostic when possible | 1 |
+
+Construct the report before writing; stdout cannot be guaranteed atomic. Library
+calls receive credentials explicitly and do not access environment or print.
+The CLI reads only `OPENAI_API_KEY`, after local checks; no key files, `.env`,
+keychain, command-line secrets or credential persistence. Protect authorization
+headers and omit raw provider bodies/refusal prose/dependency chains from errors.
+
+Only supplied forms/readings/sense/direct-object permissions, free-form grammar,
+bindings, fixed instructions/schema/settings, authorization and connection metadata
+leave the computer. Dictionary bytes, paths, learner data, evaluation reports,
+private/held-out evidence and this conversation are not sent. `store:false` is not
+zero retention: default API content is not used for training, while abuse monitoring
+normally retains content up to 30 days, with legal/safety exceptions. No EU-only or
+Zero Data Retention guarantee is made. Account funding and live smoke authorization
+are separate from implementation approval; [G1 usage and costs](docs/G1.md) records
+dated official sources, estimates and the unperformed one-call smoke proposal.
+
+A1 remains complete with its historical no-go: 24/24 outcomes, 120/120 check
+judgments, 11/12 exact negative reason/span matches. Preserve the object-combination
+safeguard, reduced coverage and permission Fail spans alongside uncertainty.
+G1 integration tests are engineering evidence, not repaired scores or linguistic
+validation. Do not reopen private evidence, rerun holdout or alter frozen references.
+Repair/retries/fallbacks, naturalness judges, stories, quizzes, new grammar, idiom
+detection and automatic data access remain excluded. Later validated generation
+requires separately authorized evidence, acceptance rules and review/repair scope.
 
 ## Design vocabulary and composition
 
@@ -922,6 +1038,9 @@ the lockfile. See [reqwest](https://docs.rs/reqwest/latest/reqwest/),
 ## Reliability and storage
 
 ### HTTP boundary
+
+The following defaults concern WaniKani synchronization. G1 uses the explicit
+one-attempt model-request limits above, without this retry loop.
 
 - Reuse one HTTP client. Default to a 10-second connection timeout and a
   30-second request timeout, including response-body retrieval.

@@ -60,6 +60,7 @@ pub use adapters::stores::file::cache;
 pub use app::App;
 pub mod domain;
 pub mod evaluation;
+pub mod generation;
 pub mod grammar;
 pub mod knowledge;
 pub mod ports;
