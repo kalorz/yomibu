@@ -105,7 +105,8 @@ For the current CLI:
 
 1. Parse the command. Resolve a data directory for sync/status/prepare; only `sync`
    resolves the WaniKani token. Preview parses structured entries and directly
-   calls the synchronous library operation described below.
+   calls the synchronous library operation described below. Analyze uses only
+   its explicit input/dictionary paths and the synchronous composition below.
 2. For sync/status, construct `FileLearningStore` for that directory and `App`.
    For `sync`, supply the WaniKani client as the source. `status` needs no source
    or HTTP client.
@@ -360,6 +361,36 @@ remain visible. This restriction also affects ordinary object sentences; there
 is no phrase list, semantic adapter, new input format, or acceptance path. The
 checkpoint and subsequent commits distinguish this code from the scored A1 run.
 
+## Offline analyze command — separate post-A1 milestone
+
+```text
+CLI arguments -> bounded explicit JSON read -> Sentence + GrammarDeclarations
+              -> pinned SudachiAnalyzer -> evaluation::evaluate
+              -> escaped text or versioned JSON -> execution exit status
+```
+
+`src/analyze.rs` is a private module of the binary, not a library adapter or a new
+domain service. It owns the small version-1 input envelope, 64 KiB bounded file
+read, report envelope, and rendering. It reuses `EvaluationBindings` directly;
+the library remains the sole authority on bindings and linguistic judgments.
+Reports borrow the input and retain the original analysis/evaluation values.
+Text includes every check and finding with quoted original byte-span excerpts;
+JSON serializes the complete evidence and limitations without interpreting it.
+Text and diagnostics use Rust display escaping. JSON keeps Serde's encoding and
+additionally escapes DEL and nonprinting Unicode as JSON UTF-16 escapes, retaining
+the original decoded strings. Argument errors are escaped at the binary boundary;
+help/version keep normal stdout presentation and successful exit status.
+Errors propagate outside completed judgments, and no evaluation is printed when
+input, dictionary initialization, analysis, or evaluation fails.
+
+The branch in `main.rs` resolves no environment, store, source or runtime. The
+explicit dictionary load remains the existing adapter's owned, checksum-pinned
+operation. There is no implicit setup or file discovery. The research harness
+`examples/a1.rs` and its frozen packet contract stay separate and unchanged.
+This CLI does not revise A1's historical no-go or the later object-combination
+restriction. Real-adapter subprocess tests compare CLI output to direct library
+evaluation and check errors, spans, escaping and absence of writes.
+
 ## Stores, source data, and consistency
 
 | Backend | Retention and failures | Verification |
@@ -477,6 +508,7 @@ The current implementation slice is organized by responsibility:
 src/
   lib.rs                     public entry points
   main.rs                    CLI composition and rendering
+  analyze.rs                 binary-private analysis input and rendering
   app.rs                     sync/status orchestration and reports
   domain.rs                  retained source data and invariants
   summary.rs                 deterministic source summaries
@@ -484,10 +516,14 @@ src/
   grammar.rs                 validated manual familiarity declarations
   knowledge.rs               on-demand policy decisions and borrowed evidence
   preparation.rs             exact cached lexical retrieval for explicit targets
+  analysis.rs                bounded sentence and original C/A morphological evidence
+  evaluation.rs              synchronous bounded checks and explicit bindings
   ports.rs                   source and atomic storage capabilities
   adapters/
     mod.rs
     grammar_file.rs           explicit read-only versioned JSON input
+    sudachi.rs                explicit checksum-pinned analyzer adapter
+    sudachi.json              embedded analyzer configuration
     sources/
       mod.rs
       wanikani/              HTTP client, private DTOs, boundary tests
@@ -501,6 +537,7 @@ src/
 tests/                       use-case, store-contract, CLI and integration tests
 examples/preview.rs          runnable direct manual preview
 examples/prepare.rs          runnable direct preparation from synthetic values
+examples/a1.rs               preserved synthetic research packet harness
 ARCHITECTURE.md              this design
 SPEC.md                      product contracts
 PLAN.md                      implementation stages and evidence
