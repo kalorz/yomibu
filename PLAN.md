@@ -1231,6 +1231,34 @@ Existing enum states serialize without collapsing uncertainty into a boolean;
 `Result` carries execution errors separately. Ordinary synchronous composition
 needs no service object, trait registry or async runtime.
 
+### PR #7 review follow-up — argument diagnostics, 2026-10-04
+
+Greptile's summary and inline comment report the same valid readability issue:
+escaping the entire Clap error turns diagnostic newlines into literal `\n`.
+The regression first failed on the missing real newline before `Usage:`. Escaping
+the invalid argument/value/subcommand contexts before Clap formats the error made
+it green, retaining escaped hostile input, stderr-only output and exit 2. Explicit
+refactor review found no justified production change; the focused rerun passed.
+
+Review then checked the executable name, which Clap also inserts into usage. A
+separate Unix `argv[0]` regression failed with raw hostile content in usage; the
+fixed `yomibu` binary name made it green. Refactor review reused the error assertion's
+decoded string instead of decoding stderr again. Focused reruns passed, including
+invalid subcommands, numeric values, policy values, missing-argument indentation
+and normal help. The helper consumes the concrete Clap error without cloning it;
+no parser, evaluator, dependency or public library API was added.
+
+Verification passed on native macOS/arm64 with the pinned toolchain:
+`cargo fmt --check`,
+`cargo clippy --locked --offline --all-targets --all-features -- -D warnings`,
+and `cargo test --locked --offline --all` (139 test entries plus one rustdoc;
+zero failures or ignored tests). The suite used the real pinned dictionary and
+isolated loopback HTTP mocks. Manual `analyze` missing-arguments, `analyze --help`
+and `--version` checks under an empty environment confirmed readable layout,
+correct streams and exit statuses. Full follow-up diff review and
+`git diff --check` passed. A1 records, fixtures and evaluator judgments remain
+unchanged. No Linux or hosted CI result is claimed for this follow-up.
+
 ## Completed milestone records
 
 ### 1a — Offline status

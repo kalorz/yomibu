@@ -1,6 +1,9 @@
 use anyhow::anyhow;
 use chrono::SecondsFormat;
-use clap::{Parser, Subcommand};
+use clap::{
+    Parser, Subcommand,
+    error::{ContextKind, ContextValue},
+};
 use std::{
     io::{self, Write},
     path::{Path, PathBuf},
@@ -24,6 +27,7 @@ mod analyze;
 #[derive(Parser)]
 #[command(
     version,
+    bin_name = "yomibu",
     about = "Analyze supplied text, prepare practice context, preview entries, or sync/inspect WaniKani (unofficial tool)"
 )]
 struct Cli {
@@ -89,7 +93,7 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => {
             if error.use_stderr() {
-                eprintln!("{}", error.to_string().escape_debug());
+                eprint!("{}", escape_argument_error(error));
                 return ExitCode::from(2);
             }
             return if error.print().is_ok() {
@@ -106,6 +110,21 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn escape_argument_error(mut error: clap::Error) -> clap::Error {
+    // Escape supplied values before Clap adds its diagnostic layout.
+    for kind in [
+        ContextKind::InvalidArg,
+        ContextKind::InvalidValue,
+        ContextKind::InvalidSubcommand,
+    ] {
+        if let Some(ContextValue::String(value)) = error.get(kind) {
+            let escaped = value.escape_debug().to_string();
+            error.insert(kind, ContextValue::String(escaped));
+        }
+    }
+    error
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {

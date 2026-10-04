@@ -54,7 +54,7 @@ fn stdout(output: Output) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-fn assert_error(output: Output, message: &str) {
+fn assert_error(output: Output, message: &str) -> String {
     assert!(!output.status.success(), "unexpected success");
     assert!(
         output.stdout.is_empty(),
@@ -63,6 +63,7 @@ fn assert_error(output: Output, message: &str) {
     let error = String::from_utf8(output.stderr).unwrap();
     assert!(error.contains(message), "expected {message:?}: {error:?}");
     assert_terminal_safe(&error);
+    error
 }
 
 fn assert_terminal_safe(text: &str) {
@@ -327,14 +328,77 @@ fn json_escapes_terminal_controls_without_changing_decoded_input_or_spans() {
 #[test]
 fn argument_errors_escape_untrusted_values_and_help_still_succeeds() {
     let dir = tempfile::tempdir().unwrap();
-    assert_error(
-        cli(dir.path()).arg(UNTRUSTED).output().unwrap(),
-        "unexpected argument",
+    let output = cli(dir.path()).arg(UNTRUSTED).output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let error = assert_error(output, "unexpected argument");
+    assert!(error.contains("\n\nUsage: yomibu analyze"), "{error:?}");
+    assert!(
+        error.contains("\n\nFor more information, try '--help'.\n"),
+        "{error:?}"
     );
+    assert!(error.contains(&UNTRUSTED.escape_debug().to_string()));
     let help = stdout(cli(dir.path()).arg("--help").output().unwrap());
     for option in ["--dictionary", "--input", "--json"] {
         assert!(help.contains(option), "{help}");
     }
+}
+
+#[test]
+fn argument_errors_escape_invalid_subcommands_and_values_without_flattening_help() {
+    let dir = tempfile::tempdir().unwrap();
+    for (args, message) in [
+        (vec![UNTRUSTED], "unrecognized subcommand"),
+        (
+            vec!["preview", "--take", UNTRUSTED],
+            "invalid digit found in string",
+        ),
+        (
+            vec!["prepare", "--knowledge-policy", UNTRUSTED],
+            "\n  [possible values: lesson-started, recorded-pass]",
+        ),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+            .env_clear()
+            .current_dir(dir.path())
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let error = assert_error(output, message);
+        assert!(
+            error
+                .lines()
+                .next()
+                .unwrap()
+                .contains(&UNTRUSTED.escape_debug().to_string()),
+            "{error:?}"
+        );
+        assert!(
+            error.contains("\n\nFor more information, try '--help'.\n"),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn argument_errors_use_a_trusted_executable_name_in_usage() {
+    use std::os::unix::process::CommandExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+        .env_clear()
+        .current_dir(dir.path())
+        .arg0(UNTRUSTED)
+        .arg("analyze")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let error = assert_error(output, "\n  --dictionary <PATH>\n  --input <PATH>\n");
+    assert!(
+        error.contains("\n\nUsage: yomibu analyze --dictionary <PATH> --input <PATH>\n"),
+        "{error:?}"
+    );
 }
 
 #[test]
