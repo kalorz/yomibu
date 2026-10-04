@@ -1,4 +1,4 @@
-//! WaniKani synchronization, offline summaries, preview, and context preparation.
+//! WaniKani synchronization, offline preparation, preview, and bounded A1 analysis.
 //!
 //! [`preview::preview`] synchronously selects structured word entries and checks
 //! membership/count. It borrows explicit inputs and needs no account, store, or
@@ -11,6 +11,14 @@
 //! the concrete source-evidence rule. [`adapters::grammar_file`] explicitly loads
 //! versioned manual assertions without writing or interpreting grammar.
 //! Retrieval does not establish reading/sense association or example suitability.
+//!
+//! [`adapters::sudachi::SudachiAnalyzer`] explicitly loads a checksum-pinned
+//! dictionary for offline C/A morphology with original UTF-8 spans.
+//! [`evaluation::evaluate`] applies bounded synthetic word/grammar permissions,
+//! preserving [`grammar::GrammarDeclarations`] without interpreting their text.
+//! Completed judgments, uncertainty, execution errors, and checks not run remain
+//! distinct. A1 does not establish accepted exercises, naturalness, idioms, or
+//! contextual reading/sense correctness. See the `a1` example for composition.
 //!
 //! [`App`] coordinates explicit synchronization and offline status for a single
 //! account-scoped store. Supply a file or in-memory store and, for synchronization,
@@ -46,10 +54,12 @@
 //! runtime, or print output.
 
 pub mod adapters;
+pub mod analysis;
 pub mod app;
 pub use adapters::stores::file::cache;
 pub use app::App;
 pub mod domain;
+pub mod evaluation;
 pub mod grammar;
 pub mod knowledge;
 pub mod ports;

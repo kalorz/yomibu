@@ -25,8 +25,42 @@ independent checks, and runnable direct-library example are delivered below.
 The original six TDD cycles, review follow-ups, and verification are recorded in
 the G0 section.
 The next offline learner-constraints/retrieval slice was approved on 2026-10-02
-and is complete within the bounded slice below. Generation remains unimplemented;
-the broader milestone's real-learner demonstration remains unverified.
+and its implementation and real-learner acceptance are complete as of 2026-10-03.
+The dated acceptance record below supersedes the earlier unverified status.
+Generation remains unimplemented. A1 implementation was explicitly approved on
+2026-10-03 after the protocol-only stage. The bounded synchronous analyzer,
+concrete adapter, and thin synthetic evaluation example are now implemented.
+Engineering verification and the visible evaluation are recorded below;
+the single held-out run and private scoring are complete. **A1 is complete with
+a no-go for this implementation.** The 24-development/12-challenge references are
+frozen and the visible set has run. Private holdout was not authored here; a later comment
+exposed linguistic hints, with the repair recorded below. The user
+operates the approved external blind review manually; model-only judgments stay
+provisional, and no model call was made by the agent.
+All 36 original cases and one focused clarification have been audited. Two
+original positives remain unresolved; revision 2 replaces both affected pairs
+before freezing, with complete history preserved. Implementation-side source
+review covers 24 core outcomes and 12 challenge references after the four replacement
+reviews were reconciled. All active visible references are provisionally supported.
+The 2026-10-04 custodian freeze receipt reports all 24 current holdout v2 cases
+reviewed and reconciled, with five exposed families replaced and history retained.
+Combined reported core reference coverage is 48/48, including the 24 visible
+references; all remain provisional. Only the released held-out input was processed
+here; hidden answers and source ledgers remain in separate custody.
+The [Scope clarification](docs/A1_SCOPE_CLARIFICATION.md) confirms that structural
+coverage does not mirror permission results; any check corrections stay in
+custody before freeze. The reported reference gate is met. The visible run matches
+all 24 development outcomes; a small TDD reporting-span fix also gives 12/12 exact
+negative reason/span matches. Three unsupported challenge Pass results prevent a
+bounded go. Required locked gates passed after the fix. Code/configuration is now
+frozen and the released input ran once offline after hash verification. All 24
+cases and 120 checks completed without execution errors. The returned private
+scoring receipt reports all held-out targets met: 24/24 outcomes, 120/120 check
+judgments, and 11/12 exact negative reason/span matches. One nested-span discrepancy
+is preserved; no reference or implementation changed for scoring. The three
+unsupported challenge Pass results determine the no-go. No further review round
+or rerun is required to complete this investigation. See
+[evaluation status](docs/A1_EVALUATION_STATUS.md).
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
@@ -50,7 +84,8 @@ development dependency. Proptest remains deferred.
 | 1d — Milestone acceptance | Complete | macOS/Linux CI and reviewed public library surface | Local and hosted macOS/Linux gates pass; documented limitations; no placeholder future features |
 | Architecture migration | Complete | Library `App`, explicit source/storage contracts, file and in-memory stores, adapter layout, architecture document | Both stores run real sync/status; existing safety and schema contracts preserved; no generation placeholders |
 | G0 — Manual candidate preview | Complete | Synchronous library operation and `preview` CLI, structured word entries, deterministic selection and independent checks | Direct and CLI calls agree, no storage/network/runtime requirements, explicit assessment limits; all 85 tests and required gates pass on Linux/x86_64 |
-| Offline preparation slice | Complete within approved scope | Local grammar input, revisable knowledge policy, explicit targets, cached lexical evidence | Synchronous CLI/library agreement, explainable decisions, typed failures, unchanged schema-1 source data; real-learner demonstration remains unverified |
+| Offline preparation slice | Implementation and real-learner acceptance complete, 2026-10-03 | Local grammar input, revisable knowledge policy, explicit targets, cached lexical evidence | Synchronous CLI/library agreement, explainable decisions, typed failures, unchanged schema-1 source data; private real-learner acceptance completed; linguistic validity unassessed |
+| A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -375,8 +410,9 @@ Acceptance:
 
 Develop one behavior at a time: observed RED, minimal GREEN, explicit refactor
 review, and focused/full reruns. Record actual evidence below; do not write
-production behavior before its failing test. Real learner data remains a separate
-unverified demonstration unless an authorized private cache becomes available.
+production behavior before its failing test. At this implementation stage the
+real-learner demonstration was unverified; the 2026-10-03 acceptance record below
+supersedes that status.
 
 ### Implementation evidence
 
@@ -449,8 +485,9 @@ on GitHub-hosted Ubuntu/x86_64 and macOS/arm64 using the pinned Rust 1.98.1:
 The final follow-up records this evidence and wraps documentation only. Hosted
 CI also checks each subsequent PR commit. No local test execution, live WaniKani
 request, private learner data, model call, or linguistic validation was performed.
-The broader milestone's real-learner demonstration remains unverified: automated
-fixtures and demonstrations are synthetic. No linguistic guarantee is claimed.
+At that stage the real-learner demonstration was unverified: automated fixtures
+and demonstrations were synthetic. The 2026-10-03 acceptance record below
+supersedes that status. No linguistic guarantee is claimed.
 
 ### PR #4 review follow-up — 2026-10-02
 
@@ -502,11 +539,565 @@ SPEC, ARCHITECTURE, and README now describe evidence beside each decision.
 There are no deferred findings from this review. Hosted verification of this
 follow-up is reported on the PR rather than inferred from earlier green runs.
 No live learner/API/model or linguistic validation was performed. Synthetic
-results do not fulfill the broader real-learner demonstration requirement.
+results alone did not fulfill real-learner acceptance; that was completed later
+as recorded below.
 
 Rust note for a Ruby developer: matching `Option<&T>` distinguishes an absent
 record from a present record whose optional timestamp is missing, while borrowing
 lets the CLI display the original facts without copying or persisting them.
+
+### Real-learner preparation acceptance — 2026-10-03
+
+Implementation **and real-learner acceptance are complete** at
+`493191349228bd0de149280d131f1c388ea7921c`. This record carries forward the user's
+completed acceptance evidence; it is not a new execution or inspection of private
+data during protocol preparation. Production schema-1 loading and CLI/library
+preparation agreed under both policies. Ineligible targets failed without partial
+output. Grammar declarations and attached source examples retained exact content,
+order, identities, and provenance; inputs and inventories were unchanged.
+
+The user reports prior passing formatting, strict locked Clippy, all 104 test
+entries plus rustdoc, demonstrations, and API documentation at this head. These
+checks were not repeated for unchanged implementation. Private counts, learner
+identifiers, declarations, and detailed reports remain outside Git and external
+services. Expiry of temporary evidence does not invalidate completed acceptance.
+No new sync or credential inspection is authorized. Eligibility is not mastery;
+linguistic validity remains unassessed.
+
+## A1 — review preparation and implementation, 2026-10-03
+
+### Historical protocol-only checkpoint
+
+The following checkpoint preceded explicit implementation approval. The current
+implementation and acceptance status follow it below.
+
+Accepted scope: supplied modern Japanese sentences of at most 100 Unicode
+characters; vocabulary identity; regular godan/ichidan polite present/past/negative;
+narrow topic は and object を; nominal です. Preserve whole compounds and their
+components. Other grammar, multiword expressions, and reading/sense ambiguity
+expose limitations. No generation, repair, quiz, provider integration, general
+grammar/contextual-sense validator, or speculative framework.
+
+The accepted set plan is 12 vocabulary, 12 inflection, 12 particle, and 12 grammar
+cases, plus 6 compound/MWE and 6 reading/sense challenges. Core partitions contain
+24 development and 24 held-out cases, each with 12 positives and 12 negatives.
+Related cases stay in one partition; freeze holdout before tuning and keep it
+private until scoring. Held-out targets apply together: zero false acceptance,
+at most one false rejection, at most two inconclusive core cases, at least 10/12
+correctly passed positives and 10/12 correctly failed negatives, no execution
+errors or missing required checks. Challenges must receive no unsupported
+acceptance. An honest no-go can complete the investigation.
+
+The user explicitly approved manual blind review by another AI provider in place
+of qualified human reviewers. The initial [protocol](docs/A1_REFERENCE_PROTOCOL.md)
+separated verified source coverage, provisional model judgments, analyzer results,
+and run integrity. Its proposed source gate required all core reference labels
+to be source-backed before freezing; model-only/disputed cases cannot establish
+the targets. At that checkpoint the gate and detailed operational bindings awaited
+agreement, not renewed approval of the provider-review choice.
+
+Prepared a [blank packet](docs/A1_REVIEW_PACKET.md) and
+[copyable prompt](docs/A1_EXTERNAL_REVIEW_PROMPT.md) for the user to operate.
+Public primary reference pages were opened and citation locations checked;
+source limitations and a table discrepancy are retained in the protocol. No
+case-specific source coverage or analyzer performance is claimed. No evaluation
+sentences, practice passages, model calls, installations, dictionary/corpus
+downloads, or implementation occurred. Private learner evidence was not opened.
+
+Git was clean at the start. Fetched origin and confirmed `main`/`origin/main`
+remain at `4931913`, with both existing branches and the single worktree preserved.
+That checkpoint changed documentation only. Review included the new untracked
+documents; Cargo gates are intentionally not repeated for unchanged Rust code.
+Documentation verification passed: `git diff --check`, whitespace/final-newline
+checks across all seven changed/new Markdown files, all 32 local link targets,
+and balanced code fences in the three new documents. Content review checked
+scope, evidence tiers, fixed denominators, disagreement retention, holdout
+custody, and privacy. Those documentation changes were retained into the implementation branch.
+
+The planned next step at that checkpoint was to verify the recommended, unexecuted
+Sudachi.rs v0.6.11 / SudachiDict Core 20260723 V0 pair, pin exact revision,
+checksum and configuration, and retain C-mode whole units and A-mode components
+with original spans. Use strict small Red–Green–Refactor cycles, deterministic
+synchronous library logic, a concrete adapter with real boundary tests, and a
+thin evaluation executable/example. Preserve G0, preparation, sync/status and
+schema 1; explicit evaluation bindings do not interpret free-form declarations.
+Run the required locked gates after changes and align all four main documents
+with actual evidence. No general analysis CLI is required.
+
+### Authorized implementation follow-up
+
+The user explicitly approved starting A1 implementation. Inspected Git and fetched
+origin before code changes: main/origin/main remained at `4931913`. Created
+`codex/a1-offline-analysis` while preserving the protocol edits, both previous
+branches, and the single worktree. No learner cache, credential values, or private
+preparation evidence was inspected, and no sync or model call occurred.
+
+Implemented `analysis.rs`, the concrete Sudachi adapter with embedded config,
+`evaluation.rs`, and `examples/a1.rs`. Exact Git/dictionary/configuration pins,
+source/license checks, operational limits, and the cycle-by-cycle Red–Green–Refactor
+record are in [A1 implementation](docs/A1_IMPLEMENTATION.md). The public dictionary
+was explicitly downloaded only after approval. The adapter owns checksum-verified
+bytes, preserves C whole/A component identities and original UTF-8 spans, and has
+no ambient configuration, automatic download, or substituted test backend.
+
+The five required checks separate completed judgments from errors and NotRun.
+Seven explicit rule variants bind to unchanged manual declarations. Regular verb
+class/stem checks, nominal です, narrow topic/object constructions, tuple ambiguity,
+compound permissions, and unsupported coverage are exercised by real-adapter
+contract tests. Naturalness, MWE, and contextual readings/senses remain unassessed;
+a literal-looking idiom can receive a structural Pass. Unsupported challenge
+passes still block a protocol go decision. No generation or exercise acceptance
+is implemented.
+
+The thin example consumes a bounded synthetic packet and reports all inputs,
+analysis/provenance, judgments, limitations, and execution errors. Required real
+adapter tests never silently skip when the dictionary is missing. Explicit setup
+and retained license notices live under ignored `target/a1`; CI now performs
+setup before tests and runs the smoke example without publishing its detailed
+report. Cargo.lock adds 25 packages and preserves every existing resolution.
+
+An original reusable draft contains 24 visible development candidates (12 proposed
+positive/12 negative) and 12 challenges, with opaque IDs and fixed presentation
+order. The first-pass labels/families/alternatives remain in a private provisional
+record outside Git. At implementation delivery all reference outcomes were
+model-only; no evaluation run
+or tuning against this draft has occurred. This exposed material is not blind
+holdout. The [review prompt](docs/A1_EXTERNAL_REVIEW_PROMPT.md),
+[common binding sheet](docs/A1_BLIND_PACKET_HEADER.md), and
+[private custodian handoff](docs/A1_HOLDOUT_CUSTODIAN_PROMPT.md) make the next manual
+steps concrete. At implementation delivery the source gate was 0/48 fully supported core outcomes;
+held-out targets/challenge safeguards are not evaluated. Investigation acceptance
+remains pending, rather than being inferred from engineering tests.
+
+Verification executed on macOS/arm64 with pinned Rust/Cargo 1.98.1:
+
+- `cargo fmt --check` passed.
+- `cargo clippy --locked --all-targets --all-features -- -D warnings` passed after
+  boxing the large upstream error cause, preserving typed source chains.
+- `cargo test --locked --all` passed: **122 test entries plus one rustdoc = 123**,
+  zero failures/ignored. The initial sandbox attempt could not bind local mock
+  ports; rerunning with loopback permission passed, without live services.
+- Real adapter tests passed again after adding same-size wrong-checksum coverage;
+  the child-process ambient-configuration isolation probe also passed.
+- API documentation built with `RUSTDOCFLAGS='-D warnings' cargo doc --locked --no-deps`.
+- The A1 smoke executable produced Pass/Fail/Inconclusive with zero execution
+  errors and all five checks. A missing dictionary produced three errors/NotRun
+  and nonzero exit status. Invalid setup archives preserved the existing dictionary.
+- Existing preview and prepare CLI/library demonstrations passed using repository
+  synthetic fixtures only. No real-learner acceptance was repeated.
+- Final formatting/strict locked Clippy passed after the adapter checksum probe.
+  Documentation audit passed across 12 changed/new Markdown files (newlines,
+  whitespace, fences, and all 59 local links). `git diff --check` passed; the
+  dictionary remains ignored. The six-case first review packet exactly matches
+  the first six draft inputs, with no reference labels or analyzer output.
+- Review draft structure was checked without analyzer execution: 24 development
+  candidates, 12 challenges, opaque unique IDs, explicit bindings, scalar limits,
+  retained provisional metadata, and exact packet hashes. No linguistic/source
+  validity or blind score is inferred from these structural checks.
+
+No Linux/container or hosted CI run is claimed for this A1 change. Existing
+preparation acceptance was not repeated; its completed evidence remains valid.
+No commit, push, or publication is implied by local implementation. The full
+linguistic investigation needs source reconciliation and private holdout custody.
+
+Rust notes for a Ruby developer: `Sentence<'a>` borrows exact source text, enum
+states prevent boolean ambiguity, and a concrete owned analyzer supplies reusable
+synchronous operations. `Box` keeps the large upstream error off the success-path
+Result while retaining its original cause. No service-object framework or async
+layer was added.
+
+### First returned blind review and source audit — 2026-10-03
+
+Preserved the exact six-case external reply, reviewed v0.2 packet, initial private
+judgments, and their SHA-256 hashes outside Git. The provider/model/settings were
+not supplied and remain unknown. Reopened decisive TUFS grammar passages and
+checked actual named Shogakukan dictionary entries on Kotobank. Jisho access
+failed; the reviewer's JMdict entry IDs remain unverified, even where replacement
+sources support the same lexical fact. Search snippets did not establish evidence.
+
+Reconciled all six cases provisionally: **3/48 core reference outcomes and 3/12
+challenge references** are now source-backed. This is reference coverage, with
+no analyzer score. Preserved alternative meanings and review overclaims; changed
+two grammar check judgments where nominal/adjectival applicability was unknown.
+Overall recommendations did not change. Protocol v0.3 clarifies lexical attestation
+versus contextual sense selection within the existing bounded scope. Thresholds,
+fixtures, bindings, runtime code, and the original v0.2 packet are unchanged.
+
+Prepared the next six existing cases in a complete v0.3 blind packet. Detailed
+reviews, source locators, differences, and provisional adjudications remain private.
+No new sentences, model calls, analyzer benchmark runs, learner reads, sync,
+installation, or dictionary/corpus downloads occurred. Holdout remains unseen and
+unfrozen here. This reference/documentation-only follow-up does not repeat Cargo
+gates; the implementation verification above remains the latest executed evidence.
+Documentation checks passed for 13 Markdown files and 60 local links; code
+fences, final newlines, whitespace, and `git diff --check` passed. All six reported
+scalar/byte inventories and source-reference links in the private ledger were
+checked mechanically. Hashes confirm the original reply, first packet, initial
+reference record, and review draft remain unchanged. The second packet is exactly
+cases 7–12 with the v0.3 prompt/header, without reference labels or analyzer output.
+
+### Second returned blind review and source audit — 2026-10-03
+
+Preserved the exact reply and reviewed v0.3 packet, initial judgments, preceding
+audit, and hashes outside Git. Newly inspected the cited dictionary entries and
+relevant polite-form grammar; reused unchanged previously inspected grammar and
+lexical evidence with explicit provenance. Model self-identification is recorded
+as self-reported, without inferring the actual service/model version.
+
+All six overall recommendations were retained provisionally. Two particle
+checks changed from Pass to Inconclusive: an unresolved expression cannot inherit
+scoped object applicability solely from the component verb's transitivity.
+Dictionary expression headwords attest alternatives, not one morphological token
+or an automatic missing-word permission violation. These are applications of
+existing v0.3 limits; no scope, threshold, fixture, binding, or runtime change.
+Detailed corrections and alternatives remain in the private claim ledger.
+
+Cumulative reference coverage is **7/48 core outcomes and 5/12 challenge
+references**, from 12 visible cases. Another 24 visible cases await review;
+the separate 24-case holdout remains unseen here. Prepared exactly the next six
+existing cases as the third blind packet, with the same v0.3 prompt and bindings.
+No benchmark run, tuning, learner access, sync, model call, installation, or
+dictionary/corpus download occurred. Cargo gates were not repeated for this
+reference/documentation-only follow-up; previous implementation evidence stands.
+Validation passed: 14 Markdown files, 61 local links, fences/newlines/whitespace,
+and `git diff --check`. Private hashes, source-ID references, and scalar/byte spans
+were checked mechanically. Both reviewed packets and the full draft are unchanged;
+the third packet contains exactly cases 13–18 with no answers or analyzer output.
+
+### Third returned blind review and source audit — 2026-10-03
+
+Preserved the unedited user-message reply, reviewed v0.3 packet, original
+judgments, preceding audits, and hashes outside Git. Freshly inspected the new
+dictionary entries, the publisher's noun-label convention, and the topic-less
+nominal construction; reused earlier source inspections with explicit provenance.
+Provider/model/settings remain unknown rather than inferred.
+
+All six overall and thirty check recommendations were retained provisionally.
+Empty grammar permissions authorize no rules; they do not disable required
+checks. The reviewer's alternative interpretation remains in the private ledger.
+Claims of exhaustive uniqueness and naturalness under every reading were narrowed
+to supported lexical facts and bounded rule application. Unverified JMdict claims
+remain candidates only. No scope, threshold, fixture, binding, or runtime change.
+
+Cumulative reference coverage is **11/48 core outcomes and 7/12 challenge
+references**, from 18 visible cases. Another 18 visible cases await review;
+the separate 24-case holdout remains unseen here. Prepared exactly the next six
+existing cases as the fourth blind packet with the same v0.3 prompt and bindings.
+No benchmark run, tuning, learner access, sync, provider call, installation, or
+dictionary/corpus download occurred. Cargo gates were not repeated for this
+reference/documentation-only follow-up; previous implementation evidence stands.
+
+Validation passed: 15 Markdown files, 60 local file links, fences, final newlines,
+whitespace, and `git diff --check`. Private input hashes, source references, all
+five check inventories, and original scalar/byte spans were checked mechanically.
+All three reviewed packets and the full draft remain unchanged. The fourth packet
+contains exactly cases 19–24 with the unchanged v0.3 prompt/header, no answers,
+and no analyzer output.
+
+### Fourth returned blind review and source audit — 2026-10-03
+
+Preserved exact attachment bytes, the reviewed v0.3 packet, original judgments,
+previous audits, and hashes outside Git. Opened the new decisive lexical passages;
+reused prior grammar and lexical checks with explicit provenance. Provider/model
+metadata and unopened JMdict candidates remain unknown/unverified.
+
+Retained all six overall recommendations provisionally. Corrected two check
+judgments to Inconclusive because the cited dictionary also records adjectival
+use with historical examples; modern applicability is unresolved. An established
+vocabulary violation still yields Fail under the existing contract. Corrected
+one original-span/dictionary-base mismatch. A dictionary expression entry does
+not establish one morphological word or an automatic permission violation.
+All disagreements and source restrictions remain in the private claim ledger.
+
+Cumulative reference coverage is **15/48 core outcomes and 9/12 challenge
+references**, from 24 visible cases. Twelve visible cases and the separate unseen
+24-case holdout remain. The fifth packet contains exactly the next six existing
+cases with the same v0.3 prompt and bindings. Replaced stale duplicated progress
+in the protocol with a link to the current evidence status; no contract change.
+No benchmark, tuning, learner access, sync, provider call, installation, or
+dictionary/corpus download occurred. Cargo gates were not repeated for this
+reference/documentation-only work; previous implementation evidence stands.
+
+Validation passed: 16 Markdown files, 62 local file links, fences, final newlines,
+whitespace, and `git diff --check`. Private input hashes, source references,
+five-check inventories, and original scalar/byte spans were checked mechanically.
+The four reviewed packets and full draft remain unchanged; the fifth packet is
+exactly cases 25–30 with the unchanged v0.3 prompt/header and no answer key.
+
+### Fifth returned blind review and source audit — 2026-10-03
+
+Preserved the unedited user-message reply, reviewed v0.3 packet, original
+judgments, prior audits, and hashes outside Git. Inspected new lexical passages,
+component-formation evidence, and the applicable topic/object verb pattern;
+reused earlier source checks with explicit provenance. The reviewer's reported
+derived JMdict build, metadata, and IDs remain unverified. Publisher evidence
+supports adopted claims without a coordinator dictionary download.
+
+Withheld two proposed core positives whose reading alternatives were dismissed
+without adequate evidence; one also retains noun/adjective uncertainty. Four
+check judgments changed to Inconclusive. Their reference outcomes remain
+unresolved and cannot count toward the 48-case gate. These are not analyzer
+Inconclusive results. Preserved all initial labels and families; no replacement,
+rebalancing, or denominator reduction occurred. A challenge's initial provisional
+recommendation changed to Fail after additional source evidence explicitly
+established word formation and named the compound. The original decomposition
+alternative and rejected reasoning remain in the private record.
+
+Cumulative coverage is **18/48 core outcomes and 10/12 challenge references**,
+with **two reviewed core references unresolved**, from 30 visible cases. Six
+visible cases and the separate unseen 24-case holdout remain. Prepared exactly
+the final six existing visible cases with the unchanged v0.3 prompt and bindings.
+Replaced another stale duplicated progress statement with a status link. No
+contract, threshold, fixture, binding, or runtime change; no benchmark, tuning,
+learner access, sync, provider call, installation, or coordinator dictionary/corpus
+download. Unchanged Cargo gates were not repeated for reference/documentation work.
+
+Validation passed: 17 Markdown files, 64 local file links, fences, final newlines,
+whitespace, and `git diff --check`. Private hashes, all five check inventories,
+source references, and original scalar/byte spans were checked mechanically.
+All five reviewed packets, the full draft, initial proposals and family assignments
+remain unchanged. The sixth packet is exactly cases 31–36 with the unchanged
+v0.3 prompt/header. Validation separately counts supported and unresolved references;
+neither unresolved core case receives a binary reference outcome or gate credit.
+
+### Sixth returned blind review and source audit — 2026-10-03
+
+Preserved the supplied attachment byte for byte, reviewed packet, initial
+proposals, prior audits and hashes outside Git. Checked the new lexical passages
+and broader particle source; reused earlier inspections with explicit provenance.
+All six overall recommendations remain supported provisionally. One vocabulary
+check becomes Inconclusive consistently with earlier reading uncertainty; the
+independently supported topic-permission violation survives it. Source text for
+the full place-name and its abbreviation supports the whole-identity finding;
+component decomposition does not grant a composition permission. Phrase entries
+still do not automatically establish whole words. Reviewer self-identification
+remains attributed, without service UI confirmation.
+
+Exact binding-sheet review exposed nine earlier absent-feature Pass findings
+inside unresolved constructions. Recorded a separate append-only correction to
+Inconclusive; preserved every original audit and reply. Overall outcomes and
+reference-gate eligibility are unchanged. This corrects application of the
+existing construction requirement, not the contract or analyzer behavior.
+
+All **36/36 visible cases** have now been reviewed: **22/48 supported provisional
+core outcomes, 12/12 challenge references, two unresolved core positives**.
+The separate 24-case holdout remains unseen; no performance result follows.
+Prepared one focused unblinded clarification packet containing only the two
+unchanged unresolved synthetic cases and source questions, outside Git. This is
+the single clarification allowed by protocol step 5, not another blind batch.
+If evidence remains insufficient, preserve it and use documented pre-freeze
+family replacement or an evidence-limited no-go; never seek a model majority.
+
+No sentence, fixture, binding, threshold, or runtime change; no benchmark,
+tuning, learner access, sync, provider call, installation, or dictionary/corpus
+download. Unchanged Cargo gates were not repeated for reference/documentation
+work. Validation checks all six packet snapshots, original labels/families,
+private hashes, five-check inventories, source references, UTF-8 spans, the
+append-only correction overlay, and exact two-case clarification payload;
+Markdown links/fences/whitespace and `git diff --check` also pass.
+
+### Focused clarification and pre-freeze draft revision — 2026-10-03
+
+Preserved the exact returned clarification, reviewed packet, earlier audits and
+hashes outside Git. Reopened the decisive dictionary passages; both proposed
+positives remain unresolved, with no agreement-based promotion. Corrected the
+reviewer's assertion of an explicit POS label absent from the displayed entry
+and the reason for a no-nominal-occurrence check. The model's claimed interface
+identity/settings remain self-reported. The single clarification is finished;
+do not repeat these cases to seek a different answer.
+
+Used the existing protocol's pre-freeze replacement provision. Preserved the
+original draft and every reviewed packet byte for byte; authored revision 2 with
+four replacement inputs in the same two family lineages, including their paired
+negatives. Retained old/new mappings, exclusion reasons, exact inputs, alternatives
+and initial source-inspected proposals privately. New cases have opaque IDs and
+CC0 provenance, and await a fresh four-case blind review with unchanged v0.3
+prompt/bindings. No source exercise or learner material was copied. No analyzer
+run informed selection. Both versions remain excluded from private holdout.
+
+Active coverage is **20/48 supported provisional core outcomes and 12/12 challenge
+references**, with four new references awaiting blind review and 24 holdout cases
+unseen. The original 22 supported outcomes and two unresolved positives remain
+historical evidence; two supported negatives leave the active set with their
+families. Counts are not added across revisions. Category balance, family rules,
+planned 60 cases and thresholds remain unchanged.
+
+Inspected Git state and fetched origin before preparing the revision; main and
+origin/main remain at `493191349228bd0de149280d131f1c388ea7921c`. No Rust/runtime
+behavior change, installation, dictionary/corpus download, provider call, learner
+access, sync, benchmark or tuning. Cargo gates are unchanged and not repeated for
+reference/fixture documentation. Validation passed for preservation, counts and
+family balance, new JSON bindings/UTF-8 spans, exact blind payload and prompt,
+source IDs, 19 Markdown files with 74 local links, and `git diff --check`.
+
+### A1 revision-2 four-case review audit — 2026-10-03
+
+Preserved the complete returned four-case review, exact reviewed packet/prompt,
+initial proposals, source provenance and earlier history outside Git. Retained
+all four overall and twenty check recommendations after citation reconciliation.
+Existing v0.3 grammar permissions and the explicit topic slot settle the two
+contract questions; discourse roles remain unassessed. Reviewer alternatives and
+stronger assertions remain recorded, with lexical uniqueness/component claims
+narrowed. Reopened publisher receiver/noun definitions, POS convention and the
+TUFS topic/object frame; reused earlier actual lexical/morphology inspections
+with explicit provenance. The reported redistributed JMdict file, entry IDs and
+snippet remain unverified and are not decisive evidence. Model metadata remains
+attributed rather than independently confirmed from the service UI.
+
+Active reference coverage is now **24/48 core outcomes and 12/12 challenge
+references**, all source-backed and provisionally adjudicated. Development keeps
+12 positives and 12 negatives, three of each per category. A new private aggregate
+ledger applies prior check corrections without modifying the original audits.
+Retired families remain excluded, not relabeled or counted twice. The full gate
+still lacks 24 private holdout references; nothing is frozen or scored.
+
+Prepared one combined local custodian handoff from public process documents,
+both synthetic draft versions, smoke inputs and an exposure inventory of public
+test literals/generated-form families. It contains no private answers or learner
+data. The user supplies it to a separate non-implementation conversation; hidden
+inputs/reviews stay there until scoring. No new evaluation sentences were authored
+in this audit. No code changes, installs, downloads, provider calls, learner access,
+sync, benchmark or tuning occurred; unchanged Cargo gates were not repeated.
+
+Validation passed for 198 preserved file hashes, all 180 active reference-check
+findings and original UTF-8 spans, exact reviewed packet/prompt, source namespaces,
+category/family balance, 18 Markdown files with 75 local links, and the public-only
+handoff assembly. These are integrity/source-coverage checks, not analyzer results.
+
+### A1 reference freeze, visible evaluation and implementation freeze — 2026-10-04
+
+Accepted the non-revealing held-out freeze receipt as the separate custodian's
+attestation: 24 reviewed/reconciled source-backed provisional references, with
+five exposed families replaced and all historical evidence retained. The 24
+visible core and 12 challenge references were already audited. Froze their exact
+inputs, reference key, source/history manifests and prompt/binding records before
+running any evaluation. Hidden reference files remain outside this chat; provider
+metadata gaps stay recorded, without inferring independent linguistic truth.
+
+Inspected Git and fetched origin: local HEAD and origin/main remain
+`493191349228bd0de149280d131f1c388ea7921c`; all work and branches are preserved.
+Saved the dirty workspace's build inputs and source archive explicitly. The first
+36-case visible run matched every development outcome and all 120 core check
+judgments, but four negative inflection findings had broader-than-reference spans.
+
+Strict TDD reporting fix: strengthened the existing real-adapter four-form test;
+RED failed on `0..12` versus `6..12`. Changed only the finding's start from the
+verb's start to its end, retaining exact original bytes. GREEN passed. Reviewed
+production/test naming, duplication, borrowing and modelling: the existing
+recognizer guarantees the stem/auxiliary boundary, so no helper, allocation or
+new type was justified. The explicit post-refactor-review rerun passed.
+
+The second visible run keeps all outcome/check judgments and now matches all
+12 negative reasons and decisive spans. Challenges produced 1 Fail, 8 Inconclusive
+and 3 unsupported Pass results, with 38/60 reference check judgments matching.
+The three unsupported passes fail the safeguard; the split-compound and individual
+check mismatches remain recorded rather than hidden by matching overall labels.
+Both runs had zero execution errors/missing checks and preserved original input
+and C/A spans. Raw outputs were hashed before private reference comparison.
+No reference or challenge-specific behavior was changed to improve the tally.
+
+Post-change formatting and strict locked all-targets/all-features Clippy passed.
+Locked tests initially failed because the sandbox denied local mock-server ports;
+the permitted retry passed all 122 test entries plus one rustdoc. Dependency use
+was offline. No real learner access, credentials, sync, model call or download.
+
+Declared implementation/configuration freeze `a1-implementation-2026-10-04-v1`
+after the fix and gates. Recorded 58 exact build-file hashes, dirty-base commit,
+tracked diff, source archive, frozen executable, toolchain, upstream revision,
+dictionary/configuration pins and reference freeze. The single 24-case held-out
+run remains pending exact input release; no held-out input/answer has been opened.
+The current challenge failure already prevents a bounded go. The held-out run
+will complete core evidence under the original thresholds, with no after-score
+repair in that claimed run. Detailed receipts, logs and reports remain private.
+
+### A1 single held-out execution — 2026-10-04
+
+Verified the user-released input against the recorded freeze hash and verified
+the saved executable, 58 build files, dictionary, configuration and reference
+freeze. Ran the existing executable once offline, without a rebuild or change.
+Preserved complete stdout/stderr and their hashes before report inspection.
+Integrity checks confirm 24 exact inputs in order, 120 completed required checks,
+zero execution errors/NotRun cases, original UTF-8/C/A spans, and pinned provenance.
+No correctness comparison or private answer/source-ledger access occurred here.
+Raw output and a handoff receipt are ready for the user to return to Claude
+Fable's existing “8 FILES” conversation for scoring. Detailed files remain outside
+Git. No code, dictionary, references, fixtures or thresholds changed; unchanged
+Cargo checks were not repeated. The challenge safeguard failure remains in force.
+
+### A1 scoring receipt and investigation closure — 2026-10-04
+
+Received the non-revealing private scoring receipt. Verified the user's saved
+input, output and handoff receipt against the previously recorded hashes, checked
+24 exact echoed inputs in order and 120 completed checks, and matched the receipt's
+freeze/ledger hashes to the earlier handoff. The original temporary archive is
+no longer present; the downloaded run artifacts remain intact. The full archived
+executable/build manifest could not be reverified at closure. No analyzer rerun or
+private answer-ledger access occurred.
+
+Custodian-reported scoring: 12/12 positive Pass, 12/12 negative Fail, 120/120 check
+judgments matching, zero execution errors/missing checks/NotRun. All 12 negative
+reason classes match; 11/12 decisive spans match exactly. The remaining nested
+span is retained as a discrepancy without changing the frozen reference or giving
+exact-match credit. All held-out thresholds pass with the strict 11/12 count.
+Source judgments remain model-assisted and provisional; the ledger comparison
+is attributed to its custodian rather than independently rescored here.
+
+The investigation closes with **no-go** because the separate visible challenge
+safeguard has three unsupported Pass results. No thresholds, code or fixtures
+changed, no new model review was requested, and no post-score tuning occurred.
+Only aggregate documentation changed; `git diff --check` passed. Prior locked
+engineering gates apply to the unchanged implementation and were not repeated.
+Private fixtures/reports remain outside Git; scoring alone does not release them.
+Any future repair is a new recorded revision, and this scored holdout cannot be
+claimed as unseen evidence for it.
+
+### PR #5 review follow-up — 2026-10-04
+
+Addressed both Greptile findings after the completed A1 checkpoint `f1237d4`:
+partial dictionary/notice publication and a stale instruction to run the already
+scored holdout. PR #6's linked review had no actionable evaluator finding. These
+changes preserve the completed no-go, the 11/12 exact-span discrepancy, the pinned
+analyzer/dictionary, all public synthetic JSON and the frozen evaluation record.
+No scored holdout or visible benchmark was rerun; no private evidence or learner
+data was accessed, and no further linguistic review was started.
+
+The installer now verifies exact size/SHA-256 pins for all three bundle files on
+extraction and reuse. It synchronizes a complete bundle before publishing one
+atomic `current` symlink; existing bundles and legacy flat files remain untouched.
+Pre-publication failures preserve the previous bundle. A failed directory sync
+after publication reports uncertain durability with the complete new bundle
+visible. Tests and examples use `target/a1/current/system_core.dic`; setup remains
+explicit and outside Rust runtime composition. The two notice pins were measured
+from a fresh temporary copy of the already-pinned official archive.
+
+Strict Red–Green–Refactor evidence:
+
+| Cycle | Observed RED | GREEN and refactor review |
+| --- | --- | --- |
+| Corrupt notice reuse | A same-size damaged LEGAL file was retained and reported ready. | Verify every cached file's size/hash; the test passed. Reviewed pins, naming and isolated test configuration; no further abstraction was justified. |
+| Complete bundle publication | An injected final replacement failure left new notices beside the old dictionary. | Publish a complete bundle through one symlink replacement; the test passed, including retention of the old bundle after a successful retry. Reviewed reader lifetime and layout, tightened the fault boundary and retained Python 3.8 compatibility; reran green. |
+| Extracted notice verification | An unexpected notice in an otherwise fixture-pinned archive was accepted. | Share bundle verification before publication and reuse; the test passed. Reviewed duplicate checks and error naming; no further change was justified. |
+| Publication durability | Pre/post-publication sync-failure tests observed no error because no sync occurred. | Sync files/directories and distinguish post-publication uncertainty; both tests passed. Reviewed descriptor closure, ancestor persistence and bundle retention; clarified names/comments and reran green. |
+
+Nine offline Python tests use tiny synthetic ZIPs and real isolated filesystem
+operations, with injected replacement/sync failures at the OS boundary. They also
+cover missing/corrupt notices, valid reuse without an archive, invalid archives,
+legacy file preservation and a real failed rename. They do not simulate power
+loss. CI runs these before installing the real dictionary for Rust adapter tests.
+
+The review/custodian prompt status, protocol status and fixture README now state
+that the single run and scoring are complete. Historical copyable prompt bodies
+are byte-for-byte unchanged; these wrappers do not authorize another review/run.
+
+Local verification on macOS arm64 / Rust 1.98.1 / Python 3.14.8:
+
+- Nine Python installer tests passed; both scripts also parsed with Python 3.8 syntax.
+- Real setup from the exact pinned ZIP and subsequent verified cache reuse passed;
+  the retained legacy dictionary/notices matched the current bundle byte-for-byte.
+- `cargo fmt --check`, `cargo clippy --locked --offline --all-targets --all-features -- -D warnings`,
+  and `cargo test --locked --offline --all` passed: 122 Rust tests plus one rustdoc test.
+- Reviewed the complete diff, including the new Python test file; `git diff --check`
+  passed. Hosted CI results are recorded separately on the PR.
 
 ## Completed milestone records
 
@@ -1130,18 +1721,21 @@ package; the completed 1a checks are recorded above.
 
 ## Later milestones
 
-The offline preparation slice of item 1 is implemented above. Remaining work
-requires separate implementation authorization; generation and later items are
-not part of that slice:
+The offline preparation slice and its real-learner acceptance are complete above.
+A1 implementation, manual reference review, frozen evaluation and private scoring
+are complete with a no-go for this implementation. A proposed follow-up is to
+address unsupported challenge Pass results in a separately recorded revision;
+this does not authorize generation or a claim of new blind evidence from the
+scored holdout. Remaining implementation work requires separate authorization:
 
 1. **Learner constraints and retrieval:** grammar knowledge as learner data,
    initially entered through a local file, an explicit revisable
    `LearnerKnowledgePolicy`, manual targets, and structured lexical retrieval.
    Targets identify the word, intended reading, and intended sense. Acceptance: explainable
    target/context selection from real learner data with no mandatory vector
-   search. The implemented slice uses the real cache reader, but a private learner
-   demonstration has not been run; synthetic verification does not complete that
-   broader acceptance criterion. When database persistence is introduced, grammar
+   search. This bounded acceptance criterion was completed on 2026-10-03 using
+   the production cache reader and private learner data, as recorded above.
+   When database persistence is introduced, grammar
    belongs alongside other learner data; files may remain import/export. Derive `LearnerKnowledge`
    on demand from preserved progress and manual declarations. Future provider
    grammar identifiers remain independent; no semantic cross-provider mapping
