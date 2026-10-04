@@ -3,7 +3,8 @@
 This is the authoritative product and architecture baseline, accepted on
 2026-09-27, with vocabulary clarified on 2026-09-30 and the existing-use-case
 architecture migration authorized on 2026-10-01, followed by the generation
-design and Cloud handoff on the same date. Changes to these decisions must
+design and Cloud handoff on the same date, and bounded A1 evaluation scope
+accepted on 2026-10-03, with A1 implementation subsequently approved that day. Changes must
 be reflected here, in [ARCHITECTURE.md](ARCHITECTURE.md), and in `PLAN.md`.
 Future capabilities described below are direction, not authorization to implement
 them in milestone 1.
@@ -261,6 +262,124 @@ ID, synchronization interval, grammar assertions, and target/source associations
 Exclusion precedence is unavailable content, hidden evidence, no assignment,
 then the selected missing lifecycle timestamp. Other evidence remains available.
 See README.md and `examples/prepare.rs` for CLI and direct-library usage.
+
+Implementation and real-learner acceptance of this preparation slice are complete
+as of 2026-10-03; `PLAN.md` records the user's completed acceptance evidence.
+Eligibility remains distinct from mastery, and linguistic validity is unassessed.
+
+## A1 — bounded offline analysis evaluation (complete; no-go)
+
+Before generation, investigate supplied modern Japanese sentences of at most
+100 Unicode characters: vocabulary identity, regular godan/ichidan polite
+present/past/negative forms, narrowly scoped topic は and object を, and nominal
+です. Preserve compounds and components; familiar components or kanji cannot
+authorize a whole word. Other grammar, multiword expressions, and reading/sense
+ambiguity expose limitations. No general grammar or contextual-sense validator,
+generation, repair, quiz, provider integration, or speculative framework.
+
+Keep completed `Pass`/`Fail`/`Inconclusive` judgments distinct from execution
+errors and `NotRun`. No A1 report may describe sentences as accepted exercises.
+Preserve G0 and its fixes, preparation, sync/status, and schema 1. A1
+evaluation uses explicit bindings while preserving free-form grammar inputs;
+it must not automatically interpret learner declarations.
+
+The user approved manually operated blind review by another AI provider instead
+of qualified human reviewers. Model-derived judgments remain provisional;
+verify citations and retain disagreements and alternatives. Model agreement is
+not independent linguistic ground truth. Learner material never enters a review
+packet or external service. Only original, explicitly reusable synthetic fixtures
+may be published, with held-out cases private until scoring.
+
+The [reference protocol](docs/A1_REFERENCE_PROTOCOL.md),
+[packet format](docs/A1_REVIEW_PACKET.md), and
+[manual review prompt](docs/A1_EXTERNAL_REVIEW_PROMPT.md) define the source-backed,
+provisional evidence process. Implementation was explicitly approved after the
+protocol-only stage. The source gate requires fully source-backed outcomes for
+all 48 core cases before freezing; model-only/disputed cases cannot establish
+the accepted held-out targets. The 60-case plan and thresholds are unchanged.
+Before freezing, a source-limited family may be replaced with a retained
+exclusion/revision log; preserve the original evidence and family separation.
+Revision 2 applies this to two complete development pairs, without changing
+scope or awarding new references automatic acceptance.
+
+The concrete implementation uses Sudachi.rs v0.6.11 pinned to Git revision
+`90fd6068c80c2fc3b63e0dbab0e341475bad4d8f` and checksum-verified SudachiDict Core
+20260723 V0. Built-in configuration disables normalization/path rewrites and uses
+only the fixed SimpleOovPlugin with embedded character definitions. The dictionary
+is explicitly loaded into owned memory; there are no ambient files or runtime
+downloads. C/A units and original spans remain in the report. Exact artifact pins,
+setup/license notices, and verification are in [A1 implementation](docs/A1_IMPLEMENTATION.md).
+
+Explicit setup verifies size and SHA-256 for the dictionary and both notices,
+then publishes a complete bundle through `target/a1/current` in one atomic link
+replacement. It verifies all three files before cache reuse. Completed bundles
+remain available to existing readers; pre-publication failure preserves the prior
+bundle, while failed directory synchronization after publication reports uncertain
+durability. Legacy flat files are retained; current examples use
+`target/a1/current/system_core.dic`. This setup hardening does not change the pinned
+analyzer/dictionary, frozen references, or completed A1 results.
+
+`analysis::Sentence` validates nonblank input and counts at most 100 Unicode scalar
+values. `evaluation::evaluate` is synchronous and takes concrete analysis, unchanged
+free-form declarations, and explicit word/rule bindings. Vocabulary tuples retain
+written form, reading, sense, and optional-use evidence represented by the explicit
+`direct_object` boolean. False means no positive object-use binding, not a claim
+of intransitivity. This metadata requires source review; it is not inferred from を.
+A sense label does not establish contextual correctness. Unknown identities,
+competing supplied tuples, and reading mismatches remain Inconclusive.
+Reference review verifies that the supplied sense is attested, while contextual
+sense selection stays unassessed. Ordinary polysemy alone does not invalidate
+that bounded check. Unresolved lexical/POS alternatives affecting a required
+check remain Inconclusive; dictionary entry grouping cannot settle them. The
+reference protocol records this clarification and its version history.
+
+Recognition is limited to the two single-clause patterns and five checks in the
+[common binding sheet](docs/A1_BLIND_PACKET_HEADER.md): optional nominal topic with
+nominal です, or optional topic/direct object with a regular polite verb. At most
+one final 。 is optional; other punctuation, whitespace, extra clauses/modifiers,
+questions, and unsupported morphology expose scope limits. A nominal slot is one
+whole lexical unit, possibly a compound. Each of the seven rule variants requires
+an explicit binding to an existing declaration ID; descriptions are never parsed.
+Malformed bindings/analysis are typed errors. All original text must be accounted
+for before Scope can Pass. Required check applicability remains unresolved for
+an unrecognized construction. Supported permission violations keep their Fail
+reason/span even when other checks are Inconclusive.
+Scope does not mirror permission results: a missing permission belongs to its
+applicable check, while Scope independently assesses structural coverage and
+applicability. The [Scope clarification](docs/A1_SCOPE_CLARIFICATION.md) records
+this existing v0.3 interpretation for reference reconciliation before freeze.
+
+Every report lists naturalness, multiword expressions, and contextual reading/sense
+as unassessed. A literal-looking idiom can pass bounded structural checks; that
+is not supported exercise acceptance and an unsupported challenge Pass blocks
+the protocol's go decision. There is no ad hoc phrase blacklist or general validator.
+
+`examples/a1.rs` is the thin synthetic evaluation executable, accepting an explicit
+dictionary path and versioned JSON packet, at most 1 MiB/60 cases. It keeps completed
+judgments separate from execution errors and NotRun, preserves per-case input,
+analysis/provenance, and check results, and makes no reference-accuracy claim.
+The ordinary CLI, schema 1, and earlier use cases retain their existing contracts.
+No generation, repair, quiz, provider calls, or automatic interpretation of learner
+grammar is authorized by this milestone.
+
+Contract tests and a three-case smoke demonstration provide engineering evidence.
+The original, explicitly reusable 24-development/12-challenge set is now frozen
+and evaluated against provisional source-backed references. The separate
+custodian reports all 24 held-out references reviewed, reconciled and frozen,
+meeting the reported full reference gate. Previously exposed held-out families
+were replaced with history retained. Development outcome and negative reason/span
+checks match after a small
+reporting fix. Three unsupported challenge Pass results prevent a bounded go.
+After hash verification, the released input ran once offline using the frozen
+executable: all 24 cases and 120 checks completed without execution errors.
+The custodian's scoring receipt reports all held-out targets met: 24/24 outcome
+and 120/120 check judgments match, with 11/12 exact negative reason/span matches.
+The remaining nested-span discrepancy is preserved without revising the reference.
+The investigation is complete with a no-go because the challenge safeguard failed.
+No hidden reference labels were opened here, and no post-score change or rerun was
+made. Held-out fixtures remain private absent a separate release decision. See
+[evaluation status](docs/A1_EVALUATION_STATUS.md); no linguistic
+acceptance or exercise-acceptance claim follows.
 
 ## Design vocabulary and composition
 
