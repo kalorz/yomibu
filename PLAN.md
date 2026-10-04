@@ -106,7 +106,7 @@ development dependency. Proptest remains deferred.
 | Offline preparation slice | Implementation and real-learner acceptance complete, 2026-10-03 | Local grammar input, revisable knowledge policy, explicit targets, cached lexical evidence | Synchronous CLI/library agreement, explainable decisions, typed failures, unchanged schema-1 source data; private real-learner acceptance completed; linguistic validity unassessed |
 | A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
 | Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
-| G1 — Experimental sentence candidates | Complete for review; live compatibility unverified | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; partial-result preservation; no exercise acceptance |
+| G1 — Experimental sentence candidates | Complete for review; user-run live smoke passed | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; user-supplied dog/cat smoke report; partial-result preservation; no exercise acceptance |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -204,6 +204,36 @@ substituting new rules; assessments borrow their original strings without a
 self-referential object. Enum variants and typed errors distinguish completed
 judgments from failed execution, while `Box<Evaluation>` keeps the result enum
 compact without cloning evidence or creating a second evaluation model.
+
+### User-run smoke and usage follow-up — 2026-10-04
+
+The user supplied a successful live dog/cat report: one request, two candidates,
+ten completed Pass checks, and provider-reported usage of 199 input/21 output
+tokens. This supersedes the original unverified status above for that synthetic
+request only; it does not establish exercise acceptance or change A1 evidence.
+See the [smoke record](docs/G1.md#user-run-live-smoke--2026-10-04).
+
+Added an original CC0 topic/past/negative-past fixture and recommended `--release`
+in usage examples. Its illustrative sentences were checked offline with the real
+pinned analyzer; performance measurements and deferred ideas follow below. These
+follow-ups change documentation and synthetic input only. No agent provider call
+or credential access was needed.
+
+### Optimization ideas — deferred, 2026-10-04
+
+Local macOS offline analysis: debug **10.2s**, release **0.8s** (three-run
+medians; identical reports; compilation/API time excluded). Separate release
+measurement: **~256 MB peak process memory**.
+
+- **Now:** use `--release`.
+- **Next candidate:** explicit interactive session; reuse the 217 MB dictionary
+  across requests, retaining RAM until exit and explicit opt-in for each model call.
+- **Later:** memory mapping could avoid the private copy; preserve verification
+  and file-change safety. Full checksum verification still scans the whole file.
+- **Avoid SQL conversion/pruning:** no demonstrated benefit; removing entries
+  can change analysis.
+
+Ideas only, not implementation approval. Preserve linguistic pins and A1 history.
 
 ## G0 — Manual candidate preview
 

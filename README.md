@@ -191,14 +191,18 @@ and two concrete policy choices.
 python3 scripts/setup_a1_dictionary.py
 
 # Completed Pass, Fail, and Inconclusive respectively (all exit zero):
-cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/nominal.json
-cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/unlisted.json
-cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/object.json --json
+cargo run --release --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/nominal.json
+cargo run --release --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/unlisted.json
+cargo run --release --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/object.json --json
 ```
 
 `--offline` controls Cargo's dependency access; omit it for an initial build if
 dependencies are not cached. The `analyze` command itself always operates offline.
 Setup is a separate explicit download, never performed by analysis.
+
+Use `--release` for interactive use: each invocation reads, verifies and
+initializes the roughly 217 MB dictionary, which is much slower in a development
+build. The first optimized compilation takes longer; unchanged builds are reused.
 
 Supply your own UTF-8 JSON file with this small version-1 shape:
 
@@ -287,6 +291,9 @@ guaranteed dollar ceiling. Account funding (reserve US$5 plus tax when needed)
 is separate. No purchases or live test are authorized by implementation approval.
 All automated provider tests use local HTTP mocks and the real pinned analyzer.
 The existing `analyze` command remains fully offline.
+
+The documented generation command also uses `--release` to reduce local dictionary
+startup time. Waiting for the provider is additional.
 
 ## Bounded offline analysis investigation (A1; historical no-go)
 
