@@ -1,6 +1,9 @@
 use anyhow::anyhow;
 use chrono::SecondsFormat;
-use clap::{Parser, Subcommand};
+use clap::{
+    Parser, Subcommand,
+    error::{ContextKind, ContextValue},
+};
 use std::{
     io::{self, Write},
     path::{Path, PathBuf},
@@ -19,13 +22,16 @@ use yomibu::{
     wanikani::Client,
 };
 
+mod analyze;
+
 #[derive(Parser)]
 #[command(
     version,
-    about = "Prepare practice context, preview manual entries, or sync/inspect WaniKani (unofficial tool)"
+    bin_name = "yomibu",
+    about = "Analyze supplied text, prepare practice context, preview entries, or sync/inspect WaniKani (unofficial tool)"
 )]
 struct Cli {
-    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview).
+    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze).
     #[arg(long, global = true, value_name = "PATH")]
     data_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -34,6 +40,18 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run bounded offline checks on one manually supplied sentence.
+    Analyze {
+        /// Explicit path to the pinned SudachiDict Core 20260723 V0 dictionary.
+        #[arg(long, value_name = "PATH")]
+        dictionary: PathBuf,
+        /// Version-1 JSON sentence, grammar declarations, and explicit bindings.
+        #[arg(long, value_name = "PATH")]
+        input: PathBuf,
+        /// Emit structured analysis, original UTF-8 spans, and evaluation results.
+        #[arg(long)]
+        json: bool,
+    },
     /// Refresh the complete cache using WANIKANI_API_TOKEN.
     Sync,
     /// Show cached observations without accessing the network.
@@ -71,7 +89,21 @@ enum PolicyChoice {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            if error.use_stderr() {
+                eprint!("{}", escape_argument_error(error));
+                return ExitCode::from(2);
+            }
+            return if error.print().is_ok() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            };
+        }
+    };
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error}");
@@ -80,9 +112,29 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+fn escape_argument_error(mut error: clap::Error) -> clap::Error {
+    // Escape supplied values before Clap adds its diagnostic layout.
+    for kind in [
+        ContextKind::InvalidArg,
+        ContextKind::InvalidValue,
+        ContextKind::InvalidSubcommand,
+    ] {
+        if let Some(ContextValue::String(value)) = error.get(kind) {
+            let escaped = value.escape_debug().to_string();
+            error.insert(kind, ContextValue::String(escaped));
+        }
+    }
+    error
+}
+
+fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
+        Command::Analyze {
+            dictionary,
+            input,
+            json,
+        } => analyze::run(&dictionary, &input, json, &mut io::stdout().lock())
+            .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
         Command::Sync => {
             let data_dir = resolve_data_dir(cli.data_dir)?;
             let token = std::env::var("WANIKANI_API_TOKEN")

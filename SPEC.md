@@ -4,7 +4,8 @@ This is the authoritative product and architecture baseline, accepted on
 2026-09-27, with vocabulary clarified on 2026-09-30 and the existing-use-case
 architecture migration authorized on 2026-10-01, followed by the generation
 design and Cloud handoff on the same date, and bounded A1 evaluation scope
-accepted on 2026-10-03, with A1 implementation subsequently approved that day. Changes must
+accepted on 2026-10-03, with A1 implementation subsequently approved that day,
+and a separate offline analysis CLI authorized on 2026-10-04. Changes must
 be reflected here, in [ARCHITECTURE.md](ARCHITECTURE.md), and in `PLAN.md`.
 Future capabilities described below are direction, not authorization to implement
 them in milestone 1.
@@ -402,6 +403,62 @@ three exposed multiword cases. It does not identify idioms or supply contextual
 evidence. No phrase exceptions, new bindings, dependencies, or broader grammar
 support are introduced. See the [follow-up record](docs/A1_FOLLOWUP.md) for TDD,
 visible-only results, verification and limitations; none revises the A1 no-go.
+
+## Offline analysis CLI — separate milestone, 2026-10-04
+
+```sh
+yomibu analyze --dictionary PATH --input PATH [--json]
+```
+
+This command exposes the existing bounded analyzer and evaluator for one manually
+supplied sentence. It adds no linguistic rules or acceptance decision. A1 remains
+complete with its historical no-go, 24/24 held-out outcomes, 120/120 check judgments,
+and 11/12 exact negative reason/span agreement. The separate object-combination
+safeguard and its reduced ordinary-sentence coverage remain in force. Neither the
+scored holdout nor frozen references are development material for this milestone.
+
+Input is one UTF-8 JSON object with exactly these required fields:
+`{"version":1,"sentence":"犬です。","grammar":["です"],"bindings":{"vocabulary":[{"written_form":"犬","reading":"イヌ","sense":"dog","direct_object":false}],"grammar":[{"declaration_id":1,"rule":"NominalDesu"}]}}`.
+Reads stop at 64 KiB + one byte; reject documents exceeding 65,536 bytes before
+decoding. Reject malformed JSON/UTF-8, unsupported versions, unknown or missing
+fields, blank declarations, and invalid bindings. The unchanged `Sentence` limit
+is nonblank text of at most 100 Unicode scalar values, with no normalization or
+trimming. This is a supplied text bound, not a new sentence-segmentation validator.
+
+`grammar` preserves free-form descriptions, order and duplicates; IDs are their
+one-based positions. Bindings reuse `EvaluationBindings` exactly: nonblank whole
+word/katakana-reading/sense tuples, explicit `direct_object` booleans, and the seven
+existing `GrammarRule` names. Empty arrays are valid and grant no permissions.
+Descriptions never grant rules implicitly; sense and transitive-use declarations
+are user assertions, not verified contextual evidence. No research reuse statement,
+case ID, reference label, or learner cache is required. The A1 synthetic harness
+retains its separate packet format and reuse contract unchanged.
+
+Text output names the overall completed outcome and all five required checks,
+coverage, every finding's reason, half-open original UTF-8 byte range, and quoted
+affected text. It requires no terminal color. Sentence/declaration/excerpt content
+is escaped for terminal display. JSON output has `version: 1`, exact decoded
+`input`, complete C/A `analysis` with analyzer/dictionary/configuration provenance,
+`outcome`, and the unchanged `evaluation` including all limitations and findings.
+Escaping changes presentation only; decoded strings and byte offsets remain original.
+Naturalness, multiword expressions, and contextual reading/sense remain explicitly
+unassessed. A Pass never establishes an accepted exercise.
+
+Completed Pass, Fail and Inconclusive all exit zero. Invalid inputs or execution
+errors exit nonzero with an escaped, contextual stderr diagnostic and no evaluation
+on stdout. They are never converted to linguistic Fail or completed checks.
+Argument diagnostics preserve line breaks and indentation while escaping supplied
+values; usage and help use the fixed executable name `yomibu`.
+There is no structured error-report contract in this version.
+
+The dictionary path is mandatory, loaded only through the existing pinned adapter.
+Explicit setup remains separate; the installed path is
+`target/a1/current/system_core.dic`. Missing/unpinned files fail without fallback.
+The command reads only the selected input and dictionary, ignores `--data-dir`,
+and performs no HOME lookup, learner access, credential lookup, sync, network,
+download, persistence, telemetry, or async runtime startup. Argument/file/output
+work belongs to the executable; library analysis/evaluation remain independently
+callable. See README for runnable synthetic examples and PLAN for TDD/check evidence.
 
 ## Design vocabulary and composition
 

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "sentence": "犬は水を飲みます。",
+  "grammar": ["topic は", "object を", "polite nonpast"],
+  "bindings": {
+    "vocabulary": [
+      {"written_form": "犬", "reading": "イヌ", "sense": "dog", "direct_object": false},
+      {"written_form": "水", "reading": "ミズ", "sense": "water", "direct_object": false},
+      {"written_form": "飲む", "reading": "ノム", "sense": "drink", "direct_object": true}
+    ],
+    "grammar": [
+      {"declaration_id": 1, "rule": "TopicWa"},
+      {"declaration_id": 2, "rule": "ObjectWo"},
+      {"declaration_id": 3, "rule": "PoliteNonPast"}
+    ]
+  }
+}

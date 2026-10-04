@@ -21,6 +21,17 @@
 - Treat external data as untrusted. Configure deadlines, protect credentials, and
   preserve complete usable caches on failure. Distinguish pre-replacement failure
   from uncertain durability after replacement.
+- Preserve safety and readability at terminal output boundaries. Escape untrusted
+  values before composing human-readable output; retain trusted line breaks,
+  indentation and usage/help structure. Do not blanket-escape an already formatted
+  multiline diagnostic. Include executable names and error content from dependencies
+  when reviewing which content is untrusted.
+- For CLI presentation changes, test safety and usability together through the
+  executable: ordinary Japanese text stays readable, hostile controls/newlines
+  stay escaped, and diagnostic layout, stdout/stderr, exit status and help/version
+  behavior remain correct. Extend these regressions when parser configuration or
+  error sources change; checking only forbidden characters or message substrings
+  is insufficient.
 - Keep tests deterministic, independent of external services, and parallel-safe.
   Test real domain behavior; use local HTTP mock servers and isolated temporary
   directories. Add regression tests for non-trivial bugs. Never use real secrets
