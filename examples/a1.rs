@@ -117,7 +117,8 @@ mod tests {
 
     #[test]
     fn reports_completed_judgments_without_calling_them_accepted_exercises() {
-        let dictionary = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/system_core.dic");
+        let dictionary =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/current/system_core.dic");
         let report = run_packet(&dictionary, SMOKE).unwrap();
         assert_eq!(report["execution_errors"], 0);
         for (case, expected) in
@@ -185,7 +186,8 @@ mod tests {
 
     #[test]
     fn one_invalid_case_does_not_erase_completed_results_or_its_error_cause() {
-        let dictionary = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/system_core.dic");
+        let dictionary =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/current/system_core.dic");
         let mut packet: Value = serde_json::from_str(SMOKE).unwrap();
         packet["cases"][1]["sentence"] = json!("猫".repeat(101));
         let report = run_packet(&dictionary, &packet.to_string()).unwrap();

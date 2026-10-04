@@ -5,11 +5,18 @@ The user operates the external provider manually. The implementation agent makes
 no provider calls. All six six-case reviews and the four replacement reviews
 have been audited.
 
-Current status (2026-10-04): the separate Claude Fable conversation reports the
-24 held-out references reviewed, reconciled and frozen. No further blind review
-is needed for this set. Continue with the single offline run described in
-[evaluation status](A1_EVALUATION_STATUS.md); retain this prompt and the reviewed
-packets as history rather than sending them for repeat reviews.
+Current status (2026-10-04): the single held-out run and private scoring are
+complete. A1 concluded **no-go**: held-out targets passed, with the 11/12 exact
+negative reason/span result preserved, but three unsupported visible challenge
+Pass results failed the safeguard. See [evaluation status](A1_EVALUATION_STATUS.md).
+Do not rerun the scored holdout or send this set for further reviews. Retain this
+prompt and the reviewed packets as history; later code revisions do not repair
+the historical score or make the scored holdout unseen again.
+
+## Historical review preparation instructions
+
+The instructions below record the completed review process. They are not a
+current handoff or authorization to start another run or review round.
 
 Implementation and synthetic fixture authoring are now approved. Start a fresh conversation without
 the development chat or earlier reference answers. Paste the block below, then
@@ -25,7 +32,7 @@ Two original positives remain unresolved; their two complete families were
 revised before freezing, with exclusions and initial proposals retained privately.
 The [four-case blind packet](A1_FOUR_CASE_REVIEW_PACKET.md) has also been reviewed
 and reconciled; all active visible references now have provisional source support.
-The next step is the separate [holdout custodian handoff](A1_HOLDOUT_CUSTODIAN_PROMPT.md).
+The next step at that stage was the separate [holdout custodian handoff](A1_HOLDOUT_CUSTODIAN_PROMPT.md).
 Do not repeat reviewed cases to seek agreement. The
 [first packet](A1_FIRST_REVIEW_PACKET.md) stays unchanged as the reviewed v0.2
 snapshot; the [second packet](A1_SECOND_REVIEW_PACKET.md),

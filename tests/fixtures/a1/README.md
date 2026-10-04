@@ -22,11 +22,13 @@ four replacement reviews were reconciled. The
 as the reviewed snapshot; it does not need another review.
 Both draft versions remain exclusion material for private holdout authoring.
 Detailed reviews and adjudications stay outside Git. The reference gate/freeze
-preceded the visible run; the implementation is now frozen before held-out input
+preceded the visible run; the implementation was frozen before held-out input
 release. Preserve these exact inputs and the superseded version. Do not count
 the visible results as held-out acceptance; the
 [evaluation status](../../../docs/A1_EVALUATION_STATUS.md) records a failed
-challenge safeguard and the pending held-out run.
+challenge safeguard and the completed single held-out run and private scoring.
+No further run or review is pending for that investigation; do not rerun the
+scored holdout or revise its historical results.
 
 The draft has opaque IDs, a fixed shuffled order, and no answers, analyzer tokens,
 category, partition, or performance claims. Give the reviewer the

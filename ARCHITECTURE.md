@@ -314,8 +314,13 @@ A1 is a synchronous, concrete library slice alongside preparation and G0:
   JSON and renders reports/exit codes. No general analysis CLI, learner-store
   integration, async runtime, review framework, or model/provider access is added.
 - `scripts/setup_a1_dictionary.py` is explicit development/CI setup, outside runtime
-  composition. It verifies the publisher ZIP and dictionary and retains notices
-  under ignored target storage. Tests never silently skip or replace the adapter.
+  composition. It verifies the publisher ZIP and all three bundle files, retains
+  complete bundles under ignored target storage, and publishes a `current` symlink
+  atomically after synchronizing the bundle. Post-publication directory-sync errors
+  report uncertain durability. Cache reuse verifies a single resolved bundle;
+  legacy flat files and earlier bundles remain untouched. Offline Python boundary
+  tests exercise setup; Rust tests still require the real pinned adapter at
+  `target/a1/current/system_core.dic` and never silently skip or substitute it.
 
 The [binding sheet](docs/A1_BLIND_PACKET_HEADER.md) defines two bounded patterns
 and their exact limitations. Components cannot authorize a whole word. Object-use

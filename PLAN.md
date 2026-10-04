@@ -1058,6 +1058,54 @@ Private fixtures/reports remain outside Git; scoring alone does not release them
 Any future repair is a new recorded revision, and this scored holdout cannot be
 claimed as unseen evidence for it.
 
+### PR #5 review follow-up — 2026-10-04
+
+Addressed both Greptile findings after the completed A1 checkpoint `f1237d4`:
+partial dictionary/notice publication and a stale instruction to run the already
+scored holdout. PR #6's linked review had no actionable evaluator finding. These
+changes preserve the completed no-go, the 11/12 exact-span discrepancy, the pinned
+analyzer/dictionary, all public synthetic JSON and the frozen evaluation record.
+No scored holdout or visible benchmark was rerun; no private evidence or learner
+data was accessed, and no further linguistic review was started.
+
+The installer now verifies exact size/SHA-256 pins for all three bundle files on
+extraction and reuse. It synchronizes a complete bundle before publishing one
+atomic `current` symlink; existing bundles and legacy flat files remain untouched.
+Pre-publication failures preserve the previous bundle. A failed directory sync
+after publication reports uncertain durability with the complete new bundle
+visible. Tests and examples use `target/a1/current/system_core.dic`; setup remains
+explicit and outside Rust runtime composition. The two notice pins were measured
+from a fresh temporary copy of the already-pinned official archive.
+
+Strict Red–Green–Refactor evidence:
+
+| Cycle | Observed RED | GREEN and refactor review |
+| --- | --- | --- |
+| Corrupt notice reuse | A same-size damaged LEGAL file was retained and reported ready. | Verify every cached file's size/hash; the test passed. Reviewed pins, naming and isolated test configuration; no further abstraction was justified. |
+| Complete bundle publication | An injected final replacement failure left new notices beside the old dictionary. | Publish a complete bundle through one symlink replacement; the test passed, including retention of the old bundle after a successful retry. Reviewed reader lifetime and layout, tightened the fault boundary and retained Python 3.8 compatibility; reran green. |
+| Extracted notice verification | An unexpected notice in an otherwise fixture-pinned archive was accepted. | Share bundle verification before publication and reuse; the test passed. Reviewed duplicate checks and error naming; no further change was justified. |
+| Publication durability | Pre/post-publication sync-failure tests observed no error because no sync occurred. | Sync files/directories and distinguish post-publication uncertainty; both tests passed. Reviewed descriptor closure, ancestor persistence and bundle retention; clarified names/comments and reran green. |
+
+Nine offline Python tests use tiny synthetic ZIPs and real isolated filesystem
+operations, with injected replacement/sync failures at the OS boundary. They also
+cover missing/corrupt notices, valid reuse without an archive, invalid archives,
+legacy file preservation and a real failed rename. They do not simulate power
+loss. CI runs these before installing the real dictionary for Rust adapter tests.
+
+The review/custodian prompt status, protocol status and fixture README now state
+that the single run and scoring are complete. Historical copyable prompt bodies
+are byte-for-byte unchanged; these wrappers do not authorize another review/run.
+
+Local verification on macOS arm64 / Rust 1.98.1 / Python 3.14.8:
+
+- Nine Python installer tests passed; both scripts also parsed with Python 3.8 syntax.
+- Real setup from the exact pinned ZIP and subsequent verified cache reuse passed;
+  the retained legacy dictionary/notices matched the current bundle byte-for-byte.
+- `cargo fmt --check`, `cargo clippy --locked --offline --all-targets --all-features -- -D warnings`,
+  and `cargo test --locked --offline --all` passed: 122 Rust tests plus one rustdoc test.
+- Reviewed the complete diff, including the new Python test file; `git diff --check`
+  passed. Hosted CI results are recorded separately on the PR.
+
 ## A1 follow-up — object-combination safeguard, 2026-10-04
 
 Fetched origin before implementation; it remained at `4931913`. Preserved all

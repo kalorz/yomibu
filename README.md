@@ -188,8 +188,13 @@ and two concrete policy choices.
 ```sh
 # Explicit one-time download of the pinned public dictionary, outside Git:
 python3 scripts/setup_a1_dictionary.py
-cargo run --locked --example a1 -- target/a1/system_core.dic tests/fixtures/a1/smoke.json
+cargo run --locked --example a1 -- target/a1/current/system_core.dic tests/fixtures/a1/smoke.json
 ```
+
+Setup verifies the dictionary and both notices as one bundle, then publishes it
+through an atomic `current` link. Rerun setup for the new layout; older flat files
+stay untouched. Existing complete bundles survive failures before publication;
+errors after publication distinguish uncertain durability.
 
 This runs three original synthetic smoke cases through the real analyzer. Reports
 retain whole words/components, original spans, explicit grammar permissions, and

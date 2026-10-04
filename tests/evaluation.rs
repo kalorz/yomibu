@@ -14,7 +14,7 @@ fn analyzer() -> &'static SudachiAnalyzer {
     static ANALYZER: OnceLock<SudachiAnalyzer> = OnceLock::new();
     ANALYZER.get_or_init(|| {
         SudachiAnalyzer::load(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/system_core.dic"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/current/system_core.dic"),
         )
         .expect("install the pinned Core dictionary using the documented A1 setup")
     })
