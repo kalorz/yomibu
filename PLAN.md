@@ -27,7 +27,8 @@ the G0 section.
 The next offline learner-constraints/retrieval slice was approved on 2026-10-02
 and its implementation and real-learner acceptance are complete as of 2026-10-03.
 The dated acceptance record below supersedes the earlier unverified status.
-Generation remains unimplemented. A1 implementation was explicitly approved on
+Validated generation remains unimplemented; the separately approved G1 experiment
+is recorded below. A1 implementation was explicitly approved on
 2026-10-03 after the protocol-only stage. The bounded synchronous analyzer,
 concrete adapter, and thin synthetic evaluation example are now implemented.
 Engineering verification and the visible evaluation are recorded below;
@@ -75,6 +76,11 @@ dictionary paths, without changing linguistic judgments. Its contract, TDD and
 verification record follow the A1 safeguard section below. A1's historical
 no-analysis-CLI scope does not restrict this new authorization.
 
+The user then approved **G1 — experimental single-sentence candidates** for
+implementation, local testing, documentation and a draft review PR. G1 adds one
+explicit provider attempt and local assessment of both candidates; it does not
+authorize purchases, live calls, accepted exercises or another linguistic review.
+
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
 
@@ -100,6 +106,7 @@ development dependency. Proptest remains deferred.
 | Offline preparation slice | Implementation and real-learner acceptance complete, 2026-10-03 | Local grammar input, revisable knowledge policy, explicit targets, cached lexical evidence | Synchronous CLI/library agreement, explainable decisions, typed failures, unchanged schema-1 source data; private real-learner acceptance completed; linguistic validity unassessed |
 | A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
 | Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
+| G1 — Experimental sentence candidates | Complete for review; live compatibility unverified | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; partial-result preservation; no exercise acceptance |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -108,6 +115,95 @@ added after implementation or postponed to 1c.
 Basic credential protection, timeouts, and safe persistence apply as soon as the
 respective I/O is introduced; 1c completes and exercises the failure paths rather
 than retrofitting unsafe foundations.
+
+## G1 — experimental single-sentence candidates, 2026-10-04
+
+Started `codex/g1-experimental-candidates` from verified current `origin/main`
+`cdb8ef5da04c89798738ac2bafb5c843dcd8fb7d` (PR #7 merge). `git ls-remote` agreed
+with the local remote-tracking reference; the previous checkout was
+`codex/offline-analyze-cli`, not main, and its tracked tree matched the baseline.
+Preserved existing branches, commits and ignored files. All builds use a fresh
+temporary `CARGO_TARGET_DIR`; the existing pinned dictionary is read explicitly.
+The delivery fetch confirmed the same main commit. Repository `fetch.prune=true`
+removed a stale PR #7 remote-tracking reference; restored that reference at the
+verified PR head `3d79aa808a500eb50810f985a2449b936f764b08`. No local branch or
+commit was removed. Subsequent fetches for this work must specify `--no-prune`.
+
+Implemented the approved [G1 contract](SPEC.md#g1--experimental-single-sentence-candidates)
+and [usage/privacy/spending/smoke documentation](docs/G1.md). The concrete adapter
+sends at most one request, disables redirects/proxies/protocol retries, bounds
+request/response bytes and deadlines, and keeps credentials out of error output.
+The model supplies only text, never permissions or judgments. Both texts are
+assessed independently by unchanged pinned Sudachi and evaluation, retaining
+completed results beside execution errors. The existing offline analyze output
+and environment/runtime boundary are preserved through shared presentation helpers.
+
+### TDD and refactor record
+
+| Cycle | Observed RED | GREEN and explicit refactor review |
+| --- | --- | --- |
+| Binding preflight | Focused test did not compile because `EvaluationBindings::validate` was absent | Extracted existing checks without changing order; invalid analysis still precedes binding errors in `evaluate`. Focused rerun passed; reviewed naming/ownership and added no new binding type. |
+| HTTP request foundation | Real local-server contract test did not compile because `adapters::openai` was absent | Concrete one-attempt adapter sends exact explicit data/schema/settings and records the hash of those same bytes. Focused test passed. Reviewed defensive parsing, bounds and secret-safe typed errors; no SDK, model trait or dependency needed. |
+| Independent assessment | Real HTTP-to-Sudachi test did not compile because assessment/error types and `assess` were absent | Fixed pair retains each text, typed errors and full direct-library-equivalent analysis/evaluation. Focused tests passed. Removed unnecessary input accessors; original declarations/bindings remain borrowed. |
+| Real socket deadlines | Deadline test did not compile because a private duration constructor was absent | Factored client construction with unchanged production limits; stalled headers/body, disconnects, short bodies and streamed-size tests passed. Reviewed socket cleanup and attempt counts; no production timeout override added. |
+| CLI opt-in/preflight | Production subprocess rejected the unknown `generate-candidates` command | Required opt-in/paths, strict bounded input and validation order passed executable tests, with no provider request. Reviewed separation of environment/runtime and library behavior. |
+| CLI reports | Test subprocess composition did not compile because the shared entry was absent | Same entry accepts an explicit concrete loopback constructor only from the binary test harness. Real provider/analyzer reports, partial results, safe Japanese/control presentation, status and error tests passed. Extracted only bounded-read/check-rendering/safe-JSON helpers; existing analyze regressions passed. |
+
+Additional acceptance tests cover malformed/count/type/extra-field/refused/incomplete
+responses, additive metadata, optional usage, exact request/response bounds, zero
+requests on preflight failure, redirects and HTTP errors without retry. They extend
+the tested defensive foundation, not separate claimed RED cycles. Direct adapter
+tests compare complete analysis/evaluation values, including empty permissions,
+duplicates, 100/101-scalar boundaries and hostile text. Executable tests retain
+the visible ordinary-object uncertainty at `6..24` and permission Fail spans
+`3..6`, `9..12`, `18..24`. Typed analysis/evaluation error-report cases are explicit
+boundary tests, not claims of inducing those failures in real Sudachi.
+
+Refactor review covered production/test names, ownership, duplication, public APIs
+and Rust idioms after the cycles. Clippy identified a large enum variant; boxing
+the completed Evaluation reduced stack size without changing report contents.
+No additional framework or public configuration type was justified. No tests read
+real credentials, mutate global environment, substitute tokenizers or skip a
+missing pinned dependency. All HTTP services used in verification are local mocks.
+
+### Verification and delivery
+
+Native macOS/arm64, pinned Rust 1.98.1, with a fresh temporary build directory passed:
+
+- `cargo fmt --check`
+- `cargo clippy --locked --offline --all-targets --all-features -- -D warnings`
+- `cargo test --locked --offline --all`: 158 test entries plus two compiled
+  rustdoc examples, all passed, none ignored. This includes all 15 existing
+  analyze CLI regressions, 7 OpenAI integration tests, 2 raw-socket tests,
+  4 production generate CLI tests and 5 binary G1 tests (one subprocess helper).
+- `RUSTDOCFLAGS='-D warnings' cargo doc --locked --offline --no-deps`
+- `git diff --check` and `git diff --exit-code -- Cargo.lock`
+- Diff comparison against `origin/main` confirmed unchanged Cargo manifest/lock,
+  toolchain, analyzer/dictionary/configuration pins, A1 historical documents,
+  frozen public fixtures and research harness.
+
+Local HTTP tests used authorized loopback sockets. Dependencies and linguistic
+analysis stayed offline. No Linux/container or hosted CI result is claimed in
+this local record; the existing workflow will run for the draft PR. Delivery is
+on `codex/g1-experimental-candidates` for draft review against main, without merge.
+
+No live provider call,
+account purchase, billing-setting change, private evidence/learner read, holdout
+rerun, frozen-reference edit, linguistic review or merge is authorized/performed.
+Provider compatibility remains unverified until a separately authorized smoke.
+The [one-call synthetic smoke proposal](docs/G1.md#proposed-live-smoke--requires-separate-authorization)
+uses the dog/cat fixture and a US$0.01 allowance, not a guaranteed provider cap.
+
+A1 remains complete with its historical no-go, 24/24 outcomes, 120/120 judgments
+and 11/12 exact negative reason/span matches. The object-combination safeguard
+and reduced coverage remain intact. Integration success is not repaired evidence.
+
+Rust notes for a Ruby developer: `[String; 2]` makes candidate count part of the
+type after parsing. Borrowed immutable permissions prevent a result from silently
+substituting new rules; assessments borrow their original strings without a
+self-referential object. Enum variants and typed errors distinguish completed
+judgments from failed execution, while `Box<Evaluation>` keeps the result enum
+compact without cloning evidence or creating a second evaluation model.
 
 ## G0 — Manual candidate preview
 
@@ -1885,8 +1981,8 @@ The offline preparation slice and its real-learner acceptance are complete above
 A1 implementation, manual reference review, frozen evaluation and private scoring
 are complete with a no-go for the frozen implementation. The separately authorized
 object-combination follow-up and the separate offline analyze CLI are recorded
-above; they do not authorize generation or a claim of new blind evidence from
-the scored holdout. Remaining implementation
+above; G1 now separately authorizes experimental candidates, not validated
+generation or a claim of new blind evidence from the scored holdout. Remaining implementation
 work requires separate authorization:
 
 1. **Learner constraints and retrieval:** grammar knowledge as learner data,

@@ -48,6 +48,28 @@ pub struct EvaluationBindings {
     pub grammar: Vec<GrammarBinding>,
 }
 
+impl EvaluationBindings {
+    /// Validate explicit permissions without analysis or interpreting descriptions.
+    pub fn validate(&self, grammar: &GrammarDeclarations) -> Result<(), EvaluationError> {
+        if self.vocabulary.iter().any(|word| {
+            [&word.written_form, &word.reading, &word.sense]
+                .iter()
+                .any(|s| s.trim().is_empty())
+        }) {
+            return Err(EvaluationError::BlankVocabulary);
+        }
+        if self.grammar.iter().any(|binding| {
+            !grammar
+                .entries()
+                .iter()
+                .any(|entry| entry.id == binding.declaration_id)
+        }) {
+            return Err(EvaluationError::MissingDeclaration);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum CheckOutcome {
     Pass,
@@ -160,21 +182,7 @@ pub fn evaluate(
     bindings: &EvaluationBindings,
 ) -> Result<Evaluation, EvaluationError> {
     validate_analysis(analysis)?;
-    if bindings.vocabulary.iter().any(|word| {
-        [&word.written_form, &word.reading, &word.sense]
-            .iter()
-            .any(|s| s.trim().is_empty())
-    }) {
-        return Err(EvaluationError::BlankVocabulary);
-    }
-    if bindings.grammar.iter().any(|binding| {
-        !grammar
-            .entries()
-            .iter()
-            .any(|entry| entry.id == binding.declaration_id)
-    }) {
-        return Err(EvaluationError::MissingDeclaration);
-    }
+    bindings.validate(grammar)?;
     let vocabulary = check_vocabulary(analysis, bindings);
     let text = analysis.sentence.text();
     let mut tokens: Vec<_> = analysis.units.iter().map(|unit| &unit.token).collect();

@@ -1,23 +1,17 @@
 //! Executable-only input, composition, and presentation for offline analysis.
 
-use std::{
-    io::{Read, Write},
-    path::Path,
-};
+use std::{io::Write, path::Path};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use yomibu::{
     adapters::sudachi::SudachiAnalyzer,
     analysis::{Sentence, SentenceAnalysis},
-    evaluation::{
-        CheckKind, CheckOutcome, CheckState, Evaluation, EvaluationBindings, UnassessedAspect,
-        evaluate,
-    },
+    evaluation::{CheckState, Evaluation, EvaluationBindings, evaluate},
     grammar::GrammarDeclarations,
 };
 
-const MAX_INPUT_BYTES: usize = 64 * 1024;
+use super::cli_support::{read_input, state_label, write_checks, write_json};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -66,37 +60,8 @@ pub(super) fn run(
     Ok(())
 }
 
-fn write_json(out: &mut impl Write, report: &Report<'_>) -> Result<()> {
-    let json = serde_json::to_string_pretty(report)?;
-    let mut start = 0;
-    // Serde escapes C0 controls. DEL and nonprinting Unicode also need escaping
-    // for terminals; JSON requires UTF-16 escapes, not Rust's \u{...} syntax.
-    for (index, character) in json.char_indices() {
-        if character == '\u{7f}'
-            || (!character.is_ascii() && character.escape_debug().next() == Some('\\'))
-        {
-            out.write_all(&json.as_bytes()[start..index])?;
-            for unit in character.encode_utf16(&mut [0; 2]) {
-                write!(out, "\\u{unit:04x}")?;
-            }
-            start = index + character.len_utf8();
-        }
-    }
-    out.write_all(&json.as_bytes()[start..])?;
-    writeln!(out)?;
-    Ok(())
-}
-
 fn load_input(path: &Path) -> Result<Input> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .context("Cannot open the explicitly supplied analysis input")?
-        .take(MAX_INPUT_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .context("Cannot read the explicitly supplied analysis input")?;
-    if bytes.len() > MAX_INPUT_BYTES {
-        bail!("Analysis input exceeds 64 KiB (65536 bytes).");
-    }
+    let bytes = read_input(path, "Analysis")?;
     let input: Input = serde_json::from_slice(&bytes).context("Invalid analysis input JSON")?;
     if input.version != 1 {
         bail!(
@@ -119,43 +84,5 @@ fn write_text(out: &mut impl Write, report: &Report<'_>) -> std::io::Result<()> 
         out,
         "Spans are half-open UTF-8 byte ranges in the original sentence."
     )?;
-    for (label, kind) in [
-        ("Vocabulary", CheckKind::Vocabulary),
-        ("Inflection", CheckKind::Inflection),
-        ("Particles", CheckKind::Particles),
-        ("Nominal です", CheckKind::Nominal),
-        ("Scope", CheckKind::Scope),
-    ] {
-        let check = report.evaluation.check(kind);
-        writeln!(out, "{label}: {}", state_label(check.state))?;
-        writeln!(out, "  Coverage: {}", check.coverage)?;
-        for finding in &check.findings {
-            writeln!(
-                out,
-                "  bytes {}..{}: \"{}\" — {}",
-                finding.span.start,
-                finding.span.end,
-                original[finding.span.clone()].escape_debug(),
-                finding.reason
-            )?;
-        }
-    }
-    for aspect in report.evaluation.unassessed {
-        let label = match aspect {
-            UnassessedAspect::Naturalness => "Naturalness",
-            UnassessedAspect::MultiwordExpressions => "Multiword expressions",
-            UnassessedAspect::ContextualReadingAndSense => "Contextual reading and sense",
-        };
-        writeln!(out, "{label}: not assessed")?;
-    }
-    Ok(())
-}
-
-fn state_label(state: CheckState) -> &'static str {
-    match state {
-        CheckState::Completed(CheckOutcome::Pass) => "Pass",
-        CheckState::Completed(CheckOutcome::Fail) => "Fail",
-        CheckState::Completed(CheckOutcome::Inconclusive) => "Inconclusive",
-        CheckState::NotRun => "NotRun",
-    }
+    write_checks(out, original, &report.evaluation)
 }
