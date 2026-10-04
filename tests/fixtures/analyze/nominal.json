@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "sentence": "犬です。",
+  "grammar": ["です — manual familiarity"],
+  "bindings": {
+    "vocabulary": [
+      {"written_form": "犬", "reading": "イヌ", "sense": "dog", "direct_object": false}
+    ],
+    "grammar": [{"declaration_id": 1, "rule": "NominalDesu"}]
+  }
+}
