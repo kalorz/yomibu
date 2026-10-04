@@ -69,6 +69,12 @@ The [follow-up record](docs/A1_FOLLOWUP.md) documents the conservative object-us
 restriction and its reduced visible coverage. The scored holdout is not rerun,
 and the completed A1 results and no-go remain unchanged.
 
+On 2026-10-04 the user authorized a separate **offline analyze CLI** milestone.
+It exposes the existing bounded analyzer/evaluator through explicit input and
+dictionary paths, without changing linguistic judgments. Its contract, TDD and
+verification record follow the A1 safeguard section below. A1's historical
+no-analysis-CLI scope does not restrict this new authorization.
+
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
 
@@ -93,6 +99,7 @@ development dependency. Proptest remains deferred.
 | G0 — Manual candidate preview | Complete | Synchronous library operation and `preview` CLI, structured word entries, deterministic selection and independent checks | Direct and CLI calls agree, no storage/network/runtime requirements, explicit assessment limits; all 85 tests and required gates pass on Linux/x86_64 |
 | Offline preparation slice | Implementation and real-learner acceptance complete, 2026-10-03 | Local grammar input, revisable knowledge policy, explicit targets, cached lexical evidence | Synchronous CLI/library agreement, explainable decisions, typed failures, unchanged schema-1 source data; private real-learner acceptance completed; linguistic validity unassessed |
 | A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
+| Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -1140,6 +1147,118 @@ No Linux or hosted CI run is claimed for this revision. Existing live-service an
 linguistic-validation limits remain. Rust note: the object evidence is a pair of
 borrowed tokens; preserving its span requires no token or sentence copy.
 
+## Offline analyze CLI — separate milestone, 2026-10-04
+
+Started after inspecting the clean local `main` and fetching origin. Both were
+`84bc00c6686d1a12257e05e787d62a4a83626533`, containing merged PRs #5 and #6.
+Created `codex/offline-analyze-cli` from current `origin/main`; preserved every
+existing branch, commit and ignored file, including the installed dictionary.
+No reset, stash, clean or dictionary setup/download was needed.
+
+The binary composes `SudachiAnalyzer` and `evaluation::evaluate` synchronously.
+Its version-1 JSON input contains only sentence, free-form declarations and
+existing bindings plus a version. A 64 KiB read bound and the existing 100-scalar
+sentence bound validate external input. Text shows every check, reason and original
+span excerpt; JSON preserves the complete analysis, provenance, input and limitations.
+Completed Pass/Fail/Inconclusive exit zero. Invalid input and execution errors
+produce escaped stderr and no completed evaluation. See SPEC and README for the
+exact contract and runnable original synthetic examples.
+
+The research harness, A1 records and frozen public packets remain unchanged.
+No private evidence or held-out file was opened, no holdout was rerun or tuned
+against, and no new linguistic review, generation or provider integration occurred.
+Historical outcomes remain 24/24, checks 120/120, exact negative reason/spans 11/12,
+and no-go due to three unsupported visible Pass results. The separate safeguard
+retains object-combination uncertainty, including ordinary object sentences,
+alongside existing permission Fail findings and their spans.
+
+### Red–Green–Refactor evidence
+
+| Cycle | Observed RED | GREEN and explicit refactor review |
+| --- | --- | --- |
+| JSON command composition | The subprocess rejected the absent `analyze` command. | Reused the real adapter/evaluator and serialized a borrowed report; direct library values matched exactly. Reviewed ownership, synchronous boundaries and public surface; no new shared API or further refactor justified. Focused rerun passed. |
+| Readable checks and spans | Default output was JSON, missing overall/check lines and quoted original excerpts; hostile-input text test also failed. | Added text presentation of all five checks, coverage, findings and limitations, with `escape_debug` on supplied text. Pass/Fail/Inconclusive and control-character tests passed. Reviewed state mapping, span invariants, naming and duplication; no further change justified. Focused rerun passed. |
+| Input boundary and diagnostics | Unsupported versions and unknown fields succeeded; missing-field causes were hidden; oversized input lacked the size error. | Reject unsupported versions/unknown fields, expose escaped context chains and bound reads to 65,537 bytes before parsing. Refactor extracted the cohesive private loader and split the test matrix into focused cases sharing error/preservation assertions. Both modes passed again, including exact-limit decoding. |
+| Terminal-safe JSON and arguments | JSON emitted raw C1 controls; Clap emitted raw ESC from an unexpected argument. | Escape remaining nonprinting Unicode using JSON UTF-16 escapes, retaining decoded data; sanitize argument errors while preserving help/version success and argument-error exit 2. Reviewed escaping scope, surrogate pairs, string boundaries and ownership; kept serialization in Serde with no new formatter type or dependency. Focused rerun passed. |
+| JSON DEL boundary | Refactor review added a regression that exposed raw ASCII DEL in JSON. | Include DEL in the escaped output without changing decoded strings. Reviewed string slicing and allocation; Clippy prompted byte-slice writes instead of slicing strings before conversion. No further change justified. Focused controls tests and the full suite passed. |
+
+The remaining acceptance coverage exercised already-composed behavior without
+production changes: missing/unpinned dictionaries, malformed bindings, empty
+permissions, object uncertainty together with three permission-failure spans,
+100-scalar/64-KiB boundaries, missing HOME/credentials, and poisoned ambient learner
+and analyzer files. Refactor review retained the shared real analyzer for direct
+calls and isolated subprocess environments, with no mock or new test-only adapter.
+
+### Verification and delivery
+
+Executed on native macOS/arm64 with the pinned Rust 1.98.1:
+
+- `cargo fmt --check` — passed.
+- `cargo clippy --locked --offline --all-targets --all-features -- -D warnings` —
+  passed after the byte-slice refactor above.
+- `cargo test --locked --offline --all` — **137 test entries plus one rustdoc**,
+  zero failures or ignored tests. The full run had permission for local loopback
+  HTTP mocks; dependencies and analysis stayed offline.
+- All 13 `analyze_cli` tests passed with the real pinned dictionary. CLI JSON
+  equals direct library analysis/evaluation, including provenance, all checks,
+  original text and byte spans. Text and JSON preserve the object safeguard and
+  existing permission failures. Error paths publish no evaluation.
+- The three exact README analyze commands passed: nominal Pass, unlisted-word
+  Fail with original `0..3` excerpt, and object Inconclusive with `6..24` span.
+  Existing preview and prepare CLI/library examples, synthetic status and the
+  unchanged A1 three-case smoke harness also passed. Temporary preparation/status
+  input bytes and directory inventories stayed unchanged.
+- Help and version succeeded under `env -i`. Markdown fences/final newlines,
+  49 local links across five changed/new Markdown files, three new JSON fixture
+  envelopes, and `git diff --check` passed.
+- Reviewed all source, tests, fixtures and documentation for synchronous data flow,
+  ownership, public surface, escaping and scope. The library, dependency/toolchain
+  pins, all A1 records/frozen packets and the synthetic harness match origin/main.
+  Only code, tests, original public synthetic fixtures and documentation belong
+  in the delivery commits; no dictionary, learner state or build output is staged.
+
+This revision is delivered on `codex/offline-analyze-cli` for review against main;
+it is not a merge authorization. No Linux or hosted CI result is claimed in this
+local verification record. No private evidence, scored holdout, learner cache,
+credentials or external service was used. Tests never skip or substitute the
+real adapter. Contract fixtures have separate CC0 provenance and supply no new
+linguistic accuracy evidence. Naturalness, MWE and contextual reading/sense remain
+unassessed; the historical A1 no-go and exact-span discrepancy stand.
+
+Rust notes for a Ruby developer: the binary-private `Report<'a>` borrows input
+while owning analysis/evaluation results, avoiding copies of the input graph.
+Existing enum states serialize without collapsing uncertainty into a boolean;
+`Result` carries execution errors separately. Ordinary synchronous composition
+needs no service object, trait registry or async runtime.
+
+### PR #7 review follow-up — argument diagnostics, 2026-10-04
+
+Greptile's summary and inline comment report the same valid readability issue:
+escaping the entire Clap error turns diagnostic newlines into literal `\n`.
+The regression first failed on the missing real newline before `Usage:`. Escaping
+the invalid argument/value/subcommand contexts before Clap formats the error made
+it green, retaining escaped hostile input, stderr-only output and exit 2. Explicit
+refactor review found no justified production change; the focused rerun passed.
+
+Review then checked the executable name, which Clap also inserts into usage. A
+separate Unix `argv[0]` regression failed with raw hostile content in usage; the
+fixed `yomibu` binary name made it green. Refactor review reused the error assertion's
+decoded string instead of decoding stderr again. Focused reruns passed, including
+invalid subcommands, numeric values, policy values, missing-argument indentation
+and normal help. The helper consumes the concrete Clap error without cloning it;
+no parser, evaluator, dependency or public library API was added.
+
+Verification passed on native macOS/arm64 with the pinned toolchain:
+`cargo fmt --check`,
+`cargo clippy --locked --offline --all-targets --all-features -- -D warnings`,
+and `cargo test --locked --offline --all` (139 test entries plus one rustdoc;
+zero failures or ignored tests). The suite used the real pinned dictionary and
+isolated loopback HTTP mocks. Manual `analyze` missing-arguments, `analyze --help`
+and `--version` checks under an empty environment confirmed readable layout,
+correct streams and exit statuses. Full follow-up diff review and
+`git diff --check` passed. A1 records, fixtures and evaluator judgments remain
+unchanged. No Linux or hosted CI result is claimed for this follow-up.
+
 ## Completed milestone records
 
 ### 1a — Offline status
@@ -1765,8 +1884,9 @@ package; the completed 1a checks are recorded above.
 The offline preparation slice and its real-learner acceptance are complete above.
 A1 implementation, manual reference review, frozen evaluation and private scoring
 are complete with a no-go for the frozen implementation. The separately authorized
-object-combination follow-up is recorded above; it does not authorize generation
-or a claim of new blind evidence from the scored holdout. Remaining implementation
+object-combination follow-up and the separate offline analyze CLI are recorded
+above; they do not authorize generation or a claim of new blind evidence from
+the scored holdout. Remaining implementation
 work requires separate authorization:
 
 1. **Learner constraints and retrieval:** grammar knowledge as learner data,
