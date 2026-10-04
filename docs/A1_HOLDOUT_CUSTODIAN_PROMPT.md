@@ -1,10 +1,10 @@
 # Private holdout custodian handoff
 
-Historical preparation handoff. On 2026-10-04 the separate Claude Fable
-conversation reported the current 24-case set reviewed, reconciled and frozen.
-Its preparation instructions below are preserved; the next step is exact input
-release for the frozen offline run in [evaluation status](A1_EVALUATION_STATUS.md).
-Do not start another holdout set for this run.
+Historical preparation handoff. The frozen 24-case input was released, run once,
+and privately scored on 2026-10-04. A1 is complete with a no-go, as recorded in
+[evaluation status](A1_EVALUATION_STATUS.md). Do not release or run this input again,
+start another holdout set for this investigation, or repeat the completed reviews.
+The preparation instructions below are retained as history, not a current task.
 
 Use this only in a **separate conversation that is not implementing Yomibu**.
 It may be model-assisted; its claims remain provisional. The user keeps its
