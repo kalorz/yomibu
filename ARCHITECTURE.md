@@ -1,6 +1,6 @@
 # Yomibu architecture
 
-Accepted direction as of 2026-10-02. `SPEC.md` defines product requirements and
+Accepted direction as of 2026-10-03. `SPEC.md` defines product requirements and
 invariants; this document defines responsibilities, composition, and code
 boundaries; `PLAN.md` records delivery and verification. Future examples here
 describe intended contracts, not implemented features or authorization to build
@@ -295,6 +295,56 @@ matches are errors before eligibility is considered. Input order and duplicates
 survive selection; source examples remain ordered and unfiltered. Private helpers
 validate target fields and match one source record. There is no new storage port,
 policy trait, generator, or checker abstraction.
+
+## A1 evaluation boundary (complete; no-go)
+
+A1 is a synchronous, concrete library slice alongside preparation and G0:
+
+- `analysis.rs` owns the bounded borrowed sentence and morphological evidence
+  shapes. Whole units and components retain original UTF-8 byte spans.
+- `adapters/sudachi.rs` explicitly loads exact verified dictionary bytes and uses
+  `adapters/sudachi.json` as embedded configuration. No ambient config, user/dynamic
+  plugins, normalization, fallback tokenizer, or implicit download. Owned bytes
+  avoid checksum/mmap file races; real adapter tests remain mandatory.
+- `evaluation.rs` validates input structure and applies exact synthetic vocabulary
+  tuples plus seven explicit grammar bindings. It preserves arbitrary declaration
+  content and IDs. Five checks report Pass/Fail/Inconclusive; typed input/execution
+  errors remain outside those judgments, and NotRun is a distinct state.
+- `examples/a1.rs` composes the real adapter and evaluator with explicit synthetic
+  JSON and renders reports/exit codes. No general analysis CLI, learner-store
+  integration, async runtime, review framework, or model/provider access is added.
+- `scripts/setup_a1_dictionary.py` is explicit development/CI setup, outside runtime
+  composition. It verifies the publisher ZIP and dictionary and retains notices
+  under ignored target storage. Tests never silently skip or replace the adapter.
+
+The [binding sheet](docs/A1_BLIND_PACKET_HEADER.md) defines two bounded patterns
+and their exact limitations. Components cannot authorize a whole word. Object-use
+metadata remains associated with a lexical identity and needs external source
+evidence. Dictionary hypotheses and model opinions are not contextual truth.
+Every evaluation exposes naturalness, MWE, and reading/sense limitations; a
+structural Pass is never an accepted exercise.
+Scope is an independent structural coverage/applicability check, not a copy of
+permission outcomes; the [reference clarification](docs/A1_SCOPE_CLARIFICATION.md)
+records that boundary without changing runtime composition.
+
+Reference review remains a manual evidence process outside runtime. The
+[protocol](docs/A1_REFERENCE_PROTOCOL.md), [packet](docs/A1_REVIEW_PACKET.md), and
+[external prompt](docs/A1_EXTERNAL_REVIEW_PROMPT.md) keep source coverage,
+provisional judgments, analyzer performance, and run integrity separate. The
+visible synthetic set has provisional source-backed references and has been
+evaluated after the separate custodian's holdout reference freeze. Its challenge
+safeguard failed; the [evaluation record](docs/A1_EVALUATION_STATUS.md) keeps that
+finding separate from held-out core accuracy. The implementation was frozen
+before input release and used unchanged for one offline held-out run; complete
+output is preserved. The separate private scoring receipt reports all held-out
+core targets met, with one exact-span discrepancy retained. The failed challenge
+safeguard makes the completed investigation a no-go; this does not add generation
+or acceptance logic to runtime. Neither blind reference labels nor private learner
+material belong in analyzer composition, Git, or this implementer's early context.
+Versioned public synthetic drafts contain only runtime inputs. Private revision
+logs preserve exclusions, family lineage, references and disagreements; changing
+a draft does not change the analyzer or erase exposure for holdout separation.
+G0, preparation, source/store boundaries, sync/status, and schema 1 are preserved.
 
 ## Stores, source data, and consistency
 

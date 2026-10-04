@@ -1,0 +1,14 @@
+{
+  "inputTextPlugin": [],
+  "oovProviderPlugin": [
+    {
+      "class": "com.worksap.nlp.sudachi.SimpleOovPlugin",
+      "oovPOS": ["補助記号", "一般", "*", "*", "*", "*"],
+      "leftId": 0,
+      "rightId": 0,
+      "cost": 30000
+    }
+  ],
+  "pathRewritePlugin": [],
+  "connectionCostPlugin": []
+}
