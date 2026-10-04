@@ -4,7 +4,8 @@ Yomibu is an unofficial WaniKani tool for personalized Japanese reading practice
 starting with a Rust CLI. Milestone 1 is complete through 1d: resilient full
 synchronization, offline inspection of learner observations, and macOS/Linux CI.
 The library composes sync/status through `App` with file or in-memory storage.
-Manual candidate preview and offline learner-context preparation are available.
+Manual candidate preview, offline learner-context preparation, and a bounded
+offline `analyze` command are available.
 Japanese generation and validated reading exercises remain deferred.
 
 Offline preparation implementation and real-learner acceptance are complete as
@@ -183,7 +184,91 @@ with `GrammarDeclarations::from_descriptions` or use the explicit file adapter.
 without requiring targets. No new trait is needed for this one lexical source
 and two concrete policy choices.
 
-## Bounded offline analysis (A1)
+## Analyze one supplied sentence offline
+
+```sh
+# Explicit setup only if the pinned dictionary is not already installed:
+python3 scripts/setup_a1_dictionary.py
+
+# Completed Pass, Fail, and Inconclusive respectively (all exit zero):
+cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/nominal.json
+cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/unlisted.json
+cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/object.json --json
+```
+
+`--offline` controls Cargo's dependency access; omit it for an initial build if
+dependencies are not cached. The `analyze` command itself always operates offline.
+Setup is a separate explicit download, never performed by analysis.
+
+Supply your own UTF-8 JSON file with this small version-1 shape:
+
+```json
+{
+  "version": 1,
+  "sentence": "犬です。",
+  "grammar": ["です — manual familiarity"],
+  "bindings": {
+    "vocabulary": [
+      {"written_form": "犬", "reading": "イヌ", "sense": "dog", "direct_object": false}
+    ],
+    "grammar": [{"declaration_id": 1, "rule": "NominalDesu"}]
+  }
+}
+```
+
+All fields are required; unknown fields are errors. The document is limited to
+64 KiB (65,536 bytes) and the nonblank sentence to 100 Unicode scalar values.
+Text is retained without trimming or normalization. Empty vocabulary, grammar
+declarations or grammar bindings are valid and grant no corresponding permissions.
+Declarations keep their order and duplicates; `declaration_id` is their one-based
+position. Free-form descriptions never enable grammar automatically. Ordinary
+inputs require no research-packet reuse metadata, case IDs, or reference labels.
+
+Use exact dictionary-style **katakana** readings and nonblank sense labels in
+whole vocabulary tuples. These are explicit user declarations, not verified facts.
+`direct_object: true` asserts transitive-use evidence for that tuple; it cannot
+establish that an object/predicate combination is compositional. False supplies
+no such evidence. The existing explicit grammar rule names are:
+
+| Rule | Bounded use |
+| --- | --- |
+| `NominalDesu` | Nominal です |
+| `TopicWa` | Scoped nominal topic は |
+| `ObjectWo` | Scoped direct object を; combination remains unresolved |
+| `PoliteNonPast` | Regular godan/ichidan ます |
+| `PolitePast` | Regular godan/ichidan ました |
+| `PoliteNegativeNonPast` | Regular godan/ichidan ません |
+| `PoliteNegativePast` | Regular godan/ichidan ませんでした |
+
+Text output names all five checks, their coverage and reasons. Findings identify
+the original affected text without color, for example
+`bytes 0..3: "犬" — whole word is not permitted`. Ranges are half-open UTF-8 **byte**
+offsets in the original sentence, not character positions in the escaped display.
+Untrusted text is escaped. `--json` returns `version`, the exact decoded `input`,
+full `analysis` (C/A tokens, spans and pinned provenance), `outcome`, and
+`evaluation` (all checks, reasons, spans and assessment limitations).
+Completed outcomes use `{"Completed":"Pass"}`, `{"Completed":"Fail"}`, or
+`{"Completed":"Inconclusive"}` and all exit successfully. Input/execution errors
+exit nonzero, print an escaped diagnostic to stderr and publish no evaluation on
+stdout, including with `--json`.
+
+The dictionary path is mandatory. Missing or unpinned dictionaries fail explicitly.
+Analysis reads only the supplied input and dictionary files; it needs no HOME,
+credentials or learner state, ignores `--data-dir`, and performs no writes, sync,
+network calls, automatic downloads or telemetry. Naturalness, multiword expressions,
+and contextual reading/sense remain unassessed. Object sentences remain Inconclusive
+even with transitive word evidence, unless an established permission failure makes
+the outcome Fail; its reason/span remains visible beside the uncertainty.
+A Pass is never an accepted exercise.
+
+This is a separate CLI milestone exposing unchanged library judgments. The
+[synthetic contract fixtures](tests/fixtures/analyze/README.md) and tests are
+engineering evidence, not a new linguistic evaluation or a repaired A1 score.
+Direct Rust callers continue to compose `SudachiAnalyzer::load`,
+`Sentence::new`, `analyzer.analyze`, and `evaluation::evaluate` with explicit
+`GrammarDeclarations` and `EvaluationBindings`; no CLI or store is required.
+
+## Bounded offline analysis investigation (A1; historical no-go)
 
 ```sh
 # Explicit one-time download of the pinned public dictionary, outside Git:
