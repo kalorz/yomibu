@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "grammar": [
+    "は — topic marker",
+    "〜ました — polite past",
+    "〜ませんでした — polite negative past"
+  ],
+  "bindings": {
+    "vocabulary": [
+      {"written_form": "犬", "reading": "イヌ", "sense": "dog", "direct_object": false},
+      {"written_form": "猫", "reading": "ネコ", "sense": "cat", "direct_object": false},
+      {"written_form": "走る", "reading": "ハシル", "sense": "run", "direct_object": false},
+      {"written_form": "寝る", "reading": "ネル", "sense": "sleep", "direct_object": false}
+    ],
+    "grammar": [
+      {"declaration_id": 1, "rule": "TopicWa"},
+      {"declaration_id": 2, "rule": "PolitePast"},
+      {"declaration_id": 3, "rule": "PoliteNegativePast"}
+    ]
+  }
+}

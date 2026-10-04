@@ -29,6 +29,35 @@ fn word(written_form: &str, reading: &str, sense: &str) -> VocabularyEntry {
     }
 }
 
+#[test]
+fn bindings_can_be_validated_before_analysis_without_changing_error_precedence() {
+    use yomibu::evaluation::EvaluationError;
+    let grammar = GrammarDeclarations::from_descriptions(["description"]).unwrap();
+    let mut bindings = EvaluationBindings::default();
+    assert!(bindings.validate(&grammar).is_ok());
+    bindings.grammar.push(GrammarBinding {
+        declaration_id: 2,
+        rule: GrammarRule::NominalDesu,
+    });
+    assert!(matches!(
+        bindings.validate(&grammar),
+        Err(EvaluationError::MissingDeclaration)
+    ));
+    bindings.vocabulary.push(word("猫", " ", "cat"));
+    assert!(matches!(
+        bindings.validate(&grammar),
+        Err(EvaluationError::BlankVocabulary)
+    ));
+    let mut analysis = analyzer()
+        .analyze(Sentence::new("猫です。").unwrap())
+        .unwrap();
+    analysis.units.clear();
+    assert!(matches!(
+        evaluate(&analysis, &grammar, &bindings),
+        Err(EvaluationError::InvalidAnalysis)
+    ));
+}
+
 #[derive(serde::Deserialize)]
 struct VisibleCase {
     id: String,

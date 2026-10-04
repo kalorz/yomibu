@@ -5,8 +5,8 @@ starting with a Rust CLI. Milestone 1 is complete through 1d: resilient full
 synchronization, offline inspection of learner observations, and macOS/Linux CI.
 The library composes sync/status through `App` with file or in-memory storage.
 Manual candidate preview, offline learner-context preparation, and a bounded
-offline `analyze` command are available.
-Japanese generation and validated reading exercises remain deferred.
+offline `analyze` command are available. G1 adds explicitly requested experimental
+sentence candidates with local checks; validated reading exercises remain deferred.
 
 Offline preparation implementation and real-learner acceptance are complete as
 of 2026-10-03; eligibility is not mastery and linguistic validity is unassessed.
@@ -191,14 +191,18 @@ and two concrete policy choices.
 python3 scripts/setup_a1_dictionary.py
 
 # Completed Pass, Fail, and Inconclusive respectively (all exit zero):
-cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/nominal.json
-cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/unlisted.json
-cargo run --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/object.json --json
+cargo run --release --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/nominal.json
+cargo run --release --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/unlisted.json
+cargo run --release --locked --offline -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/object.json --json
 ```
 
 `--offline` controls Cargo's dependency access; omit it for an initial build if
 dependencies are not cached. The `analyze` command itself always operates offline.
 Setup is a separate explicit download, never performed by analysis.
+
+Use `--release` for interactive use: each invocation reads, verifies and
+initializes the roughly 217 MB dictionary, which is much slower in a development
+build. The first optimized compilation takes longer; unchanged builds are reused.
 
 Supply your own UTF-8 JSON file with this small version-1 shape:
 
@@ -270,6 +274,27 @@ Direct Rust callers continue to compose `SudachiAnalyzer::load`,
 `Sentence::new`, `analyzer.analyze`, and `evaluation::evaluate` with explicit
 `GrammarDeclarations` and `EvaluationBindings`; no CLI or store is required.
 
+## Request two experimental sentence candidates (G1)
+
+`generate-candidates --allow-model-call --dictionary PATH --input PATH [--json]`
+makes one paid OpenAI GPT-6 Luna attempt using the supplied permissions and grammar,
+then assesses both returned texts locally. The input is the analyze envelope above
+without `sentence`; the [original dog/cat fixture](tests/fixtures/generation/dog-cat.json)
+could yield 犬です。/猫です。 (“It's a dog/cat”). No candidate becomes an accepted
+exercise, and uncertainty and independent permission failures remain visible.
+
+Every invocation requires opt-in, explicit paths and `OPENAI_API_KEY`. Data sent,
+retention, costs, complete input/output/exit contracts, direct-library use and the
+separately authorized live smoke are documented in [G1 usage](docs/G1.md).
+Estimated request cost at the documented prices is under US$0.01, without a
+guaranteed dollar ceiling. Account funding (reserve US$5 plus tax when needed)
+is separate. No purchases or live test are authorized by implementation approval.
+All automated provider tests use local HTTP mocks and the real pinned analyzer.
+The existing `analyze` command remains fully offline.
+
+The documented generation command also uses `--release` to reduce local dictionary
+startup time. Waiting for the provider is additional.
+
 ## Bounded offline analysis investigation (A1; historical no-go)
 
 ```sh
@@ -321,7 +346,7 @@ the preserved historical evaluation.
 
 The [design vocabulary](SPEC.md#design-vocabulary-and-composition) distinguishes
 implemented knowledge/preparation types from future components such as
-`ExerciseGenerator`. Generation, multi-source learners, SQL, and Cloud remain
+`ExerciseGenerator`. Validated generation, multi-source learners, SQL, and Cloud remain
 future work; [ARCHITECTURE.md](ARCHITECTURE.md) records their intended composition.
 
 Real A1 adapter tests require the pinned dictionary. Run the setup command above

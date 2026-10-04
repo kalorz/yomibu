@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "grammar": ["です — nominal copula"],
+  "bindings": {
+    "vocabulary": [
+      {"written_form": "犬", "reading": "イヌ", "sense": "dog", "direct_object": false},
+      {"written_form": "猫", "reading": "ネコ", "sense": "cat", "direct_object": false}
+    ],
+    "grammar": [{"declaration_id": 1, "rule": "NominalDesu"}]
+  }
+}
