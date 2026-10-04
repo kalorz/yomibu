@@ -9,6 +9,11 @@ single held-out run, private scoring receipt and preserved span discrepancy.
 Contract tests and smoke results remain engineering evidence; they do not
 establish independent Japanese ground truth.
 
+The separate [object-combination follow-up](A1_FOLLOWUP.md) starts at local
+checkpoint `f1237d4`. Current code is a later revision; the completed A1 results
+above still describe the frozen implementation. No held-out rerun or rescore is
+part of the follow-up.
+
 ## Run the offline example
 
 From the repository root, with Python 3.8+ for the one-time setup:
@@ -111,15 +116,19 @@ typed execution/input errors. Unsupported constructions make grammar applicabili
 Inconclusive. Supported permission failures remain Fail with a reason/span even
 when other checks are unresolved. All findings are retained.
 
-**Known limitation:** a literal-looking idiom or unlisted contextual ambiguity
-can still receive Pass from these bounded structural checks. Every report lists
-multiword expressions, contextual reading/sense, and naturalness as unassessed.
-The pattern guard also cannot discover every semantic/discourse/register use
-that shares a supported surface shape; Scope is a structural coverage check.
-There is no general MWE detector or contextual validator. Such a Pass must not
-be promoted to an accepted exercise; an unsupported challenge Pass blocks the
-reference protocol's go decision. Do not tune ad hoc phrase bans to make the
-challenge score look better.
+**Current coverage restriction:** the separately recorded follow-up keeps
+object/predicate combinations unresolved even with transitive-use evidence.
+Particles and Scope are Inconclusive when permissions are present; existing
+permission failures remain Fail with their spans and the combination limitation
+alongside them. This includes ordinary object sentences. The finding covers the
+object through the predicate, without a preceding topic or final 。.
+
+The frozen A1 implementation did pass three literal-looking multiword challenges;
+that historical safeguard failure is unchanged. Current code adds no MWE detector
+or contextual validator. Other semantic/discourse/register alternatives can still
+share a supported surface shape. Every report retains multiword expressions,
+contextual reading/sense, and naturalness as unassessed. Structural checks do not
+establish an accepted exercise or justify a new go decision.
 
 ## Reference history and current evaluation
 
