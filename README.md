@@ -405,8 +405,10 @@ owned by the analyzer. Development/release profiles, dependency features and
 all coverage are unchanged. Explicit refactor review found no source/test change
 justified. On Linux/x86_64, two prebuilt `analyze_cli` runs fell from
 72.80/72.20s to 5.96/5.90s; full-suite execution fell from 202.31s to 28.93s.
-Fresh prebuilds took 81.07s/81.51s. These are observations, not timing gates or
-a macOS guarantee; [PLAN.md](PLAN.md#sha-256-test-profile-optimization--2026-10-05)
+Fresh prebuilds took 81.07s/81.51s. Hosted macOS test execution fell from
+266.03s to 55.69s, while test compilation rose from 16.87s to 27.80s.
+These are observations, not timing gates or a macOS guarantee;
+[PLAN.md](PLAN.md#sha-256-test-profile-optimization--2026-10-05)
 records the method and hosted platform evidence. To separate compilation from
 execution, prebuild with `cargo test --locked --all --no-run`, then run
 `cargo test --locked --test analyze_cli` twice and `cargo test --locked --all`.

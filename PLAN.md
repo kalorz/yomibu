@@ -226,6 +226,53 @@ builds still compile/link unoptimized sha2 (the original artifact metadata),
 without `-C opt-level=3`. No release settings were added or changed. Full diff
 review confirmed only Cargo.toml and developer/evidence documentation changed.
 
+### Hosted CI and draft delivery
+
+Committed/pushed `7eba14c42de06e52c6ee7f2ce87e4ab7d70f6cc9` and opened
+[draft PR #11](https://github.com/kalorz/yomibu/pull/11).
+[CI run 37328750596](https://github.com/kalorz/yomibu/actions/runs/37328750596)
+passed **every gate on Linux/x86_64 and macOS/arm64**. Both checkout logs confirm
+that exact pushed head in tested merge `356df10` with base `fce266e`.
+Each passed 195 Rust tests (including two doctests; none failed/ignored), nine
+installer tests, real pinned dictionary setup, all synthetic demonstrations,
+formatting, strict Clippy/rustdoc, whitespace and unchanged-lockfile checks.
+Both logs include the real dictionary mismatch and comparison-manifest regressions.
+
+Inspected two earlier unoptimized PR #10 runs, retaining both:
+[37293738878](https://github.com/kalorz/yomibu/actions/runs/37293738878) at
+`98e3df9` and [37296324473](https://github.com/kalorz/yomibu/actions/runs/37296324473)
+at `9da9f0a`. The former matches the reported approximately 7m19s macOS /
+3m51s Linux jobs. The latter is a faster macOS baseline before this change.
+All three runs used the same Ubuntu 24.04 and macOS 26 arm64 image versions and
+Rust 1.98.1. Earlier runs restored exact cache matches; changed jobs restored
+the previous dependency cache via fallback (`full match: false`), with no caching
+configuration change.
+
+| Run / OS (seconds) | Dictionary setup | Test compilation | Summed test execution | analyze_cli | Test step | Job wall |
+| --- | --- | --- | --- | --- | --- | --- |
+| Earlier baseline / Linux | 5.67 | 17.48 | 167.63 | 63.71 | 185.83 | 230.90 |
+| Earlier baseline / macOS | 5.10 | 23.58 | 353.32 | 153.05 | 380.38 | 438.53 |
+| Later baseline / Linux | 5.15 | 17.56 | 167.62 | 64.49 | 185.95 | 228.34 |
+| Later baseline / macOS | 4.48 | 16.87 | 266.03 | 111.90 | 285.48 | 332.79 |
+| Changed 7eba14c / Linux | 6.58 | 11.85 | 19.71 | 3.04 | 32.18 | 88.19 |
+| Changed 7eba14c / macOS | 4.93 | 27.80 | 55.69 | 18.74 | 88.48 | 177.02 |
+
+Compilation comes from Cargo's Finished-test summary; execution sums libtest
+durations. Step/job wall times use log boundaries, excluding queueing. Dictionary
+setup includes the nine installer tests. Doctest compilation and process/Cargo
+overhead remain in the test step, outside the summed execution column.
+
+Observed macOS execution fell about 79% relative to the later baseline (about
+84% relative to the earlier one), while test compilation **increased 10.93s**.
+Its job fell from about 5m33s to 2m57s. Linux execution fell about 88%; its
+Clippy step rose from 3.60s to 22.33s with fallback cache reuse, despite faster
+test compilation. Setup remained a small part of both jobs. This is evidence of
+an observed macOS CI improvement, separately from the controlled local Linux
+comparison. Hosted machines/load were not controlled: the two macOS baselines
+already differ substantially. No fixed runtime or compilation improvement is
+promised. Ordinary development-profile demonstrations still pay their unchanged
+dictionary startup cost. Final documentation-head CI is recorded on the PR.
+
 Rust note for a Ruby developer: Cargo profiles select compiler settings, not
 dependency versions. A package override optimizes that crate's hashing while
 keeping application debugging and runtime ownership intact. A test-built CLI
