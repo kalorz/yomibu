@@ -700,21 +700,49 @@ pinned analyzer; performance measurements and deferred ideas follow below. These
 follow-ups change documentation and synthetic input only. No agent provider call
 or credential access was needed.
 
-### Optimization ideas — deferred, 2026-10-04
+### Product direction after G2 — reconciled 2026-10-05
 
-Local macOS offline analysis: debug **10.2s**, release **0.8s** (three-run
-medians; identical reports; compilation/API time excluded). Separate release
-measurement: **~256 MB peak process memory**.
+The primary outcome is **"WOW! I CAN READ JAPANESE!!"** through meaningful,
+comprehensible reading. Prefer reliable offline preparation, generation,
+validation and narrowly defined repair; AI is one bounded component.
+
+G2 already delivers focused context selection, optional offline request preview
+and one-command experimental generation. The G1.1 interactive REPL plan remains
+abandoned; a REPL or daemon/client-server architecture is not the current priority.
+The vocabulary-boundary follow-up and managed dictionary loading are implemented.
+
+The remaining planning gap is connecting existing offline learner preparation
+to focused generation through an inspectable plan with explicit permissions and
+unsupported mappings. Ground reading representation, absent kana-only readings,
+reading/sense association and sense-specific direct-object evidence; source
+eligibility, glosses, parts of speech and examples cannot establish these mappings.
+Start with personalized sentences; coherent short readings remain the destination.
+This is a planning recommendation, not implementation approval or a claim of
+validated generation. G1/G2 generation, evaluation and acceptance boundaries
+remain unchanged.
+
+### Optimization follow-up — 2026-10-05
+
+Original 2026-10-04 local macOS offline analysis: debug **10.2s**, release **0.8s**
+(three-run medians; identical reports; compilation/API time excluded). Separate
+release measurement: **~256 MB peak process memory**.
 
 - **Now:** use `--release`.
-- **Next candidate:** explicit interactive session; reuse the 217 MB dictionary
-  across requests, retaining RAM until exit and explicit opt-in for each model call.
-- **Later:** memory mapping could avoid the private copy; preserve verification
-  and file-change safety. Full checksum verification still scans the whole file.
+- **Abandoned for now:** G1.1 interactive session. Future long-lived services may
+  reuse the analyzer when that architecture is needed for the product.
+- **Implemented:** managed dictionary mapping, merged in PR #12. Explicit import
+  fully verifies the installation; managed startup checks and file-stability
+  obligations follow [the dictionary contract](docs/DICTIONARY.md). Explicit
+  external dictionaries still receive full checksum verification into owned bytes.
+  The delivery record below contains the Linux release measurements and limits.
+- **Implemented:** SHA-256 test-profile optimization, merged in PR #11, with
+  Linux/macOS verification recorded above. Ordinary development and release
+  profiles are unchanged.
 - **Avoid SQL conversion/pruning:** no demonstrated benefit; removing entries
   can change analysis.
 
-Ideas only, not implementation approval. Preserve linguistic pins and A1 history.
+Other optimization ideas remain deferred, without implementation approval.
+Preserve linguistic pins and A1 history.
 
 ## G0 — Manual candidate preview
 

@@ -154,6 +154,13 @@ transactions before awaiting the model. New source data affects later requests.
 
 ## Generation structure and extension boundaries
 
+Prioritize the learner's reading experience. Reuse deterministic offline
+preparation, constrained candidate construction, checks and narrowly defined
+repair where their behavior is supported. Model calls are explicit bounded
+contributions; neither offline construction nor a model assertion establishes
+linguistic validity. These are future composition choices, not new G1/G2 behavior
+or a requirement to introduce generator abstractions now.
+
 The following is the target responsibility model, not G0's implementation list:
 
 ```text
