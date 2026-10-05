@@ -294,6 +294,48 @@ A1 records remain unchanged. Final-head CI verification is recorded in draft
 PR #9 after this follow-up is pushed. No live OpenAI/WaniKani call, purchase,
 private evidence access, holdout rerun or merge occurred.
 
+### Focus report review follow-up — 2026-10-05
+
+Following the user's request to fix Greptile's reporting concern, amended G2's
+aggregate-status contract. Unrelated OOV/unsupported morphology now leaves a
+compatible focus `observed`; the separate `FocusCompleteness` enum reports
+`complete`, `partial` or `not_run`. Focus-specific uncertainty still takes
+precedence, and unknown lexical evidence cannot establish `absent` when no
+occurrence was observed. Counts, spans, uncertainty reasons, evaluator judgments,
+request behavior and contextual reading/sense limitations are preserved.
+
+Observed RED: the unrelated-OOV regression returned `unassessable` instead of
+`observed`; completeness assertions found a missing JSON field. GREEN: separated
+focus-specific uncertainty from overall completeness, and all six lexical
+boundary tests passed. A separate text-rendering RED showed the missing
+completeness line while retaining escaped Japanese readings and original spans;
+adding the line made all four focused presentation/boundary tests pass.
+
+Refactor review covered precedence, uncertain absence, component ambiguity,
+ownership, duplicate state and terminal rendering. Extracted the focus renderer
+into one private function and used `concat!` for readable exact-layout assertions.
+Reran the focused tests; no further production abstraction was justified. Added
+real pinned-Sudachi cases for unrelated OOV/unsupported morphology and uncertain
+absence, plus executable JSON/text coverage with loopback HTTP, unchanged exit
+behavior, Japanese readability, hostile controls and exactly one request.
+
+Verification in this older cloud instance used pinned Rust 1.98.1 and
+`/tmp/yomibu-g2-target.NZ8mQx`. Formatting, strict locked all-target/all-feature
+Clippy, strict rustdoc, nine offline dictionary-setup tests, diff whitespace and
+lockfile/pin/evaluator preservation checks passed. The full locked offline Rust
+suite was run with `--no-fail-fast`: 160 tests passed and 34 failed at the missing
+dictionary prerequisite across eight targets, with none ignored (excluding the
+nested failing child-process result printed by the Sudachi test). This instance
+still reports the original restricted configuration without the publisher host;
+the successful setup in the separate fresh session above remains historical
+evidence, not a local pass for this fix. Real-adapter and executable verification
+for the pushed fix is recorded in PR #9's Linux/macOS CI results.
+
+Rust note for a Ruby developer: a serialized enum makes completeness an explicit
+finite state instead of asking callers to infer it from status strings. The
+renderer borrows the existing report; observation remains synchronous and never
+feeds back into evaluation or another provider request.
+
 ## G1 — experimental single-sentence candidates, 2026-10-04
 
 Started `codex/g1-experimental-candidates` from verified current `origin/main`

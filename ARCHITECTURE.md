@@ -469,6 +469,11 @@ real pinned Sudachi and the complete input permissions. Separate functions in
 `generation` observe focus occurrence and whole-unit context membership; no new
 evaluator check or acceptance gate exists. Only the existing reading/stem helpers
 become crate-visible; judgments, spans and object safeguards are unchanged.
+`FocusOccurrenceReport` separates focus status from lexical observation
+completeness. Unrelated OOV/unsupported evidence makes completeness partial while
+preserving observed focus; focus-specific uncertainty and uncertain absence stay
+explicit. JSON and text expose both dimensions without feeding either back into
+evaluation or provider requests.
 
 The binary-private `focused` module owns bounded file reads, input storage,
 credential lookup, runtime, preflight order and rendering for `context-preview`

@@ -629,7 +629,11 @@ implementation approval, and the estimated sub-US$0.01 attempt is not a cost cap
 
 Separate observational reports retain whole-word/stem occurrences, component-only
 ambiguity, OOV/unsupported evidence and context departures, without changing
-permission Fail judgments/spans or triggering retries. Contextual reading/sense,
+permission Fail judgments/spans or triggering retries. Focus status remains
+`observed` beside unrelated lexical uncertainty; a separate completeness field
+reports `complete`, `partial` or `not_run`. Focus-specific uncertainty retains
+precedence, and unresolved lexical evidence cannot establish absence when no
+occurrence was observed. Contextual reading/sense,
 naturalness, situation quality and comprehension remain unverified. Preserve
 A1's no-go, 24/24 outcomes, 120/120 judgments, 11/12 exact negative reason/span
 matches, frozen records and the object-combination safeguard.
