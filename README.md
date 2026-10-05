@@ -6,7 +6,8 @@ synchronization, offline inspection of learner observations, and macOS/Linux CI.
 The library composes sync/status through `App` with file or in-memory storage.
 Manual candidate preview, offline learner-context preparation, and a bounded
 offline `analyze` command are available. G1 adds explicitly requested experimental
-sentence candidates with local checks; validated reading exercises remain deferred.
+sentence candidates with local checks. G2 adds focused selection and optional offline
+request preview; validated reading exercises remain deferred.
 
 Offline preparation implementation and real-learner acceptance are complete as
 of 2026-10-03; eligibility is not mastery and linguistic validity is unassessed.
@@ -294,6 +295,34 @@ The existing `analyze` command remains fully offline.
 
 The documented generation command also uses `--release` to reduce local dictionary
 startup time. Waiting for the provider is additional.
+
+## Focused experimental candidates (G2)
+
+With explicit permissions, choose 寝る and generate in one command:
+
+```sh
+yomibu generate-focused --permissions /tmp/g2-permissions.json --focus-entry 1 \
+  --dictionary /path/to/pinned/system_core.dic --allow-model-call --json
+```
+
+The [synthetic example permissions](tests/fixtures/focused/pet-rest.json) select
+寝る and 猫 from a larger allowed inventory. All original permissions are used
+for local evaluation; only selected vocabulary and all supplied grammar are sent.
+The situation associations are original suggestions, not verified linguistic facts.
+
+Optional inspection needs no dictionary, API key or network:
+
+```sh
+yomibu context-preview --permissions /tmp/g2-permissions.json --focus-entry 1
+```
+
+There is no preview import, required confirmation or retained session. Generation
+reports the actual context, both candidates, unchanged checks and separate lexical
+focus/context evidence. Naturalness and contextual reading/sense are unverified.
+A missing focus does not trigger another request. Estimated attempt cost is below
+US$0.01, not a guaranteed billing ceiling. See [G2](docs/G2.md) for exact input,
+selection, output, privacy, cost and evidence contracts. Implementation testing
+uses loopback mocks, never an implicitly authorized live model call.
 
 ## Bounded offline analysis investigation (A1; historical no-go)
 

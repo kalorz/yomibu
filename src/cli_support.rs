@@ -8,6 +8,15 @@ use std::{
 use yomibu::evaluation::{CheckKind, CheckOutcome, CheckState, Evaluation, UnassessedAspect};
 
 pub(super) fn read_input(path: &Path, kind: &str) -> Result<Vec<u8>> {
+    read_input_bounded(path, kind, 65536, "64 KiB (65536 bytes)")
+}
+
+pub(super) fn read_input_bounded(
+    path: &Path,
+    kind: &str,
+    limit: usize,
+    limit_label: &str,
+) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)
         .with_context(|| {
@@ -16,7 +25,7 @@ pub(super) fn read_input(path: &Path, kind: &str) -> Result<Vec<u8>> {
                 kind.to_ascii_lowercase()
             )
         })?
-        .take(65537)
+        .take(limit as u64 + 1)
         .read_to_end(&mut bytes)
         .with_context(|| {
             format!(
@@ -24,8 +33,8 @@ pub(super) fn read_input(path: &Path, kind: &str) -> Result<Vec<u8>> {
                 kind.to_ascii_lowercase()
             )
         })?;
-    if bytes.len() > 65536 {
-        bail!("{kind} input exceeds 64 KiB (65536 bytes).");
+    if bytes.len() > limit {
+        bail!("{kind} input exceeds {limit_label}.");
     }
     Ok(bytes)
 }

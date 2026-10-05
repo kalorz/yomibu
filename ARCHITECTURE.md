@@ -12,7 +12,8 @@ The completed migration covers the existing WaniKani `sync` and offline `status`
 use cases, an application entry point, and interchangeable file and in-memory
 stores. Offline preparation adds explicit grammar-file input, on-demand knowledge
 policy, and cached lexical retrieval. G1 adds one explicit experimental provider
-request and independent bounded assessment, described below. Validated generation, grammar database persistence,
+request and independent bounded assessment; G2 adds focused offline selection
+and optional request preview, described below. Validated generation, grammar database persistence,
 multi-source learner management, PostgreSQL, Cloud HTTP endpoints, and additional
 provider integrations follow later.
 Keep one Cargo package with a library and a thin CLI binary.
@@ -444,6 +445,43 @@ G1 never selects accepted exercises. A1's historical no-go, 24/24 outcomes,
 remain unchanged. The later validated-generation architecture elsewhere in this
 document remains deferred. See [SPEC](SPEC.md#g1--experimental-single-sentence-candidates)
 for contracts and [G1 usage](docs/G1.md) for privacy, spending and the separate smoke.
+
+## G2 focused context composition
+
+The [G2 contract](docs/G2.md) keeps source progress, full evaluator permissions,
+lexical focus and selected generation context separate. Comfortable reading and
+comprehension are later learner-feedback goals; a REPL is not this delivery.
+`App`, stores, source adapters, knowledge policy and preparation are unchanged.
+
+`generation_context::select_context` synchronously validates full inventory bounds
+and bindings, resolves a checked one-based `VocabularyEntryId`, examines the three
+private compiled situations, explains every decision and independently validates
+produced membership/focus/slots/order/size. `GenerationContext<'a>` holds selected
+references and borrows immutable original permissions/declarations. Conflicting
+same-spelling tuples never resolve through entry number or situation priority.
+
+`openai::prepare_focused_request` performs no I/O: it consumes that context and
+owns one bounded serialized body and hash in `FocusedRequest<'a>`, retaining full
+borrowed evaluation inputs. `Client::generate_focused_candidates` sends precisely
+those bytes through the same G1 transport/parser, adding local selection provenance.
+`GeneratedCandidates::assess` is unchanged and evaluates both original texts with
+real pinned Sudachi and the complete input permissions. Separate functions in
+`generation` observe focus occurrence and whole-unit context membership; no new
+evaluator check or acceptance gate exists. Only the existing reading/stem helpers
+become crate-visible; judgments, spans and object safeguards are unchanged.
+
+The binary-private `focused` module owns bounded file reads, input storage,
+credential lookup, runtime, preflight order and rendering for `context-preview`
+and `generate-focused`. Preview reaches no dictionary, credential or client.
+Generation has no import, retained session or interactive confirmation and ignores
+`--data-dir`. Shared rendering preserves G1 reporting; a parameterized read helper
+keeps the older 64 KiB boundaries. No new dependency, trait, catalogue loader,
+ranking/retrieval framework, automatic data bridge or source access is introduced.
+
+Frozen A1 records remain untouched: no-go, 24/24 outcomes, 120/120 judgments,
+11/12 exact negative reason/span matches. Observed morphological focus does not
+validate contextual reading/sense. Intended-use grounding and all later validated
+practice requirements remain deferred, including ambiguous accepted targets.
 
 ## Stores, source data, and consistency
 

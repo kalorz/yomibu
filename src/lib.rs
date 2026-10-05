@@ -61,6 +61,7 @@ pub use app::App;
 pub mod domain;
 pub mod evaluation;
 pub mod generation;
+pub mod generation_context;
 pub mod grammar;
 pub mod knowledge;
 pub mod ports;

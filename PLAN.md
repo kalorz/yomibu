@@ -81,6 +81,10 @@ implementation, local testing, documentation and a draft review PR. G1 adds one
 explicit provider attempt and local assessment of both candidates; it does not
 authorize purchases, live calls, accepted exercises or another linguistic review.
 
+On 2026-10-05, G2 adds focused offline selection, optional request preview and
+one-command experimental generation. Implementation is prepared for draft review;
+real analyzer verification in the cloud is blocked on the dictionary prerequisite.
+
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
 
@@ -107,6 +111,7 @@ development dependency. Proptest remains deferred.
 | A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
 | Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
 | G1 — Experimental sentence candidates | Complete for review; user-run live smoke passed | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; user-supplied dog/cat smoke report; partial-result preservation; no exercise acceptance |
+| G2 — Focused experimental context | Implemented for draft review; real-dictionary verification pending | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Offline/loopback tests and static gates pass; local full suite explicitly fails on missing pinned dictionary; no live call or linguistic acceptance |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -115,6 +120,106 @@ added after implementation or postponed to 1c.
 Basic credential protection, timeouts, and safe persistence apply as soon as the
 respective I/O is introduced; 1c completes and exercises the failure paths rather
 than retrofitting unsafe foundations.
+
+## G2 — focused experimental context, 2026-10-05
+
+Implemented the [G2 contract](docs/G2.md) on `codex/g2-focused-context`, created
+from freshly fetched `origin/main` at `9e74618f17cd74ea7e0dd35d6ee5914a2cb436d1`
+without pruning, resetting, cleaning or stashing. The cloud checkout was clean;
+the planning snapshot's pending Mac documentation patch was absent. The user
+explicitly authorized reconstructing its reading-goal/abandoned-REPL amendments
+from the pasted plan. No claim is made to have copied the unavailable Mac patch
+byte-for-byte. Existing ignored artifacts and all frozen A1 records were preserved.
+
+Normal use is one `generate-focused` command with per-invocation model opt-in;
+`context-preview` is optional and genuinely offline. Deterministic selection is
+separate from permissions. One immutable bounded request retains borrowed full
+inputs for independent real analysis/evaluation, and focus/context observations
+never rewrite evaluator findings. Comfortable, enjoyable reading and comprehension
+remain goals for later voluntary learner feedback, not properties proved here.
+No REPL, preview import, retained session, automated data bridge, new dependency,
+live model call, private evidence access, holdout rerun, purchase or merge occurred.
+
+### Observed Red–Green–Refactor evidence
+
+1. Input bounds/checked focus test initially failed with unresolved
+   `generation_context` import. Implemented full-inventory bounds and positive
+   one-based identity; the focused tests passed. Reviewed validation order,
+   ownership and naming; no further refactor was justified at that increment.
+2. Pet-rest test failed on missing selection/report operations. Implemented exact
+   focus-first selection, borrowed membership and exclusion reasons; all three
+   initial tests passed. Independently corrupted produced selections to verify
+   rejection of membership/focus/slot/order/size errors. Reviewed modelling; kept
+   construction private and references borrowed rather than cloning permissions.
+3. Remaining-situation/ambiguity tests failed with one decision instead of three
+   and cat selected despite a competing sense. Added the fixed situations,
+   alternatives and ambiguity rules. Six selector tests passed. Refactor review
+   grouped same-spelling entries once to avoid quadratic duplicate comparisons;
+   kept the three original definitions private without a selector framework.
+4. Request tests failed on missing `prepare_focused_request`. Implemented pure
+   selected-only preparation preserving every grammar description/binding. Tests
+   passed for exact/one-over request limits, escaping expansion, and a 6,000-entry
+   inventory larger than 64 KiB with an unchanged bounded request. Refactored the
+   fixed G1 body construction into one shared helper; rechecked G1 wire contracts.
+5. Adapter tests failed on missing `generate_focused_candidates`. Shared the
+   existing transport/parser and retained original evaluation inputs. Two focused
+   loopback tests passed. Default sandbox loopback binding was denied; reran with
+   explicit network capability. Refactor review kept one transport/parser and
+   local optional provenance, without an additional abstraction. Raw-socket G2
+   deadline/truncation/chunk-bound coverage subsequently passed as well.
+6. Focus/context report tests failed on missing observation functions. Implemented
+   enum states, whole-unit/stem spans, component ambiguity, precedence and separate
+   full-inventory membership. Four explicitly labelled structural/report-boundary
+   tests passed. Reviewed POS indexing and slicing: structurally validate before
+   reporting; only existing reading/stem helper visibility changed in evaluation.
+   Real pinned-analyzer integration tests are present but remain unverified in
+   this cloud run because the dictionary prerequisite is unavailable (below).
+7. Executable preview test failed with `unrecognized subcommand context-preview`.
+   Implemented both commands, bounded input and text/JSON reports. Four executable
+   tests passed, including exact file size, malformed input, hostile controls,
+   Japanese readability, streams/exits/help, cleared environments and poisoned
+   ambient files. Refactored shared G1 provenance/candidate rendering, preserving
+   its text shape; binary boundary tests passed for preview/client isolation,
+   output failures and surviving valid analysis after a typed evaluation error.
+8. Full-scope review caught generation text expanding every unselected label. A
+   regression test failed because the private unselected sentinel was printed;
+   generation now groups exclusion IDs/reasons, while preview expands labels for
+   inspection. The regression and all three focused binary boundary tests passed.
+   Reviewed selection, request immutability, error precedence, escaping, borrowing,
+   naming and duplication again; no further change was justified. The canonical
+   request is recorded as 1,882 bytes with SHA-256
+   `81415d76fb7f43ba4cc435bc7d98afbe29abdff6cd33d7104b62ad14c63cb503`.
+
+### Verification and explicit prerequisite failure
+
+Used pinned Rust 1.98.1 and a fresh temporary build directory
+`/tmp/yomibu-g2-target.NZ8mQx`, retaining the existing ignored build artifacts.
+The user explicitly authorized documented dictionary setup in this cloud after
+confirming the Mac path was unavailable. `python3 scripts/setup_a1_dictionary.py`
+failed at the network boundary with `Tunnel connection failed: 403 Forbidden`:
+the environment allowlist omits `sudachi.s3.ap-northeast-1.amazonaws.com`.
+The network restriction was reported and an allowlist update requested. No
+alternate dictionary, simulated analyzer, implicit download or skipped test
+substituted for this prerequisite.
+
+Executed `cargo fmt --check`, locked all-target/all-feature Clippy with warnings
+denied, locked rustdoc with warnings denied, `git diff --check` and lockfile
+preservation checks. These passed. Selector/request/observation/preview tests,
+concrete loopback adapter tests and real raw-socket tests passed.
+`cargo test --locked --all` failed at dictionary-dependent binary tests; a
+subsequent `--no-fail-fast` run completed the remaining targets to expose all
+prerequisite failures. Eight targets failed (33 tests) on the absent dictionary:
+the binary, analyze CLI, evaluation, focused generation, G1 CLI, OpenAI integration,
+Sudachi and A1 example. These failures are not waived or counted as green.
+MacOS checks were not run locally. Engineering acceptance remains pending real
+pinned-dictionary verification; a draft review is not a claim of completion.
+
+Reviewed unchanged Cargo dependencies/lockfile, toolchain and analyzer/dictionary/
+configuration pins, `App`, stores, knowledge policy and preparation. Evaluator
+changes are only `pub(crate)` visibility for reading/stem helpers. Preserve A1's
+historical no-go, 24/24 outcomes, 120/120 judgments, 11/12 exact negative reason/span
+matches and the object-combination safeguard. New tests are engineering evidence,
+not revised A1 results or validated Japanese.
 
 ## G1 — experimental single-sentence candidates, 2026-10-04
 

@@ -204,7 +204,24 @@ impl<'a> CandidateReport<'a> {
 
 fn write_text(out: &mut impl Write, report: &Report<'_>) -> std::io::Result<()> {
     writeln!(out, "{}", report.notice)?;
-    let provenance = report.generation;
+    write_provenance(out, report.generation)?;
+    for (index, description) in report.input.grammar.iter().enumerate() {
+        writeln!(out, "Grammar {}: {}", index + 1, description.escape_debug())?;
+    }
+    writeln!(
+        out,
+        "Spans are half-open UTF-8 byte ranges in the original candidate."
+    )?;
+    for candidate in &report.candidates {
+        write_candidate(out, candidate)?;
+    }
+    Ok(())
+}
+
+pub(super) fn write_provenance(
+    out: &mut impl Write,
+    provenance: &GenerationProvenance,
+) -> std::io::Result<()> {
     writeln!(out, "Provider: {}", provenance.provider)?;
     writeln!(out, "Requested model: {}", provenance.requested_model)?;
     writeln!(
@@ -254,62 +271,60 @@ fn write_text(out: &mut impl Write, report: &Report<'_>) -> std::io::Result<()> 
         )?,
         None => writeln!(out, "Provider-reported tokens: not reported")?,
     }
-    for (index, description) in report.input.grammar.iter().enumerate() {
-        writeln!(out, "Grammar {}: {}", index + 1, description.escape_debug())?;
-    }
+    Ok(())
+}
+
+pub(super) fn write_candidate(
+    out: &mut impl Write,
+    candidate: &CandidateReport<'_>,
+) -> std::io::Result<()> {
     writeln!(
         out,
-        "Spans are half-open UTF-8 byte ranges in the original candidate."
+        "Candidate {}: \"{}\"",
+        candidate.index,
+        candidate.text.escape_debug()
     )?;
-    for candidate in &report.candidates {
+    if let Some(analysis) = candidate.analysis {
+        let provenance = &analysis.provenance;
+        writeln!(out, "Analyzer revision: {}", provenance.analyzer_revision)?;
+        writeln!(out, "Dictionary: {}", provenance.dictionary_version)?;
+        writeln!(out, "Dictionary SHA-256: {}", provenance.dictionary_sha256)?;
         writeln!(
             out,
-            "Candidate {}: \"{}\"",
-            candidate.index,
-            candidate.text.escape_debug()
+            "Configuration SHA-256: {}",
+            provenance.configuration_sha256
         )?;
-        if let Some(analysis) = candidate.analysis {
-            let provenance = &analysis.provenance;
-            writeln!(out, "Analyzer revision: {}", provenance.analyzer_revision)?;
-            writeln!(out, "Dictionary: {}", provenance.dictionary_version)?;
-            writeln!(out, "Dictionary SHA-256: {}", provenance.dictionary_sha256)?;
+    }
+    match &candidate.assessment {
+        AssessmentReport::Completed {
+            outcome,
+            evaluation,
+        } => {
             writeln!(
                 out,
-                "Configuration SHA-256: {}",
-                provenance.configuration_sha256
+                "Overall: {} (completed)",
+                super::cli_support::state_label(*outcome)
             )?;
+            super::cli_support::write_checks(out, candidate.text, evaluation)?;
         }
-        match &candidate.assessment {
-            AssessmentReport::Completed {
-                outcome,
-                evaluation,
-            } => {
-                writeln!(
-                    out,
-                    "Overall: {} (completed)",
-                    super::cli_support::state_label(*outcome)
-                )?;
-                super::cli_support::write_checks(out, candidate.text, evaluation)?;
+        AssessmentReport::ExecutionError {
+            stage,
+            code,
+            message,
+            checks,
+        } => {
+            writeln!(
+                out,
+                "Execution error ({stage}/{code}): {}",
+                message.escape_debug()
+            )?;
+            for check in checks {
+                writeln!(out, "{:?}: NotRun", check.kind)?;
             }
-            AssessmentReport::ExecutionError {
-                stage,
-                code,
-                message,
-                checks,
-            } => {
-                writeln!(
-                    out,
-                    "Execution error ({stage}/{code}): {}",
-                    message.escape_debug()
-                )?;
-                for check in checks {
-                    writeln!(out, "{:?}: NotRun", check.kind)?;
-                }
-                writeln!(
-                    out,
-                    "Naturalness: not assessed\nMultiword expressions: not assessed\nContextual reading and sense: not assessed"
-                )?;
-            }
+            writeln!(
+                out,
+                "Naturalness: not assessed\nMultiword expressions: not assessed\nContextual reading and sense: not assessed"
+            )?;
         }
     }
     Ok(())
