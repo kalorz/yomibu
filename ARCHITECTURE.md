@@ -462,7 +462,13 @@ same-spelling tuples never resolve through entry number or situation priority.
 
 `openai::prepare_focused_request` performs no I/O: it consumes that context and
 owns one bounded serialized body and hash in `FocusedRequest<'a>`, retaining full
-borrowed evaluation inputs. `Client::generate_focused_candidates` sends precisely
+borrowed evaluation inputs. The compiled `g2-focused-sentence-v2` prompt makes
+selected entries the content-word boundary, with optional supports and grammar
+licensed separately through explicit bindings. This restriction does not replace
+the evaluator inputs. G1 keeps `g1-sentence-v1`. The developer-only
+[v1/v2 comparison recipe](docs/G2_COMPARISON.md) uses isolated pinned checkouts
+and existing CLI reports; no runtime prompt switch or benchmark abstraction exists.
+`Client::generate_focused_candidates` sends precisely
 those bytes through the same G1 transport/parser, adding local selection provenance.
 `GeneratedCandidates::assess` is unchanged and evaluates both original texts with
 real pinned Sudachi and the complete input permissions. Separate functions in

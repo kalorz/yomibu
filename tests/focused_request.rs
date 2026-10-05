@@ -158,19 +158,20 @@ fn exact_outbound_byte_limit_and_escaping_expansion_are_checked_without_truncati
 }
 
 #[test]
-fn canonical_example_matches_recorded_exact_bytes_and_hash() {
+fn canonical_v2_request_enforces_selected_lexical_boundary_and_matches_exact_bytes() {
     let (grammar, permissions) = input();
     let request = prepare_focused_request(
         select_context(&grammar, &permissions, VocabularyEntryId::new(1).unwrap()).unwrap(),
     )
     .unwrap();
+    assert_eq!(request.prompt_revision(), "g2-focused-sentence-v2");
     assert_eq!(
         request.body_utf8().as_bytes(),
         include_bytes!("fixtures/focused/pet-rest-request.json")
     );
-    assert_eq!(request.bytes(), 1882);
+    assert_eq!(request.bytes(), 2312);
     assert_eq!(
         request.sha256(),
-        "81415d76fb7f43ba4cc435bc7d98afbe29abdff6cd33d7104b62ad14c63cb503"
+        "a3cbfc09ec6cb2b1264737a0ba97e90367644e91b151a0689f6276d2c4b43422"
     );
 }

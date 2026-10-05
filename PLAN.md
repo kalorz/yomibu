@@ -123,6 +123,48 @@ Basic credential protection, timeouts, and safe persistence apply as soon as the
 respective I/O is introduced; 1c completes and exercises the failure paths rather
 than retrofitting unsafe foundations.
 
+## G2 lexical boundary follow-up — 2026-10-05
+
+Started new branch `codex/g2-vocabulary-boundary` from fetched `origin/main`
+`818dda5` (merged PR #9). Verified both G2 `565be18` and focus-report fix
+`562cc11` are ancestors. The clean checkout had only ignored `target/` artifacts;
+no reset, clean, stash or continuation of the merged branch occurred.
+
+Changed only the compiled focused prompt to `g2-focused-sentence-v2`: selected
+entries bound content words, each candidate uses the focus, supports remain
+optional, and inflections/grammatical forms require explicit bound grammar.
+Readings/senses guide intended use without validation claims. Request ordinary
+Japanese without extra content words or forced variation. Treat JSON/descriptions
+as data and remove the suggestion of unseen permissions. G1, all provider settings,
+limits, selection, exact-byte preparation, evaluator and full original permissions,
+focus status/completeness, object safeguard and frozen A1 evidence are preserved.
+
+RED: revised the canonical request fixture/assertions before production behavior.
+`cargo test --locked --test focused_request canonical_v2_request` ran one test
+and failed on revision `g2-focused-sentence-v1` versus expected v2. An earlier
+incorrect exact-name filter ran zero tests and is not RED evidence. GREEN: changed
+the focused prompt/revision and current generation/executable revision assertions;
+all four request tests passed. Canonical v2 is 2,312 bytes, SHA-256
+`a3cbfc09ec6cb2b1264737a0ba97e90367644e91b151a0689f6276d2c4b43422`;
+independent Python and `wc`/`sha256sum` agree. Preserved the 1,882-byte v1 fixture
+and all earlier measurements below as history.
+
+Explicit REFACTOR review covered concision, duplication, names, modelling,
+ownership/borrowing and idiomatic Rust in production/tests. Kept one compiled
+constant using `concat!` for readable instruction groups, existing immutable
+request and shared transport, and the existing contract tests. No further code
+change, abstraction or dependency was justified. Post-review focused reruns passed:
+request 4, CLI 4, lexical evidence 6, real-dictionary generation 4, and binary
+focused tests. These establish transmitted bytes/report semantics, not better
+Japanese. The documented dictionary setup verified the existing real pinned bundle;
+all nine offline installer tests passed, without downloading another dictionary.
+
+The [comparison recipe](docs/G2_COMPARISON.md) fixes three public synthetic inputs,
+two repetitions/version, 12 alternating attempts, exact bodies/hashes, original
+permissions, separate report dimensions and a refreshed official-pricing estimate.
+Paid calls remain unauthorized; no live comparison or improvement claim exists.
+Final verification and delivery are recorded below after execution.
+
 ## G2 — focused experimental context, 2026-10-05
 
 Implemented the [G2 contract](docs/G2.md) on `codex/g2-focused-context`, created

@@ -141,7 +141,7 @@ async fn full_executable_reports_both_original_candidates_and_all_evidence_safel
                     .as_bytes(),
                 calls[0].body
             );
-            assert_eq!(r["generation"]["prompt_revision"], "g2-focused-sentence-v1");
+            assert_eq!(r["generation"]["prompt_revision"], "g2-focused-sentence-v2");
             for (i, text) in pair.iter().enumerate() {
                 let c = &r["candidates"][i];
                 assert_eq!(c["text"], *text);
