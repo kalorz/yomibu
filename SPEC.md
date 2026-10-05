@@ -6,7 +6,7 @@ architecture migration authorized on 2026-10-01, followed by the generation
 design and Cloud handoff on the same date, and bounded A1 evaluation scope
 accepted on 2026-10-03, with A1 implementation subsequently approved that day,
 and a separate offline analysis CLI and G1 experimental candidates authorized on
-2026-10-04. Changes must
+2026-10-04, and G2 focused experimental context on 2026-10-05. Changes must
 be reflected here, in [ARCHITECTURE.md](ARCHITECTURE.md), and in `PLAN.md`.
 Future capabilities described below are direction, not authorization to implement
 them in milestone 1.
@@ -575,6 +575,76 @@ validation. Do not reopen private evidence, rerun holdout or alter frozen refere
 Repair/retries/fallbacks, naturalness judges, stories, quizzes, new grammar, idiom
 detection and automatic data access remain excluded. Later validated generation
 requires separately authorized evidence, acceptance rules and review/repair scope.
+
+## G2 — focused experimental context, 2026-10-05
+
+G2 adds deterministic offline context selection and optional inspection before a
+single-command experimental generation attempt. [G2's complete contract](docs/G2.md)
+defines the exact situation table, input/output schemas, limits, evidence and
+privacy boundaries. It is an experimental exception, not completed validated
+practice. Existing G0, preparation, analyze, G1 and later acceptance requirements
+remain in force.
+
+> G2 uses an explicitly supplied lexical tuple as guidance and reports
+> morphological occurrence evidence. It does not validate contextual reading or
+> sense, support accepted ambiguous target uses, or produce accepted exercises.
+> Grounded intended-use assessment remains required for later validated practice.
+
+Keep four distinct concepts: source progress records observations; full explicit
+permissions authorize evaluator vocabulary/grammar; lexical focus identifies one
+supplied tuple to guide generation; generation context is a selected subset plus
+situation guidance. Eligibility, source examples, component-kanji familiarity and
+similarity do not create permissions. Evaluate using the original full vocabulary
+and grammar, never the selected subset.
+
+`generate-focused --permissions PATH --focus-entry N --dictionary PATH
+--allow-model-call [--json]` selects once, prepares immutable bounded bytes, loads
+the pinned analyzer, resolves the existing credential, makes one attempt and
+assesses both original candidates. `context-preview --permissions PATH
+--focus-entry N [--json]` is optional and entirely offline. A preview neither
+reserves nor authorizes a later request. There is no preview import, required
+handoff, confirmation loop, REPL or retained session. Both ignore `--data-dir`.
+
+Use the three private compiled original suggestions `pet-rest`, `pet-walk`,
+`book-reading` in fixed order with exact tuples and bound rule prerequisites.
+Validate the full inventory before selecting at most three distinct tuples. Keep
+an explicit duplicate focus instance; conflicts in any same-spelling full-inventory
+tuple make that association ambiguous. Report all feasibility decisions and
+ordered exclusion reasons. Feasibility means only declared prerequisites exist.
+
+G2 limits the permission file to 4,194,304 bytes, vocabulary to 10,000 entries,
+form/reading to 256 bytes each, senses and grammar descriptions to 1,024 bytes,
+declarations to 128, bindings to 512, and the complete request to 16,384 bytes.
+All grammar descriptions/bindings are retained verbatim, including IDs, order and
+duplicates. Library callers share field/count limits. Oversized requests fail
+without truncation or reselection. G1/analyze keep their existing 64 KiB file bound.
+
+Send only selected complete tuples, subset focus index 1, authored situation,
+all grammar and fixed G1 provider/schema settings. The prompt revision is
+`g2-focused-sentence-v1`; the selector revision is `g2-situations-v1`. Local
+inventory/exclusion numbers and full vocabulary stay local. Preview constructs
+no analyzer, credential, client or runtime; generation's request preflight occurs
+before dictionary/credential initialization. No live call is authorized by
+implementation approval, and the estimated sub-US$0.01 attempt is not a cost cap.
+
+Separate observational reports retain whole-word/stem occurrences, component-only
+ambiguity, OOV/unsupported evidence and context departures, without changing
+permission Fail judgments/spans or triggering retries. Focus status remains
+`observed` beside unrelated lexical uncertainty; a separate completeness field
+reports `complete`, `partial` or `not_run`. Focus-specific uncertainty retains
+precedence, and unresolved lexical evidence cannot establish absence when no
+occurrence was observed. Contextual reading/sense,
+naturalness, situation quality and comprehension remain unverified. Preserve
+A1's no-go, 24/24 outcomes, 120/120 judgments, 11/12 exact negative reason/span
+matches, frozen records and the object-combination safeguard.
+
+Comfortable, enjoyable reading with comprehension remains the product goal, to
+be evaluated through separately authorized learner feedback rather than inferred
+from prompt size or a validator score. The earlier REPL priority is abandoned;
+G2 delivers one-command use with optional preview. The future learner bridge must
+explicitly ground reading representation, absent kana-only readings, reading/sense
+association and sense-specific direct-object evidence. It cannot infer them from
+source eligibility or gloss/POS/examples.
 
 ## Design vocabulary and composition
 
