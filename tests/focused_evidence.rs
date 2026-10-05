@@ -48,6 +48,7 @@ fn analysis<'a>(text: &'a str, tokens: Vec<Token>) -> SentenceAnalysis<'a> {
             dictionary_version: "synthetic-boundary",
             dictionary_sha256: "synthetic-boundary",
             configuration_sha256: "synthetic-boundary".into(),
+            dictionary_loading: None,
         },
     }
 }

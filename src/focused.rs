@@ -3,10 +3,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{io::Write, path::Path};
 use yomibu::{
-    adapters::{
-        openai::{Client, FocusedRequest, ProviderError, prepare_focused_request},
-        sudachi::SudachiAnalyzer,
-    },
+    adapters::openai::{Client, FocusedRequest, ProviderError, prepare_focused_request},
     evaluation::{EvaluationBindings, GrammarBinding, VocabularyEntry},
     generation::{
         CandidateAssessment, ContextUsageReport, FocusOccurrenceReport, GenerationProvenance,
@@ -31,7 +28,7 @@ struct Input {
 pub(super) fn run(
     path: &Path,
     focus: usize,
-    dictionary: Option<&Path>,
+    dictionary: Option<&super::dictionary::DictionaryArgs>,
     json: bool,
     make_client: impl FnOnce(&str) -> Result<Client, ProviderError>,
     out: &mut impl Write,
@@ -65,7 +62,7 @@ pub(super) fn run(
     let Some(dictionary) = dictionary else {
         return write_preview(out, &context_report, json);
     };
-    let analyzer = SudachiAnalyzer::load(dictionary).context("Dictionary initialization")?;
+    let analyzer = dictionary.load().context("Dictionary initialization")?;
     let key = std::env::var("OPENAI_API_KEY")
         .ok()
         .filter(|key| !key.trim().is_empty())
@@ -539,7 +536,10 @@ mod tests {
                 run(
                     &path,
                     1,
-                    Some(Path::new("missing.dic")),
+                    Some(&crate::dictionary::DictionaryArgs {
+                        dictionary: Some("missing.dic".into()),
+                        dictionary_dir: None,
+                    }),
                     true,
                     |_| panic!("preflight must not construct a client"),
                     &mut Vec::new()
@@ -589,6 +589,7 @@ mod tests {
                 dictionary_version: "synthetic-boundary",
                 dictionary_sha256: "synthetic-boundary",
                 configuration_sha256: "synthetic-boundary".into(),
+                dictionary_loading: None,
             },
         };
         let assessment = CandidateAssessment::ExecutionError {

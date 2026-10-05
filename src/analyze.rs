@@ -5,7 +5,6 @@ use std::{io::Write, path::Path};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use yomibu::{
-    adapters::sudachi::SudachiAnalyzer,
     analysis::{Sentence, SentenceAnalysis},
     evaluation::{CheckState, Evaluation, EvaluationBindings, evaluate},
     grammar::GrammarDeclarations,
@@ -32,7 +31,7 @@ struct Report<'a> {
 }
 
 pub(super) fn run(
-    dictionary: &Path,
+    dictionary: &super::dictionary::DictionaryArgs,
     input_path: &Path,
     json: bool,
     out: &mut impl Write,
@@ -41,7 +40,7 @@ pub(super) fn run(
     let sentence = Sentence::new(&input.sentence).context("Sentence input")?;
     let grammar = GrammarDeclarations::from_descriptions(input.grammar.iter().map(String::as_str))
         .context("Grammar input")?;
-    let analyzer = SudachiAnalyzer::load(dictionary).context("Dictionary initialization")?;
+    let analyzer = dictionary.load().context("Dictionary initialization")?;
     let analysis = analyzer.analyze(sentence).context("Analyzer execution")?;
     let evaluation = evaluate(&analysis, &grammar, &input.bindings)
         .context("Evaluation bindings or analysis")?;
@@ -77,6 +76,7 @@ fn write_text(out: &mut impl Write, report: &Report<'_>) -> std::io::Result<()> 
     writeln!(out, "Overall: {} (completed)", state_label(report.outcome))?;
     let original = report.analysis.sentence.text();
     writeln!(out, "Sentence: \"{}\"", original.escape_debug())?;
+    super::dictionary::write_loading(out, &report.analysis.provenance)?;
     for (index, description) in report.input.grammar.iter().enumerate() {
         writeln!(out, "Grammar {}: {}", index + 1, description.escape_debug())?;
     }

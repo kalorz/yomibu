@@ -6,7 +6,7 @@ use std::{io::Write, path::Path};
 use yomibu::{
     adapters::{
         openai::{Client, ProviderError},
-        sudachi::{AnalysisError, SudachiAnalyzer},
+        sudachi::AnalysisError,
     },
     analysis::{SentenceAnalysis, SentenceError},
     evaluation::{CheckKind, CheckState, Evaluation, EvaluationBindings, EvaluationError},
@@ -25,7 +25,7 @@ struct Input {
 }
 
 pub(super) fn run(
-    dictionary: &Path,
+    dictionary: &super::dictionary::DictionaryArgs,
     input_path: &Path,
     json: bool,
     make_client: impl FnOnce(&str) -> Result<Client, ProviderError>,
@@ -38,7 +38,7 @@ pub(super) fn run(
         .bindings
         .validate(&grammar)
         .context("Evaluation bindings")?;
-    let analyzer = SudachiAnalyzer::load(dictionary).context("Dictionary initialization")?;
+    let analyzer = dictionary.load().context("Dictionary initialization")?;
     let key = std::env::var("OPENAI_API_KEY")
         .ok()
         .filter(|key| !key.trim().is_empty())
@@ -288,7 +288,10 @@ pub(super) fn write_candidate(
         let provenance = &analysis.provenance;
         writeln!(out, "Analyzer revision: {}", provenance.analyzer_revision)?;
         writeln!(out, "Dictionary: {}", provenance.dictionary_version)?;
-        writeln!(out, "Dictionary SHA-256: {}", provenance.dictionary_sha256)?;
+        if provenance.dictionary_loading.is_none() {
+            writeln!(out, "Dictionary SHA-256: {}", provenance.dictionary_sha256)?;
+        }
+        super::dictionary::write_loading(out, provenance)?;
         writeln!(
             out,
             "Configuration SHA-256: {}",

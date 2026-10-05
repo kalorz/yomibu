@@ -19,6 +19,15 @@ fn cli_child() {
     })));
 }
 async fn child(server: &MockServer, input: &Value, json_output: bool) -> Output {
+    child_using(server, input, json_output, None).await
+}
+
+async fn child_using(
+    server: &MockServer,
+    input: &Value,
+    json_output: bool,
+    managed: Option<&Path>,
+) -> Output {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("permissions.json"), input.to_string()).unwrap();
     for file in [".env", "sudachi.json", "wanikani.json"] {
@@ -34,8 +43,13 @@ async fn child(server: &MockServer, input: &Value, json_output: bool) -> Output 
         "permissions.json".into(),
         "--focus-entry".into(),
         "1".into(),
-        "--dictionary".into(),
-        dictionary.to_str().unwrap().into(),
+        if managed.is_some() {
+            "--dictionary-dir"
+        } else {
+            "--dictionary"
+        }
+        .into(),
+        managed.unwrap_or(&dictionary).to_str().unwrap().into(),
         "--data-dir".into(),
         "ignored".into(),
     ];
@@ -64,6 +78,48 @@ async fn child(server: &MockServer, input: &Value, json_output: bool) -> Output 
     output.stdout.drain(..prefix.len());
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 4);
     output
+}
+
+#[tokio::test]
+async fn managed_focused_executable_uses_the_same_request_and_assessment_flow() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("managed");
+    yomibu::adapters::dictionary::import_bundle(
+        &root,
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/current"),
+    )
+    .unwrap();
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(envelope(["猫は寝ます。", "猫は寝ます。"])),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let input: Value =
+        serde_json::from_str(include_str!("../tests/fixtures/focused/pet-rest.json")).unwrap();
+    let output = child_using(&server, &input, true, Some(&root)).await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for candidate in report["candidates"].as_array().unwrap() {
+        assert_eq!(candidate["assessment"]["status"], "completed");
+        assert_eq!(
+            candidate["analysis"]["provenance"]["dictionary_loading"]["storage"],
+            "memory_mapped"
+        );
+    }
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].body,
+        include_bytes!("../tests/fixtures/focused/comparison/pet-rest-v2-request.json")
+    );
 }
 fn envelope(pair: [&str; 2]) -> Value {
     json!({"id":"synthetic","model":HOSTILE,"status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair}).to_string()}]}]})

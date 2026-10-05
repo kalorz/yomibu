@@ -28,6 +28,7 @@ use yomibu::{
 
 mod analyze;
 mod cli_support;
+mod dictionary;
 mod focused;
 mod generate;
 
@@ -52,6 +53,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Import or fully verify an app-managed dictionary; no implicit downloads.
+    Dictionary {
+        #[command(subcommand)]
+        command: dictionary::DictionaryCommand,
+    },
     /// Inspect focused selection and exact request content entirely offline.
     ContextPreview {
         /// Version-1 explicit vocabulary/grammar permissions (at most 4 MiB).
@@ -71,9 +77,8 @@ enum Command {
         permissions: PathBuf,
         #[arg(long, value_name = "N")]
         focus_entry: std::num::NonZeroUsize,
-        /// Explicit path to the pinned SudachiDict Core 20260723 V0 dictionary.
-        #[arg(long, value_name = "PATH")]
-        dictionary: PathBuf,
+        #[command(flatten)]
+        dictionary: dictionary::DictionaryArgs,
         #[arg(long)]
         json: bool,
     },
@@ -82,9 +87,8 @@ enum Command {
         /// Authorize one paid model attempt sending the supplied permissions/grammar.
         #[arg(long, required = true)]
         allow_model_call: bool,
-        /// Explicit path to the pinned SudachiDict Core 20260723 V0 dictionary.
-        #[arg(long, value_name = "PATH")]
-        dictionary: PathBuf,
+        #[command(flatten)]
+        dictionary: dictionary::DictionaryArgs,
         /// Version-1 JSON grammar declarations and explicit vocabulary/grammar bindings.
         #[arg(long, value_name = "PATH")]
         input: PathBuf,
@@ -94,9 +98,8 @@ enum Command {
     },
     /// Run bounded offline checks on one manually supplied sentence.
     Analyze {
-        /// Explicit path to the pinned SudachiDict Core 20260723 V0 dictionary.
-        #[arg(long, value_name = "PATH")]
-        dictionary: PathBuf,
+        #[command(flatten)]
+        dictionary: dictionary::DictionaryArgs,
         /// Version-1 JSON sentence, grammar declarations, and explicit bindings.
         #[arg(long, value_name = "PATH")]
         input: PathBuf,
@@ -187,6 +190,8 @@ fn run(
     make_client: impl FnOnce(&str) -> Result<OpenAiClient, ProviderError>,
 ) -> anyhow::Result<()> {
     match cli.command {
+        Command::Dictionary { command } => dictionary::run(command, &mut io::stdout().lock())
+            .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
         Command::ContextPreview {
             permissions,
             focus_entry,

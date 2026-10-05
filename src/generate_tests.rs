@@ -22,6 +22,15 @@ fn cli_child() {
 }
 
 async fn child(server: &MockServer, input: &Value, json_output: bool) -> Output {
+    child_using(server, input, json_output, None).await
+}
+
+async fn child_using(
+    server: &MockServer,
+    input: &Value,
+    json_output: bool,
+    managed: Option<&Path>,
+) -> Output {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("input.json"), input.to_string()).unwrap();
     let dictionary =
@@ -30,8 +39,13 @@ async fn child(server: &MockServer, input: &Value, json_output: bool) -> Output 
         "hostile\n\u{1b}executable".to_owned(),
         "generate-candidates".into(),
         "--allow-model-call".into(),
-        "--dictionary".into(),
-        dictionary.to_str().unwrap().into(),
+        if managed.is_some() {
+            "--dictionary-dir"
+        } else {
+            "--dictionary"
+        }
+        .into(),
+        managed.unwrap_or(&dictionary).to_str().unwrap().into(),
         "--input".into(),
         "input.json".into(),
         "--data-dir".into(),
@@ -67,6 +81,40 @@ async fn child(server: &MockServer, input: &Value, json_output: bool) -> Output 
     output.stdout.drain(..prefix.len());
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     output
+}
+
+#[tokio::test]
+async fn managed_executable_assesses_both_candidates_with_truthful_loading_provenance() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("managed");
+    yomibu::adapters::dictionary::import_bundle(
+        &root,
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/current"),
+    )
+    .unwrap();
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(envelope(["犬です。", "猫です。"])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let input: Value = serde_json::from_str(INPUT).unwrap();
+    let output = child_using(&server, &input, true, Some(&root)).await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for candidate in report["candidates"].as_array().unwrap() {
+        assert_eq!(candidate["assessment"]["status"], "completed");
+        assert_eq!(
+            candidate["analysis"]["provenance"]["dictionary_loading"]["verification"],
+            "full_sha256_at_installation"
+        );
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
 
 fn envelope(pair: [&str; 2]) -> Value {
@@ -284,6 +332,7 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
             dictionary_version: "synthetic-boundary-test",
             dictionary_sha256: "synthetic-boundary-test",
             configuration_sha256: "synthetic-boundary-test".into(),
+            dictionary_loading: None,
         },
     };
     // These are report-boundary cases, not claims about causing real Sudachi failures.

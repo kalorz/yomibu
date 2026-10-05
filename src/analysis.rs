@@ -39,6 +39,20 @@ pub struct AnalysisProvenance {
     pub dictionary_version: &'static str,
     pub dictionary_sha256: &'static str,
     pub configuration_sha256: String,
+    /// Absent for the legacy, fully verified owned snapshot policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dictionary_loading: Option<ManagedDictionaryProvenance>,
+}
+
+/// The checksum above identifies the expected pin. Managed loading relies on
+/// installation-time verification and unchanged files, not a startup full hash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ManagedDictionaryProvenance {
+    pub generation: String,
+    pub storage: &'static str,
+    pub verification: &'static str,
+    pub startup_checks: &'static str,
+    pub file_stability: &'static str,
 }
 
 /// Morphological evidence only; tokens and readings are not linguistic truth.

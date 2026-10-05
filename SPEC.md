@@ -452,11 +452,12 @@ Argument diagnostics preserve line breaks and indentation while escaping supplie
 values; usage and help use the fixed executable name `yomibu`.
 There is no structured error-report contract in this version.
 
-The dictionary path is mandatory, loaded only through the existing pinned adapter.
-Explicit setup remains separate; the installed path is
-`target/a1/current/system_core.dic`. Missing/unpinned files fail without fallback.
-The command reads only the selected input and dictionary, ignores `--data-dir`,
-and performs no HOME lookup, learner access, credential lookup, sync, network,
+Explicit `--dictionary PATH` retains the fully verified owned adapter policy and
+needs no HOME. Without it, the command selects the managed installation described
+below; `--dictionary-dir PATH` overrides its HOME default. Missing/unpinned files
+or invalid managed installations fail without fallback. Explicit development
+setup remains separate at `target/a1/current/system_core.dic`.
+The command ignores `--data-dir` and performs no learner access, credential lookup, sync, network,
 download, persistence, telemetry, or async runtime startup. Argument/file/output
 work belongs to the executable; library analysis/evaluation remain independently
 callable. See README for runnable synthetic examples and PLAN for TDD/check evidence.
@@ -475,7 +476,8 @@ exception to the later validated-generation pipeline, not its completion.
 yomibu generate-candidates --allow-model-call --dictionary PATH --input PATH [--json]
 ```
 
-Each invocation requires the opt-in and both paths. Input is the offline analyze
+Each invocation requires the opt-in and input path; dictionary selection follows
+the managed/external policies below. Input is the offline analyze
 version-1 envelope without `sentence`: all of `version`, `grammar` and `bindings`
 are required. Reject unknown/duplicate/missing fields, invalid JSON/UTF-8, other
 versions and invalid existing bindings. Read at most 65,537 bytes and reject over
@@ -488,7 +490,8 @@ is introduced. Sense/direct-object labels remain user assertions.
 Preflight validates arguments, bounded input and bindings, then explicitly loads
 the pinned dictionary, reads `OPENAI_API_KEY`, constructs client/runtime, and
 serializes/bounds the request. Any preflight failure sends zero requests.
-The command ignores `--data-dir`; it performs no HOME/data-directory discovery,
+The command ignores `--data-dir`; only managed dictionary selection resolves HOME.
+It performs no learner data-directory discovery,
 learner/cache access, sync, dictionary setup, runtime persistence or telemetry.
 `analyze` remains entirely offline, including no credential lookup or runtime.
 
@@ -654,6 +657,48 @@ G2 delivers one-command use with optional preview. The future learner bridge mus
 explicitly ground reading representation, absent kana-only readings, reading/sense
 association and sense-specific direct-object evidence. It cannot infer them from
 source eligibility or gloss/POS/examples.
+
+## Managed dictionary loading — 2026-10-05
+
+Normal analyze/generate-candidates/generate-focused commands select a managed
+installation when `--dictionary` is absent. The default is
+`$HOME/.yomibu/dictionaries`; `--dictionary-dir PATH` overrides it and conflicts
+with `--dictionary PATH`. Missing HOME requires an explicit managed root.
+Input/preflight validation precedes resource loading; model opt-in, credential
+ordering and provider settings stay unchanged. Preview commands remain independent.
+
+`yomibu dictionary import --bundle PATH [--dictionary-dir PATH]` copies the exact
+dictionary and both publisher notices, fully verifies the staged destination
+lengths/SHA-256 pins, synchronizes them, and atomically publishes a new generation.
+`dictionary verify` fully verifies the selected bundle without modifying it.
+There are no implicit downloads, installs, repairs or fallbacks. The existing
+Python developer/CI archive installer remains separate and unchanged.
+
+Completed generations are never modified/truncated in place or automatically
+removed. Updates switch one bounded versioned manifest after publishing the
+complete bundle. Existing readers retain the old mapped file. Pre-publication
+failure preserves the previous selection; post-publication directory-sync failure
+reports uncertain durability with the complete new selection visible.
+
+Managed startup checks private OS ownership/permissions, regular files without
+symlinks/hardlinks, bounded installation records, exact sizes and the dictionary
+header format/description, then maps the same checked handle. Header format and
+description are compatibility checks, not exact content verification. Installation
+receipts record earlier full verification; they are not signed proof of present
+contents. Controlled import/update behavior supplies a conditional stability
+contract: no actor may modify the mapped dictionary during an analyzer's lifetime.
+Advisory locks, metadata and read-only permissions cannot prove immutability or
+preserve the owned-buffer guarantee against arbitrary external writes. Use the
+owned policy where that contract cannot be maintained.
+
+One concrete SudachiAnalyzer and embedded configuration serve both policies.
+An analyzer is reused per command/session, without assigning policy by process
+lifetime. Managed provenance adds installation verification, startup-check and
+file-stability information; its dictionary checksum remains the expected pin.
+Owned reports retain their serialized shape, and CI/reproducibility experiments
+retain full verification. Exact analyzer/dictionary/configuration pins, evaluator
+behavior, frozen A1 evidence and v1/v2 artifacts/code pins remain unchanged.
+See [installation and safety](docs/DICTIONARY.md).
 
 ## Design vocabulary and composition
 
