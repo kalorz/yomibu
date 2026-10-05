@@ -12,7 +12,7 @@ inputs, exact request files, byte lengths, SHA-256 hashes and execution order:
 - Baseline: `818dda5e6897e4d8ab729ed9198e5070d16af50b`, merged PR #9 with
   `562cc11`; prompt `g2-focused-sentence-v1`.
 - Current generation code: `6c5e1343ca6583fc76211c6a757ec0070f5e7325`; prompt
-  `g2-focused-sentence-v2`. Later comparison/documentation commits do not alter
+  `g2-focused-sentence-v2`. Later comparison/test/documentation commits do not alter
   this production code. Record the delivery commit alongside this code pin.
 - Both use `g2-situations-v1`, the real pinned Sudachi adapter/dictionary and the
   original full vocabulary/grammar for evaluation. No private or held-out evidence.
@@ -29,6 +29,10 @@ Offline execution of both pinned binaries confirmed ready contexts and identical
 user messages, schema and provider settings: only developer prompt text differs.
 All six stored requests have no trailing newline; Python and `wc`/`sha256sum`
 independently agree on length/hash. The manifest supplies full hashes.
+The focused request suite also regenerates all three current-version requests,
+checks their exact fixture bytes and revision, and verifies input/request paths,
+byte lengths and SHA-256 hashes against the manifest. This detects fixture drift;
+it supplies no evidence that the model follows the prompt.
 
 | Situation | v1 bytes | v2 bytes |
 | --- | ---: | ---: |

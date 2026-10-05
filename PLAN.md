@@ -114,7 +114,7 @@ development dependency. Proptest remains deferred.
 | Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
 | G1 — Experimental sentence candidates | Complete for review; user-run live smoke passed | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; user-supplied dog/cat smoke report; partial-result preservation; no exercise acceptance |
 | G2 — Focused experimental context | Merged in PR #9 | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; fresh cloud dictionary setup resolves the initial download restriction; no live call or linguistic acceptance |
-| G2 lexical boundary | Implemented; comparison not run | Compiled v2 selected-content-word restriction and fixed v1/v2 comparison recipe/artifacts | 194 local Rust tests and required gates pass; offline release request reproduction verified; paid calls require separate approval |
+| G2 lexical boundary | Implemented; comparison not run | Compiled v2 selected-content-word restriction and fixed v1/v2 comparison recipe/artifacts | 195 local Rust tests and required gates pass; all three current comparison requests/manifest checked in CI; offline release request reproduction verified; paid calls require separate approval |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -196,6 +196,31 @@ Rust note for a Ruby developer: `concat!` joins the instruction groups at compil
 time, so this readable source still supplies one immutable string, without a
 runtime prompt framework. Borrowed full inputs and owned prepared bytes continue
 to keep generation restrictions separate from evaluation permissions.
+
+### PR #10 Greptile coverage review — 2026-10-05
+
+The summary and inline comment identify one valid, nonblocking coverage gap:
+the canonical pet-rest snapshot was checked automatically, while the comparison's
+pet-walk/book-reading requests and manifest metadata were checked only during
+offline preparation. Added one deterministic request test for all three current
+comparison inputs. It verifies the input/request paths, exact input lengths and
+hashes, selected situation, prompt revision, exact regenerated request bytes and
+request lengths/hashes against the manifest. Historical v1 requests and both
+frozen comparison code pins remain unchanged.
+
+This is a test-coverage extension of existing behavior; no production behavior
+changed and no artificial RED was required. The focused request suite passed all
+five tests. Explicit REFACTOR review covered duplication, naming, modelling,
+borrowing and idiomatic Rust: shared the existing input parser, kept fixture
+metadata checking local to the test, and found no production refactor warranted.
+Passing fixture checks establish reproducibility, not model adherence. No paid
+comparison calls were made.
+
+Post-review Linux verification on pinned Rust 1.98.1 passed formatting, locked
+strict all-target/all-feature Clippy, locked full tests (195 including two
+doctests; zero failures or ignored tests), strict rustdoc, whitespace and unchanged
+lockfile checks. Real pinned analyzer tests and isolated loopback mocks passed;
+Linux/macOS CI for the pushed coverage commit is recorded on the PR.
 
 ## G2 — focused experimental context, 2026-10-05
 
