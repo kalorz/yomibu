@@ -25,3 +25,8 @@ tokio = { version = "1", features = ["macros", "io-util", "sync", "test-util"] }
 [[example]]
 name = "a1"
 test = true
+
+# cargo test also uses this profile for CLI binaries launched by integration tests.
+# Optimize hashing while retaining full pinned-dictionary verification.
+[profile.test.package.sha2]
+opt-level = 3

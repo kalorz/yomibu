@@ -398,6 +398,19 @@ dependency downloads and compiled dependencies are cached separately by platform
 and compiler; only `main` saves caches, and PRs can restore them. Cache misses
 still run every gate. No WaniKani secret is required.
 
+The test profile optimizes only `sha2` (`opt-level = 3`) to reduce repeated full
+dictionary hashing, including CLI binaries built by `cargo test` and child test
+processes. Verification still precedes dictionary use, with the verified bytes
+owned by the analyzer. Development/release profiles, dependency features and
+all coverage are unchanged. Explicit refactor review found no source/test change
+justified. On Linux/x86_64, two prebuilt `analyze_cli` runs fell from
+72.80/72.20s to 5.96/5.90s; full-suite execution fell from 202.31s to 28.93s.
+Fresh prebuilds took 81.07s/81.51s. These are observations, not timing gates or
+a macOS guarantee; [PLAN.md](PLAN.md#sha-256-test-profile-optimization--2026-10-05)
+records the method and hosted platform evidence. To separate compilation from
+execution, prebuild with `cargo test --locked --all --no-run`, then run
+`cargo test --locked --test analyze_cli` twice and `cargo test --locked --all`.
+
 See [SPEC.md](SPEC.md) for authoritative requirements,
 [ARCHITECTURE.md](ARCHITECTURE.md) for responsibilities, file/repository structure,
 and composition examples, [PLAN.md](PLAN.md) for milestones and TDD evidence, and
