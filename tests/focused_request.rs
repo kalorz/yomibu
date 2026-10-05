@@ -1,3 +1,5 @@
+use std::{fs, path::Path};
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use yomibu::{
@@ -9,8 +11,11 @@ use yomibu::{
 };
 
 fn input() -> (GrammarDeclarations, EvaluationBindings) {
-    let value: Value =
-        serde_json::from_str(include_str!("fixtures/focused/pet-rest.json")).unwrap();
+    input_from_json(include_bytes!("fixtures/focused/pet-rest.json"))
+}
+
+fn input_from_json(bytes: &[u8]) -> (GrammarDeclarations, EvaluationBindings) {
+    let value: Value = serde_json::from_slice(bytes).unwrap();
     (
         GrammarDeclarations::from_descriptions(
             value["grammar"]
@@ -158,19 +163,70 @@ fn exact_outbound_byte_limit_and_escaping_expansion_are_checked_without_truncati
 }
 
 #[test]
-fn canonical_example_matches_recorded_exact_bytes_and_hash() {
+fn canonical_v2_request_enforces_selected_lexical_boundary_and_matches_exact_bytes() {
     let (grammar, permissions) = input();
     let request = prepare_focused_request(
         select_context(&grammar, &permissions, VocabularyEntryId::new(1).unwrap()).unwrap(),
     )
     .unwrap();
+    assert_eq!(request.prompt_revision(), "g2-focused-sentence-v2");
     assert_eq!(
         request.body_utf8().as_bytes(),
         include_bytes!("fixtures/focused/pet-rest-request.json")
     );
-    assert_eq!(request.bytes(), 1882);
+    assert_eq!(request.bytes(), 2312);
     assert_eq!(
         request.sha256(),
-        "81415d76fb7f43ba4cc435bc7d98afbe29abdff6cd33d7104b62ad14c63cb503"
+        "a3cbfc09ec6cb2b1264737a0ba97e90367644e91b151a0689f6276d2c4b43422"
     );
+}
+
+#[test]
+fn current_comparison_requests_match_exact_fixtures_and_manifest() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/focused/comparison");
+    let manifest: Value =
+        serde_json::from_str(include_str!("fixtures/focused/comparison/manifest.json")).unwrap();
+    let current = &manifest["versions"]["v2"];
+    assert_eq!(manifest["inputs"].as_object().unwrap().len(), 3);
+    assert_eq!(current["requests"].as_object().unwrap().len(), 3);
+
+    let read_fixture = |record: &Value| {
+        let path = record["path"].as_str().unwrap();
+        let bytes = fs::read(fixtures.join(path)).unwrap();
+        assert_eq!(record["bytes"], json!(bytes.len()), "{path}: byte length");
+        assert_eq!(
+            record["sha256"],
+            json!(format!("{:x}", Sha256::digest(&bytes))),
+            "{path}: SHA-256"
+        );
+        bytes
+    };
+
+    for situation in ["pet-rest", "pet-walk", "book-reading"] {
+        let input_record = &manifest["inputs"][situation];
+        assert_eq!(input_record["path"], format!("{situation}.json"));
+        let (grammar, permissions) = input_from_json(&read_fixture(input_record));
+        let focus = VocabularyEntryId::new(
+            usize::try_from(input_record["focus_entry"].as_u64().unwrap()).unwrap(),
+        )
+        .unwrap();
+        let request =
+            prepare_focused_request(select_context(&grammar, &permissions, focus).unwrap())
+                .unwrap();
+        assert_eq!(request.context().situation().id, situation);
+        assert_eq!(current["prompt_revision"], request.prompt_revision());
+
+        let request_record = &current["requests"][situation];
+        assert_eq!(
+            request_record["path"],
+            format!("{situation}-v2-request.json")
+        );
+        assert_eq!(
+            request.body_utf8().as_bytes(),
+            read_fixture(request_record),
+            "{situation}: exact prepared request"
+        );
+        assert_eq!(request_record["bytes"], json!(request.bytes()));
+        assert_eq!(request_record["sha256"], request.sha256());
+    }
 }

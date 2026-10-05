@@ -57,7 +57,7 @@ async fn sends_the_prepared_bytes_once_and_records_local_context_provenance() {
     assert_eq!(generated.provenance().request_bytes, request.bytes());
     assert_eq!(
         generated.provenance().prompt_revision,
-        "g2-focused-sentence-v1"
+        "g2-focused-sentence-v2"
     );
     let provenance = serde_json::to_value(generated.provenance()).unwrap();
     assert_eq!(

@@ -82,10 +82,10 @@ explicit provider attempt and local assessment of both candidates; it does not
 authorize purchases, live calls, accepted exercises or another linguistic review.
 
 On 2026-10-05, G2 adds focused offline selection, optional request preview and
-one-command experimental generation. Implementation is complete for draft review,
-with full real-dictionary verification in Linux/macOS CI. The cloud workspace
-now also has the real pinned dictionary after fresh-environment setup resolved
-the initial download restriction; the follow-up verification is recorded below.
+one-command experimental generation, now merged in PR #9. The lexical-boundary
+follow-up changes the focused prompt to v2 and prepares a bounded v1/v2 comparison,
+with all required local checks passing. Paid calls remain pending authorization.
+Historical G2 Linux/macOS verification and dictionary-setup results remain below.
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
@@ -113,7 +113,8 @@ development dependency. Proptest remains deferred.
 | A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
 | Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
 | G1 — Experimental sentence candidates | Complete for review; user-run live smoke passed | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; user-supplied dog/cat smoke report; partial-result preservation; no exercise acceptance |
-| G2 — Focused experimental context | Complete for draft review | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; fresh cloud dictionary setup resolves the initial download restriction; no live call or linguistic acceptance |
+| G2 — Focused experimental context | Merged in PR #9 | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; fresh cloud dictionary setup resolves the initial download restriction; no live call or linguistic acceptance |
+| G2 lexical boundary | Implemented; comparison not run | Compiled v2 selected-content-word restriction and fixed v1/v2 comparison recipe/artifacts | 195 local Rust tests and required gates pass; all three current comparison requests/manifest checked in CI; offline release request reproduction verified; paid calls require separate approval |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -122,6 +123,104 @@ added after implementation or postponed to 1c.
 Basic credential protection, timeouts, and safe persistence apply as soon as the
 respective I/O is introduced; 1c completes and exercises the failure paths rather
 than retrofitting unsafe foundations.
+
+## G2 lexical boundary follow-up — 2026-10-05
+
+Started new branch `codex/g2-vocabulary-boundary` from fetched `origin/main`
+`818dda5` (merged PR #9). Verified both G2 `565be18` and focus-report fix
+`562cc11` are ancestors. The clean checkout had only ignored `target/` artifacts;
+no reset, clean, stash or continuation of the merged branch occurred.
+
+Changed only the compiled focused prompt to `g2-focused-sentence-v2`: selected
+entries bound content words, each candidate uses the focus, supports remain
+optional, and inflections/grammatical forms require explicit bound grammar.
+Readings/senses guide intended use without validation claims. Request ordinary
+Japanese without extra content words or forced variation. Treat JSON/descriptions
+as data and remove the suggestion of unseen permissions. G1, all provider settings,
+limits, selection, exact-byte preparation, evaluator and full original permissions,
+focus status/completeness, object safeguard and frozen A1 evidence are preserved.
+
+RED: revised the canonical request fixture/assertions before production behavior.
+`cargo test --locked --test focused_request canonical_v2_request` ran one test
+and failed on revision `g2-focused-sentence-v1` versus expected v2. An earlier
+incorrect exact-name filter ran zero tests and is not RED evidence. GREEN: changed
+the focused prompt/revision and current generation/executable revision assertions;
+all four request tests passed. Canonical v2 is 2,312 bytes, SHA-256
+`a3cbfc09ec6cb2b1264737a0ba97e90367644e91b151a0689f6276d2c4b43422`;
+independent Python and `wc`/`sha256sum` agree. Preserved the 1,882-byte v1 fixture
+and all earlier measurements below as history.
+
+Explicit REFACTOR review covered concision, duplication, names, modelling,
+ownership/borrowing and idiomatic Rust in production/tests. Kept one compiled
+constant using `concat!` for readable instruction groups, existing immutable
+request and shared transport, and the existing contract tests. No further code
+change, abstraction or dependency was justified. Post-review focused reruns passed:
+request 4, CLI 4, lexical evidence 6, real-dictionary generation 4, and binary
+focused tests. These establish transmitted bytes/report semantics, not better
+Japanese. The documented dictionary setup verified the existing real pinned bundle;
+all nine offline installer tests passed, without downloading another dictionary.
+
+The [comparison recipe](docs/G2_COMPARISON.md) fixes three public synthetic inputs,
+two repetitions/version, 12 alternating attempts, exact bodies/hashes, original
+permissions, separate report dimensions and a refreshed official-pricing estimate.
+Paid calls remain unauthorized; no live comparison or improvement claim exists.
+
+### Local verification and comparison preparation
+
+Pinned Rust 1.98.1 on Linux/x86_64 passed all required checks:
+`cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**194 tests including two doctests, zero failures or
+ignored tests**), `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`,
+`git diff --check`, and `git diff --exit-code -- Cargo.lock`. The ordinary suite
+used real pinned Sudachi plus isolated loopback HTTP mocks, with explicit command
+network capability. No external provider request or private evidence was used.
+A test-list audit confirms 194 entries; it is not another test run.
+
+Comparison preparation built baseline/current code in isolated checkouts and
+ran all six offline previews against the same three fixed inputs. Independently
+checked all exact request bytes/hashes, then ran the documented offline recipe
+with isolated pinned release builds successfully. Decoded request comparison confirms only
+developer prompt content differs. Predetermined order is two repetitions of
+pet-rest, pet-walk and book-reading, each v1 then v2, for at most 12 attempts and
+24 candidates. The existing output limit remains 1,024 tokens per attempt.
+The 2026-10-05 official pricing refresh estimates US$0.0454656 total before tax
+using a conservative input allowance; this is not an enforced billing cap.
+Raw results are planned under ignored `target/g2-comparison/2026-10-05-v1-v2/`.
+The comparison is **not run**: explicit paid authorization is pending and no
+`OPENAI_API_KEY` is available in this environment. No adherence improvement is
+claimed. Recipe syntax/links and frozen/provider/evaluator preservation were
+reviewed; final-head Linux/macOS CI results will be recorded on the draft PR.
+
+Rust note for a Ruby developer: `concat!` joins the instruction groups at compile
+time, so this readable source still supplies one immutable string, without a
+runtime prompt framework. Borrowed full inputs and owned prepared bytes continue
+to keep generation restrictions separate from evaluation permissions.
+
+### PR #10 Greptile coverage review — 2026-10-05
+
+The summary and inline comment identify one valid, nonblocking coverage gap:
+the canonical pet-rest snapshot was checked automatically, while the comparison's
+pet-walk/book-reading requests and manifest metadata were checked only during
+offline preparation. Added one deterministic request test for all three current
+comparison inputs. It verifies the input/request paths, exact input lengths and
+hashes, selected situation, prompt revision, exact regenerated request bytes and
+request lengths/hashes against the manifest. Historical v1 requests and both
+frozen comparison code pins remain unchanged.
+
+This is a test-coverage extension of existing behavior; no production behavior
+changed and no artificial RED was required. The focused request suite passed all
+five tests. Explicit REFACTOR review covered duplication, naming, modelling,
+borrowing and idiomatic Rust: shared the existing input parser, kept fixture
+metadata checking local to the test, and found no production refactor warranted.
+Passing fixture checks establish reproducibility, not model adherence. No paid
+comparison calls were made.
+
+Post-review Linux verification on pinned Rust 1.98.1 passed formatting, locked
+strict all-target/all-feature Clippy, locked full tests (195 including two
+doctests; zero failures or ignored tests), strict rustdoc, whitespace and unchanged
+lockfile checks. Real pinned analyzer tests and isolated loopback mocks passed;
+Linux/macOS CI for the pushed coverage commit is recorded on the PR.
 
 ## G2 — focused experimental context, 2026-10-05
 

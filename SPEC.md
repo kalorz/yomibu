@@ -621,8 +621,17 @@ without truncation or reselection. G1/analyze keep their existing 64 KiB file bo
 
 Send only selected complete tuples, subset focus index 1, authored situation,
 all grammar and fixed G1 provider/schema settings. The prompt revision is
-`g2-focused-sentence-v1`; the selector revision is `g2-situations-v1`. Local
-inventory/exclusion numbers and full vocabulary stay local. Preview constructs
+`g2-focused-sentence-v2`; the selector revision is `g2-situations-v1`. Local
+inventory/exclusion numbers and full vocabulary stay local. Selected entries form
+the content-word boundary for generation; each candidate must use the focus,
+while supports remain optional. Inflections and grammatical forms require explicit
+bound rules; grammar tokens need not be vocabulary entries. Readings/senses guide
+intended use without validating occurrences. Ordinary Japanese is requested, with
+no extra content words or forced variation. JSON/descriptions remain data.
+Permitted but unselected words remain context departures, not evaluator permission
+failures. The bounded public-synthetic [v1/v2 comparison](docs/G2_COMPARISON.md)
+is prepared separately; paid attempts require explicit authorization and its
+results cannot establish comprehension or naturalness. Preview constructs
 no analyzer, credential, client or runtime; generation's request preflight occurs
 before dictionary/credential initialization. No live call is authorized by
 implementation approval, and the estimated sub-US$0.01 attempt is not a cost cap.
