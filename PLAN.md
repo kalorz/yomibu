@@ -84,7 +84,8 @@ authorize purchases, live calls, accepted exercises or another linguistic review
 On 2026-10-05, G2 adds focused offline selection, optional request preview and
 one-command experimental generation. Implementation is complete for draft review,
 with full real-dictionary verification in Linux/macOS CI. The cloud workspace
-retains a documented local dictionary-download restriction.
+now also has the real pinned dictionary after fresh-environment setup resolved
+the initial download restriction; the follow-up verification is recorded below.
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
@@ -112,7 +113,7 @@ development dependency. Proptest remains deferred.
 | A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
 | Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
 | G1 — Experimental sentence candidates | Complete for review; user-run live smoke passed | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; user-supplied dog/cat smoke report; partial-result preservation; no exercise acceptance |
-| G2 — Focused experimental context | Complete for draft review | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; local download restriction recorded; no live call or linguistic acceptance |
+| G2 — Focused experimental context | Complete for draft review | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; fresh cloud dictionary setup resolves the initial download restriction; no live call or linguistic acceptance |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -173,8 +174,8 @@ live model call, private evidence access, holdout rerun, purchase or merge occur
    full-inventory membership. Four explicitly labelled structural/report-boundary
    tests passed. Reviewed POS indexing and slicing: structurally validate before
    reporting; only existing reading/stem helper visibility changed in evaluation.
-   Real pinned-analyzer integration tests are present but remain unverified in
-   this cloud run because the dictionary prerequisite is unavailable (below).
+   Real pinned-analyzer integration tests were present but unverified in
+   the initial cloud run because the dictionary prerequisite was unavailable (below).
 7. Executable preview test failed with `unrecognized subcommand context-preview`.
    Implemented both commands, bounded input and text/JSON reports. Four executable
    tests passed, including exact file size, malformed input, hostile controls,
@@ -191,7 +192,7 @@ live model call, private evidence access, holdout rerun, purchase or merge occur
    request is recorded as 1,882 bytes with SHA-256
    `81415d76fb7f43ba4cc435bc7d98afbe29abdff6cd33d7104b62ad14c63cb503`.
 
-### Verification and explicit prerequisite failure
+### Initial cloud verification and explicit prerequisite failure
 
 Used pinned Rust 1.98.1 and a fresh temporary build directory
 `/tmp/yomibu-g2-target.NZ8mQx`, retaining the existing ignored build artifacts.
@@ -236,11 +237,62 @@ lockfile checks. This includes G2 real candidate composition, full-permission
 comparison, original Fail spans, partial results, morphological occurrence and
 object-safeguard tests, as well as unchanged G1/analyze regressions.
 
-The final documentation-only follow-up records these results; implementation and
-test sources are unchanged from the verified commit. The local publisher-host
-allowlist restriction still exists and is not presented as a local full-suite
-pass. No dictionary was retrieved from CI into the restricted workspace. No live
-provider call, merge or purchase occurred; the PR remains a draft.
+Documentation-only follow-up `fa148e0f660940ac74b42cdcc6f224a9008e16c1` recorded
+these results; implementation and test sources were unchanged from the verified
+commit. The local publisher-host restriction remained at that checkpoint, and
+was not presented as a local full-suite pass. No dictionary was retrieved from CI
+into the restricted workspace. The fresh-environment follow-up below records the
+later setup and CI results. No live provider call, merge or purchase occurred;
+the PR remains a draft.
+
+### Fresh cloud setup and CI retry — 2026-10-05
+
+Continued draft PR #9 at `fa148e0f660940ac74b42cdcc6f224a9008e16c1` after
+inspecting the clean Git state and fetching without pruning. The fresh checkout
+initially selected `work` at the main baseline; fetched and checked out the existing
+`codex/g2-focused-context` branch. No reset, clean, stash, feature recreation or
+new PR was used. Existing ignored `target/` artifacts were preserved.
+
+The attached environment configuration version
+`cecfgver_6ac344de04748193a49ad6d61146786e` reports desired and observed spec
+revision 2, current observations and the allowed publisher host
+`sudachi.s3.ap-northeast-1.amazonaws.com`. Its policy state still reports
+`unknown`, which does not establish enforcement. Separately, the supported
+version-1 `/etc/codex/network-policy.json` startup snapshot lists that host in
+the restricted HTTP egress rules. The explicitly authorized
+`python3 scripts/setup_a1_dictionary.py` succeeded through the inherited proxy
+and configured CA trust with TLS verification enabled. It verified the pinned
+archive and all three bundle files, then published
+`target/a1/current/system_core.dic` with both publisher notices. Verified cache
+reuse and all nine offline setup tests also passed. No policy bypass, alternate
+artifact or credential was needed.
+
+Inspected the current [CI run 37271779785](https://github.com/kalorz/yomibu/actions/runs/37271779785)
+for `fa148e0`. Its original Linux job passed. Original macOS job `111640121477`
+passed formatting, Clippy and nine setup tests, then failed at download with
+`<urlopen error [Errno 54] Connection reset by peer>`; its Rust tests did not run.
+Reran that failed job. Replacement macOS job `111647390013` installed the real
+pinned dictionary and passed every quality step, including **190 Rust tests,
+two of them doctests, with zero failures or ignored tests**. The retained Linux
+result also passed 190 tests. The successful retry supports a transient transport
+failure; review of the installer bounds, verification and publication safeguards
+found no justified production change or refactor. The downloader and CI remain
+unchanged.
+
+Local Linux/x86_64 verification used the repository's exact Rust 1.98.1 pin,
+installed into temporary tool storage because the fresh image lacked Rust, and a
+fresh `CARGO_TARGET_DIR=/tmp/yomibu-g2-verification.z5VRdq`. All required checks
+passed: `cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**190 passed, zero failed or ignored**, including
+two doctests), `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`,
+`git diff --check` and `git diff --exit-code -- Cargo.lock`.
+
+This follow-up updates verification documentation only. Dependencies, lockfile,
+toolchain, analyzer/dictionary/configuration pins, evaluator safeguards and frozen
+A1 records remain unchanged. Final-head CI verification is recorded in draft
+PR #9 after this follow-up is pushed. No live OpenAI/WaniKani call, purchase,
+private evidence access, holdout rerun or merge occurred.
 
 ## G1 — experimental single-sentence candidates, 2026-10-04
 
