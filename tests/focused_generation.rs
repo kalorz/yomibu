@@ -151,8 +151,8 @@ async fn real_sudachi_assessment_uses_full_permissions_and_keeps_fail_spans_and_
         analysis::Sentence,
         evaluation::{CheckKind, CheckOutcome, CheckState, evaluate},
         generation::{
-            CandidateAssessment, ContextUnitStatus, FocusStatus, assess_context_usage,
-            assess_focus_occurrence,
+            CandidateAssessment, ContextUnitStatus, FocusCompleteness, FocusStatus,
+            assess_context_usage, assess_focus_occurrence,
         },
     };
     let analyzer = SudachiAnalyzer::load(
@@ -175,6 +175,7 @@ async fn real_sudachi_assessment_uses_full_permissions_and_keeps_fail_spans_and_
         [overlong.as_str(), "猫は寝ます。"],
         ["寝ます。寝ます。", "猫は寝ます。"],
         ["qzxvは寝ます。", "猫は寝ます。"],
+        ["猫は美しい。寝ます。", "qzxvは歩きます。"],
     ] {
         server.reset().await;
         Mock::given(method("POST"))
@@ -207,6 +208,7 @@ async fn real_sudachi_assessment_uses_full_permissions_and_keeps_fail_spans_and_
                     "猫は寝ます。" => {
                         assert_eq!(usage.units[0].status, ContextUnitStatus::SelectedEvidence);
                         assert_eq!(focus.status, FocusStatus::Observed);
+                        assert_eq!(focus.completeness, FocusCompleteness::Complete);
                         assert_eq!(focus.occurrences[0].span, 6..9);
                     }
                     "犬は寝ます。" => {
@@ -236,8 +238,22 @@ async fn real_sudachi_assessment_uses_full_permissions_and_keeps_fail_spans_and_
                         assert_eq!(focus.count, 2);
                     }
                     "qzxvは寝ます。" => {
-                        assert_eq!(focus.status, FocusStatus::Unassessable);
+                        assert_eq!(focus.status, FocusStatus::Observed);
+                        assert_eq!(focus.completeness, FocusCompleteness::Partial);
                         assert_eq!(focus.count, 1);
+                        assert_eq!(focus.occurrences[0].span, 7..10);
+                        assert_eq!(usage.units[0].status, ContextUnitStatus::Unresolved);
+                    }
+                    "猫は美しい。寝ます。" => {
+                        assert_eq!(focus.status, FocusStatus::Observed);
+                        assert_eq!(focus.completeness, FocusCompleteness::Partial);
+                        assert_eq!(focus.count, 1);
+                        assert_eq!(focus.occurrences[0].span, 18..21);
+                    }
+                    "qzxvは歩きます。" => {
+                        assert_eq!(focus.status, FocusStatus::Unassessable);
+                        assert_eq!(focus.completeness, FocusCompleteness::Partial);
+                        assert_eq!(focus.count, 0);
                     }
                     _ => unreachable!(),
                 }

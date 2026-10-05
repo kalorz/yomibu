@@ -110,28 +110,7 @@ pub(super) fn run(
         )?;
         for candidate in &report.candidates {
             super::generate::write_candidate(out, &candidate.candidate)?;
-            writeln!(
-                out,
-                "Focus occurrence: {:?}; compatible occurrences: {}",
-                candidate.focus_occurrence.status, candidate.focus_occurrence.count
-            )?;
-            for occurrence in &candidate.focus_occurrence.occurrences {
-                writeln!(
-                    out,
-                    "  bytes {}..{}: {:?}; reading {}",
-                    occurrence.span.start,
-                    occurrence.span.end,
-                    occurrence.evidence,
-                    occurrence.reading.escape_debug()
-                )?;
-            }
-            for uncertainty in &candidate.focus_occurrence.uncertainties {
-                writeln!(
-                    out,
-                    "  bytes {}..{}: {:?}",
-                    uncertainty.span.start, uncertainty.span.end, uncertainty.reason
-                )?;
-            }
+            write_focus_occurrence(out, &candidate.focus_occurrence)?;
             writeln!(out, "Context usage: {:?}", candidate.context_usage.status)?;
             for unit in &candidate.context_usage.units {
                 writeln!(
@@ -152,6 +131,37 @@ pub(super) fn run(
         .any(|a| matches!(a, CandidateAssessment::ExecutionError { .. }))
     {
         bail!("One or both candidate executions failed; see the experimental report.");
+    }
+    Ok(())
+}
+
+fn write_focus_occurrence(out: &mut dyn Write, report: &FocusOccurrenceReport) -> Result<()> {
+    writeln!(
+        out,
+        "Focus occurrence: {:?}; compatible occurrences: {}",
+        report.status, report.count
+    )?;
+    writeln!(
+        out,
+        "Focus assessment completeness: {:?}",
+        report.completeness
+    )?;
+    for occurrence in &report.occurrences {
+        writeln!(
+            out,
+            "  bytes {}..{}: {:?}; reading {}",
+            occurrence.span.start,
+            occurrence.span.end,
+            occurrence.evidence,
+            occurrence.reading.escape_debug()
+        )?;
+    }
+    for uncertainty in &report.uncertainties {
+        writeln!(
+            out,
+            "  bytes {}..{}: {:?}",
+            uncertainty.span.start, uncertainty.span.end, uncertainty.reason
+        )?;
     }
     Ok(())
 }
@@ -438,6 +448,39 @@ fn write_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn focus_text_boundary_separates_presence_and_completeness_and_escapes_readings() {
+        use yomibu::generation::{
+            FocusCompleteness, FocusOccurrence, FocusStatus, LexicalUncertainty,
+            LexicalUncertaintyReason, OccurrenceEvidence,
+        };
+        let report = FocusOccurrenceReport {
+            status: FocusStatus::Observed,
+            completeness: FocusCompleteness::Partial,
+            count: 1,
+            occurrences: vec![FocusOccurrence {
+                span: 7..10,
+                reading: "ネ\n\u{1b}".into(),
+                evidence: OccurrenceEvidence::RegularStem,
+            }],
+            uncertainties: vec![LexicalUncertainty {
+                span: 0..4,
+                reason: LexicalUncertaintyReason::OutOfVocabulary,
+            }],
+            contextual_reading_and_sense: "not_assessed",
+        };
+        let mut output = Vec::new();
+        write_focus_occurrence(&mut output, &report).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            concat!(
+                "Focus occurrence: Observed; compatible occurrences: 1\n",
+                "Focus assessment completeness: Partial\n",
+                "  bytes 7..10: RegularStem; reading ネ\\n\\u{1b}\n",
+                "  bytes 0..4: OutOfVocabulary\n"
+            )
+        );
+    }
     #[test]
     fn generation_text_does_not_expand_the_unselected_inventory() {
         let mut input: Input =

@@ -188,6 +188,69 @@ async fn full_executable_reports_both_original_candidates_and_all_evidence_safel
     }
 }
 #[tokio::test]
+async fn executable_keeps_observed_focus_and_reports_partial_completeness() {
+    let server = MockServer::start().await;
+    let input: Value =
+        serde_json::from_str(include_str!("../tests/fixtures/focused/pet-rest.json")).unwrap();
+    for json_output in [true, false] {
+        server.reset().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(envelope(["qzxvは寝ます。", "猫は寝ます。"])),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let output = child(&server, &input, json_output).await;
+        assert_eq!(output.status.code(), Some(0), "{:?}", output);
+        assert!(output.stderr.is_empty());
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        safe(&stdout);
+        if json_output {
+            let report: Value = serde_json::from_str(&stdout).unwrap();
+            let candidates = report["candidates"].as_array().unwrap();
+            assert_eq!(candidates.len(), 2);
+            for (candidate, completeness) in candidates.iter().zip(["partial", "complete"]) {
+                assert_eq!(candidate["assessment"]["status"], "completed");
+                assert_eq!(candidate["focus_occurrence"]["status"], "observed");
+                assert_eq!(candidate["focus_occurrence"]["count"], 1);
+                assert_eq!(candidate["focus_occurrence"]["completeness"], completeness);
+            }
+            assert_eq!(candidates[0]["text"], "qzxvは寝ます。");
+            assert_eq!(
+                candidates[0]["focus_occurrence"]["occurrences"][0]["span"],
+                json!({"start":7,"end":10})
+            );
+            assert_eq!(
+                candidates[0]["focus_occurrence"]["uncertainties"],
+                json!([
+                    {"span":{"start":0,"end":4},"reason":"out_of_vocabulary"}
+                ])
+            );
+            assert_eq!(
+                candidates[0]["context_usage"]["units"][0]["status"],
+                "unresolved"
+            );
+        } else {
+            assert!(
+                stdout.starts_with("Experimental sentence candidates — not accepted exercises\n")
+            );
+            assert!(stdout.contains("qzxvは寝ます。"));
+            assert!(stdout.contains("猫は寝ます。"));
+            assert!(stdout.contains("Focus occurrence: Observed; compatible occurrences: 1\nFocus assessment completeness: Partial\n  bytes 7..10: RegularStem; reading ネ\n  bytes 0..4: OutOfVocabulary\nContext usage: Completed\n"), "{stdout}");
+            assert!(stdout.contains("Focus occurrence: Observed; compatible occurrences: 1\nFocus assessment completeness: Complete\n"));
+            assert_eq!(
+                stdout
+                    .matches("Contextual reading and sense: not assessed\n")
+                    .count(),
+                2
+            );
+        }
+    }
+}
+#[tokio::test]
 async fn executable_preflight_is_zero_requests_and_whole_response_failure_keeps_stdout_empty() {
     let server = MockServer::start().await;
     let input: Value =

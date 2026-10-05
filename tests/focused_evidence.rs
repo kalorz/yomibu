@@ -65,6 +65,7 @@ fn boundary_focus_uses_whole_dictionary_forms_stems_and_original_spans() {
     );
     let report = serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap();
     assert_eq!(report["status"], "observed");
+    assert_eq!(report["completeness"], "complete");
     assert_eq!(report["count"], 2);
     assert_eq!(report["occurrences"][0]["evidence"], "noninflected");
     assert_eq!(report["occurrences"][1]["evidence"], "regular_stem");
@@ -74,10 +75,9 @@ fn boundary_focus_uses_whole_dictionary_forms_stems_and_original_spans() {
     );
     assert_eq!(report["contextual_reading_and_sense"], "not_assessed");
     let a = analysis("寝る", vec![token(0..6, "別", "ベツ", "名詞", "*")]);
-    assert_eq!(
-        serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap()["status"],
-        "absent"
-    );
+    let report = serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap();
+    assert_eq!(report["status"], "absent");
+    assert_eq!(report["completeness"], "complete");
 }
 #[test]
 fn boundary_ambiguity_precedes_unassessability_but_retains_compatible_occurrences() {
@@ -96,13 +96,14 @@ fn boundary_ambiguity_precedes_unassessability_but_retains_compatible_occurrence
     );
     let r = serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap();
     assert_eq!(r["status"], "ambiguous");
+    assert_eq!(r["completeness"], "partial");
     assert_eq!(r["count"], 1);
     assert_eq!(r["uncertainties"][0]["reason"], "out_of_vocabulary");
     assert_eq!(r["uncertainties"][1]["reason"], "reading_disagreement");
     a.units[2].token.reading = "ネル".into();
     assert_eq!(
         serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap()["status"],
-        "unassessable"
+        "observed"
     );
     a.units[2].token.part_of_speech[0] = "名詞".into();
     assert_eq!(
@@ -117,6 +118,71 @@ fn boundary_ambiguity_precedes_unassessability_but_retains_compatible_occurrence
         serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap()["status"],
         "unassessable"
     );
+}
+#[test]
+fn boundary_unrelated_lexical_uncertainty_keeps_observed_focus_but_limits_completeness() {
+    let (grammar, permissions) = input();
+    let context =
+        select_context(&grammar, &permissions, VocabularyEntryId::new(1).unwrap()).unwrap();
+    let mut oov = token(0..3, "謎", "ナゾ", "名詞", "*");
+    oov.out_of_vocabulary = true;
+    for (uncertain, reason) in [
+        (oov, "out_of_vocabulary"),
+        (
+            token(0..3, "謎", "ナゾ", "形容詞", "unsupported"),
+            "unsupported_morphology",
+        ),
+    ] {
+        let a = analysis(
+            "謎寝る",
+            vec![
+                uncertain.clone(),
+                token(3..9, "寝る", "ネル", "動詞", "下一段-ナ行"),
+            ],
+        );
+        let r = serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap();
+        assert_eq!(r["status"], "observed", "{reason}");
+        assert_eq!(r["completeness"], "partial");
+        assert_eq!(r["count"], 1);
+        assert_eq!(
+            r["occurrences"][0]["span"],
+            serde_json::json!({"start":3,"end":9})
+        );
+        assert_eq!(
+            r["uncertainties"],
+            serde_json::json!([
+                {"span":{"start":0,"end":3},"reason":reason}
+            ])
+        );
+        // Unknown evidence cannot establish absence when no focus was observed.
+        let a = analysis("謎", vec![uncertain]);
+        let r = serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap();
+        assert_eq!(r["status"], "unassessable");
+        assert_eq!(r["completeness"], "partial");
+        assert_eq!(r["count"], 0);
+    }
+}
+#[test]
+fn boundary_focus_specific_uncertainty_is_not_overridden_by_another_occurrence() {
+    let (grammar, permissions) = input();
+    let context =
+        select_context(&grammar, &permissions, VocabularyEntryId::new(1).unwrap()).unwrap();
+    let mut oov = token(6..12, "寝る", "ネル", "動詞", "下一段-ナ行");
+    oov.out_of_vocabulary = true;
+    for uncertain in [oov, token(6..12, "寝る", "ネル", "動詞", "unsupported")] {
+        let a = analysis(
+            "寝る寝る",
+            vec![
+                token(0..6, "寝る", "ネル", "動詞", "下一段-ナ行"),
+                uncertain,
+            ],
+        );
+        let r = serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap();
+        assert_eq!(r["status"], "unassessable");
+        assert_eq!(r["completeness"], "partial");
+        assert_eq!(r["count"], 1);
+        assert_eq!(r["uncertainties"].as_array().unwrap().len(), 1);
+    }
 }
 #[test]
 fn boundary_components_never_prove_focus_and_invalid_analysis_is_not_sliced() {
@@ -144,19 +210,17 @@ fn boundary_components_never_prove_focus_and_invalid_analysis_is_not_sliced() {
             2 => a.units[0].token.part_of_speech.clear(),
             _ => a.units[0].token.span = 0..99,
         }
-        assert_eq!(
-            serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap()["status"],
-            "not_run"
-        );
+        let report = serde_json::to_value(assess_focus_occurrence(Some(&a), &context)).unwrap();
+        assert_eq!(report["status"], "not_run");
+        assert_eq!(report["completeness"], "not_run");
         assert_eq!(
             serde_json::to_value(assess_context_usage(Some(&a), &context)).unwrap()["status"],
             "not_run"
         );
     }
-    assert_eq!(
-        serde_json::to_value(assess_focus_occurrence(None, &context)).unwrap()["status"],
-        "not_run"
-    );
+    let report = serde_json::to_value(assess_focus_occurrence(None, &context)).unwrap();
+    assert_eq!(report["status"], "not_run");
+    assert_eq!(report["completeness"], "not_run");
 }
 #[test]
 fn boundary_context_membership_is_separate_from_permission_judgment() {

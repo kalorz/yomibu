@@ -173,6 +173,14 @@ pub enum FocusStatus {
     Unassessable,
     NotRun,
 }
+/// Completeness of the lexical observations, not a reading/sense judgment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FocusCompleteness {
+    Complete,
+    Partial,
+    NotRun,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OccurrenceEvidence {
@@ -202,6 +210,7 @@ pub struct LexicalUncertainty {
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct FocusOccurrenceReport {
     pub status: FocusStatus,
+    pub completeness: FocusCompleteness,
     pub count: usize,
     pub occurrences: Vec<FocusOccurrence>,
     pub uncertainties: Vec<LexicalUncertainty>,
@@ -237,13 +246,15 @@ pub struct ContextUsageReport {
 }
 
 /// Observe morphological occurrences independently of evaluator outcomes.
-/// Compatible spans survive uncertainty; neither reading nor sense is validated.
+/// Unrelated uncertainty limits completeness without overriding observed focus.
+/// Compatible spans survive focus uncertainty; neither reading nor sense is validated.
 pub fn assess_focus_occurrence(
     analysis: Option<&SentenceAnalysis<'_>>,
     context: &GenerationContext<'_>,
 ) -> FocusOccurrenceReport {
     let mut report = FocusOccurrenceReport {
         status: FocusStatus::NotRun,
+        completeness: FocusCompleteness::NotRun,
         count: 0,
         occurrences: Vec::new(),
         uncertainties: Vec::new(),
@@ -257,7 +268,7 @@ pub fn assess_focus_occurrence(
         return report;
     };
     let mut ambiguous = false;
-    let mut unassessable = false;
+    let mut focus_unassessable = false;
     for unit in &analysis.units {
         let token = &unit.token;
         if grammar_token(token) {
@@ -285,8 +296,8 @@ pub fn assess_focus_occurrence(
                     | LexicalUncertaintyReason::ReadingDisagreement
             ) {
                 ambiguous = true;
-            } else {
-                unassessable = true;
+            } else if potential {
+                focus_unassessable = true;
             }
             report.uncertainties.push(LexicalUncertainty {
                 span: token.span.clone(),
@@ -315,9 +326,18 @@ pub fn assess_focus_occurrence(
         .uncertainties
         .sort_by_key(|u| (u.span.start, u.span.end));
     report.count = report.occurrences.len();
+    report.completeness = if report.uncertainties.is_empty() {
+        FocusCompleteness::Complete
+    } else {
+        FocusCompleteness::Partial
+    };
     report.status = if ambiguous {
         FocusStatus::Ambiguous
-    } else if unassessable {
+    } else if focus_unassessable
+        || (report.count == 0 && report.completeness == FocusCompleteness::Partial)
+    {
+        // Unidentified lexical evidence may conceal a focus occurrence, so it
+        // cannot establish absence even when its dictionary form differs.
         FocusStatus::Unassessable
     } else if report.count > 0 {
         FocusStatus::Observed
