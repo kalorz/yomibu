@@ -124,6 +124,161 @@ Basic credential protection, timeouts, and safe persistence apply as soon as the
 respective I/O is introduced; 1c completes and exercises the failure paths rather
 than retrofitting unsafe foundations.
 
+## SHA-256 test-profile optimization — 2026-10-05
+
+Started `codex/test-sha2-profile` from freshly fetched `origin/main`
+`fce266e882febf764a468c17b9c127c89e3ec766`, containing merged PR #10.
+The checkout had no user edits; the existing worktree, branches and ignored
+`target/` artifacts were preserved. No reset, stash, clean or worktree removal
+was used. Read AGENTS, SPEC, ARCHITECTURE and this plan before editing.
+
+### Profile investigation and preserved verification
+
+`cargo test --locked --all --no-run -vv` builds the library, integration tests,
+ordinary CLI (`src/main.rs --crate-type bin`) and binary test harness
+(`src/main.rs --test`) under the **test** profile. Before the change they shared
+one unoptimized `sha2` artifact. After the change all linked the same new artifact,
+compiled with `-C opt-level=3 -C debuginfo=2 -C debug-assertions=on`.
+The integration tests launch `CARGO_BIN_EXE_yomibu`; G1/G2 binary child helpers
+and the Sudachi isolation probe relaunch `current_exe()`. Thus a test-only
+package override reaches both executable boundaries without a dev override.
+Yomibu and other dependencies keep their existing optimization levels.
+
+Added only `[profile.test.package.sha2] opt-level = 3`. `sha2` remains locked at
+0.10.9 with default/std features: its source selects software SHA-256 on aarch64
+without `asm`, while this x86_64 host has SHA-NI. No feature/dependency change
+or new hardware requirement is introduced. The adapter still checks exact length
+and SHA-256 of all 217,466,039 bytes before constructing Sudachi with
+`Storage::Owned(bytes)`. The dictionary hash remains
+`53fa281d11eef3769712fe1c3c892117338f9892bee6daf4dad51daa5281bb6f`.
+Analyzer/configuration pins, release configuration, Cargo.lock, all source/tests,
+CI runners/gates/cache/provider settings, frozen A1 records, prepared comparison
+fixtures/manifest/recipe and v1/v2 code pins remain unchanged.
+
+### Before/after measurements
+
+Baseline measurements completed **before editing Cargo.toml**. Both configurations
+ran sequentially on the same Linux/x86_64 cloud machine (AMD EPYC 9V74, five
+visible CPUs), pinned Rust/Cargo 1.98.1, dictionary bundle and cached dependency
+sources. No Rust flags/wrapper/target or test-thread override was set. Used
+separate fresh build directories `/tmp/yomibu-ci-sha2.ZNCgrU` and
+`/tmp/yomibu-ci-sha2-changed.ySzmft`, preserving existing artifacts. Commands were
+identical apart from `CARGO_TARGET_DIR`; no competing build/test ran during timing:
+
+```sh
+# Set CARGO_TARGET_DIR to a fresh directory for each configuration.
+time -p cargo test --locked --all --no-run -vv
+time -p cargo test --locked --test analyze_cli  # first prebuilt execution
+time -p cargo test --locked --test analyze_cli  # second prebuilt execution
+time -p cargo test --locked --all
+```
+
+| Local measurement | Baseline | sha2 test opt-level 3 |
+| --- | --- | --- |
+| Fresh full prebuild, shell wall time | 81.07s | 81.51s |
+| analyze_cli execution 1, libtest / shell wall | 72.80s / 73.14s | 5.96s / 6.29s |
+| analyze_cli execution 2, libtest / shell wall | 72.20s / 72.45s | 5.90s / 6.10s |
+| Full suite, summed libtest execution / shell wall | 202.31s / 203.89s | 28.93s / 30.26s |
+
+Each representative run passed all **15** tests; both full suites passed **195**
+including two doctests, with zero failures/ignored tests. Warm Cargo build checks
+took 0.14–0.23s, separately visible in logs. Summed libtest execution excludes
+compilation, Cargo/process overhead and doctest compilation; child-process time
+is already included in its parent test. Raw local logs remain under ignored
+`target/ci-sha2-profile-2026-10-05/`.
+
+The representative mean fell from 72.50s to 5.93s (about 92%); broader execution
+fell about 86%. Fresh compilation was essentially unchanged, slightly slower in
+this pair. This supports the narrow configuration change, without a compilation
+speedup claim, benchmark infrastructure or timing assertions. Linux hardware
+hashing and hosted runner variation prevent these numbers establishing a macOS
+improvement on their own.
+
+### Workflow, refactor review and checks
+
+This profile-only change is non-behavioral configuration under AGENTS.md: recorded
+before/after performance evidence replaces an artificial failing functional test.
+Explicit REFACTOR review covered simplification, duplication, naming, modelling,
+ownership/borrowing and idiomatic Rust. Kept the single package override and
+existing owned verified bytes, real CLI processes and same-size wrong-checksum
+regression. No production/test refactor, cache, bypass or new abstraction was
+justified. The changed representative executions and full suite passed after
+this review. SPEC and ARCHITECTURE contracts require no revision.
+
+Documented `python3 scripts/setup_a1_dictionary.py` verified the existing complete
+pinned bundle and both notices without a download; all nine offline installer
+tests passed. Initial default-sandbox Git access could not reach the proxy;
+fetch succeeded with the authorized command network capability. Rust tests used
+that capability for isolated loopback mocks, with no paid provider/live WaniKani
+call, learner/private evidence access or held-out rerun.
+
+All required local checks passed on pinned Rust 1.98.1:
+
+- `cargo fmt --check`
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`
+- `cargo test --locked --all` — 195 passed, none failed or ignored
+- `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`
+- `git diff --check`
+- `git diff --exit-code -- Cargo.lock`
+
+A separate `cargo build --locked -vv` passed and confirmed ordinary development
+builds still compile/link unoptimized sha2 (the original artifact metadata),
+without `-C opt-level=3`. No release settings were added or changed. Full diff
+review confirmed only Cargo.toml and developer/evidence documentation changed.
+
+### Hosted CI and draft delivery
+
+Committed/pushed `7eba14c42de06e52c6ee7f2ce87e4ab7d70f6cc9` and opened
+[draft PR #11](https://github.com/kalorz/yomibu/pull/11).
+[CI run 37328750596](https://github.com/kalorz/yomibu/actions/runs/37328750596)
+passed **every gate on Linux/x86_64 and macOS/arm64**. Both checkout logs confirm
+that exact pushed head in tested merge `356df10` with base `fce266e`.
+Each passed 195 Rust tests (including two doctests; none failed/ignored), nine
+installer tests, real pinned dictionary setup, all synthetic demonstrations,
+formatting, strict Clippy/rustdoc, whitespace and unchanged-lockfile checks.
+Both logs include the real dictionary mismatch and comparison-manifest regressions.
+
+Inspected two earlier unoptimized PR #10 runs, retaining both:
+[37293738878](https://github.com/kalorz/yomibu/actions/runs/37293738878) at
+`98e3df9` and [37296324473](https://github.com/kalorz/yomibu/actions/runs/37296324473)
+at `9da9f0a`. The former matches the reported approximately 7m19s macOS /
+3m51s Linux jobs. The latter is a faster macOS baseline before this change.
+All three runs used the same Ubuntu 24.04 and macOS 26 arm64 image versions and
+Rust 1.98.1. Earlier runs restored exact cache matches; changed jobs restored
+the previous dependency cache via fallback (`full match: false`), with no caching
+configuration change.
+
+| Run / OS (seconds) | Dictionary setup | Test compilation | Summed test execution | analyze_cli | Test step | Job wall |
+| --- | --- | --- | --- | --- | --- | --- |
+| Earlier baseline / Linux | 5.67 | 17.48 | 167.63 | 63.71 | 185.83 | 230.90 |
+| Earlier baseline / macOS | 5.10 | 23.58 | 353.32 | 153.05 | 380.38 | 438.53 |
+| Later baseline / Linux | 5.15 | 17.56 | 167.62 | 64.49 | 185.95 | 228.34 |
+| Later baseline / macOS | 4.48 | 16.87 | 266.03 | 111.90 | 285.48 | 332.79 |
+| Changed 7eba14c / Linux | 6.58 | 11.85 | 19.71 | 3.04 | 32.18 | 88.19 |
+| Changed 7eba14c / macOS | 4.93 | 27.80 | 55.69 | 18.74 | 88.48 | 177.02 |
+
+Compilation comes from Cargo's Finished-test summary; execution sums libtest
+durations. Step/job wall times use log boundaries, excluding queueing. Dictionary
+setup includes the nine installer tests. Doctest compilation and process/Cargo
+overhead remain in the test step, outside the summed execution column.
+
+Observed macOS execution fell about 79% relative to the later baseline (about
+84% relative to the earlier one), while test compilation **increased 10.93s**.
+Its job fell from about 5m33s to 2m57s. Linux execution fell about 88%; its
+Clippy step rose from 3.60s to 22.33s with fallback cache reuse, despite faster
+test compilation. Setup remained a small part of both jobs. This is evidence of
+an observed macOS CI improvement, separately from the controlled local Linux
+comparison. Hosted machines/load were not controlled: the two macOS baselines
+already differ substantially. No fixed runtime or compilation improvement is
+promised. Ordinary development-profile demonstrations still pay their unchanged
+dictionary startup cost. Final documentation-head CI is recorded on the PR.
+
+Rust note for a Ruby developer: Cargo profiles select compiler settings, not
+dependency versions. A package override optimizes that crate's hashing while
+keeping application debugging and runtime ownership intact. A test-built CLI
+uses the test profile even though it is an ordinary executable; child processes
+do not automatically rebuild it or change its profile.
+
 ## G2 lexical boundary follow-up — 2026-10-05
 
 Started new branch `codex/g2-vocabulary-boundary` from fetched `origin/main`
