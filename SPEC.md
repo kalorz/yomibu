@@ -30,7 +30,10 @@ include web applications, native applications, and an MCP server.
 2. Accept explicit practice targets; later select targets using WaniKani
    difficulty and Yomibu mistakes.
 3. Retrieve structured lexical information and examples for the targets.
-4. Generate two short, coherent candidate passages in one LLM request.
+4. Generate two short, coherent candidate passages from the prepared constraints.
+   Prefer reliable offline construction where it meets the reading-quality needs;
+   model generation is a bounded, explicitly authorized component. G1 and G2
+   retain their existing single-call experimental contracts.
 5. Analyze candidates, run explicit constraint checks, and include a minimal
    naturalness/coherence review in the first usable generation milestone. Select
    an acceptable candidate and use bounded repair only when none are acceptable.
@@ -56,13 +59,20 @@ learning state so policy can evolve independently. Later validation must address
 inflections, particles, lexical ambiguity, and words absent from WaniKani.
 Membership checks alone cannot establish complete linguistic correctness.
 
-Comfortable, enjoyable reading is a product goal to evaluate with learner
-feedback, not a property established by a validator score. Separate mandatory
-constraints from quality ranking: a high soft score cannot compensate for a
-failed mandatory check. A completed check returns pass, fail, or inconclusive;
-execution errors and checks not run are separate states. Missing analysis is not
-evidence of correctness. An inconclusive mandatory check must be resolved through
-an explicitly supported assessment or prevent acceptance, never silently pass.
+The primary learner outcome is **"WOW! I CAN READ JAPANESE!!"**: understanding
+meaningful Japanese built from familiar language. Evaluate comprehension,
+reading friction and enjoyment with learner feedback, not a validator score.
+Prefer reliable offline work in preparation, generation, validation and narrowly
+defined repair; AI is one component, not the authority for permissions or
+correctness. This direction does not authorize new repair or acceptance behavior
+in G1 or G2.
+
+Separate mandatory constraints from quality ranking: a high soft score cannot
+compensate for a failed mandatory check. A completed check returns pass, fail, or
+inconclusive; execution errors and checks not run are separate states. Missing
+analysis is not evidence of correctness. An inconclusive mandatory check must be
+resolved through an explicitly supported assessment or prevent acceptance, never
+silently pass.
 
 ### Intended readings and senses
 
