@@ -28,8 +28,11 @@ use yomibu::{
 
 mod analyze;
 mod cli_support;
+mod focused;
 mod generate;
 
+#[cfg(test)]
+mod focused_tests;
 #[cfg(test)]
 mod generate_tests;
 
@@ -40,7 +43,7 @@ mod generate_tests;
     about = "Generate experimental candidates, analyze supplied text, prepare practice context, preview entries, or sync/inspect WaniKani (unofficial tool)"
 )]
 struct Cli {
-    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze/generate-candidates).
+    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze/generate-candidates/context-preview/generate-focused).
     #[arg(long, global = true, value_name = "PATH")]
     data_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -49,6 +52,31 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Inspect focused selection and exact request content entirely offline.
+    ContextPreview {
+        /// Version-1 explicit vocabulary/grammar permissions (at most 4 MiB).
+        #[arg(long, value_name = "PATH")]
+        permissions: PathBuf,
+        /// Positive one-based full-inventory entry number; tuples stay associated.
+        #[arg(long, value_name = "N")]
+        focus_entry: std::num::NonZeroUsize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Select focused context and request two experimental sentences in one attempt.
+    GenerateFocused {
+        #[arg(long, required = true)]
+        allow_model_call: bool,
+        #[arg(long, value_name = "PATH")]
+        permissions: PathBuf,
+        #[arg(long, value_name = "N")]
+        focus_entry: std::num::NonZeroUsize,
+        /// Explicit path to the pinned SudachiDict Core 20260723 V0 dictionary.
+        #[arg(long, value_name = "PATH")]
+        dictionary: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Request two experimental sentences from OpenAI; never accepted exercises.
     GenerateCandidates {
         /// Authorize one paid model attempt sending the supplied permissions/grammar.
@@ -159,6 +187,34 @@ fn run(
     make_client: impl FnOnce(&str) -> Result<OpenAiClient, ProviderError>,
 ) -> anyhow::Result<()> {
     match cli.command {
+        Command::ContextPreview {
+            permissions,
+            focus_entry,
+            json,
+        } => focused::run(
+            &permissions,
+            focus_entry.get(),
+            None,
+            json,
+            make_client,
+            &mut io::stdout().lock(),
+        )
+        .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
+        Command::GenerateFocused {
+            permissions,
+            focus_entry,
+            dictionary,
+            json,
+            ..
+        } => focused::run(
+            &permissions,
+            focus_entry.get(),
+            Some(&dictionary),
+            json,
+            make_client,
+            &mut io::stdout().lock(),
+        )
+        .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
         Command::GenerateCandidates {
             dictionary,
             input,

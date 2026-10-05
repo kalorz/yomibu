@@ -361,7 +361,7 @@ fn check_vocabulary(analysis: &SentenceAnalysis<'_>, bindings: &EvaluationBindin
     }
 }
 
-fn reading_matches(word: &VocabularyEntry, token: &Token, text: &str) -> bool {
+pub(crate) fn reading_matches(word: &VocabularyEntry, token: &Token, text: &str) -> bool {
     if token.part_of_speech[0] == "動詞" && surface(token, text) != token.dictionary_form {
         regular_stem(&word.reading, token).is_some_and(|reading| reading == token.reading)
     } else {
@@ -390,7 +390,7 @@ fn polite_form(tokens: &[&Token], text: &str) -> Option<GrammarRule> {
     }
 }
 
-fn regular_stem(base: &str, token: &Token) -> Option<String> {
+pub(crate) fn regular_stem(base: &str, token: &Token) -> Option<String> {
     let class = &token.part_of_speech[4];
     if class.starts_with("五段-") {
         godan_stem(base)
