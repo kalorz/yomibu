@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "grammar": [
+    "は — topic marker",
+    "を — direct object",
+    "ます — polite nonpast"
+  ],
+  "bindings": {
+    "vocabulary": [
+      {
+        "written_form": "読む",
+        "reading": "ヨム",
+        "sense": "read",
+        "direct_object": true
+      },
+      {
+        "written_form": "学生",
+        "reading": "ガクセイ",
+        "sense": "student",
+        "direct_object": false
+      },
+      {
+        "written_form": "本",
+        "reading": "ホン",
+        "sense": "book",
+        "direct_object": false
+      },
+      {
+        "written_form": "先生",
+        "reading": "センセイ",
+        "sense": "teacher",
+        "direct_object": false
+      },
+      {
+        "written_form": "猫",
+        "reading": "ネコ",
+        "sense": "cat",
+        "direct_object": false
+      }
+    ],
+    "grammar": [
+      {
+        "declaration_id": 1,
+        "rule": "TopicWa"
+      },
+      {
+        "declaration_id": 2,
+        "rule": "ObjectWo"
+      },
+      {
+        "declaration_id": 3,
+        "rule": "PoliteNonPast"
+      }
+    ]
+  }
+}

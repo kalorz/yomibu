@@ -82,10 +82,10 @@ explicit provider attempt and local assessment of both candidates; it does not
 authorize purchases, live calls, accepted exercises or another linguistic review.
 
 On 2026-10-05, G2 adds focused offline selection, optional request preview and
-one-command experimental generation. Implementation is complete for draft review,
-with full real-dictionary verification in Linux/macOS CI. The cloud workspace
-now also has the real pinned dictionary after fresh-environment setup resolved
-the initial download restriction; the follow-up verification is recorded below.
+one-command experimental generation, now merged in PR #9. The lexical-boundary
+follow-up changes the focused prompt to v2 and prepares a bounded v1/v2 comparison,
+with all required local checks passing. Paid calls remain pending authorization.
+Historical G2 Linux/macOS verification and dictionary-setup results remain below.
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
@@ -113,7 +113,8 @@ development dependency. Proptest remains deferred.
 | A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
 | Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
 | G1 — Experimental sentence candidates | Complete for review; user-run live smoke passed | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; user-supplied dog/cat smoke report; partial-result preservation; no exercise acceptance |
-| G2 — Focused experimental context | Complete for draft review | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; fresh cloud dictionary setup resolves the initial download restriction; no live call or linguistic acceptance |
+| G2 — Focused experimental context | Merged in PR #9 | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; fresh cloud dictionary setup resolves the initial download restriction; no live call or linguistic acceptance |
+| G2 lexical boundary | Implemented; comparison not run | Compiled v2 selected-content-word restriction and fixed v1/v2 comparison recipe/artifacts | 194 local Rust tests and required gates pass; offline release request reproduction verified; paid calls require separate approval |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -163,7 +164,38 @@ The [comparison recipe](docs/G2_COMPARISON.md) fixes three public synthetic inpu
 two repetitions/version, 12 alternating attempts, exact bodies/hashes, original
 permissions, separate report dimensions and a refreshed official-pricing estimate.
 Paid calls remain unauthorized; no live comparison or improvement claim exists.
-Final verification and delivery are recorded below after execution.
+
+### Local verification and comparison preparation
+
+Pinned Rust 1.98.1 on Linux/x86_64 passed all required checks:
+`cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**194 tests including two doctests, zero failures or
+ignored tests**), `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`,
+`git diff --check`, and `git diff --exit-code -- Cargo.lock`. The ordinary suite
+used real pinned Sudachi plus isolated loopback HTTP mocks, with explicit command
+network capability. No external provider request or private evidence was used.
+A test-list audit confirms 194 entries; it is not another test run.
+
+Comparison preparation built baseline/current code in isolated checkouts and
+ran all six offline previews against the same three fixed inputs. Independently
+checked all exact request bytes/hashes, then ran the documented offline recipe
+with isolated pinned release builds successfully. Decoded request comparison confirms only
+developer prompt content differs. Predetermined order is two repetitions of
+pet-rest, pet-walk and book-reading, each v1 then v2, for at most 12 attempts and
+24 candidates. The existing output limit remains 1,024 tokens per attempt.
+The 2026-10-05 official pricing refresh estimates US$0.0454656 total before tax
+using a conservative input allowance; this is not an enforced billing cap.
+Raw results are planned under ignored `target/g2-comparison/2026-10-05-v1-v2/`.
+The comparison is **not run**: explicit paid authorization is pending and no
+`OPENAI_API_KEY` is available in this environment. No adherence improvement is
+claimed. Recipe syntax/links and frozen/provider/evaluator preservation were
+reviewed; final-head Linux/macOS CI results will be recorded on the draft PR.
+
+Rust note for a Ruby developer: `concat!` joins the instruction groups at compile
+time, so this readable source still supplies one immutable string, without a
+runtime prompt framework. Borrowed full inputs and owned prepared bytes continue
+to keep generation restrictions separate from evaluation permissions.
 
 ## G2 — focused experimental context, 2026-10-05
 
