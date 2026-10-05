@@ -82,8 +82,9 @@ explicit provider attempt and local assessment of both candidates; it does not
 authorize purchases, live calls, accepted exercises or another linguistic review.
 
 On 2026-10-05, G2 adds focused offline selection, optional request preview and
-one-command experimental generation. Implementation is prepared for draft review;
-real analyzer verification in the cloud is blocked on the dictionary prerequisite.
+one-command experimental generation. Implementation is complete for draft review,
+with full real-dictionary verification in Linux/macOS CI. The cloud workspace
+retains a documented local dictionary-download restriction.
 
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
@@ -111,7 +112,7 @@ development dependency. Proptest remains deferred.
 | A1 — Bounded offline analysis evaluation | Complete — no-go | Pinned real adapter, synchronous bounded checks, thin example; frozen visible/held-out evaluation and private scoring | Held-out targets met; 3 unsupported challenge Pass results fail the safeguard; one exact-span discrepancy retained; no accepted exercises |
 | Offline analyze CLI | Complete | `analyze --dictionary PATH --input PATH [--json]` with bounded ordinary input | 13 real-adapter CLI tests; CLI/library agreement, all completed outcomes, original spans/provenance, safe presentation, explicit errors and offline isolation; required locked gates passed |
 | G1 — Experimental sentence candidates | Complete for review; user-run live smoke passed | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; user-supplied dog/cat smoke report; partial-result preservation; no exercise acceptance |
-| G2 — Focused experimental context | Implemented for draft review; real-dictionary verification pending | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Offline/loopback tests and static gates pass; local full suite explicitly fails on missing pinned dictionary; no live call or linguistic acceptance |
+| G2 — Focused experimental context | Complete for draft review | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; local download restriction recorded; no live call or linguistic acceptance |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -211,8 +212,9 @@ subsequent `--no-fail-fast` run completed the remaining targets to expose all
 prerequisite failures. Eight targets failed (33 tests) on the absent dictionary:
 the binary, analyze CLI, evaluation, focused generation, G1 CLI, OpenAI integration,
 Sudachi and A1 example. These failures are not waived or counted as green.
-MacOS checks were not run locally. Engineering acceptance remains pending real
-pinned-dictionary verification; a draft review is not a claim of completion.
+macOS checks were not run locally. At this local checkpoint real pinned-dictionary
+verification remained pending; the subsequent hosted results below resolve that
+engineering-verification gap without substituting an analyzer or waiving tests.
 
 Reviewed unchanged Cargo dependencies/lockfile, toolchain and analyzer/dictionary/
 configuration pins, `App`, stores, knowledge policy and preparation. Evaluator
@@ -220,6 +222,25 @@ changes are only `pub(crate)` visibility for reading/stem helpers. Preserve A1's
 historical no-go, 24/24 outcomes, 120/120 judgments, 11/12 exact negative reason/span
 matches and the object-combination safeguard. New tests are engineering evidence,
 not revised A1 results or validated Japanese.
+
+### Hosted verification and draft delivery
+
+Committed implementation `565be18d55a79f2e0e1c6829d31e60fcd51c0bfb`, pushed
+`codex/g2-focused-context` and opened attached [draft PR #9](https://github.com/kalorz/yomibu/pull/9).
+The repository's unchanged [CI run 37271053313](https://github.com/kalorz/yomibu/actions/runs/37271053313)
+passed on both `ubuntu-latest` and `macos-latest`. Each runner explicitly installed
+and checksum-verified the real pinned dictionary. Each passed **190 Rust tests,
+including two doctests, with zero failures or ignored tests**, plus the dictionary
+setup tests, strict formatting/Clippy/rustdoc, synthetic demonstrations, diff and
+lockfile checks. This includes G2 real candidate composition, full-permission
+comparison, original Fail spans, partial results, morphological occurrence and
+object-safeguard tests, as well as unchanged G1/analyze regressions.
+
+The final documentation-only follow-up records these results; implementation and
+test sources are unchanged from the verified commit. The local publisher-host
+allowlist restriction still exists and is not presented as a local full-suite
+pass. No dictionary was retrieved from CI into the restricted workspace. No live
+provider call, merge or purchase occurred; the PR remains a draft.
 
 ## G1 — experimental single-sentence candidates, 2026-10-04
 
