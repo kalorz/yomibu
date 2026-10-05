@@ -2053,6 +2053,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "libc",
+ "memmap2",
  "reqwest",
  "serde",
  "serde_json",

@@ -394,9 +394,9 @@ fn argument_errors_use_a_trusted_executable_name_in_usage() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
-    let error = assert_error(output, "\n  --dictionary <PATH>\n  --input <PATH>\n");
+    let error = assert_error(output, "\n  --input <PATH>\n");
     assert!(
-        error.contains("\n\nUsage: yomibu analyze --dictionary <PATH> --input <PATH>\n"),
+        error.contains("\n\nUsage: yomibu analyze --input <PATH>\n"),
         "{error:?}"
     );
 }
@@ -432,10 +432,13 @@ fn invalid_bindings_are_execution_errors_in_both_output_modes() {
 }
 
 #[test]
-fn dictionary_and_input_paths_are_required_and_dictionary_errors_have_no_report() {
+fn input_path_is_required_and_explicit_dictionary_errors_have_no_report() {
     let dir = tempfile::tempdir().unwrap();
     for (args, missing) in [
-        (vec!["analyze", "--input", "input.json"], "--dictionary"),
+        (
+            vec!["analyze", "--input", "input.json"],
+            "explicitly supplied analysis input",
+        ),
         (vec!["analyze", "--dictionary", "missing.dic"], "--input"),
     ] {
         assert_error(

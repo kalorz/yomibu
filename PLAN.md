@@ -87,6 +87,12 @@ follow-up changes the focused prompt to v2 and prepares a bounded v1/v2 comparis
 with all required local checks passing. Paid calls remain pending authorization.
 Historical G2 Linux/macOS verification and dictionary-setup results remain below.
 
+On 2026-10-05 the user approved managed dictionary loading after a separate plan.
+Implementation and local Linux verification are complete: explicit fully verified
+offline import, atomic generation publication, managed mapping and strict external
+owned loading share one analyzer. The delivery, TDD, safety contract and controlled
+release measurements are recorded at the end of this document.
+
 The 2026-09-30 naming follow-up adopts the design vocabulary in `SPEC.md` and
 renames the existing sync-data type. It does not start a new product milestone.
 
@@ -115,6 +121,7 @@ development dependency. Proptest remains deferred.
 | G1 — Experimental sentence candidates | Complete for review; user-run live smoke passed | Explicit single OpenAI attempt, immutable pair, independent pinned local assessment and safe reports | Local HTTP/real-analyzer tests and required gates passed; user-supplied dog/cat smoke report; partial-result preservation; no exercise acceptance |
 | G2 — Focused experimental context | Merged in PR #9 | Deterministic selector, offline optional preview, selected-only bounded transmission and separate focus/context evidence | Full Linux/macOS CI passes with real pinned dictionary; 190 Rust tests per platform; fresh cloud dictionary setup resolves the initial download restriction; no live call or linguistic acceptance |
 | G2 lexical boundary | Implemented; comparison not run | Compiled v2 selected-content-word restriction and fixed v1/v2 comparison recipe/artifacts | 195 local Rust tests and required gates pass; all three current comparison requests/manifest checked in CI; offline release request reproduction verified; paid calls require separate approval |
+| Managed dictionary loading | Implemented; locally verified | Explicit verified offline import/update, mapped managed startup and fully verified external snapshots | 217 locked Rust tests and nine installer tests pass on Linux; release CLI measurements below; macOS/hosted verification not run for this revision |
 
 Implementation steps use small Red-Green-Refactor cycles (see `AGENTS.md`). Tests
 accompany behavior, beginning with a confirmed failing test, rather than being
@@ -2375,3 +2382,178 @@ work requires separate authorization:
 Bunpro, JMdict, external corpora, web/native/MCP interfaces, PostgreSQL, and vector
 retrieval remain conditional future work. Revisit them only when a concrete
 product or retrieval need justifies their cost.
+
+## Managed dictionary loading — implementation, 2026-10-05
+
+The user approved implementation after reviewing the plan. Started the isolated
+`codex/managed-sudachi-dictionary` worktree at `/workspace/yomibu-managed` from
+freshly fetched `origin/main` `fce266e882febf764a468c17b9c127c89e3ec766`.
+The original `/workspace/yomibu` worktree, `work` branch and ignored artifacts
+remain unchanged. No reset, stash, clean or worktree removal occurred. The new
+worktree's ignored `target/a1` refers to the existing verified developer bundle;
+the Rust importer copies it into separate managed storage.
+
+PR #11 remained open/unmerged at corrected head
+`a1e82b5e15e03c9c5466f3b335ea5b5f892a3982`; its Linux/macOS current-head CI run
+37331138136 passed. This branch does not change test profiles or that PR's branch.
+Repository/session Git identities were checked, with repository-local configuration
+kept outside tracked files.
+
+### Final behavior and safety
+
+`dictionary import --bundle PATH [--dictionary-dir PATH]` copies the dictionary
+and both publisher notices, fully verifies destination lengths/SHA-256 pins,
+synchronizes files/directories/ancestor entries and atomically publishes one
+complete generation. Reimport creates new files; old generations are retained.
+Writer exclusion uses a persistent standard-library advisory file lock. Failure
+before manifest replacement preserves the old selection; failed synchronization
+after replacement returns a distinct uncertain-durability error.
+
+Normal dictionary-backed CLI commands use `$HOME/.yomibu/dictionaries` or explicit
+`--dictionary-dir`. Startup checks bounded records, compiled pins, private OS
+ownership/permissions, regular non-symlink/non-hardlinked files, exact sizes and
+the system header/`20260723` description, then maps the same checked handle.
+Explicit `--dictionary PATH` always performs full verification into owned bytes.
+The policies share one embedded-configuration constructor, tokenizer and evaluator.
+One analyzer is reused throughout each command. Generation preflight/settings,
+preview independence and offline analysis remain intact.
+
+The mapping contract is conditional: actual full installation verification and
+unchanged dictionary bytes for the analyzer lifetime. Receipts are not signatures;
+metadata, read-only modes and Linux/macOS advisory locks cannot prove immutability.
+Arbitrary external writes/truncation can invalidate mmap-backed access. This does
+not retain the owned-buffer guarantee against such writes. The public managed
+constructor is `unsafe` so Rust callers must uphold these obligations explicitly.
+Managed provenance reports installation-time verification, startup checks and
+file stability; its checksum identifies the expected pin. Owned JSON keeps its
+existing serialized shape. See [dictionary usage/safety](docs/DICTIONARY.md).
+
+Direct dependencies on already-locked `memmap2 0.9.11` and `libc 0.2.189` permit
+mapping the checked handle and performing effective-UID/no-follow/nonblocking
+checks. The lockfile review confirms only two root dependency edges were added:
+every other package/version/checksum/dependency record is identical. No analyzer,
+dictionary, embedded configuration, feature, provider, runner or caching upgrade.
+
+### Observed Red–Green–Refactor
+
+| Cycle | Observed RED | GREEN and explicit refactor review |
+| --- | --- | --- |
+| Verified installation boundary | Integration tests could not import the missing managed-installation API. | Copy/verify complete pinned bundles and publish separate generations; arbitrary directories fail. Reviewed concrete receipt/selection shapes and kept the developer installer separate. |
+| Writer coordination and durability | A second importer published while a lock was held; final sync failure reported an ordinary I/O failure. | RAII writer reservation and distinct post-publication uncertainty; tiny real-filesystem fault tests pass. Reviewed guard lifetime, descriptor inheritance, retained bundles and error meaning. |
+| Managed checks | Wrong headers, symlinked paths, writable files/shared roots were accepted. | Same-handle header/length checks and private ownership/type/no-follow checks; all regressions pass. Reviewed the limits of permissions/receipts instead of claiming immutability. |
+| Mapping and provenance | Equivalence test could not call the absent managed loader. | Map the checked handle, share embedded construction, report installation verification. Tokenization/evaluation agree across policies; old mapped readers survive publication, and owned readers survive source truncation. Reviewed storage lifetime, borrowing and report compatibility. |
+| Notices and CLI | Missing notices were accepted at startup; executable tests rejected the missing dictionary command and managed options. | Cheap notice checks, explicit offline import/verify, shared CLI source selection and truthful reports. All new executable tests pass. Reviewed safe diagnostics, HOME/preflight ordering and common rendering. |
+| Ancestor durability and retry | Injected ancestor sync failure did not prevent first publication; retry with already-created directories also bypassed this boundary. | Synchronize ancestor entries even after interrupted setup; pre-publication failure tests pass. Reviewed and simplified retry logic, without inferring durability from metadata. |
+
+Private filesystem checkpoints are test infrastructure, with no runtime switches.
+Process-kill tests cover copy, file sync, bundle/manifest publication and final
+sync boundaries, complete visible bundles and lock release. They do not simulate
+power loss. Further coverage of existing behavior required no artificial RED:
+both generation commands use local mock HTTP services; focused generation sends
+the exact preserved v2 request fixture. Existing executable-boundary tests remain.
+
+Final REFACTOR review covered production/tests for simplification, duplication,
+naming, modelling, ownership/borrowing and idiomatic Rust. Kept one concrete
+adapter and common storage constructor/CLI loader; no analyzer trait or service
+hierarchy was justified. Removed the magic suffix slice in favor of checked
+prefix removal. Subsequent focused tests and the final full suite passed.
+
+### Verification and preservation
+
+Pinned Rust/Cargo 1.98.1 on Linux/x86_64 passed:
+
+- `cargo fmt --check`
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`
+- `cargo test --locked --all`: **217 passed**, none failed/ignored, including two
+  doctests. The full suite passed before and after the final ancestor retry fix.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`
+- Nine existing offline Python installer tests and documented setup, which fully
+  verified the existing dictionary/notices without downloading.
+- Existing preview CLI/library, prepare library and A1 smoke demonstrations, plus
+  managed import/verify/analyze demonstrations. Synthetic smoke is not scored A1.
+- Whitespace review and intentional lockfile review; locked checks leave the
+  reviewed lockfile byte-identical. The existing CI lockfile/whitespace gates remain.
+
+An inventory/hash audit preserves all 39 protected tracked files: frozen A1
+documents/fixtures, comparison manifest/requests/recipe, embedded configuration,
+provider adapter code, both Python installer files, toolchain and CI workflow.
+Comparison code pins `818dda5e6897e4d8ab729ed9198e5070d16af50b` and
+`6c5e1343ca6583fc76211c6a757ec0070f5e7325` remain unchanged. No scored holdout,
+private reference material, paid provider call or merge was involved. Native
+macOS and hosted CI were not run for this implementation; existing matrix/gates
+are unchanged.
+
+### Before/after release execution measurements
+
+The exploratory Linux probe observed owned/full-hash loading at 260–360 ms and
+about 237 MiB peak RSS, versus managed mapped loading at 24–67 ms and about 56 MiB;
+mapped/full-hash loading still reached about 237 MiB. Its roughly 207 MiB anonymous
+memory reduction is exploratory Linux evidence, not macOS results or a guarantee
+for larger workloads.
+
+Built the unmodified main release executable before application edits, separately
+from execution. Ten initial warm-cache baseline processes had median wall time
+216.3 ms and identical output hashes. Then prebuilt the final candidate release
+executable. Build durations are not a controlled compilation comparison: builds
+overlapped unrelated verification work. No compilation improvement is claimed.
+
+Final measurements used the same Linux/x86_64 machine, Rust/Cargo 1.98.1, pinned
+dictionary, embedded configuration and public `tests/fixtures/analyze/nominal.json`.
+Both executables and dictionary files were on overlayfs; the baseline copy was
+byte-identical to the original before-edit executable. No competing build/test
+ran during these measurements. One unmeasured warm-up per case preceded ten
+fresh processes/case, ordered baseline → external → managed for each repetition.
+Filesystem cache was warm; no controlled cold-cache experiment was performed.
+
+```sh
+# Direct prebuilt executions, no cargo/compiler during measurements:
+target/dictionary-startup-2026-10-05/baseline-yomibu analyze \
+  --dictionary /workspace/yomibu/target/a1/current/system_core.dic \
+  --input /workspace/yomibu/tests/fixtures/analyze/nominal.json --json
+target/release/yomibu analyze \
+  --dictionary /workspace/yomibu/target/a1/current/system_core.dic \
+  --input /workspace/yomibu/tests/fixtures/analyze/nominal.json --json
+target/release/yomibu analyze \
+  --dictionary-dir /workspace/yomibu-managed/target/dictionary-startup-2026-10-05/managed \
+  --input /workspace/yomibu/tests/fixtures/analyze/nominal.json --json
+```
+
+| Final overlayfs executions, ten/case | Wall median (range), ms | Peak RSS median (range), MiB |
+| --- | ---: | ---: |
+| Baseline owned/full SHA | 232.0 (224.9–266.2) | 240.1 (239.9–240.3) |
+| Candidate external owned/full SHA | 234.5 (218.7–249.1) | 238.7 (238.7–238.8) |
+| Candidate managed mapping | 17.9 (16.7–24.4) | 62.1 (62.0–62.3) |
+
+Wall time includes process launch, initialization, analysis and JSON output to a
+file. Linux `wait4` supplies per-process user/system time and kernel peak RSS in
+KiB, converted to MiB; compilation and import/verification are excluded. All 30
+executions succeeded. External reports are byte-identical to baseline; managed
+reports match after removing only the explicit loading-provenance field.
+
+Separate diagnostic processes (five/case) sampled `/proc/PID/smaps_rollup`, with
+a requested 1 ms sleep plus sampling overhead. Median sampled maximum anonymous
+RSS was **234.8 / 234.1 / 27.5 MiB** for baseline/external/managed. Corresponding
+non-anonymous resident pages (`Rss - Anonymous`) were **5.3 / 4.0 / 29.3 MiB**;
+file PSS maxima were **4.9 / 3.5 / 28.8 MiB**, with zero shared-memory PSS in the
+final runs. These samples may miss brief peaks; maxima are separate observations
+and must not be summed or substituted for kernel peak RSS.
+
+An earlier measurement round placed managed files/baseline executable on tmpfs;
+Linux classified those mapped pages as shared memory. Those observations are
+retained separately rather than mixed into the final file-backed comparison.
+The final results show about 92% lower median CLI wall time and roughly 207 MiB
+less anonymous residency for this short warm-cache workload. They are not
+whole-host memory savings, macOS measurements, cold-cache results or runtime/
+memory guarantees for larger workloads. File-backed pages can be shared/reclaimed;
+full hashing still touches every page.
+
+Temporary measurement drivers are outside Git; no persistent benchmark framework
+or timing-threshold tests were added. Raw logs/results and the copied baseline
+are retained under ignored `target/dictionary-startup-2026-10-05/` and
+`/tmp/yomibu-managed-measurements/`.
+
+Rust notes for a Ruby developer: one upstream storage enum retains either owned
+bytes or a mapping. Borrowed shared analyzer references reuse it without copying
+217 MB. RAII scopes the writer lock; typed errors preserve whether publication
+happened. The managed constructor's `unsafe` contract makes external file-stability
+obligations explicit instead of suggesting the borrow checker proves them.

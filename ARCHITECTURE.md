@@ -107,8 +107,9 @@ For the current CLI:
 
 1. Parse the command. Resolve a data directory for sync/status/prepare; only `sync`
    resolves the WaniKani token. Preview parses structured entries and directly
-   calls the synchronous library operation described below. Analyze uses only
-   its explicit input/dictionary paths and the synchronous composition below.
+   calls the synchronous library operation described below. Analyze validates
+   explicit input, then selects an external dictionary or a managed installation.
+   Only managed selection resolves its dictionary directory's HOME default.
 2. For sync/status, construct `FileLearningStore` for that directory and `App`.
    For `sync`, supply the WaniKani client as the source. `status` needs no source
    or HTTP client.
@@ -388,13 +389,36 @@ stdout presentation and successful exit status.
 Errors propagate outside completed judgments, and no evaluation is printed when
 input, dictionary initialization, analysis, or evaluation fails.
 
-The branch in `main.rs` resolves no environment, store, source or runtime. The
-explicit dictionary load remains the existing adapter's owned, checksum-pinned
-operation. There is no implicit setup or file discovery. The research harness
+The branch in `main.rs` constructs no learner store, source or runtime. Explicit
+`--dictionary` remains the owned, checksum-pinned operation; otherwise managed
+selection resolves its directory's HOME default. There is no implicit setup,
+ambient analyzer configuration or learner-file discovery. The research harness
 `examples/a1.rs` and its frozen packet contract stay separate and unchanged.
 This CLI does not revise A1's historical no-go or the later object-combination
 restriction. Real-adapter subprocess tests compare CLI output to direct library
 evaluation and check errors, spans, escaping and absence of writes.
+
+## Managed dictionary composition
+
+`adapters::dictionary` owns explicit offline import, full verification and
+selection of one published generation. It checks bounded records, filesystem
+ownership/type/permissions and the pinned header/length. `adapters::sudachi`
+keeps one storage backend alive and constructs the same JapaneseDictionary with
+embedded configuration/character definitions for owned and mapped bytes. Its
+`unsafe load_managed` API documents installation verification and lifetime-long
+file stability as caller obligations; receipts/checks do not prove immutability.
+
+Binary-private `dictionary::DictionaryArgs` shares resource selection among
+analyze and both generation commands after their existing preflight. Environment
+resolution remains executable-only. One analyzer is reused for the command;
+analysis/evaluation and candidate assessment have no storage-policy branches.
+Both policies can serve future sessions/servers without a new analyzer trait.
+
+Import copies into private staging, verifies the exact destination dictionary
+and notices, synchronizes completed storage and atomically switches `current`.
+The standard-library writer lock coordinates importers only. Published generations
+are retained and never edited in place. Post-publication sync failure is distinct
+from pre-publication failure. See [dictionary safety](docs/DICTIONARY.md).
 
 ## G1 experimental candidate composition
 

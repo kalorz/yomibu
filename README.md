@@ -187,6 +187,29 @@ and two concrete policy choices.
 
 ## Analyze one supplied sentence offline
 
+For normal use, explicitly import a verified bundle once, then use the managed
+dictionary default. The existing developer installer supplies the publisher
+bundle; only its explicit setup command may download:
+
+```sh
+python3 scripts/setup_a1_dictionary.py
+cargo run --release --locked -- dictionary import --bundle target/a1/current
+cargo run --release --locked --offline -- analyze --input tests/fixtures/analyze/nominal.json
+cargo run --release --locked --offline -- dictionary verify
+```
+
+Managed storage defaults to `$HOME/.yomibu/dictionaries`; `--dictionary-dir PATH`
+selects another private installation. Import copies and fully verifies the
+dictionary and both notices. Normal startup checks installation records, sizes
+and the dictionary header, then memory maps the checked file. Published files
+must remain unchanged: reimport publishes a new generation and retains old ones.
+Permissions and advisory locks cannot prevent arbitrary external writes.
+See [dictionary installation and safety](docs/DICTIONARY.md).
+
+Explicit `--dictionary PATH` retains full SHA-256 verification and owned bytes,
+including paths inside managed storage. Use it for external files and recorded
+reproducibility experiments. Existing developer examples remain:
+
 ```sh
 # Explicit setup only if the pinned dictionary is not already installed:
 python3 scripts/setup_a1_dictionary.py
@@ -259,8 +282,8 @@ stdout, including with `--json`.
 Argument errors retain readable usage/help lines while escaping supplied values;
 usage and help always name the executable `yomibu`.
 
-The dictionary path is mandatory. Missing or unpinned dictionaries fail explicitly.
-Analysis reads only the supplied input and dictionary files; it needs no HOME,
+An explicit external dictionary path needs no HOME. With that selection, analysis
+reads only the supplied input and dictionary files; it needs no HOME,
 credentials or learner state, ignores `--data-dir`, and performs no writes, sync,
 network calls, automatic downloads or telemetry. Naturalness, multiword expressions,
 and contextual reading/sense remain unassessed. Object sentences remain Inconclusive
