@@ -372,9 +372,7 @@ async fn permits_optional_metadata_and_reasoning_but_bounds_response_bytes() {
         } else {
             assert!(matches!(
                 result,
-                Err(yomibu::generation::GenerationError::Provider(
-                    yomibu::adapters::openai::ProviderError::ResponseTooLarge
-                ))
+                Err(yomibu::adapters::openai::ProviderError::ResponseTooLarge)
             ));
         }
     }
@@ -405,7 +403,7 @@ async fn redirects_and_http_errors_never_retry_or_forward_credentials() {
             .await
             .unwrap_err();
         assert!(
-            matches!(error, yomibu::generation::GenerationError::Provider(yomibu::adapters::openai::ProviderError::Http { status: actual }) if actual == status)
+            matches!(error, yomibu::adapters::openai::ProviderError::Http { status: actual } if actual == status)
         );
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         assert!(destination.received_requests().await.unwrap().is_empty());

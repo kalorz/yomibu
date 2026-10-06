@@ -33,8 +33,8 @@ include web applications, native applications, and an MCP server.
 3. Retrieve structured lexical information and examples for the targets.
 4. Generate two short, coherent candidate passages from the prepared constraints.
    Prefer reliable offline construction where it meets the reading-quality needs;
-   model generation is a bounded, explicitly authorized component. G1 and G2
-   retain their existing single-call experimental contracts.
+   model generation is a bounded, explicitly authorized component. Current story
+   generation uses one experimental provider call without retry.
 5. Analyze candidates, run explicit constraint checks, and include a minimal
    naturalness/coherence review in the first usable generation milestone. Select
    an acceptable candidate and use bounded repair only when none are acceptable.
@@ -66,7 +66,7 @@ reading friction and enjoyment with learner feedback, not a validator score.
 Prefer reliable offline work in preparation, generation, validation and narrowly
 defined repair; AI is one component, not the authority for permissions or
 correctness. This direction does not authorize new repair or acceptance behavior
-in G1 or G2.
+in the current experimental story path.
 
 Separate mandatory constraints from quality ranking: a high soft score cannot
 compensate for a failed mandatory check. A completed check returns pass, fail, or
@@ -473,128 +473,10 @@ download, persistence, telemetry, or async runtime startup. Argument/file/output
 work belongs to the executable; library analysis/evaluation remain independently
 callable. See README for runnable synthetic examples and PLAN for TDD/check evidence.
 
-## G1 — experimental single-sentence candidates
-
-G1 permits explicitly requested experimental generation of two bounded sentence
-candidates from supplied declarations and existing permission bindings. One
-provider request is followed by the existing offline analysis and evaluation.
-G1 neither selects nor accepts exercises, performs naturalness review, repairs
-candidates nor resolves linguistic uncertainty. Its provider request has zero
-retries. Existing WaniKani retry behavior remains unchanged. This is a narrow
-exception to the later validated-generation pipeline, not its completion.
-
-```text
-yomibu generate-candidates --allow-model-call --dictionary PATH --input PATH [--json]
-```
-
-Each invocation requires the opt-in and input path; dictionary selection follows
-the managed/external policies below. Input is the offline analyze
-version-1 envelope without `sentence`: all of `version`, `grammar` and `bindings`
-are required. Reject unknown/duplicate/missing fields, invalid JSON/UTF-8, other
-versions and invalid existing bindings. Read at most 65,537 bytes and reject over
-65,536. Retain descriptions, vocabulary tuples, explicit booleans, duplicates and
-order without normalization. Empty arrays grant no permissions. Reuse the seven
-existing rules and one-based declaration IDs; descriptions never grant bindings,
-and permissions are not targets that must all appear. No new reading validator
-is introduced. Sense/direct-object labels remain user assertions.
-
-Preflight validates arguments, bounded input and bindings, then explicitly loads
-the pinned dictionary, reads `OPENAI_API_KEY`, constructs client/runtime, and
-serializes/bounds the request. Any preflight failure sends zero requests.
-The command ignores `--data-dir`; only managed dictionary selection resolves HOME.
-It performs no learner data-directory discovery,
-learner/cache access, sync, dictionary setup, runtime persistence or telemetry.
-`analyze` remains entirely offline, including no credential lookup or runtime.
-
-The concrete runtime is OpenAI Responses with `gpt-6-luna`, Standard processing
-(`service_tier: default`), reasoning `none`, output limit 1,024 tokens, no tools,
-no streaming/background work, `store: false`, truncation disabled, and explicit
-prompt caching without breakpoints. This runtime choice does not select the
-coding agent. A compiled `g1-sentence-v1` developer prompt and one user JSON
-message request exactly two strings; the model cannot grant permissions or
-bindings, provide evaluator judgments, or override failed/uncertain checks.
-
-Exactly one HTTP attempt follows successful preflight; connection failure may
-prevent transmission. Disable redirects, environment/system proxies and reqwest
-protocol retries. Connect timeout is 5 seconds; the 30-second request deadline
-includes body retrieval. Serialize once, reject bodies over 16,384 bytes, and
-hash/send the same bytes. Bound responses to 65,536 bytes, checking declared size
-and each chunk. No retry or fallback follows any failure or uncertain completion.
-
-Require a completed provider response and exactly one completed assistant text
-payload, permitting documented reasoning items only as ignored metadata. Reject
-refusal, reported errors/incompleteness, unknown output kinds/tool calls, missing
-required response ID/model/status/output, invalid JSON/UTF-8 and malformed payloads.
-The inner object must contain only `candidates`, exactly two strings, with no
-duplicate field. Wrong counts/types, extra fields, fences, prose and truncation
-are whole-response errors; never salvage a candidate. Additive envelope metadata
-is allowed. Usage, returned tier and HTTP request ID may be absent (`null`).
-
-Preserve both decoded strings and their order, including identical strings.
-Independently apply `Sentence::new` (nonblank, at most 100 Unicode scalar values),
-real pinned `SudachiAnalyzer`, then `evaluation::evaluate` with the unchanged input.
-Do not trim, normalize or add sentence segmentation. Blank/overlong candidates
-are candidate execution errors, retaining the other result. Analyzer/evaluator
-errors remain typed; keep analysis if evaluation failed. Never fabricate completed
-checks for an execution error or let one candidate erase the other's findings.
-
-Text begins `Experimental sentence candidates — not accepted exercises` and
-displays both texts, completed outcomes, all five checks/coverage/reasons, original
-half-open UTF-8 byte spans with escaped excerpts, generation and pinned analysis
-provenance, and assessment limitations. No ranking or winner exists. Naturalness,
-multiword expressions and contextual reading/sense remain unassessed.
-
-JSON version 1 contains `kind: "experimental_sentence_candidates"`, `notice`, exact
-decoded `input`, `generation` and two indexed `candidates`. Each candidate has
-`index`, original `text`, nullable `analysis`, and tagged `assessment`. Completed
-assessments have `status: "completed"`, unchanged `outcome` and full `evaluation`.
-Errors have `status: "execution_error"`, `stage`, stable `code`, safe `message`,
-and all five `checks` marked `NotRun`, with no completed outcome/evaluation.
-Generation provenance records provider, requested/returned model and tier, prompt
-revision, SHA-256 and length of exact request bytes, response ID, optional HTTP
-request ID, request count and optional provider token counts. Returned identity
-and usage are provider claims, not immutable model pins or billing verification.
-Terminal escaping preserves original decoded JSON and byte spans.
-
-| Situation | Stdout | Stderr | Exit |
-| --- | --- | --- | --- |
-| Both evaluations complete, including Fail/Inconclusive | Full report | Empty | 0 |
-| Any candidate execution error | Both candidates and available results | Concise execution diagnostic | 1 |
-| Preflight/transport/whole-response error | Empty | Safe contextual diagnostic | 1 |
-| Missing opt-in/arguments or other argument error | Empty | Readable escaped usage diagnostic | 2 |
-| Help/version | Normal help/version | Empty | 0 |
-| Output write failure | May be partial | Diagnostic when possible | 1 |
-
-Construct the report before writing; stdout cannot be guaranteed atomic. Library
-calls receive credentials explicitly and do not access environment or print.
-The CLI reads only `OPENAI_API_KEY`, after local checks; no key files, `.env`,
-keychain, command-line secrets or credential persistence. Protect authorization
-headers and omit raw provider bodies/refusal prose/dependency chains from errors.
-
-Only supplied forms/readings/sense/direct-object permissions, free-form grammar,
-bindings, fixed instructions/schema/settings, authorization and connection metadata
-leave the computer. Dictionary bytes, paths, learner data, evaluation reports,
-private/held-out evidence and this conversation are not sent. `store:false` is not
-zero retention: default API content is not used for training, while abuse monitoring
-normally retains content up to 30 days, with legal/safety exceptions. No EU-only or
-Zero Data Retention guarantee is made. Account funding and live smoke authorization
-are separate from implementation approval; [G1 usage and costs](docs/G1.md) records
-dated official sources, estimates and the unperformed one-call smoke proposal.
-
-A1 remains complete with its historical no-go: 24/24 outcomes, 120/120 check
-judgments, 11/12 exact negative reason/span matches. Preserve the object-combination
-safeguard, reduced coverage and permission Fail spans alongside uncertainty.
-G1 integration tests are engineering evidence, not repaired scores or linguistic
-validation. Do not reopen private evidence, rerun holdout or alter frozen references.
-Repair/retries/fallbacks, naturalness judges, stories, quizzes, new grammar, idiom
-detection and automatic data access remain excluded. Later validated generation
-requires separately authorized evidence, acceptance rules and review/repair scope.
-
 ## Shared learner-inventory story path — 2026-10-06
 
-This approved breaking slice supersedes G2's **current CLI and input/report
-contracts**. The historical G2 section below and frozen fixtures remain records,
-not alternate current command syntax. G0, sync/status, preparation, analyze and G1
+This approved breaking slice is the only current generation path; G1/G2
+implementations are retired below. G0, sync/status, preparation and analyze
 contracts remain unchanged. Full current formats/limits are in
 [STORY GENERATION](docs/STORY_GENERATION.md); measured retrieval evidence is in
 [RETRIEVAL](docs/RETRIEVAL.md).
@@ -652,12 +534,26 @@ lexical baseline is nonsemantic; a local/hosted quality comparison must precede
 choosing a default dense model. Those two comparisons remain blocked on configured
 model services/credentials; this is not a completed model-selection claim.
 
+Generation uses OpenAI Responses `gpt-6-luna`, Standard/default tier, reasoning
+`none`, `512 × candidate_count` output tokens, no tools, streaming or background
+work, `store: false`, truncation disabled and explicit prompt caching without
+breakpoints. Disable redirects, environment/system proxies and protocol retries.
+Connect timeout is 5 seconds; the 30-second request deadline includes body reads.
+Responses are bounded to 65,536 bytes, checking declared size and every chunk.
+Require a completed envelope and exactly one completed assistant text payload;
+documented reasoning items are ignored metadata. Refusal, errors/incompleteness,
+unknown outputs/tool calls, missing required fields, invalid JSON/UTF-8, duplicate
+payload fields, wrong counts/types or extra payload fields reject the whole
+response without salvaging a candidate. Optional usage/tier/request ID may be
+absent. Provider identity and usage are claims, not immutable pins or billing
+verification. Protect credentials; errors never reflect response bodies or keys.
+
 The current slice produces the requested number of experimental single-sentence candidates,
 each nonblank and at most 100 Unicode scalar values. New prompt revision:
 `story-inventory-v1`; request cap remains 16,384 bytes. Freeze the final prepared
 body/hash and send unchanged, with count-specific schema and output-token budget; other provider settings,
 limits and one-attempt/no-retry behavior remain unchanged. The parser requires
-exactly the requested count. G1/historical G2 retain their fixed pair contracts. Request bounds precede dictionary/generation-credential startup.
+exactly the requested count. Request bounds precede dictionary/generation-credential startup.
 Explicit targets and grammar are never silently removed for size; optional
 supports may be removed during preparation without another selection pass.
 
@@ -679,102 +575,35 @@ scenes/dialogues and adds no narrative-content requirement.
 
 CLI names are `prepare-retrieval`, `preview-story`, `generate-story` with
 `--inventory`/`--wanikani-cache`, `--request` and `--embedding-cache`. Removed
-`generate-focused`, `context-preview`, `--permissions` and numeric `--focus-entry`
+`generate-candidates`, `generate-focused`, `context-preview`, `--permissions` and numeric `--focus-entry`
 have no aliases. `preview-reading`/`generate-reading` and the `reading` Rust module
 are also replaced without aliases. Current Rust/JSON vocabulary agrees; current hashes and schemas
-intentionally change. Legacy G2 library APIs and historical exact-byte fixtures
-remain independently testable. JSON/text keep terminal escaping, diagnostic
+intentionally changed during the story migration. Retired implementations and
+exact-byte fixtures remain reproducible from the historical code pins and archive;
+they are not current library APIs. JSON/text keep terminal escaping, diagnostic
 layout, all candidate results and the existing exit-status distinctions.
 
-## G2 — focused experimental context, 2026-10-05
+## Retired G1/G2 generation — 2026-10-06
 
-G2 adds deterministic offline context selection and optional inspection before a
-single-command experimental generation attempt. [G2's complete contract](docs/G2.md)
-defines the exact situation table, input/output schemas, limits, evidence and
-privacy boundaries. It is an experimental exception, not completed validated
-practice. Existing G0, preparation, analyze, G1 and later acceptance requirements
-remain in force.
+The story path is the only current generation path. `generate-candidates`, the
+G1/G2 library entry points, authored situation selector and focused observation
+APIs are removed without aliases. Historical inputs, exact request snapshots,
+comparison manifests and code revisions are archived in
+[GENERATION HISTORY](docs/GENERATION_HISTORY.md). Their engineering evidence does
+not establish reading quality or accepted exercises; the G2 v1/v2 live comparison
+remains **not run**. A1's no-go and object-combination safeguard remain unchanged.
 
-> G2 uses an explicitly supplied lexical tuple as guidance and reports
-> morphological occurrence evidence. It does not validate contextual reading or
-> sense, support accepted ambiguous target uses, or produce accepted exercises.
-> Grounded intended-use assessment remains required for later validated practice.
-
-Keep four distinct concepts: source progress records observations; full explicit
-permissions authorize evaluator vocabulary/grammar; lexical focus identifies one
-supplied tuple to guide generation; generation context is a selected subset plus
-situation guidance. Eligibility, source examples, component-kanji familiarity and
-similarity do not create permissions. Evaluate using the original full vocabulary
-and grammar, never the selected subset.
-
-`generate-focused --permissions PATH --focus-entry N --dictionary PATH
---allow-model-call [--json]` selects once, prepares immutable bounded bytes, loads
-the pinned analyzer, resolves the existing credential, makes one attempt and
-assesses both original candidates. `context-preview --permissions PATH
---focus-entry N [--json]` is optional and entirely offline. A preview neither
-reserves nor authorizes a later request. There is no preview import, required
-handoff, confirmation loop, REPL or retained session. Both ignore `--data-dir`.
-
-The executable's `focused::run_generation` exposes that sequence directly;
-`run_preview` is a separate offline entry point. Library
-`GeneratedCandidates::assess_focused` combines the existing full-permission
-assessment and separate focus/context observations without environment lookup,
-runtime startup or presentation. Its `FocusedCandidateAssessment` result type is
-additive; existing lower-level APIs, reports and CLI contracts remain unchanged.
-
-Use the three private compiled original suggestions `pet-rest`, `pet-walk`,
-`book-reading` in fixed order with exact tuples and bound rule prerequisites.
-Validate the full inventory before selecting at most three distinct tuples. Keep
-an explicit duplicate focus instance; conflicts in any same-spelling full-inventory
-tuple make that association ambiguous. Report all feasibility decisions and
-ordered exclusion reasons. Feasibility means only declared prerequisites exist.
-
-G2 limits the permission file to 4,194,304 bytes, vocabulary to 10,000 entries,
-form/reading to 256 bytes each, senses and grammar descriptions to 1,024 bytes,
-declarations to 128, bindings to 512, and the complete request to 16,384 bytes.
-All grammar descriptions/bindings are retained verbatim, including IDs, order and
-duplicates. Library callers share field/count limits. Oversized requests fail
-without truncation or reselection. G1/analyze keep their existing 64 KiB file bound.
-
-Send only selected complete tuples, subset focus index 1, authored situation,
-all grammar and fixed G1 provider/schema settings. The prompt revision is
-`g2-focused-sentence-v2`; the selector revision is `g2-situations-v1`. Local
-inventory/exclusion numbers and full vocabulary stay local. Selected entries form
-the content-word boundary for generation; each candidate must use the focus,
-while supports remain optional. Inflections and grammatical forms require explicit
-bound rules; grammar tokens need not be vocabulary entries. Readings/senses guide
-intended use without validating occurrences. Ordinary Japanese is requested, with
-no extra content words or forced variation. JSON/descriptions remain data.
-Permitted but unselected words remain context departures, not evaluator permission
-failures. The bounded public-synthetic [v1/v2 comparison](docs/G2_COMPARISON.md)
-is prepared separately; paid attempts require explicit authorization and its
-results cannot establish comprehension or naturalness. Preview constructs
-no analyzer, credential, client or runtime; generation's request preflight occurs
-before dictionary/credential initialization. No live call is authorized by
-implementation approval, and the estimated sub-US$0.01 attempt is not a cost cap.
-
-Separate observational reports retain whole-word/stem occurrences, component-only
-ambiguity, OOV/unsupported evidence and context departures, without changing
-permission Fail judgments/spans or triggering retries. Focus status remains
-`observed` beside unrelated lexical uncertainty; a separate completeness field
-reports `complete`, `partial` or `not_run`. Focus-specific uncertainty retains
-precedence, and unresolved lexical evidence cannot establish absence when no
-occurrence was observed. Contextual reading/sense,
-naturalness, situation quality and comprehension remain unverified. Preserve
-A1's no-go, 24/24 outcomes, 120/120 judgments, 11/12 exact negative reason/span
-matches, frozen records and the object-combination safeguard.
-
-Comfortable, enjoyable reading with comprehension remains the product goal, to
-be evaluated through separately authorized learner feedback rather than inferred
-from prompt size or a validator score. The earlier REPL priority is abandoned;
-G2 delivers one-command use with optional preview. The future learner bridge must
-explicitly ground reading representation, absent kana-only readings, reading/sense
-association and sense-specific direct-object evidence. It cannot infer them from
-source eligibility or gloss/POS/examples.
+Current story request/report bytes, hashes, settings, limits and assessment behavior
+are unchanged by retirement. `Client::generate_story_candidates` now returns
+`ProviderError` directly instead of the redundant `GenerationError::Provider`
+wrapper. `GenerationProvenance` loses the historical `focused_context` field,
+which was absent from current story JSON. Shared candidate assessment/error and
+provider metadata types remain in `generation`; no archived Rust implementation
+is compiled or exposed.
 
 ## Managed dictionary loading — 2026-10-05
 
-Normal analyze/generate-candidates/generate-story commands select a managed
+Normal analyze/generate-story commands select a managed
 installation when `--dictionary` is absent. The default is
 `$HOME/.yomibu/dictionaries`; `--dictionary-dir PATH` overrides it and conflicts
 with `--dictionary PATH`. Missing HOME requires an explicit managed root.
@@ -1277,8 +1106,8 @@ the lockfile. See [reqwest](https://docs.rs/reqwest/latest/reqwest/),
 
 ### HTTP boundary
 
-The following defaults concern WaniKani synchronization. G1 uses the explicit
-one-attempt model-request limits above, without this retry loop.
+The following defaults concern WaniKani synchronization. Story generation uses the explicit
+one-attempt model-request limits, without this retry loop.
 
 - Reuse one HTTP client. Default to a 10-second connection timeout and a
   30-second request timeout, including response-body retrieval.

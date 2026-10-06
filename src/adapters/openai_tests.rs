@@ -82,14 +82,11 @@ async fn real_socket_deadlines_disconnects_and_truncated_bodies_make_one_attempt
             .await
             .unwrap_err();
         assert!(
-            matches!(error, GenerationError::Provider(ProviderError::Timeout)) == timeout,
+            matches!(error, ProviderError::Timeout) == timeout,
             "{error:?}"
         );
         if !timeout {
-            assert!(
-                matches!(error, GenerationError::Provider(ProviderError::Transport)),
-                "{error:?}"
-            );
+            assert!(matches!(error, ProviderError::Transport), "{error:?}");
         }
         assert_eq!(count.load(Ordering::SeqCst), 1);
         server.abort();
@@ -129,10 +126,7 @@ async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
                 assert!(result.is_ok(), "{result:?}");
             } else {
                 assert!(
-                    matches!(
-                        result,
-                        Err(GenerationError::Provider(ProviderError::ResponseTooLarge))
-                    ),
+                    matches!(result, Err(ProviderError::ResponseTooLarge)),
                     "{result:?}"
                 );
             }

@@ -3,8 +3,8 @@
 The current experimental path accepts either manual material or an explicit
 WaniKani cache. Source conversion ends at `LearnerInventory`; both sources use
 the same request, selection, generation and assessment code. This replaces the
-G2 CLI, without aliases. G0 preview, preparation, sync, status, analyze and the
-G1 `generate-candidates` experiment remain unchanged.
+G1/G2 generation implementations, without aliases. G0 preview, preparation,
+sync, status and analyze remain unchanged.
 
 "Story" includes short scenes and dialogues, including a single sentence. The
 rename adds no plot/character requirements and does not expand the current
@@ -207,19 +207,34 @@ fit 32 KiB; the entire set is checked before provider work. HTTP embedding batch
 also split at the 512 KiB encoded request limit, accounting for JSON escaping.
 The final provider request remains at most 16,384 bytes. Each candidate remains
 nonblank and at most 100 Unicode scalars. The output-token budget scales with
-count; other provider settings, deadlines,
-response limits and one-attempt transport remain unchanged. The parser requires
+count. OpenAI Responses uses `gpt-6-luna`, Standard/default tier, reasoning
+`none`, no tools/streaming/background work, `store: false`, truncation disabled
+and explicit prompt caching without breakpoints. Redirects, system/environment
+proxies and protocol retries are disabled. Connect timeout is 5 seconds; the
+30-second request deadline includes body reads. Responses are capped at 65,536
+bytes, checking declared size and every chunk. Completed envelopes require one
+completed assistant text payload; documented reasoning items are ignored.
+Refusal, incompleteness/errors, unknown outputs/tool calls, missing required
+fields, invalid JSON/UTF-8, duplicate/extra payload fields and wrong types reject
+the whole response without salvaging candidates. Optional usage/tier/request ID
+may be absent; identity and usage are provider claims, not billing verification. The parser requires
 exactly the requested count, otherwise the response fails without a candidate
-report. G1 and historical G2 keep their fixed two-candidate contracts.
+report. Retired G1/G2 contracts are historical evidence only.
 
 ## Migration and boundaries
 
-`generate-focused`, `context-preview`, `--permissions` and numeric `--focus-entry`
-are removed from the current CLI. Use the commands above and stable target IDs;
+`generate-candidates`, `generate-focused`, `context-preview`, `--permissions` and
+numeric `--focus-entry` are removed from the current CLI. Use the commands above and stable target IDs;
 there are no compatibility aliases or serialized-name disguises. Current JSON
-and request hashes intentionally change. G1/analyze formats are unchanged.
-Historical G2 low-level library APIs, prompt fixtures and comparison artifacts
-remain for reproducibility, explicitly separate from current usage.
+and request hashes changed during the story migration. Legacy retirement leaves
+current story bytes, hashes and JSON/text reports unchanged; analyze is unchanged.
+Historical G1/G2 library APIs and the `generation_context` module are removed.
+`Client::generate_story_candidates` returns `ProviderError` directly instead of
+`GenerationError::Provider`; the redundant wrapper is removed. The never-emitted
+story provenance field `focused_context` is removed from the Rust type. Current
+candidate assessment/error and provider metadata types remain in `generation`.
+See [generation history](GENERATION_HISTORY.md) for archived inputs, exact request
+fixtures, comparison manifests and pinned code for reproducibility.
 
 A1's historical **no-go** and object-combination safeguard remain in force.
 This delivers experimental candidates, not stories or validated exercises.

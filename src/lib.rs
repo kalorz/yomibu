@@ -28,8 +28,8 @@
 //! [`adapters::openai::Client::generate_story_candidates`] sends those bytes;
 //! [`story::assess_candidates`] checks every text against the full inventory.
 //! [`story::StoryGenerationOptions`] sets candidate count separately from story intent.
-//! See `docs/STORY_GENERATION.md` for the complete sequence. Older G2 library operations in
-//! [`generation_context`] remain available for historical fixture verification.
+//! See `docs/STORY_GENERATION.md` for the complete sequence. Historical G1/G2 evidence
+//! is recorded in `docs/GENERATION_HISTORY.md`.
 //!
 //! [`App`] coordinates explicit synchronization and offline status for a single
 //! account-scoped store. Supply a file or in-memory store and, for synchronization,
@@ -72,7 +72,6 @@ pub use app::App;
 pub mod domain;
 pub mod evaluation;
 pub mod generation;
-pub mod generation_context;
 pub mod grammar;
 pub mod inventory;
 pub mod knowledge;

@@ -5,8 +5,8 @@ starting with a Rust CLI. Milestone 1 is complete through 1d: resilient full
 synchronization, offline inspection of learner observations, and macOS/Linux CI.
 The library composes sync/status through `App` with file or in-memory storage.
 Manual candidate preview, offline learner-context preparation, and a bounded
-offline `analyze` command are available. G1 adds explicitly requested experimental
-sentence candidates with local checks. The shared story path adds manual/WaniKani
+offline `analyze` command are available. The story path produces explicitly
+requested experimental sentence candidates with local checks, manual/WaniKani
 inventories, a topic brief, multiple targets and cached retrieval with offline
 request preview; validated reading exercises remain deferred.
 
@@ -299,27 +299,6 @@ Direct Rust callers continue to compose `SudachiAnalyzer::load`,
 `Sentence::new`, `analyzer.analyze`, and `evaluation::evaluate` with explicit
 `GrammarDeclarations` and `EvaluationBindings`; no CLI or store is required.
 
-## Request two experimental sentence candidates (G1)
-
-`generate-candidates --allow-model-call --dictionary PATH --input PATH [--json]`
-makes one paid OpenAI GPT-6 Luna attempt using the supplied permissions and grammar,
-then assesses both returned texts locally. The input is the analyze envelope above
-without `sentence`; the [original dog/cat fixture](tests/fixtures/generation/dog-cat.json)
-could yield 犬です。/猫です。 (“It's a dog/cat”). No candidate becomes an accepted
-exercise, and uncertainty and independent permission failures remain visible.
-
-Every invocation requires opt-in, explicit paths and `OPENAI_API_KEY`. Data sent,
-retention, costs, complete input/output/exit contracts, direct-library use and the
-separately authorized live smoke are documented in [G1 usage](docs/G1.md).
-Estimated request cost at the documented prices is under US$0.01, without a
-guaranteed dollar ceiling. Account funding (reserve US$5 plus tax when needed)
-is separate. No purchases or live test are authorized by implementation approval.
-All automated provider tests use local HTTP mocks and the real pinned analyzer.
-The existing `analyze` command remains fully offline.
-
-The documented generation command also uses `--release` to reduce local dictionary
-startup time. Waiting for the provider is additional.
-
 ## Shared experimental story candidates
 
 Use one inventory from manual JSON, an explicit WaniKani cache, or both. A separate
@@ -350,9 +329,9 @@ separate from the story request. All original texts and partial assessments are 
 retry or accepted exercise is produced. Hosted embedding preparation has its own
 separate opt-in. See [story usage, library flow and limits](docs/STORY_GENERATION.md).
 
-The former `generate-focused`/`context-preview` commands and `--permissions` flag
-have no aliases. Current request/report schemas and hashes intentionally change;
-[historical G2](docs/G2.md) remains documented for reproducibility.
+The former `generate-candidates`, `generate-focused`, `context-preview` commands
+and `--permissions` flag have no aliases. Historical G1/G2 evidence and reproducible
+code pins are preserved in [generation history](docs/GENERATION_HISTORY.md).
 
 ## Bounded offline analysis investigation (A1; historical no-go)
 
