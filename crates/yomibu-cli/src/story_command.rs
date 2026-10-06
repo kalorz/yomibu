@@ -8,13 +8,17 @@ use std::{
 };
 use yomibu::{
     adapters::{
+        embedding_cache_file::EmbeddingCacheFile,
         embeddings::{HttpEmbedder, LexicalEmbedder},
         openai::{Client, ProviderError},
     },
     inventory::{LearnerInventory, ManualInventory},
     knowledge::{LearnerKnowledgePolicy, WaniKaniKnowledgeRule},
     ports::Embedder,
-    retrieval::{EmbeddingCache, EmbeddingInput, EmbeddingModelIdentity, prepare_embedding_inputs},
+    retrieval::{
+        EmbeddingCache, EmbeddingInput, EmbeddingModelIdentity, prepare_cache,
+        prepare_embedding_inputs,
+    },
     story::{
         StoryGenerationOptions, StoryGenerationPlan, StoryGenerationResult, StoryRequest,
         generate_story, plan_generation,
@@ -114,14 +118,11 @@ fn load_or_prepare_embeddings(
     request: &StoryRequest,
 ) -> Result<EmbeddingCache> {
     let inputs = prepare_embedding_inputs(inventory, request)?;
-    let mut cache = load_cache(&args.embedding_cache)?;
+    let mut cache = EmbeddingCacheFile::new(&args.embedding_cache).load()?;
     if !cache_matches(cache.as_ref(), embedding, &inputs)? {
         cache = Some(prepare_embeddings(embedding, &inputs, cache.as_ref())?);
-        save_cache(
-            &args.embedding_cache,
-            cache.as_ref().context("Missing embedding result")?,
-            134217728,
-        )?;
+        EmbeddingCacheFile::new(&args.embedding_cache)
+            .save(cache.as_ref().context("Missing embedding result")?)?;
     }
     cache.context("Embedding cache missing; run prepare-retrieval explicitly.")
 }
@@ -157,7 +158,8 @@ pub(super) fn run_preview(
     let inventory = load_inventory(args)?;
     let request: StoryRequest = read_json(&args.request, "Story request", 65536)?;
     request.validate(&inventory)?;
-    let cache = load_cache(&args.embedding_cache)?
+    let cache = EmbeddingCacheFile::new(&args.embedding_cache)
+        .load()?
         .context("Embedding cache missing; run prepare-retrieval explicitly.")?;
     let plan = plan_generation(
         &inventory,
@@ -179,9 +181,9 @@ pub(super) fn run_prepare(
     let request: StoryRequest = read_json(&args.request, "Story request", 65536)?;
     request.validate_selection_limit(usize::from(args.select))?;
     let inputs = prepare_embedding_inputs(&inventory, &request)?;
-    let previous = load_cache(&args.embedding_cache)?;
+    let previous = EmbeddingCacheFile::new(&args.embedding_cache).load()?;
     let cache = prepare_embeddings(embedding, &inputs, previous.as_ref())?;
-    save_cache(&args.embedding_cache, &cache, 134217728)?;
+    EmbeddingCacheFile::new(&args.embedding_cache).save(&cache)?;
     writeln!(
         out,
         "Retrieval prepared: {} vocabulary entries; model {} / {}. No generation performed.",
@@ -236,37 +238,6 @@ fn read_key(name: &str) -> Result<String> {
             format!("Set {name} in the environment before explicitly requesting provider work.")
         })
 }
-fn load_cache(path: &Path) -> Result<Option<EmbeddingCache>> {
-    match std::fs::metadata(path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e).context("Reading embedding cache"),
-        Ok(_) => {
-            let cache: EmbeddingCache = read_json(path, "Embedding cache", 134217728)?;
-            cache.validate()?;
-            Ok(Some(cache))
-        }
-    }
-}
-fn save_cache(path: &Path, cache: &EmbeddingCache, limit: u64) -> Result<()> {
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let mut file =
-        tempfile::NamedTempFile::new_in(parent).context("Embedding cache temporary file")?;
-    serde_json::to_writer(&mut file, cache)?;
-    if file.as_file().metadata()?.len() > limit {
-        bail!("Embedding cache exceeds the readable byte limit; previous cache preserved.");
-    }
-    file.as_file().sync_all()?;
-    file.persist(path)
-        .map_err(|e| e.error)
-        .context("Publishing embedding cache")?;
-    std::fs::File::open(parent)?
-        .sync_all()
-        .context("Embedding cache published; directory durability uncertain")?;
-    Ok(())
-}
 fn model_identity(args: &EmbeddingArgs) -> Result<EmbeddingModelIdentity> {
     let provider=args.embedding_provider.context("Select --embedding-provider to prepare missing embeddings; no automatic model or fallback is selected.")?;
     if matches!(provider, EmbeddingProvider::LexicalBaseline) {
@@ -320,11 +291,11 @@ fn prepare_embeddings(
         .enable_all()
         .build()
         .context("Embedding runtime")?;
-    match args.embedding_provider {
+    let result = match args.embedding_provider {
         Some(EmbeddingProvider::LexicalBaseline) => {
-            io_runtime.block_on(fill_cache(&LexicalEmbedder::new(), inputs, previous))
+            io_runtime.block_on(prepare_cache(&LexicalEmbedder::new(), inputs, previous))
         }
-        Some(EmbeddingProvider::Local) => io_runtime.block_on(fill_cache(
+        Some(EmbeddingProvider::Local) => io_runtime.block_on(prepare_cache(
             &HttpEmbedder::local(&args.embedding_endpoint, identity)?,
             inputs,
             previous,
@@ -333,66 +304,9 @@ fn prepare_embeddings(
             let key = read_key("OPENAI_API_KEY")?;
             let embedder = HttpEmbedder::openai(&key, identity)?;
             drop(key);
-            io_runtime.block_on(fill_cache(&embedder, inputs, previous))
+            io_runtime.block_on(prepare_cache(&embedder, inputs, previous))
         }
         None => bail!("Select an embedding provider."),
-    }
-}
-async fn fill_cache(
-    embedder: &impl Embedder,
-    inputs: &[EmbeddingInput],
-    previous: Option<&EmbeddingCache>,
-) -> Result<EmbeddingCache> {
-    let model = embedder.model_identity();
-    let previous = previous.filter(|c| &c.model == model);
-    let mut entries: std::collections::BTreeMap<String, Vec<f32>> = previous
-        .map(|c| {
-            c.entries
-                .iter()
-                .map(|e| (e.key.clone(), e.vector.clone()))
-                .collect()
-        })
-        .unwrap_or_default();
-    let missing: Vec<_> = inputs
-        .iter()
-        .filter(|i| !entries.contains_key(&i.key()))
-        .cloned()
-        .collect();
-    for chunk in missing.chunks(32) {
-        let vectors = embedder.embed(chunk).await?;
-        let batch = EmbeddingCache::from_vectors(model.clone(), chunk, vectors)?;
-        for entry in batch.entries {
-            entries.insert(entry.key, entry.vector);
-        }
-    }
-    let result = EmbeddingCache {
-        version: 1,
-        model: model.clone(),
-        entries: entries
-            .into_iter()
-            .map(|(key, vector)| yomibu::retrieval::CachedVector { key, vector })
-            .collect(),
     };
-    result.vectors(model, inputs)?;
-    Ok(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn oversized_embedding_cache_preserves_previous_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cache.json");
-        std::fs::write(&path, "previous cache").unwrap();
-        let cache = EmbeddingCache {
-            version: 1,
-            model: LexicalEmbedder::new().model_identity().clone(),
-            entries: Vec::new(),
-        };
-        assert!(save_cache(&path, &cache, 16).is_err());
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "previous cache");
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
-    }
+    Ok(result?)
 }

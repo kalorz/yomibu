@@ -397,6 +397,12 @@ client or runtime and no cache refresh. Missing/stale embeddings fail explicitly
 backend configuration. Hosted work additionally requires `--allow-embedding-call`.
 `--allow-model-call` independently authorizes the generation attempt.
 
+Reusable retrieval preparation is `retrieval::prepare_cache`: reuse compatible
+vectors, encode missing inputs in groups of 32 and validate the complete result.
+`adapters::embedding_cache_file::EmbeddingCacheFile` owns bounded reads and atomic
+publication with typed pre-replacement/uncertain-durability errors. The host selects
+path, encoder, credentials and executor; no file is replaced after a batch failure.
+
 Use one narrow `Embedder` port for local/hosted encoders, a model-specific flat
 vector cache and cosine similarity. Identity includes provider/model/revision,
 dimensions and encoding revision. Invalid vectors/partial responses fail; cached

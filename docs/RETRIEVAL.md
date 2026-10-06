@@ -20,11 +20,12 @@ vocabulary target is retained, irrespective of similarity. No vector database,
 plugin registry, server launcher or new dependency is introduced. Only explicit
 retrieval preparation performs I/O; library selection/preparation are synchronous.
 
-The CLI groups at most 32 inputs; the HTTP adapter further splits groups by actual
+Library `retrieval::prepare_cache` groups at most 32 missing inputs; the HTTP adapter further splits groups by actual
 encoded JSON size, including escapes and model metadata, to keep each request
 within 512 KiB. All vectors must succeed before cache publication; a failed batch
 leaves the prior file intact, without retry. Compatible cached documents are reused.
-A temporary file is synchronized before atomic replacement; a directory-sync
+`adapters::embedding_cache_file::EmbeddingCacheFile` owns explicit bounded reads
+and publication. A temporary file is synchronized before atomic replacement; a directory-sync
 failure reports uncertain durability after publication. Concurrent independent
 writers may replace each other's additional cached entries; they cannot publish
 half a JSON file. A later attempt can explicitly recompute missing entries.
@@ -88,3 +89,15 @@ had no service and `OPENAI_API_KEY` was absent. HTTP adapter tests use loopback
 mock vector responses to verify protocol/error behavior; they provide no semantic
 quality evidence. Real dense-model quality, latency and hosted cost remain an
 explicit follow-up before selecting a default. No live generation call was made.
+
+## Reusable preparation boundary
+
+`prepare_cache(&embedder, inputs, previous).await` reuses compatible vectors,
+encodes missing inputs and validates the complete result. It returns typed
+`EmbeddingError` and never publishes partial batches. The caller supplies an
+encoder and drives async I/O; the library resolves no credentials or runtime.
+`EmbeddingCacheFile::new(path)` performs no I/O. `load` distinguishes absence from
+malformed data; `save` publishes one complete cache and distinguishes errors before
+replacement from uncertain directory durability afterwards. Both enforce the
+existing 128 MiB readable-cache limit. Paths and encoder configuration are chosen
+by the CLI or another caller.

@@ -390,9 +390,10 @@ manual input / WaniKani cache + policy (+ optional manual supplement)
 `inventory.rs` validates the common data and projects the existing source policy.
 The source cache stays untouched. `story.rs` keeps the request, selection,
 prepared bytes and assessment stages adjacent. `retrieval.rs` owns encoding,
-identity/cache validation and cosine similarity; `ports::Embedder` is the only new
+identity/cache validation, bounded cache preparation and cosine similarity; `ports::Embedder` is the only new
 port, implemented by explicit lexical-baseline and local/hosted HTTP adapters.
 The HTTP embedding adapter splits each input group by its actual serialized size;
+the explicit file-cache adapter owns bounded reads and atomic publication;
 common embedding-input preparation validates the combined document limit before
 any provider work. There is no model/default selection service or generic pipeline.
 `StoryGenerationOptions` currently contains only `candidate_count`, default 2. It is

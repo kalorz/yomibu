@@ -5,6 +5,21 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Thin CLI, slice 2 — retrieval and file cache — 2026-10-06
+
+Moved missing-vector reuse, batching/merging and complete validation into
+`retrieval::prepare_cache`, returning typed `EmbeddingError`. Moved bounded file
+reads and synchronized atomic publication into `EmbeddingCacheFile`, including
+explicit before-replacement and uncertain-durability outcomes. CLI selects paths,
+encoder/credentials/runtime and calls these boundaries. No dependency or behavior
+change is intended; the existing 32-input batching, cache format and byte limits
+are preserved. RED confirmed the missing library APIs; GREEN: four boundary tests,
+the migrated oversized-publication regression and all ten story CLI tests pass.
+Tests cover complete-cache reuse, model changes, later-batch failure, unchanged
+previous data, malformed files and absent parent directories. Simplification review
+kept one preparation function and one concrete file adapter without a new store
+trait or application wrapper. Documentation records the reusable call path.
+
 ## Thin CLI, slice 1 — prototype retirement — 2026-10-06
 
 Retired old `preview`/`prepare`, their examples, library APIs, standalone grammar-file

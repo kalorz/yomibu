@@ -6,3 +6,5 @@ pub mod stores;
 pub mod sudachi;
 
 pub mod embeddings;
+
+pub mod embedding_cache_file;
