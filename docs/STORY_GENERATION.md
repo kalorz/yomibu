@@ -134,7 +134,7 @@ never refreshes a missing/stale cache. It fails with `prepare-retrieval` guidanc
 
 ## Follow the execution
 
-Start at `src/story_command.rs::run_generation`:
+Start at `crates/yomibu-cli/src/story_command.rs::run_generation`:
 
 ```text
 load_generation_inputs (including execution-option validation)

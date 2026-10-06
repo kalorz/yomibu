@@ -78,7 +78,7 @@ private labels. The example never reads a reference key.
 | Extracted dictionary | 217,466,039 bytes; SHA-256 `53fa281d11eef3769712fe1c3c892117338f9892bee6daf4dad51daa5281bb6f` |
 | LEGAL | 6,037 bytes; SHA-256 `725a8776b38e058b185e905594bc9a2437dbf3787df022fffeefedb9a84e4665` |
 | LICENSE-2.0.txt | 11,358 bytes; SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
-| Built-in configuration | `src/adapters/sudachi.json`; SHA-256 `45cde6f1eba960c32475e267dfa422e51b1f215e3fa142162079d711eff77e4c` |
+| Built-in configuration | `crates/yomibu/src/adapters/sudachi.json`; SHA-256 `45cde6f1eba960c32475e267dfa422e51b1f215e3fa142162079d711eff77e4c` |
 
 The original hashes were calculated from the exact official HTTPS download on 2026-10-03;
 they are reproducibility pins, not publisher signatures or independently supplied

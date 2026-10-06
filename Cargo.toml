@@ -1,11 +1,15 @@
-[package]
-name = "yomibu"
+[workspace]
+members = ["crates/yomibu", "crates/yomibu-cli"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98.1"
 publish = false
 
-[dependencies]
+[workspace.dependencies]
+yomibu = { path = "crates/yomibu" }
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
@@ -19,14 +23,7 @@ sha2 = "0.10"
 libc = "0.2"
 memmap2 = "0.9"
 sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", rev = "90fd6068c80c2fc3b63e0dbab0e341475bad4d8f" }
-
-[dev-dependencies]
 wiremock = "0.6"
-tokio = { version = "1", features = ["macros", "io-util", "sync", "test-util"] }
-
-[[example]]
-name = "a1"
-test = true
 
 # cargo test also uses this profile for CLI binaries launched by integration tests.
 # Optimize hashing while retaining full pinned-dictionary verification.

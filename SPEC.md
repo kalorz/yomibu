@@ -195,7 +195,7 @@ or `BlankGrammar`; field errors
 identify the one-based input entry. There is no partial result on input failure.
 
 Run the synchronous direct-library example with
-`cargo run --locked --example preview`; see [examples/preview.rs](examples/preview.rs).
+`cargo run --locked --example preview`; see [crates/yomibu/examples/preview.rs](crates/yomibu/examples/preview.rs).
 The CLI's global `--data-dir` option is ignored for preview. Sync/status/prepare
 resolve that option or the HOME default.
 
@@ -274,7 +274,7 @@ borrowed material, assignment, and review-statistic evidence.
 ID, synchronization interval, grammar assertions, and target/source associations.
 Exclusion precedence is unavailable content, hidden evidence, no assignment,
 then the selected missing lifecycle timestamp. Other evidence remains available.
-See README.md and `examples/prepare.rs` for CLI and direct-library usage.
+See README.md and `crates/yomibu/examples/prepare.rs` for CLI and direct-library usage.
 
 Implementation and real-learner acceptance of this preparation slice are complete
 as of 2026-10-03; `PLAN.md` records the user's completed acceptance evidence.
@@ -368,7 +368,7 @@ bounded structural checks; three such challenge results blocked the protocol's
 go decision. The separately recorded follow-up below restricts object-combination
 coverage. There is no ad hoc phrase blacklist or general validator.
 
-`examples/a1.rs` is the thin synthetic evaluation executable, accepting an explicit
+`crates/yomibu/examples/a1.rs` is the thin synthetic evaluation executable, accepting an explicit
 dictionary path and versioned JSON packet, at most 1 MiB/60 cases. It keeps completed
 judgments separate from execution errors and NotRun, preserves per-case input,
 analysis/provenance, and check results, and makes no reference-accuracy claim.
@@ -890,7 +890,7 @@ cache layout. `InvalidSnapshot` error variants became `InvalidSyncData`.
 assignments, review statistics, and `unavailable_subjects`. Subject lexical content is tagged
 as `kanji`, `vocabulary`, or `kana_vocabulary`; only the first two have readings.
 The cache contains normalized Yomibu data, not WaniKani response envelopes. See
-`src/domain.rs` for the concrete field types and `tests/fixtures` for synthetic
+`crates/yomibu/src/domain.rs` for the concrete field types and `tests/fixtures` for synthetic
 examples. Nullable dates use `Option<DateTime<Utc>>`; missing statistics remain
 absent records. Additional JSON fields are tolerated.
 
@@ -1034,8 +1034,12 @@ TDD evidence, CI timings, and remaining verification limits.
 
 ## Rust architecture
 
-Use one package with a library target and thin binary. No multi-crate workspace
-is needed.
+Use one Cargo workspace with two packages: `crates/yomibu` for the reusable
+library and `crates/yomibu-cli` for the executable named `yomibu`. Dependencies
+point from CLI to library; the library has no CLI dependency. Root Cargo commands
+cover both members, with one lockfile, toolchain and target directory. Shared
+dependency versions and test profiles live in the root manifest. No API package
+exists until the HTTP application is implemented.
 
 - The binary owns argument parsing, environment access, runtime startup,
   presentation, and exit status.
@@ -1160,8 +1164,15 @@ current tree, planned modules, dependency direction, ownership, composition
 examples, and public/private repository boundaries. It distinguishes implemented
 sync/status, manual preview, and offline preparation from future generation and
 Cloud capabilities.
-Keep one Cargo package and one public code repository until actual deployment/
-dependency needs justify another boundary. Private prompts/corpora can use
+Keep one public code repository. The approved library/CLI workspace split makes
+existing responsibilities and dependency boundaries visible before the API slice.
+Library production dependencies exclude CLI argument parsing and executable error
+reporting; the historical A1 example uses them as development dependencies.
+Library tests/examples live with the library, CLI and combined executable tests
+with the CLI. Shared immutable fixtures remain under root `tests/fixtures`, and
+the real pinned dictionary remains under root `target/a1/current`.
+Add `yomibu-api` when real HTTP behavior is implemented; no placeholder crate or
+new shared orchestration framework is required. Private prompts/corpora can use
 private stores with public adapter implementations.
 
 HTTP adapter tests live beside private adapter code, permitting local-server
