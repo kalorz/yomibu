@@ -72,7 +72,9 @@ impl EmbeddingCacheFile {
         cache.validate()?;
         Ok(Some(cache))
     }
+    /// Validate before creating temporary storage or replacing a usable file.
     pub fn save(&self, cache: &EmbeddingCache) -> Result<(), EmbeddingCacheFileError> {
+        cache.validate()?;
         self.save_bounded(cache, MAX_CACHE_BYTES)
     }
     fn save_bounded(

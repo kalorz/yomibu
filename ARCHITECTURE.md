@@ -393,9 +393,10 @@ prepared bytes and assessment stages adjacent. `retrieval.rs` owns encoding,
 identity/cache validation, bounded cache preparation and cosine similarity; `ports::Embedder` is the only new
 port, implemented by explicit lexical-baseline and local/hosted HTTP adapters.
 The HTTP embedding adapter splits each input group by its actual serialized size;
-the explicit file-cache adapter owns bounded reads and atomic publication;
-common embedding-input preparation validates the combined document limit before
-any provider work. There is no model/default selection service or generic pipeline.
+the explicit file-cache adapter owns bounded reads, validation before publication
+and atomic replacement;
+common embedding-input preparation and public cache preparation share the same
+whole-input size preflight before any provider work. There is no model/default selection service or generic pipeline.
 `StoryGenerationOptions` currently contains only `candidate_count`, default 2. It is
 passed separately to request preparation; brief/targets stay in `StoryRequest`.
 CLI `--candidates N` accepts positive integers with checked token-budget arithmetic,

@@ -191,25 +191,31 @@ pub fn prepare_embedding_inputs(
         purpose: EmbeddingPurpose::Query,
         text: request.brief.clone(),
     });
+    validate_embedding_input_sizes(&inputs)?;
+    Ok(inputs)
+}
+
+fn validate_embedding_input_sizes(inputs: &[EmbeddingInput]) -> Result<(), EmbeddingError> {
     if inputs
         .iter()
         .any(|input| input.text.len() > MAX_EMBEDDING_INPUT_BYTES)
     {
         return Err(EmbeddingError::Invalid(
             "combined embedding document exceeds the 32768-byte input limit",
-        )
-        .into());
+        ));
     }
-    Ok(inputs)
+    Ok(())
 }
 
 /// Reuse compatible cached vectors and encode missing inputs in bounded batches.
-/// Failure returns no partial cache; publication remains the caller's explicit step.
+/// All input sizes are checked before encoder work. Failure returns no partial
+/// cache; publication remains the caller's explicit step.
 pub async fn prepare_cache(
     embedder: &impl Embedder,
     inputs: &[EmbeddingInput],
     previous: Option<&EmbeddingCache>,
 ) -> Result<EmbeddingCache, EmbeddingError> {
+    validate_embedding_input_sizes(inputs)?;
     let model = embedder.model_identity();
     let previous = previous.filter(|c| &c.model == model);
     let mut entries: std::collections::BTreeMap<String, Vec<f32>> = previous

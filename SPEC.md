@@ -409,9 +409,11 @@ use cases, and `main.rs` handles parsing/exit status. No generation app wrapper,
 service hierarchy, API placeholder or new dependency is introduced.
 
 Reusable retrieval preparation is `retrieval::prepare_cache`: reuse compatible
-vectors, encode missing inputs in groups of 32 and validate the complete result.
+vectors, validate every input size before encoder calls, encode missing inputs in
+groups of 32 and validate the complete result.
 `adapters::embedding_cache_file::EmbeddingCacheFile` owns bounded reads and atomic
-publication with typed pre-replacement/uncertain-durability errors. The host selects
+publication with typed pre-replacement/uncertain-durability errors. Saving validates
+the complete cache before temporary-file creation or replacement. The host selects
 path, encoder, credentials and executor; no file is replaced after a batch failure.
 
 Use one narrow `Embedder` port for local/hosted encoders, a model-specific flat

@@ -5,6 +5,22 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Thin CLI review follow-up — 2026-10-06
+
+Greptile initially scored PR #19 3/5 and raised two valid public-boundary findings.
+Confirmed RED separately: invalid cache save returned success, and a later
+oversized input caused one HTTP call before rejection. GREEN validates cache
+contents before temporary-file creation/replacement and validates all input sizes
+before encoder work. Regressions cover unsupported versions, wrong dimensions,
+unchanged usable bytes, no directory creation, zero HTTP calls for an oversized
+33rd UTF-8 input, and accepted exact-limit input in ordinary [32, 1] batches.
+Simplification review extracted one private size check shared by story embedding
+input construction and public cache preparation. No new error layer or service
+was warranted. Existing valid CLI behavior, size limits and request bytes remain
+unchanged. Required checks and strict Rustdoc passed again after the fixes (182 Rust
+tests/doctests, none skipped, with the real pinned dictionary). Current PR records
+the resulting CI/re-review and merge status.
+
 ## Thin CLI, slice 3 — shared reports and executable layout — 2026-10-06
 
 Completed all three approved slices without an intermediate approval pause.

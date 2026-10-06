@@ -103,3 +103,70 @@ async fn failed_later_batch_returns_no_partial_cache_and_preserves_previous_data
     assert_eq!(*encoder.calls.lock().unwrap(), [32, 32]);
     assert_eq!(serde_json::to_value(&previous).unwrap(), before);
 }
+
+#[tokio::test]
+async fn oversized_later_input_fails_before_any_http_call_and_exact_limit_is_accepted() {
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+    use yomibu::{adapters::embeddings::HttpEmbedder, retrieval::MAX_EMBEDDING_INPUT_BYTES};
+    let server = MockServer::start().await;
+    Mock::given(path("/v1/embeddings"))
+        .respond_with(|request: &wiremock::Request| {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            let rows: Vec<_> = body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .enumerate()
+                .map(|(index, _)| serde_json::json!({"index":index, "embedding":[1.0, 0.0]}))
+                .collect();
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"model":"boundary-model", "data":rows}))
+        })
+        .mount(&server)
+        .await;
+    let encoder = HttpEmbedder::local(
+        &format!("{}/v1/", server.uri()),
+        EmbeddingModelIdentity {
+            provider: "local".into(),
+            model: "boundary-model".into(),
+            revision: "v1".into(),
+            dimensions: 2,
+            encoding_revision: "plain-v1".into(),
+        },
+    )
+    .unwrap();
+    let mut inputs: Vec<_> = inputs().into_iter().take(33).collect();
+    inputs[32].text = "猫".repeat(MAX_EMBEDDING_INPUT_BYTES / 3 + 1);
+    assert!(matches!(
+        prepare_cache(&encoder, &inputs, None).await,
+        Err(EmbeddingError::Invalid(_))
+    ));
+    let calls = server.received_requests().await.unwrap();
+    assert!(
+        calls.is_empty(),
+        "made {} provider calls before rejecting a later input",
+        calls.len()
+    );
+    inputs[32].text = "a".repeat(MAX_EMBEDDING_INPUT_BYTES);
+    let cache = prepare_cache(&encoder, &inputs, None).await.unwrap();
+    assert_eq!(
+        cache
+            .vectors(encoder.model_identity(), &inputs)
+            .unwrap()
+            .len(),
+        33
+    );
+    let batches: Vec<_> = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|request| {
+            serde_json::from_slice::<serde_json::Value>(&request.body).unwrap()["input"]
+                .as_array()
+                .unwrap()
+                .len()
+        })
+        .collect();
+    assert_eq!(batches, [32, 1]);
+}

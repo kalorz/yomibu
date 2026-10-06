@@ -93,11 +93,13 @@ explicit follow-up before selecting a default. No live generation call was made.
 ## Reusable preparation boundary
 
 `prepare_cache(&embedder, inputs, previous).await` reuses compatible vectors,
-encodes missing inputs and validates the complete result. It returns typed
+checks every input size before any encoder call, encodes missing inputs and
+validates the complete result. It returns typed
 `EmbeddingError` and never publishes partial batches. The caller supplies an
 encoder and drives async I/O; the library resolves no credentials or runtime.
 `EmbeddingCacheFile::new(path)` performs no I/O. `load` distinguishes absence from
-malformed data; `save` publishes one complete cache and distinguishes errors before
+malformed data; `save` validates before creating temporary files and publishes one
+complete cache. It distinguishes errors before
 replacement from uncertain directory durability afterwards. Both enforce the
 existing 128 MiB readable-cache limit. Paths and encoder configuration are chosen
 by the CLI or another caller.
