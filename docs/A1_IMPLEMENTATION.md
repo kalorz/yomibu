@@ -14,7 +14,24 @@ checkpoint `f1237d4`. Current code is a later revision; the completed A1 results
 above still describe the frozen implementation. No held-out rerun or rescore is
 part of the follow-up.
 
-## Run the offline example
+## Retired runner and historical reproduction
+
+As of 2026-10-06, the unused packet runner and packet-only tests are removed.
+The analyzer/evaluator remain used by story generation and `analyze`; current
+story/evaluation tests protect the useful outcome/error/span invariants. All
+historical inputs, references, scoring records and the no-go conclusion remain.
+No private holdout is rerun or rescored.
+
+The commands below apply to the last checkout containing the runner:
+[`d2adfcfe6dffede63363bf1a11be81ce8fe85606`](https://github.com/kalorz/yomibu/tree/d2adfcfe6dffede63363bf1a11be81ce8fe85606).
+Use a separate checkout rather than treating `a1` as a current executable:
+
+```sh
+git worktree add --detach /tmp/yomibu-a1-history d2adfcfe6dffede63363bf1a11be81ce8fe85606
+cd /tmp/yomibu-a1-history
+```
+
+## Reproduce the historical offline example
 
 From the repository root, with Python 3.8+ for the one-time setup:
 

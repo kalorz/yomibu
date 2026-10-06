@@ -93,8 +93,8 @@ This does not preserve the owned snapshot's protection against arbitrary externa
 writes. Use `--dictionary PATH` where file stability cannot be maintained. That
 option remains strict even for paths inside the managed root: full length/SHA-256
 verification precedes Sudachi initialization, and verified bytes are retained.
-CI's existing real-adapter tests, the A1 example and recorded reproducibility
-experiments continue using this fully verified policy. No timestamp hash cache,
+CI's real-adapter tests use this fully verified policy, as did the retired A1
+runner and recorded reproducibility experiments. No timestamp hash cache,
 analyzer upgrade, dictionary pruning or hash bypass is introduced.
 
 ## Provenance and Rust API

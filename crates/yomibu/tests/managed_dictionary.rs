@@ -89,7 +89,7 @@ fn mapped_and_owned_analysis_and_evaluation_agree_and_old_readers_survive_reimpo
         "猫\n犬",
     ] {
         let sentence = Sentence::new(text).unwrap();
-        let a = mapped.analyze(sentence).unwrap();
+        let a = mapped.analyze(sentence.clone()).unwrap();
         let b = owned.analyze(sentence).unwrap();
         assert_eq!(a.sentence, b.sentence);
         assert_eq!(a.units, b.units);
@@ -132,13 +132,11 @@ fn mapped_and_owned_analysis_and_evaluation_agree_and_old_readers_survive_reimpo
         unsafe { SudachiAnalyzer::load_managed(ManagedInstallation::open(&root).unwrap()) }
             .unwrap();
     let sentence = Sentence::new("犬です。").unwrap();
+    let old_analysis = mapped.analyze(sentence.clone()).unwrap();
+    let new_analysis = current.analyze(sentence).unwrap();
+    assert_eq!(old_analysis.units, new_analysis.units);
     assert_eq!(
-        mapped.analyze(sentence).unwrap().units,
-        current.analyze(sentence).unwrap().units
-    );
-    assert_eq!(
-        serde_json::to_value(current.analyze(sentence).unwrap()).unwrap()["provenance"]["dictionary_loading"]
-            ["generation"],
+        serde_json::to_value(new_analysis).unwrap()["provenance"]["dictionary_loading"]["generation"],
         new
     );
     assert!(
@@ -156,7 +154,7 @@ fn owned_loading_keeps_its_verified_snapshot_after_external_file_changes() {
     fs::copy(source_bundle().join("system_core.dic"), &path).unwrap();
     let analyzer = SudachiAnalyzer::load(&path).unwrap();
     let sentence = Sentence::new("東京都。猫").unwrap();
-    let before = analyzer.analyze(sentence).unwrap();
+    let before = analyzer.analyze(sentence.clone()).unwrap();
     fs::write(&path, b"externally truncated").unwrap();
     assert_eq!(before, analyzer.analyze(sentence).unwrap());
     assert!(SudachiAnalyzer::load(&path).is_err());

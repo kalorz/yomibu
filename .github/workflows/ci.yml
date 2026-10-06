@@ -54,7 +54,6 @@ jobs:
           cargo run --locked --example prepare
           yomibu_demo_dir=$(mktemp -d)
           trap 'rm -rf "$yomibu_demo_dir"' EXIT
-          cargo run --locked --example a1 -- target/a1/current/system_core.dic tests/fixtures/a1/smoke.json > "$yomibu_demo_dir/a1.json"
           cp tests/fixtures/preparation.json "$yomibu_demo_dir/wanikani.json"
           cp tests/fixtures/grammar.json "$yomibu_demo_dir/grammar.json"
           cargo run --locked -- prepare --data-dir "$yomibu_demo_dir" \

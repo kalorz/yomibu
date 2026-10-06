@@ -3,7 +3,7 @@
 G1 and G2 were engineering steps toward the current story path. Their production
 entry points, CLI composition, authored situation selector and focused observations
 are retired as of 2026-10-06. Start at
-[`story_command.rs::run_generation`](../crates/yomibu-cli/src/story_command.rs) for current execution;
+[`story::plan_generation` and `story::generate_story`](../crates/yomibu/src/story.rs) for current execution;
 [story usage](STORY_GENERATION.md) describes its library stages and contracts.
 
 ## What the experiments established
@@ -36,6 +36,10 @@ reading/sense, comprehension or enjoyment. The public synthetic G2 v1/v2 live
 comparison remains **NOT RUN**; see [its recipe and manifest](G2_COMPARISON.md).
 No live model calls were made for retirement and no accepted exercise is claimed.
 
+The unused A1 packet runner is also retired; its useful protections now run through
+shared story, evaluation and analyzer tests. Historical packet inputs and records
+remain under `tests/fixtures/a1` and these docs.
+
 A1's frozen historical **no-go** remains: 24/24 held-out outcomes, 120/120 check
 judgments and 11/12 exact negative-span matches did not outweigh three unsupported
 challenge Pass results. Its later object-combination safeguard deliberately keeps
@@ -56,6 +60,7 @@ Code remains reproducible through Git history, rather than an unused Rust module
 
 | Purpose | Pinned revision |
 | --- | --- |
+| Last A1 packet runner (current story stages still present) | [`d2adfcfe6dffede63363bf1a11be81ce8fe85606`](https://github.com/kalorz/yomibu/tree/d2adfcfe6dffede63363bf1a11be81ce8fe85606) |
 | Last pre-retirement G1 CLI and G1/G2 library APIs, alongside story | [`48825a05b7a8d84a5109b7d3be9ed3f6093f2033`](https://github.com/kalorz/yomibu/tree/48825a05b7a8d84a5109b7d3be9ed3f6093f2033) |
 | G2 CLI and readable focused orchestration before story migration | [`5b9a37ab8bf7bc69427d3c8886090f76005d0236`](https://github.com/kalorz/yomibu/tree/5b9a37ab8bf7bc69427d3c8886090f76005d0236) |
 | G2 comparison v1 baseline | [`818dda5e6897e4d8ab729ed9198e5070d16af50b`](https://github.com/kalorz/yomibu/tree/818dda5e6897e4d8ab729ed9198e5070d16af50b) |

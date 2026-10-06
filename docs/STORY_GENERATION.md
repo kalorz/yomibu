@@ -24,16 +24,19 @@ The public module is `yomibu::story`. The previous `reading` module and
 - **Story generation options** control execution independently of the desired text.
   `candidate_count` defaults to 2 and maps to CLI `--candidates N`. Repair rounds
   would belong here when repair exists; no unused repair configuration is present.
-- **Story generation plan** is the selected vocabulary sent with the brief, targets,
-  grammar descriptions and executable bindings. This small prompt subset does
-  not replace the complete inventory used for local assessment.
+- **Story vocabulary selection** (`StoryVocabularySelection`) records the final
+  prompt subset. It does not replace the complete inventory for assessment.
+- **Story generation plan** (`StoryGenerationPlan`) is complete offline preflight:
+  the final selection, exact AI request and full-inventory assessment inputs.
 - **AI model request** (`AiModelRequest`) is the finalized serialized payload and
   its hash, with the encoded execution options. It contains no assessment inputs.
 - **Story assessment inputs** (`StoryAssessmentInputs`) keep the full inventory,
-  targets, final plan and structural-check data separate from the outgoing payload.
+  targets, selected IDs and structural-check data separate from the outgoing payload.
+- **Story generation result** owns original candidates, completed assessments and
+  typed candidate execution errors. It survives after inputs/resources are dropped.
 
 There is no extra user-facing `constraints` file or `context` file. The complete
-inventory supplies the vocabulary/grammar constraints; the plan records what
+inventory supplies the vocabulary/grammar constraints; the selection records what
 this particular attempt sends. No separate manual and WaniKani generation paths
 exist. No whole account, progress history or unselected vocabulary goes to the
 generation provider.
@@ -134,20 +137,31 @@ never refreshes a missing/stale cache. It fails with `prepare-retrieval` guidanc
 
 ## Follow the execution
 
-Start at `crates/yomibu-cli/src/story_command.rs::run_generation`:
+Start at the adjacent library functions `plan_generation` and `generate_story`
+in [`crates/yomibu/src/story.rs`](../crates/yomibu/src/story.rs):
 
 ```text
-load_generation_inputs (including execution-option validation)
-  -> load_or_prepare_embeddings
-  -> select_vocabulary
-  -> build_ai_model_request (final plan + AiModelRequest)
-  -> StoryAssessmentInputs::new (full original inventory)
-  -> dictionary.load
-  -> request_candidates_from_openai (credential, client and Tokio I/O event loop)
-  -> assess_candidates
-  -> write_generation
-  -> require_completed_assessments
+plan_generation (offline)
+  validate inputs/options/selection bounds
+  select_vocabulary (once)
+  build_ai_model_request (final selection + exact bytes)
+  StoryAssessmentInputs::new (full original inventory)
+  return immutable StoryGenerationPlan
+
+caller initializes dictionary/client after preflight
+
+generate_story (caller drives async I/O)
+  client.generate_story_candidates (one attempt; unchanged bytes)
+  assess_candidates (every text against full inventory)
+  return owned StoryGenerationResult
 ```
+
+The CLI's `story_command::generate_story_command` loads input files and embeddings,
+calls planning, loads the dictionary, and calls `execute_story_plan`. That helper
+reads the credential, builds the client/runtime and awaits shared generation.
+The handler then writes the report and determines exit status. An API uses the
+same library functions with its own inputs/resources/executor; no orchestration
+needs copying. Preview calls only offline planning and report conversion.
 
 Selection ranks cached cosine similarity, with explicit vocabulary targets first
 in request order and ID-based ties for supports. Targets are never dropped to
@@ -159,24 +173,23 @@ Direct library composition (caller owns I/O and the runtime):
 
 ```rust,ignore
 let options = StoryGenerationOptions { candidate_count: 3 };
-options.validate()?;
-request.validate(&inventory)?;
-let plan = select_vocabulary(&inventory, &request, &cache, &cache.model, 12)?;
-let (plan, ai_request) = build_ai_model_request(&inventory, &request, plan, options)?;
-let inputs = StoryAssessmentInputs::new(&inventory, &request, &plan)?;
+let plan = plan_generation(&inventory, &request, &cache, &cache.model, 12, options)?;
 // Initialize explicitly supplied execution resources only after preflight.
 let analyzer = SudachiAnalyzer::load(dictionary_path)?;
 let client = Client::new(api_key)?;
-let generated = client.generate_story_candidates(&ai_request).await?;
-let assessments = assess_candidates(&generated, &inputs, &analyzer);
+let result = generate_story(&plan, &client, &analyzer).await?;
+let originals = result.candidates();
+let assessments = result.assessments();
 ```
 
-`AiModelRequest` owns only the finalized payload, hash and encoded execution options.
-`StoryCandidates` owns returned texts and metadata without borrowing a request.
-`StoryAssessmentInputs` separately borrows the original full inventory/request and
-final plan, and owns the structural-check projection. Pass these same inputs
-explicitly to assessment; the selected subset never replaces the full inventory.
-All original texts survive candidate-specific errors, and each assessment is attempted.
+The plan privately binds the finalized subset, payload and full-inventory inputs.
+`AiModelRequest` owns only bytes/hash/options; it has no assessment state.
+`StoryAssessmentInputs` borrows original inventory/request and selected IDs,
+with an owned structural-check projection built once during planning.
+`StoryGenerationResult` owns originals/provenance and available assessments.
+Ordinary `Sentence` analysis borrows text; returned story analyses own one bounded
+copy of analyzed text, preserving original UTF-8 spans. No whole-inventory clone,
+self-referential result or caller lifetime is needed. Every candidate is attempted.
 Completed Fail/Inconclusive judgments, execution errors and NotRun stay distinct.
 Vocabulary outside the selected plan but inside the full inventory is a plan
 departure, not a vocabulary failure. Unresolved alternatives/competing identities
@@ -240,6 +253,15 @@ A1's historical **no-go** and object-combination safeguard remain in force.
 This delivers experimental candidates, not stories or validated exercises.
 Sync/status/preparation/analysis behavior and frozen A1 evidence are unchanged.
 
+The shared-workflow Rust API renames the old subset-only `StoryGenerationPlan`
+to `StoryVocabularySelection` and introduces a complete immutable plan under
+`StoryGenerationPlan`. Use `plan_generation`/`generate_story` and the owned
+`StoryGenerationResult`; lower-level stages remain callable. `Sentence` no longer
+implements `Copy`, and `text(&self)` borrows the sentence; ordinary analysis still
+borrows its input. CLI flags, reports, payload bytes/hashes and evaluation remain
+unchanged by this extraction. The A1 packet runner is retired; its inputs and
+historical code pin remain in [A1 evidence](A1_IMPLEMENTATION.md).
+
 ## Tokio naming
 
 Tokio's `Runtime` is an event loop/executor that drives async network I/O and
@@ -248,5 +270,5 @@ method, not a Rust standard-library method: it drives that async operation to
 completion while the synchronous CLI waits. Calling an async Rust function alone
 creates a future; something must drive it. Library callers use `.await` inside
 their own async environment. The CLI names its local value `io_runtime` and keeps
-construction/`block_on` inside the concrete provider helper, outside the high-level
+construction/`block_on` inside `execute_story_plan`, outside the high-level
 sequence. This needs no generic executor abstraction.

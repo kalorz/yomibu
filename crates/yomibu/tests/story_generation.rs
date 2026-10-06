@@ -7,10 +7,7 @@ use yomibu::{
     inventory::{LearnerInventory, ManualInventory},
     ports::Embedder,
     retrieval::{EmbeddingCache, prepare_embedding_inputs},
-    story::{
-        StoryAssessmentInputs, StoryRequest, assess_candidates, build_ai_model_request,
-        select_vocabulary,
-    },
+    story::{StoryRequest, generate_story, plan_generation},
 };
 fn inventory() -> LearnerInventory {
     LearnerInventory::from_manual(serde_json::from_value::<ManualInventory>(json!({"version":1,"vocabulary":[
@@ -32,10 +29,16 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
         encoder.embed(&inputs).await.unwrap(),
     )
     .unwrap();
-    let plan =
-        select_vocabulary(&inventory, &request, &cache, encoder.model_identity(), 2).unwrap();
-    let (plan, ai_request) =
-        build_ai_model_request(&inventory, &request, plan, Default::default()).unwrap();
+    let plan = plan_generation(
+        &inventory,
+        &request,
+        &cache,
+        encoder.model_identity(),
+        2,
+        Default::default(),
+    )
+    .unwrap();
+    let ai_request = plan.ai_model_request();
     assert!(!ai_request.body_utf8().contains("いぬ"));
     assert!(ai_request.body_utf8().contains("A cat sleeping"));
     let server = MockServer::start().await;
@@ -52,10 +55,9 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
     ] {
         server.reset().await;
         Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair}).to_string()}]}]}))).expect(1).mount(&server).await;
-        let generated = client.generate_story_candidates(&ai_request).await.unwrap();
-        let inputs = StoryAssessmentInputs::new(&inventory, &request, &plan).unwrap();
-        let results = assess_candidates(&generated, &inputs, &analyzer);
-        assert_eq!(generated.texts(), &pair);
+        let result = generate_story(&plan, &client, &analyzer).await.unwrap();
+        let results = result.assessments();
+        assert_eq!(result.candidates().texts(), &pair);
         assert_eq!(
             server.received_requests().await.unwrap()[0].body,
             ai_request.body_utf8().as_bytes()
@@ -201,10 +203,15 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
             encoder.embed(&inputs).await.unwrap(),
         )
         .unwrap();
-        let plan =
-            select_vocabulary(&inventory, &request, &cache, encoder.model_identity(), 2).unwrap();
-        let (plan, ai_request) =
-            build_ai_model_request(&inventory, &request, plan, Default::default()).unwrap();
+        let plan = plan_generation(
+            &inventory,
+            &request,
+            &cache,
+            encoder.model_identity(),
+            2,
+            Default::default(),
+        )
+        .unwrap();
         let pair = if case == "intransitive_object" {
             ["猫を歩きます。", "猫を歩きます。"]
         } else if case == "malformed_object" {
@@ -218,10 +225,9 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
         };
         server.reset().await;
         Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair}).to_string()}]}]}))).mount(&server).await;
-        let generated = client.generate_story_candidates(&ai_request).await.unwrap();
-        let inputs = StoryAssessmentInputs::new(&inventory, &request, &plan).unwrap();
-        let results = assess_candidates(&generated, &inputs, &analyzer);
-        for result in &results {
+        let result = generate_story(&plan, &client, &analyzer).await.unwrap();
+        let results = result.assessments();
+        for result in results {
             if case.ends_with("object") {
                 let target = &result.targets[1];
                 if case == "explicit_object" {
@@ -277,17 +283,18 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
             encoder.embed(&inputs).await.unwrap(),
         )
         .unwrap();
-        let plan =
-            select_vocabulary(&inventory, &request, &cache, encoder.model_identity(), 2).unwrap();
-        let (plan, ai_request) = build_ai_model_request(
+        let plan = plan_generation(
             &inventory,
             &request,
-            plan,
+            &cache,
+            encoder.model_identity(),
+            2,
             yomibu::story::StoryGenerationOptions {
                 candidate_count: count,
             },
         )
         .unwrap();
+        let ai_request = plan.ai_model_request();
         let body: serde_json::Value = serde_json::from_str(ai_request.body_utf8()).unwrap();
         assert_eq!(
             body["text"]["format"]["schema"]["properties"]["candidates"]["minItems"],
@@ -311,7 +318,7 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
             }
             server.reset().await;
             Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":texts}).to_string()}]}]}))).expect(1).mount(&server).await;
-            let result = client.generate_story_candidates(&ai_request).await;
+            let result = generate_story(&plan, &client, &analyzer).await;
             assert_eq!(
                 server.received_requests().await.unwrap()[0].body,
                 ai_request.body_utf8().as_bytes()
@@ -323,10 +330,9 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
                 );
                 continue;
             }
-            let generated = result.unwrap();
-            assert_eq!(generated.texts(), texts.as_slice());
-            let inputs = StoryAssessmentInputs::new(&inventory, &request, &plan).unwrap();
-            let assessments = assess_candidates(&generated, &inputs, &analyzer);
+            let result = result.unwrap();
+            assert_eq!(result.candidates().texts(), texts.as_slice());
+            let assessments = result.assessments();
             assert_eq!(assessments.len(), count);
             for (i, assessment) in assessments.iter().enumerate() {
                 assert_eq!(

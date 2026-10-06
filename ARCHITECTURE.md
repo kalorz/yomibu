@@ -322,9 +322,10 @@ A1 is a synchronous, concrete library slice alongside preparation and G0:
   tuples plus seven explicit grammar bindings. It preserves arbitrary declaration
   content and IDs. Five checks report Pass/Fail/Inconclusive; typed input/execution
   errors remain outside those judgments, and NotRun is a distinct state.
-- `crates/yomibu/examples/a1.rs` composes the real adapter and evaluator with explicit synthetic
-  JSON and renders reports/exit codes. No general analysis CLI, learner-store
-  integration, async runtime, review framework, or model/provider access is added.
+- The retired A1 packet runner remains reproducible at revision
+  `d2adfcfe6dffede63363bf1a11be81ce8fe85606`. [A1 evidence](docs/A1_IMPLEMENTATION.md)
+  preserves historical inputs/protocols/conclusions. Current story and evaluation
+  tests exercise its useful outcome/error/span protections without an unused executable.
 - `scripts/setup_a1_dictionary.py` is explicit development/CI setup, outside runtime
   composition. It verifies the publisher ZIP and all three bundle files, retains
   complete bundles under ignored target storage, and publishes a `current` symlink
@@ -400,8 +401,8 @@ input, dictionary initialization, analysis, or evaluation fails.
 The branch in `main.rs` constructs no learner store, source or runtime. Explicit
 `--dictionary` remains the owned, checksum-pinned operation; otherwise managed
 selection resolves its directory's HOME default. There is no implicit setup,
-ambient analyzer configuration or learner-file discovery. The research harness
-`crates/yomibu/examples/a1.rs` and its frozen packet contract stay separate and unchanged.
+ambient analyzer configuration or learner-file discovery. The A1 research harness
+is retired; its frozen evidence and reproducible code remain in documentation/Git history.
 This CLI does not revise A1's historical no-go or the later object-combination
 restriction. Real-adapter subprocess tests compare CLI output to direct library
 evaluation and check errors, spans, escaping and absence of writes.
@@ -430,23 +431,28 @@ from pre-publication failure. See [dictionary safety](docs/DICTIONARY.md).
 
 ## Shared story composition
 
-Open `crates/yomibu-cli/src/story_command.rs::run_generation` for the complete current execution
-sequence. `main.rs` dispatches to it, or separately to offline `run_preview` and
-explicit `run_prepare`. Source differences end at `load_inventory`:
+Open `crates/yomibu/src/story.rs::plan_generation` and the adjacent `generate_story`
+for the shared sequence. The CLI dispatches to `generate_story_command`, separate
+from offline `run_preview` and explicit `run_prepare`. Source differences end at
+`load_inventory`; an API supplies the same inventory/request/cache and resources.
 
 ```text
 manual input / WaniKani cache + policy (+ optional manual supplement)
-  -> LearnerInventory + StoryRequest + separate StoryGenerationOptions
-  -> load_generation_inputs (validate inputs/options/selection bounds)
-  -> load_or_prepare_embeddings
-  -> story::select_vocabulary
-  -> story::build_ai_model_request (final plan + AiModelRequest)
-  -> StoryAssessmentInputs::new (full original inventory)
-  -> dictionary.load
-  -> request_candidates_from_openai (credential, concrete client and Tokio I/O runtime)
-  -> story::assess_candidates
-  -> story_command::report::write_generation
-  -> require_completed_assessments (execution exit status)
+  -> CLI load_generation_inputs (validate before embedding work)
+  -> CLI load_or_prepare_embeddings
+  -> library plan_generation
+       validate inputs/options/selection bounds
+       select_vocabulary (once)
+       build_ai_model_request (bounded selection + exact bytes)
+       StoryAssessmentInputs::new (full original inventory)
+  -> CLI dictionary.load
+  -> CLI execute_story_plan (credential, client and Tokio I/O runtime)
+       library generate_story
+         client.generate_story_candidates (one attempt; unchanged bytes)
+         assess_candidates (every original text)
+         StoryGenerationResult (owned originals + partial assessments)
+  -> CLI report::write_generation
+  -> CLI require_successful_execution (exit status)
 ```
 
 `inventory.rs` validates the common data and projects the existing source policy.
@@ -466,18 +472,21 @@ scale at 512 per candidate, and current results/assessments use vectors/slices.
 Retired G1/G2 fixtures are archived outside the test tree. No repair-round
 configuration exists until repair is implemented.
 
-`StoryGenerationPlan` borrows selected inventory entries. `build_ai_model_request`
-returns the final bounded plan alongside `AiModelRequest`, which owns immutable
-outbound bytes/hash and the options encoded in them. It has no inventory,
-assessment state or lifetime parameter. `StoryCandidates` owns returned texts and
-provenance independently of the request.
+`StoryVocabularySelection` borrows selected inventory entries. The complete
+`StoryGenerationPlan` privately binds this final subset, immutable `AiModelRequest`
+bytes/hash/options and full-inventory `StoryAssessmentInputs`. Planning creates the
+structural-check projection once before execution resources. Assessment inputs
+borrow the original inventory/request and selected IDs rather than the selection
+struct, avoiding a self-referential plan. No full-inventory clone is needed.
 
-`StoryAssessmentInputs` separately borrows the complete inventory, original story
-request and final plan, and owns the small structural-check projection. Callers
-pass it explicitly to `assess_candidates`; the CLI constructs it from the same
-inputs before dictionary/credential initialization. All original texts and every
-available assessment survive candidate errors. No full-inventory clone is needed.
-The library has no credential lookup, runtime creation or terminal output.
+`StoryGenerationResult` owns originals/provenance and all available assessments,
+including typed candidate errors. `Sentence` uses `Cow<str>`: ordinary analysis
+borrows; the result copies only bounded analyzed sentence text and moves the
+remaining evidence. This makes a result usable after the inputs/client/analyzer
+are dropped. `Sentence` is no longer `Copy`; its text getter borrows `&self`.
+Provider failure returns no result; completed Fail/Inconclusive and per-candidate
+execution errors remain distinct. The library has no credential lookup, runtime
+creation or terminal output. CLI and future API await the same execution function.
 
 Selection is cached cosine ranking with explicit targets first. Preparation may
 remove lowest-ranked non-target supports to fit the unchanged byte limit, then
@@ -628,7 +637,7 @@ crates/
     src/
       lib.rs                 public entry points
       inventory.rs           common manual/WaniKani inventory and validation
-      story.rs               adjacent request, selection, payload and assessment stages
+      story.rs               shared planning/execution and adjacent concrete stages
       retrieval.rs           embedding inputs/cache and cosine ranking
       generation.rs          candidate assessment/errors and provider metadata
       app.rs                 sync/status orchestration
@@ -654,12 +663,12 @@ crates/
         sources/wanikani/    HTTP source, DTOs and boundary tests
         stores/              file and in-memory storage adapters
     tests/                   library use-case and adapter contracts
-    examples/                direct-library preview, prepare and preserved A1 harness
+    examples/                direct-library preview and prepare
   yomibu-cli/
     Cargo.toml               depends on yomibu; binary name remains yomibu
     src/
       main.rs                arguments, dispatch and executable startup
-      story_command.rs       run_generation/run_preview/run_prepare sequences
+      story_command.rs       generation resources, preview and retrieval commands
       story_command/report.rs  story JSON/text conversion and rendering
       story_tests.rs         executable/report unit tests
       analyze.rs             supplied analysis input and rendering
@@ -688,8 +697,8 @@ Keep code in one public GitHub repository. The workspace contains the existing
 library and CLI only; `yomibu-api` will join it when HTTP behavior is implemented.
 CLI owns argument parsing, file/credential selection, runtime creation, rendering
 and exit status. Library callers still supply explicit inputs/resources and their
-own runtime. No library API or CLI contract changes in this move, and no API
-skeleton or generic engine object is introduced.
+own runtime. The workspace move preserved contracts; the later shared-workflow
+Rust API changes are listed above. No API skeleton or generic engine object exists.
 
 Root Cargo commands select both workspace members. The CLI binary has `doc = false`
 to keep public Rustdoc at `target/doc/yomibu` without a same-name output collision. `cargo run -- …` selects the
@@ -697,8 +706,8 @@ single CLI binary; `cargo run --example …` selects the library example. Packag
 selection is explicit when useful: `-p yomibu` for library checks and
 `-p yomibu-cli` for CLI checks. Test fixtures and dictionary setup remain rooted
 in the repository. Member manifests inherit shared versions; only the CLI has
-production Clap/anyhow dependencies (the A1 example keeps them as library dev
-dependencies). Do not split packages merely to mirror every module.
+Clap/anyhow dependencies; the library no longer needs them even for examples.
+Do not split packages merely to mirror every module.
 Private prompt sets and corpora can live in a private asset repository or store
 with separate access/deployment; their generic readers need not be private.
 

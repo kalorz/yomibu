@@ -368,10 +368,13 @@ bounded structural checks; three such challenge results blocked the protocol's
 go decision. The separately recorded follow-up below restricts object-combination
 coverage. There is no ad hoc phrase blacklist or general validator.
 
-`crates/yomibu/examples/a1.rs` is the thin synthetic evaluation executable, accepting an explicit
-dictionary path and versioned JSON packet, at most 1 MiB/60 cases. It keeps completed
-judgments separate from execution errors and NotRun, preserves per-case input,
-analysis/provenance, and check results, and makes no reference-accuracy claim.
+The A1 synthetic packet runner is retired as of 2026-10-06. Its historical
+1 MiB/60-case format and executable remain reproducible at revision
+`d2adfcfe6dffede63363bf1a11be81ce8fe85606`; [A1 evidence](docs/A1_IMPLEMENTATION.md)
+retains setup, inputs, conclusions and frozen scoring records. Current story,
+evaluation and analyzer tests preserve completed judgments, execution errors,
+NotRun, original text/spans and partial results. Packet-only format tests retired
+with the runner; they are not a current product contract.
 The ordinary CLI, schema 1, and earlier use cases retain their existing contracts.
 No generation, repair, quiz, provider calls, or automatic interpretation of learner
 grammar is authorized by this milestone.
@@ -499,21 +502,34 @@ be positive and fit checked `512 × N` output-token arithmetic, with no arbitrar
 large requests may fail explicitly, without clamping, splitting or retry. Future
 repair settings belong here only when repair exists. Story-request JSON keeps
 brief/targets, not execution choices.
-`StoryGenerationPlan` selects vocabulary for the prompt; every vocabulary target is
-included, followed by supports ranked by brief similarity, with ID-based ties.
-`build_ai_model_request` returns the final bounded plan plus an `AiModelRequest`
-containing immutable payload bytes/hash and encoded options, with no assessment
-state. `StoryAssessmentInputs` separately borrows the original inventory/request
-and final plan and owns the structural-check projection; construct it before
-execution resources and pass it explicitly to assessment. `StoryCandidates` owns
-original texts/provenance independently of both inputs and outbound request.
-The complete inventory remains the assessment boundary. No separate generic
-constraints/context configuration or pipeline framework is introduced.
+`StoryVocabularySelection` records the prompt subset: every vocabulary target,
+then supports ranked by brief similarity, with ID-based ties. The canonical library
+entry pair is `story::plan_generation` followed by `story::generate_story`, adjacent
+in `story.rs`. Offline planning validates inputs/options/selection bounds, selects
+once, prepares bounded request bytes and projects full-inventory assessment inputs.
+It returns an immutable `StoryGenerationPlan` containing the final selection,
+`AiModelRequest` and `StoryAssessmentInputs`. The outgoing request owns only
+bytes/hash and encoded options; assessment borrows the original inventory/request
+and selected IDs, with its own structural-check projection.
 
-Keep one obvious CLI execution body: input/selection preflight, explicit compatible
-embedding cache, vocabulary selection, bounded request preparation, dictionary/
-generation credentials/runtime, one generation attempt, assessment, report/status.
-Library stages own no environment lookup, file selection, runtime or terminal.
+`generate_story` receives this plan, an explicit concrete client and analyzer.
+It makes one provider attempt, assesses every original candidate and returns an
+owned `StoryGenerationResult`. Provider failure returns `ProviderError`; candidate
+execution errors remain beside partial/completed assessments in the result.
+Results outlive input data and execution resources. The complete inventory remains
+the assessment boundary; no generic pipeline or separate constraints/context file
+is introduced. Lower-level selection/request/assessment functions remain available.
+
+Rust API changes: the former subset-only `StoryGenerationPlan` is renamed
+`StoryVocabularySelection`; `StoryGenerationPlan` now represents complete preflight.
+`Sentence` supports borrowed or owned text, loses `Copy`, and `text` borrows `&self`.
+Ordinary analysis still borrows; returned story analyses own a bounded text copy
+without changing original spans or serialized reports. No wire-format change occurs.
+
+CLI `generate_story_command` loads inputs/embeddings, calls library planning,
+initializes dictionary/credentials/runtime, awaits library generation, then renders
+and determines exit status. Library orchestration owns no environment lookup,
+file selection, runtime or terminal. An API caller uses the same entry pair.
 Preview is a separate offline operation with no dictionary, credentials, HTTP
 client or runtime and no cache refresh. Missing/stale embeddings fail explicitly.
 `prepare-retrieval` may prepare vectors; generation may do so only with explicit
@@ -1167,7 +1183,7 @@ Cloud capabilities.
 Keep one public code repository. The approved library/CLI workspace split makes
 existing responsibilities and dependency boundaries visible before the API slice.
 Library production dependencies exclude CLI argument parsing and executable error
-reporting; the historical A1 example uses them as development dependencies.
+reporting; retiring the A1 runner also removes them from library development dependencies.
 Library tests/examples live with the library, CLI and combined executable tests
 with the CLI. Shared immutable fixtures remain under root `tests/fixtures`, and
 the real pinned dictionary remains under root `target/a1/current`.

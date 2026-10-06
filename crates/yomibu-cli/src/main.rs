@@ -211,7 +211,7 @@ fn run(
             candidates,
             json,
             ..
-        } => story_command::run_generation(
+        } => story_command::generate_story_command(
             &story,
             &embedding,
             StoryGenerationOptions {
