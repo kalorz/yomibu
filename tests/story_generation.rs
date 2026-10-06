@@ -117,6 +117,9 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
         "alternatives",
         "competing",
         "unknown_object",
+        "intransitive_object",
+        "alternative_object",
+        "competing_target_object",
         "explicit_object",
         "unsupported_morphology",
         "malformed_object",
@@ -156,6 +159,24 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
                     rule: yomibu::evaluation::GrammarRule::ObjectWo,
                 });
         }
+        if case == "intransitive_object" {
+            inventory.vocabulary[2].written_form = "歩く".into();
+            inventory.vocabulary[2].readings = vec!["あるく".into()];
+            inventory.vocabulary[2].direct_object = Some(false);
+        }
+        if case == "alternative_object" {
+            inventory.vocabulary[2].direct_object = Some(true);
+            inventory.vocabulary[2]
+                .meanings
+                .push("another meaning".into());
+        }
+        if case == "competing_target_object" {
+            inventory.vocabulary[2].direct_object = Some(true);
+            let mut other = inventory.vocabulary[2].clone();
+            other.id = "another-eat".into();
+            other.direct_object = Some(false);
+            inventory.vocabulary.push(other);
+        }
         let request:StoryRequest=serde_json::from_value(json!({"version":1,"brief":"A cat resting","targets":{"vocabulary":["sleep"],"grammar":[]}})).unwrap();
         if case == "competing_object" {
             let mut alternative = inventory.vocabulary[2].clone();
@@ -167,7 +188,7 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
                 .retain(|b| b.rule != yomibu::evaluation::GrammarRule::ObjectWo);
         }
         let mut request = request;
-        if case == "malformed_object" {
+        if case.ends_with("object") {
             request.targets.grammar.push("object".into());
         }
         let encoder = LexicalEmbedder::new();
@@ -182,7 +203,9 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
             select_vocabulary(&inventory, &request, &cache, encoder.model_identity(), 2).unwrap();
         let (plan, ai_request) =
             build_ai_model_request(&inventory, &request, plan, Default::default()).unwrap();
-        let pair = if case == "malformed_object" {
+        let pair = if case == "intransitive_object" {
+            ["猫を歩きます。", "猫を歩きます。"]
+        } else if case == "malformed_object" {
             ["猫を猫です。", "猫を猫です。"]
         } else if case == "unsupported_morphology" {
             ["猫は高い。", "猫は高い。"]
@@ -197,8 +220,18 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
         let inputs = StoryAssessmentInputs::new(&inventory, &request, &plan).unwrap();
         let results = assess_candidates(&generated, &inputs, &analyzer);
         for result in &results {
-            if case == "malformed_object" {
-                assert_eq!(result.targets[1].status, "unassessable");
+            if case.ends_with("object") {
+                let target = &result.targets[1];
+                if case == "explicit_object" {
+                    assert_eq!(target.status, "observed", "{case}");
+                    assert_eq!(target.completeness, "complete", "{case}");
+                    assert_eq!(target.spans.len(), 1);
+                    assert_eq!(target.spans[0], 3..6);
+                } else {
+                    assert_eq!(target.status, "unassessable", "{case}");
+                    assert_eq!(target.completeness, "partial", "{case}");
+                    assert!(target.spans.is_empty(), "{case}");
+                }
             }
             let CandidateAssessment::Completed { evaluation, .. } = &result.assessment else {
                 panic!()

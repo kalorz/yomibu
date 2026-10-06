@@ -587,7 +587,8 @@ fn observe_targets(
             spans,
         });
     }
-    let matched = analysis.and_then(evaluation::observed_grammar);
+    let matched =
+        analysis.and_then(|analysis| evaluation::observed_grammar(analysis, &inputs.bindings));
     for id in &inputs.request.targets.grammar {
         let rules: Vec<GrammarRule> = inputs
             .inventory

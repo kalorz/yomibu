@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+pub const MAX_EMBEDDING_INPUT_BYTES: usize = 32768;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EmbeddingModelIdentity {
@@ -188,5 +190,14 @@ pub fn prepare_embedding_inputs(
         purpose: EmbeddingPurpose::Query,
         text: request.brief.clone(),
     });
+    if inputs
+        .iter()
+        .any(|input| input.text.len() > MAX_EMBEDDING_INPUT_BYTES)
+    {
+        return Err(EmbeddingError::Invalid(
+            "combined embedding document exceeds the 32768-byte input limit",
+        )
+        .into());
+    }
     Ok(inputs)
 }

@@ -5,6 +5,34 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## PR #15 Greptile corrections — 2026-10-06
+
+Read Greptile's 4/5 summary and all three inline comments on `8849125`.
+All three findings were valid and addressed:
+
+- Object grammar targets: confirmed RED (`unknown_object` was incorrectly
+  `observed`), then shared the existing direct-object evidence predicate between
+  checker and observer. Real-dictionary coverage includes false, missing,
+  alternative and competing evidence, plus explicit true evidence. Unsupported
+  constructions remain unassessable; object combinations remain Inconclusive.
+- Embedding bounds: confirmed RED for 32 valid 17 KiB documents exceeding the
+  encoded body cap, and for a later oversized combined document making an
+  earlier provider call. The adapter now batches by actual JSON size, including
+  escapes; common input preparation checks every complete lexical document
+  before provider work. Cache publication still requires all batches to succeed.
+- Restored `exact-reading request` in the unrelated preparation documentation.
+
+Simplification review reused the checker's lexical predicate without changing
+historical judgments, kept wire-size batching in the concrete HTTP adapter, and
+kept one shared per-input limit. No dependency, trait or generic batching framework
+was introduced. Updated SPEC, architecture and usage limits to match.
+Verification: `cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**237 passed**, none failed/ignored),
+`git diff --check`, and strict Rustdoc all passed with the real pinned dictionary.
+The object regression passed again after the final assertion/refactor review.
+No live provider calls were made; request fixtures and dependency files are unchanged.
+
 ## Story naming and explicit assessment inputs — 2026-10-06
 
 Approved breaking rename: `yomibu::story`, `StoryRequest`,

@@ -505,7 +505,9 @@ The source cache stays untouched. `story.rs` keeps the request, selection,
 prepared bytes and assessment stages adjacent. `retrieval.rs` owns encoding,
 identity/cache validation and cosine similarity; `ports::Embedder` is the only new
 port, implemented by explicit lexical-baseline and local/hosted HTTP adapters.
-There is no model/default selection service or generic pipeline.
+The HTTP embedding adapter splits each input group by its actual serialized size;
+common embedding-input preparation validates the combined document limit before
+any provider work. There is no model/default selection service or generic pipeline.
 `StoryGenerationOptions` currently contains only `candidate_count`, default 2. It is
 passed separately to request preparation; brief/targets stay in `StoryRequest`.
 CLI `--candidates N` accepts positive integers with checked token-budget arithmetic,
@@ -535,7 +537,9 @@ freezes the exact body. Provider transport and existing G1 settings remain in
 prompt bytes/hash; old G1/G2 fixtures remain untouched. `evaluation.rs` reuses the
 bounded structural checks, adds a conservative full-inventory lexical check and
 bounded grammar observations; it does not reinterpret source alternatives as
-verified reading/sense pairs. The historical object safeguard remains intact.
+verified reading/sense pairs. The grammar observer and structural checker share
+the same direct-object evidence predicate, while the historical object-combination
+safeguard remains intact.
 
 `story_command/report.rs` converts finished plans/assessments into the new
 JSON/text forms, reusing `candidate_report.rs` for G1 and current candidate

@@ -183,7 +183,11 @@ departure, not a vocabulary failure. Unresolved alternatives/competing identitie
 are inconclusive. An observed target survives unrelated uncertainty, with
 `completeness: partial`; unsupported or target-specific evidence remains
 unassessable. Grammar targets report occurrences only in bounded recognized
-shapes. These observations do not establish contextual reading/sense, topic
+shapes. An object construction additionally requires the checker's unambiguous
+direct-object lexical evidence; missing, false or competing evidence leaves its
+grammar observations unassessable. Even a bounded object occurrence does not
+resolve the object/predicate combination: the existing safeguard remains
+Inconclusive. These observations do not establish contextual reading/sense, topic
 adherence, naturalness or comprehension, and never trigger a retry.
 
 JSON kinds are `story_generation_plan_preview` and `experimental_story_candidates`,
@@ -198,6 +202,9 @@ cache 128 MiB; 10,000 vocabulary entries; 128 grammar descriptions; 512 bindings
 16 vocabulary and 16 grammar targets; selection 1–16 entries; brief 2,048 bytes.
 Inventory IDs are at most 128 bytes; written forms 256; up to 32 readings of
 256 bytes and 32 meanings of 1,024 bytes; grammar descriptions 1,024 bytes.
+The joined embedding document for each word (including labels/separators) must
+fit 32 KiB; the entire set is checked before provider work. HTTP embedding batches
+also split at the 512 KiB encoded request limit, accounting for JSON escaping.
 The final provider request remains at most 16,384 bytes. Each candidate remains
 nonblank and at most 100 Unicode scalars. The output-token budget scales with
 count; other provider settings, deadlines,

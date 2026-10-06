@@ -134,7 +134,7 @@ matches do not establish their linguistic association or the suitability of an
 example. Grammar, reading/sense association, example suitability, and linguistic
 correctness remain explicitly unassessed. Absent, unsupported, ambiguous, or
 ineligible targets fail without a partial report. Kana-only records lack readings
-and cannot satisfy this slice's exact-story request.
+and cannot satisfy this slice's exact-reading request.
 
 No token, network, runtime, implicit synchronization, or writes are used.
 `--data-dir` selects the existing cache directory; it defaults to

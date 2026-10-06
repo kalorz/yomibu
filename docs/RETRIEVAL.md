@@ -20,8 +20,10 @@ vocabulary target is retained, irrespective of similarity. No vector database,
 plugin registry, server launcher or new dependency is introduced. Only explicit
 retrieval preparation performs I/O; library selection/preparation are synchronous.
 
-The CLI batches at most 32 inputs, caches only a complete successful result, and
-reuses compatible cached documents. A failed batch leaves the prior file intact.
+The CLI groups at most 32 inputs; the HTTP adapter further splits groups by actual
+encoded JSON size, including escapes and model metadata, to keep each request
+within 512 KiB. All vectors must succeed before cache publication; a failed batch
+leaves the prior file intact, without retry. Compatible cached documents are reused.
 A temporary file is synchronized before atomic replacement; a directory-sync
 failure reports uncertain durability after publication. Concurrent independent
 writers may replace each other's additional cached entries; they cannot publish
@@ -29,7 +31,10 @@ half a JSON file. A later attempt can explicitly recompute missing entries.
 
 HTTP transport has 5-second connection and 30-second total deadlines, no retries,
 redirects or ambient proxies, a 512 KiB request cap and 4 MiB response cap. A batch
-allows at most 64 nonblank inputs, each 32 KiB; cache vectors have at most 4,096
+allows at most 64 nonblank inputs, each 32 KiB before JSON escaping. The complete
+joined lexical document (written form, readings, meanings and labels) must fit
+that per-input limit; all documents are validated before any provider work.
+Cache vectors have at most 4,096
 dimensions and 20,000 entries. Errors expose status/category, not provider bodies
 or credentials. Missing vectors never cause an implicit hosted request.
 

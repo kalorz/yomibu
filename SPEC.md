@@ -641,7 +641,10 @@ backend configuration. Hosted work additionally requires `--allow-embedding-call
 Use one narrow `Embedder` port for local/hosted encoders, a model-specific flat
 vector cache and cosine similarity. Identity includes provider/model/revision,
 dimensions and encoding revision. Invalid vectors/partial responses fail; cached
-files replace atomically only after successful complete preparation. Embedding
+files replace atomically only after successful complete preparation. Validate all
+combined lexical documents against the 32 KiB per-input limit before provider
+work. HTTP batches also respect actual encoded JSON size (512 KiB), including
+escaping, and preserve input order across split requests without retry. Embedding
 requests contain lexical documents/brief, without learner IDs/progress history.
 Generation sends only selected vocabulary, brief/targets and supplied grammar.
 No implicit remote call, automatic model selection or fallback occurs. The explicit
@@ -664,6 +667,10 @@ vocabulary/grammar target observations and unselected-inventory departures remai
 separate from bounded checks. Alternatives, competing identities, missing evidence
 and unsupported morphology cannot become positive intended-use claims. Preserve
 partial completeness beside an observed target with unrelated uncertainty.
+Object grammar observations require the same unambiguous direct-object lexical
+evidence as the structural checker; unresolved evidence leaves the construction
+unassessable, while the object-combination safeguard remains Inconclusive even
+when a bounded occurrence is observed.
 A1's no-go, original UTF-8 spans and object-combination safeguard remain unchanged.
 Topic adherence, contextual reading/sense, naturalness and comprehension remain
 unassessed; no accepted exercise, longer-text generation, repair or live generation

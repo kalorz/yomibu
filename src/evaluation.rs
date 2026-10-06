@@ -250,15 +250,7 @@ pub fn evaluate(
         && let Some((noun, wo)) = object
     {
         let verb = predicate[0];
-        let mut uses = bindings
-            .vocabulary
-            .iter()
-            .filter(|word| word.written_form == verb.dictionary_form);
-        let transitive_use = uses.next().is_some_and(|first| {
-            first.direct_object
-                && reading_matches(first, verb, text)
-                && uses.all(|word| word == first)
-        });
+        let transitive_use = has_direct_object_evidence(bindings, verb, text);
         if transitive_use {
             particles = combine(
                 particles,
@@ -302,6 +294,16 @@ pub fn evaluate(
         particles,
         nominal,
         scope,
+    })
+}
+
+fn has_direct_object_evidence(bindings: &EvaluationBindings, verb: &Token, text: &str) -> bool {
+    let mut uses = bindings
+        .vocabulary
+        .iter()
+        .filter(|word| word.written_form == verb.dictionary_form);
+    uses.next().is_some_and(|first| {
+        first.direct_object && reading_matches(first, verb, text) && uses.all(|word| word == first)
     })
 }
 
@@ -575,6 +577,7 @@ pub(crate) fn evaluate_inventory(
 /// None means the structure is unsupported, not that a target is absent.
 pub(crate) fn observed_grammar(
     analysis: &SentenceAnalysis<'_>,
+    bindings: &EvaluationBindings,
 ) -> Option<Vec<(GrammarRule, Range<usize>)>> {
     let text = analysis.sentence.text();
     let mut tokens: Vec<_> = analysis.units.iter().map(|u| &u.token).collect();
@@ -597,6 +600,9 @@ pub(crate) fn observed_grammar(
         && is_noun(noun)
         && is_particle(wo, "を", text)
     {
+        if !has_direct_object_evidence(bindings, rest.first()?, text) {
+            return None;
+        }
         found.push((GrammarRule::ObjectWo, wo.span.clone()));
         predicate = rest;
     }

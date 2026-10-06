@@ -304,3 +304,60 @@ fn invalid_candidate_count_fails_before_any_embedding_or_dictionary_work() {
         assert!(!error.contains("Dictionary initialization"));
     }
 }
+
+#[tokio::test]
+async fn oversized_combined_embedding_document_fails_before_any_provider_call() {
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
+    let dir = setup();
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            let rows: Vec<_> = (0..body["input"].as_array().unwrap().len())
+                .map(|i| json!({"index":i,"embedding":[1., 0.]}))
+                .collect();
+            ResponseTemplate::new(200).set_body_json(json!({"model":"test-model","data":rows}))
+        })
+        .mount(&server)
+        .await;
+    let mut inventory: Value =
+        serde_json::from_str(include_str!("fixtures/story/inventory.json")).unwrap();
+    for i in 0..33 {
+        inventory["vocabulary"].as_array_mut().unwrap().push(json!({
+            "id":format!("extra-{i}"),"written_form":format!("word-{i}"),
+            "readings":["ねこ"],"meanings":["cat"],"direct_object":null
+        }));
+    }
+    inventory["vocabulary"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap()["meanings"] = json!(vec!["x".repeat(1024); 32]);
+    fs::write(dir.path().join("inventory.json"), inventory.to_string()).unwrap();
+    let endpoint = format!("{}/v1/", server.uri());
+    let mut c = cli(dir.path(), "prepare-retrieval");
+    c.args([
+        "--embedding-provider",
+        "local",
+        "--embedding-model",
+        "test-model",
+        "--embedding-revision",
+        "pinned",
+        "--embedding-dimensions",
+        "2",
+        "--embedding-endpoint",
+        &endpoint,
+    ]);
+    let out = tokio::task::spawn_blocking(move || c.output().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(server.received_requests().await.unwrap().is_empty());
+    assert!(!dir.path().join("vectors.json").exists());
+    assert!(
+        String::from_utf8(out.stderr)
+            .unwrap()
+            .contains("32768-byte")
+    );
+}

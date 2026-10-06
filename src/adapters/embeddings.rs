@@ -1,7 +1,10 @@
 //! Explicit hosted/loopback embedding transport and an honest lexical baseline.
 use crate::{
     ports::Embedder,
-    retrieval::{EmbeddingError, EmbeddingInput, EmbeddingModelIdentity, validate_vector},
+    retrieval::{
+        EmbeddingError, EmbeddingInput, EmbeddingModelIdentity, MAX_EMBEDDING_INPUT_BYTES,
+        validate_vector,
+    },
 };
 use reqwest::{
     Url,
@@ -75,30 +78,50 @@ impl HttpEmbedder {
             model,
         })
     }
-}
-impl Embedder for HttpEmbedder {
-    fn model_identity(&self) -> &EmbeddingModelIdentity {
-        &self.model
-    }
-    async fn embed(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
-        if inputs.is_empty()
-            || inputs.len() > 64
-            || inputs
-                .iter()
-                .any(|i| i.text.trim().is_empty() || i.text.len() > 32768)
-        {
-            return Err(EmbeddingError::Invalid("embedding batch bounds"));
-        }
-        let body = serde_json::to_vec(&serde_json::json!({
+
+    fn request_body(&self, inputs: &[EmbeddingInput]) -> Result<Vec<u8>, EmbeddingError> {
+        serde_json::to_vec(&serde_json::json!({
             "model": self.model.model,
             "dimensions": self.model.dimensions,
             "encoding_format": "float",
             "input": inputs.iter().map(|i| &i.text).collect::<Vec<_>>(),
         }))
-        .map_err(|_| EmbeddingError::Invalid("embedding serialization"))?;
-        if body.len() > 524288 {
-            return Err(EmbeddingError::Invalid("embedding request exceeds 512 KiB"));
+        .map_err(|_| EmbeddingError::Invalid("embedding serialization"))
+    }
+
+    // Measure the actual wire encoding, including JSON escapes and model metadata.
+    // Build every batch before any HTTP request so local bounds cannot fail mid-call.
+    fn request_batches(
+        &self,
+        inputs: &[EmbeddingInput],
+    ) -> Result<Vec<(usize, Vec<u8>)>, EmbeddingError> {
+        let mut batches = Vec::new();
+        let mut start = 0;
+        while start < inputs.len() {
+            let mut end = start + 1;
+            let mut body = self.request_body(&inputs[start..end])?;
+            if body.len() > 524288 {
+                return Err(EmbeddingError::Invalid("embedding request exceeds 512 KiB"));
+            }
+            while end < inputs.len() {
+                let next = self.request_body(&inputs[start..=end])?;
+                if next.len() > 524288 {
+                    break;
+                }
+                body = next;
+                end += 1;
+            }
+            batches.push((end - start, body));
+            start = end;
         }
+        Ok(batches)
+    }
+
+    async fn request_vectors(
+        &self,
+        body: Vec<u8>,
+        input_count: usize,
+    ) -> Result<Vec<Vec<f32>>, EmbeddingError> {
         let mut response = self
             .http
             .post(self.endpoint.clone())
@@ -136,10 +159,10 @@ impl Embedder for HttpEmbedder {
         }
         let parsed: Response = serde_json::from_slice(&bytes)
             .map_err(|_| EmbeddingError::Invalid("embedding response JSON"))?;
-        if parsed.model != self.model.model || parsed.data.len() != inputs.len() {
+        if parsed.model != self.model.model || parsed.data.len() != input_count {
             return Err(EmbeddingError::Invalid("embedding response model/count"));
         }
-        let mut vectors = vec![None; inputs.len()];
+        let mut vectors = vec![None; input_count];
         for row in parsed.data {
             validate_vector(&row.embedding, self.model.dimensions)?;
             let slot = vectors
@@ -156,6 +179,27 @@ impl Embedder for HttpEmbedder {
             .into_iter()
             .map(|v| v.ok_or(EmbeddingError::Invalid("missing embedding response index")))
             .collect()
+    }
+}
+impl Embedder for HttpEmbedder {
+    fn model_identity(&self) -> &EmbeddingModelIdentity {
+        &self.model
+    }
+    async fn embed(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+        if inputs.is_empty()
+            || inputs.len() > 64
+            || inputs
+                .iter()
+                .any(|i| i.text.trim().is_empty() || i.text.len() > MAX_EMBEDDING_INPUT_BYTES)
+        {
+            return Err(EmbeddingError::Invalid("embedding batch bounds"));
+        }
+        let batches = self.request_batches(inputs)?;
+        let mut vectors = Vec::with_capacity(inputs.len());
+        for (count, body) in batches {
+            vectors.extend(self.request_vectors(body, count).await?);
+        }
+        Ok(vectors)
     }
 }
 
