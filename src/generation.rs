@@ -29,6 +29,33 @@
 //! # }
 //! ```
 
+//!
+//! Focused composition retains the prepared request through generation and assessment.
+//! Preparation needs no analyzer, credential, client or runtime. A host can perform
+//! it first, initialize execution resources, then await generation on its own runtime:
+//!
+//! ```no_run
+//! use yomibu::{
+//!     adapters::{openai::{Client, prepare_focused_request}, sudachi::SudachiAnalyzer},
+//!     evaluation::EvaluationBindings,
+//!     generation_context::{select_context, VocabularyEntryId},
+//!     grammar::GrammarDeclarations,
+//! };
+//! # async fn focused(grammar: &GrammarDeclarations, permissions: &EvaluationBindings,
+//! #     focus: VocabularyEntryId, api_key: &str, dictionary: &std::path::Path)
+//! #     -> Result<(), Box<dyn std::error::Error>> {
+//! let context = select_context(grammar, permissions, focus)?;
+//! let prepared = prepare_focused_request(context)?;
+//! let analyzer = SudachiAnalyzer::load(dictionary)?;
+//! let client = Client::new(api_key)?;
+//! let generated = client.generate_focused_candidates(&prepared).await?;
+//! let assessments = generated.assess_focused(&analyzer, prepared.context());
+//! // Both original texts and all available assessment evidence remain accessible.
+//! assert_eq!(generated.texts().len(), assessments.len());
+//! # Ok(())
+//! # }
+//! ```
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -132,6 +159,18 @@ impl GeneratedCandidates<'_> {
             }
         })
     }
+
+    /// Assess both texts against the original full permissions, then observe focus
+    /// and context use. Supply the context from the request that produced these texts.
+    /// Candidate errors retain available analysis and do not stop the other candidate.
+    pub fn assess_focused(
+        &self,
+        analyzer: &SudachiAnalyzer,
+        context: &GenerationContext<'_>,
+    ) -> [FocusedCandidateAssessment<'_>; 2] {
+        self.assess(analyzer)
+            .map(|assessment| FocusedCandidateAssessment::new(assessment, context))
+    }
 }
 
 #[derive(Debug)]
@@ -144,6 +183,31 @@ pub enum CandidateAssessment<'a> {
         analysis: Option<SentenceAnalysis<'a>>,
         error: CandidateError,
     },
+}
+
+/// A candidate's execution result and separate morphological observations.
+/// These observations neither change evaluator judgments nor establish acceptance.
+#[derive(Debug)]
+pub struct FocusedCandidateAssessment<'a> {
+    pub assessment: CandidateAssessment<'a>,
+    pub focus_occurrence: FocusOccurrenceReport,
+    pub context_usage: ContextUsageReport,
+}
+
+impl<'a> FocusedCandidateAssessment<'a> {
+    fn new(assessment: CandidateAssessment<'a>, context: &GenerationContext<'_>) -> Self {
+        let analysis = match &assessment {
+            CandidateAssessment::Completed { analysis, .. } => Some(analysis),
+            CandidateAssessment::ExecutionError { analysis, .. } => analysis.as_ref(),
+        };
+        let focus_occurrence = assess_focus_occurrence(analysis, context);
+        let context_usage = assess_context_usage(analysis, context);
+        Self {
+            assessment,
+            focus_occurrence,
+            context_usage,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -487,4 +551,72 @@ fn structurally_valid(analysis: &SentenceAnalysis<'_>) -> bool {
         end = unit.token.span.end;
     }
     end == text.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn typed_error_boundary_retains_valid_lexical_evidence_after_evaluation_error() {
+        use crate::{
+            analysis::{AnalysisProvenance, LexicalUnit, Sentence, SentenceAnalysis, Token},
+            evaluation::EvaluationError,
+            generation_context::{VocabularyEntryId, select_context},
+        };
+        let input: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/focused/pet-rest.json")).unwrap();
+        let grammar = GrammarDeclarations::from_descriptions(
+            input["grammar"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|g| g.as_str().unwrap()),
+        )
+        .unwrap();
+        let permissions = serde_json::from_value(input["bindings"].clone()).unwrap();
+        let context =
+            select_context(&grammar, &permissions, VocabularyEntryId::new(2).unwrap()).unwrap();
+        let token = Token {
+            span: 0..3,
+            dictionary_form: "猫".into(),
+            reading: "ネコ".into(),
+            part_of_speech: vec![
+                "名詞".into(),
+                "*".into(),
+                "*".into(),
+                "*".into(),
+                "*".into(),
+                "*".into(),
+            ],
+            out_of_vocabulary: false,
+        };
+        let analysis = SentenceAnalysis {
+            sentence: Sentence::new("猫").unwrap(),
+            units: vec![LexicalUnit {
+                components: vec![token.clone()],
+                token,
+            }],
+            provenance: AnalysisProvenance {
+                analyzer_revision: "synthetic-boundary",
+                dictionary_version: "synthetic-boundary",
+                dictionary_sha256: "synthetic-boundary",
+                configuration_sha256: "synthetic-boundary".into(),
+                dictionary_loading: None,
+            },
+        };
+        let assessment = CandidateAssessment::ExecutionError {
+            analysis: Some(analysis),
+            error: CandidateError::Evaluation(EvaluationError::MissingDeclaration),
+        };
+        let focused = FocusedCandidateAssessment::new(assessment, &context);
+        assert!(matches!(
+            focused.assessment,
+            CandidateAssessment::ExecutionError {
+                analysis: Some(_),
+                error: CandidateError::Evaluation(EvaluationError::MissingDeclaration)
+            }
+        ));
+        assert_eq!(focused.focus_occurrence.status, FocusStatus::Observed);
+        assert_eq!(focused.context_usage.status, ContextUsageStatus::Completed);
+    }
 }

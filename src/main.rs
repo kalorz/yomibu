@@ -27,6 +27,7 @@ use yomibu::{
 };
 
 mod analyze;
+mod candidate_report;
 mod cli_support;
 mod dictionary;
 mod focused;
@@ -196,12 +197,10 @@ fn run(
             permissions,
             focus_entry,
             json,
-        } => focused::run(
+        } => focused::run_preview(
             &permissions,
             focus_entry.get(),
-            None,
             json,
-            make_client,
             &mut io::stdout().lock(),
         )
         .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
@@ -211,10 +210,10 @@ fn run(
             dictionary,
             json,
             ..
-        } => focused::run(
+        } => focused::run_generation(
             &permissions,
             focus_entry.get(),
-            Some(&dictionary),
+            &dictionary,
             json,
             make_client,
             &mut io::stdout().lock(),

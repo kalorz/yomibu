@@ -356,7 +356,7 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
             true,
         ),
     ] {
-        let report = super::generate::CandidateReport::new(1, "猫です。", &assessment);
+        let report = super::candidate_report::CandidateReport::new(1, "猫です。", &assessment);
         let json = serde_json::to_value(report).unwrap();
         assert_eq!(!json["analysis"].is_null(), has_analysis);
         assert_eq!(json["assessment"]["status"], "execution_error");

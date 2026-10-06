@@ -104,6 +104,51 @@ selects Rust/Cargo 1.98.1 without changing the user's global 1.82.0 default.
 1.53.1, and tempfile 3.27.0 support HTTP and persistence; wiremock 0.6.5 is a
 development dependency. Proptest remains deferred.
 
+## Focused generation readability refactor — 2026-10-06
+
+Approved after a read-only plan against checkout `03a6f6a`. The command sequence is
+now discoverable in `src/focused.rs::run_generation`: bounded input, selection,
+request preparation, execution-resource initialization, generation, assessment,
+report conversion/rendering, and execution status. Preview has its own offline
+entry point without an optional dictionary execution-mode argument.
+
+Focused presentation moved to `focused/report.rs`; shared G1/G2 candidate DTOs and
+rendering moved to `candidate_report.rs`. The additive library
+`GeneratedCandidates::assess_focused` / `FocusedCandidateAssessment` API combines
+existing assessment and observations, removing domain work from report construction.
+Selection, provider settings/transport, prompt bytes, evaluator behavior, A1 history,
+and unrelated commands are unchanged. No new dependencies or generation features.
+
+These are behavior-preserving moves verified with existing cases, not behavioral
+changes requiring an artificial RED test. The real focused-assessment integration
+cases now exercise the aggregate library method; the synthetic evaluation-error
+boundary test moved with observation composition into the library. Existing G1
+report conversion tests remain at the shared presentation boundary.
+
+Simplification review: retained direct stage calls and small explicit preparation
+sequences in each command, colocated file/credential helpers with orchestration,
+and kept report construction free of assessment. Inputs and generated strings
+remain owned locally; assessments and report views borrow them without added
+clones or a self-referential aggregate. Existing lower-level public APIs remain.
+The existing client constructor seam still only selects the concrete loopback
+adapter in tests. No additional abstraction was justified.
+
+Verification on Linux with the pinned Rust 1.98.1 toolchain:
+
+- `cargo fmt --check` — passed.
+- `cargo clippy --locked --all-targets --all-features -- -D warnings` — passed.
+- `cargo test --locked --all` — passed: 215 unit/integration/example tests and
+  3 compiling doctests, with no failures or ignored tests.
+- `git diff --check` — passed.
+
+Initial sandboxed test runs could not bind local HTTP mock ports; rerunning with
+local network permission resolved that restriction. Focused suites passed after
+report extraction and after assessment composition moved. Analysis tests used the
+real pinned dictionary at `target/a1/current/system_core.dic`, including external
+and managed loading paths. Direct source comparison confirmed that shared candidate
+DTO/conversion/rendering and existing assessment/observation bodies are unchanged.
+No live model call, private evidence review or scored holdout rerun was performed.
+
 ## Vertical milestones
 
 | Step | Status | Deliverable | Acceptance |

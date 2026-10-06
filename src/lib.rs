@@ -20,6 +20,13 @@
 //! distinct. A1 does not establish accepted exercises, naturalness, idioms, or
 //! contextual reading/sense correctness. See the `a1` example for composition.
 //!
+//! Focused generation uses [`generation_context::select_context`], then
+//! [`adapters::openai::prepare_focused_request`] before initializing execution
+//! resources. [`adapters::openai::Client::generate_focused_candidates`] sends those
+//! prepared bytes; [`generation::GeneratedCandidates::assess_focused`] assesses
+//! both texts against full permissions and adds separate focus/context observations.
+//! See [`generation`] for direct library composition and `docs/G2.md` for CLI usage.
+//!
 //! [`App`] coordinates explicit synchronization and offline status for a single
 //! account-scoped store. Supply a file or in-memory store and, for synchronization,
 //! a source. There is no implicit sync or current-user selection.
