@@ -5,6 +5,66 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Shared library story workflow and A1 runner retirement — 2026-10-06
+
+The approved follow-up moves reusable orchestration out of the CLI. Read adjacent
+`story::plan_generation` and `story::generate_story` in `crates/yomibu/src/story.rs`:
+offline validation → one selection → bounded immutable request → full-inventory
+assessment projection; then one provider attempt → every candidate assessment →
+owned result. CLI `generate_story_command` loads files/embeddings and initializes
+dictionary/credential/client/runtime after planning, then renders and chooses exit
+status. Preview calls only offline planning. Future API callers reuse these same
+library functions; no API scaffolding, trait framework or dependency was added.
+
+The complete immutable `StoryGenerationPlan` contains final selection, exact AI
+request and assessment inputs. The former subset-only type is renamed
+`StoryVocabularySelection`. `StoryGenerationResult` owns original candidates and
+partial/completed assessments, with typed candidate errors; provider failure still
+returns `ProviderError` without a result or retry. Assessment inputs borrow original
+inventory/request and selected IDs independently of the selection struct, avoiding
+self-reference and full-inventory clones. `Sentence` now uses borrowed/owned text,
+loses `Copy`, and `text(&self)` borrows; only returned analyzed sentence text is
+copied (at most 100 scalars). Ordinary analyzer behavior and serialization stay the
+same. These breaking Rust APIs are documented in SPEC/current usage.
+
+RED: the new workflow tests failed on the expected missing public planning and
+execution functions before implementation. GREEN: three tests exercise exact
+fixture bytes/hash, preflight limits/stale caches, one-attempt provider failure,
+full-inventory departures versus failures, blank/oversized typed errors and owned
+results surviving dropped inputs/resources. Existing story integration matrices
+now call the shared workflow, including configurable counts, competing identities,
+partial target completeness and the object-combination safeguard. Existing CLI,
+provider, evaluation and real-analyzer suites protect remaining contracts.
+
+Removed `examples/a1.rs`, its CI demonstration and its now-unused library
+Clap/anyhow dev dependencies; the lockfile changes only those local dependency
+edges. Packet-only runner contracts are retired. Useful judgment/error/NotRun/span
+protections remain in current suites; the oversized-candidate partial-result case
+now runs through shared story generation. Historical inputs/records remain
+unchanged. A1_IMPLEMENTATION and GENERATION_HISTORY pin the last runner checkout
+`d2adfcfe6dffede63363bf1a11be81ce8fe85606`; no private holdout was rerun/rescored and
+the historical no-go remains. SPEC, architecture, Rustdoc and usage are aligned.
+
+Simplification review kept adjacent concrete entry functions and existing lower-level
+stages. Report conversion now accepts the complete plan/result rather than separate
+candidate/assessment collections; no self-referential return type or duplicate
+assessment enum was introduced. Analyzer comparison tests reuse available analysis
+instead of repeating work, and ownership changes are limited to the returned result.
+All fixture data, request bytes/hash, prompt/provider settings, limits, no-retry
+behavior, reports, exit status and original UTF-8 spans remain unchanged.
+
+Verification: `cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**203 passed**, none failed/ignored),
+`git diff --check` and strict Rustdoc passed. Nine dictionary-setup Python tests,
+both remaining direct-library examples, root offline retrieval and story preview
+passed; preview matches the exact request fixture/hash. Updated documentation
+links resolve, and all fixture bytes are unchanged. Tests use the real pinned
+analyzer/dictionary and local HTTP mocks. No live model calls or hosted/macOS CI
+runs were made. An initial full run hit a sync subprocess ENOENT while separate
+Cargo demonstrations rebuilt the executable; the complete rerun with no concurrent
+builds passed. No unrelated sync implementation or test was changed.
+
 ## Library/CLI workspace — 2026-10-06
 
 The user approved moving to a Cargo workspace before the API slice. Two members

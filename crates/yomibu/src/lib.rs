@@ -18,18 +18,19 @@
 //! preserving [`grammar::GrammarDeclarations`] without interpreting their text.
 //! Completed judgments, uncertainty, execution errors, and checks not run remain
 //! distinct. A1 does not establish accepted exercises, naturalness, idioms, or
-//! contextual reading/sense correctness. See the `a1` example for composition.
+//! contextual reading/sense correctness. Historical A1 evidence is in
+//! `docs/A1_IMPLEMENTATION.md`; its research runner is retired.
 //!
 //! Current story generation starts with [`inventory::LearnerInventory`] from
 //! manual data or a WaniKani projection, then [`story::StoryRequest`] supplies
-//! a brief and vocabulary/grammar targets. [`story::select_vocabulary`] uses an
-//! explicit validated embedding cache. [`story::build_ai_model_request`] freezes
-//! the outbound bytes before execution resources are initialized.
-//! [`adapters::openai::Client::generate_story_candidates`] sends those bytes;
-//! [`story::assess_candidates`] checks every text against the full inventory.
+//! a brief and vocabulary/grammar targets. [`story::plan_generation`] validates
+//! inputs, selects vocabulary once and freezes the exact request and full-inventory
+//! assessment inputs before execution resources are initialized.
+//! [`story::generate_story`] makes one provider attempt and assesses every text,
+//! returning owned originals and partial results. Callers provide the client,
+//! analyzer and async executor; the library starts no runtime or environment lookup.
 //! [`story::StoryGenerationOptions`] sets candidate count separately from story intent.
-//! See `docs/STORY_GENERATION.md` for the complete sequence. Historical G1/G2 evidence
-//! is recorded in `docs/GENERATION_HISTORY.md`.
+//! See `docs/STORY_GENERATION.md` for usage and `docs/GENERATION_HISTORY.md` for history.
 //!
 //! [`App`] coordinates explicit synchronization and offline status for a single
 //! account-scoped store. Supply a file or in-memory store and, for synchronization,

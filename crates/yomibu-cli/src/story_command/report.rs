@@ -4,8 +4,8 @@ use anyhow::Result;
 use serde::Serialize;
 use std::io::Write;
 use yomibu::story::{
-    AiModelRequest, PlanDeparture, StoryCandidateAssessment, StoryCandidates, StoryGenerationPlan,
-    StoryRequest, TargetObservation,
+    AiModelRequest, PlanDeparture, StoryGenerationPlan, StoryGenerationResult, StoryRequest,
+    StoryVocabularySelection, TargetObservation,
 };
 #[derive(Serialize)]
 struct RequestBytes<'a> {
@@ -15,17 +15,17 @@ struct RequestBytes<'a> {
     prompt_revision: &'static str,
 }
 #[derive(Serialize)]
-pub(super) struct Preview<'a> {
+struct Preview<'a> {
     version: u32,
     kind: &'static str,
     request: &'a StoryRequest,
-    plan: &'a yomibu::story::StoryGenerationPlan<'a>,
+    plan: &'a StoryVocabularySelection<'a>,
     generation_options: yomibu::story::StoryGenerationOptions,
     provider_request: RequestBytes<'a>,
 }
-pub(super) fn preview<'a>(
+fn preview<'a>(
     request: &'a StoryRequest,
-    plan: &'a StoryGenerationPlan<'a>,
+    plan: &'a StoryVocabularySelection<'a>,
     ai_request: &'a AiModelRequest,
 ) -> Preview<'a> {
     Preview {
@@ -46,10 +46,9 @@ pub(super) fn write_preview(
     out: &mut impl Write,
     request: &StoryRequest,
     plan: &StoryGenerationPlan<'_>,
-    ai_request: &AiModelRequest,
     json: bool,
 ) -> Result<()> {
-    let report = preview(request, plan, ai_request);
+    let report = preview(request, plan.selection(), plan.ai_model_request());
     if json {
         cli_support::write_json(out, &report)?;
     } else {
@@ -119,18 +118,20 @@ struct Report<'a> {
 }
 pub(super) fn write_generation(
     out: &mut impl Write,
-    preview: Preview<'_>,
-    generated: &StoryCandidates,
-    assessments: &[StoryCandidateAssessment<'_>],
+    request: &StoryRequest,
+    plan: &StoryGenerationPlan<'_>,
+    result: &StoryGenerationResult,
     json: bool,
 ) -> Result<()> {
+    let generated = result.candidates();
     let report = Report {
         version: 1,
         kind: "experimental_story_candidates",
         notice: candidate_report::NOTICE,
-        plan: preview,
+        plan: preview(request, plan.selection(), plan.ai_model_request()),
         generation: generated.provenance(),
-        candidates: assessments
+        candidates: result
+            .assessments()
             .iter()
             .enumerate()
             .map(|(i, assessment)| Candidate {

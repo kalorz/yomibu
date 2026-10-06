@@ -9,7 +9,7 @@ use yomibu::{
     inventory::LearnerInventory,
     retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
     story::{
-        AiModelRequest, StoryAssessmentInputs, StoryGenerationPlan, StoryRequest,
+        AiModelRequest, StoryAssessmentInputs, StoryRequest, StoryVocabularySelection,
         assess_candidates, build_ai_model_request, select_vocabulary,
     },
 };
@@ -129,7 +129,7 @@ fn input() -> (LearnerInventory, StoryRequest) {
 fn prepare<'a>(
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
-) -> (StoryGenerationPlan<'a>, AiModelRequest) {
+) -> (StoryVocabularySelection<'a>, AiModelRequest) {
     let inputs = prepare_embedding_inputs(inventory, request).unwrap();
     let model = EmbeddingModelIdentity {
         provider: "test".into(),

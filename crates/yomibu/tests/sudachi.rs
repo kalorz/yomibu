@@ -42,12 +42,15 @@ fn real_core_dictionary_preserves_whole_compounds_components_and_original_byte_s
     assert_eq!(analysis.sentence.text(), "東京都。猫");
     let whole = &analysis.units[0];
     assert_eq!(whole.token.span, 0..9);
-    assert_eq!(&sentence.text()[whole.token.span.clone()], "東京都");
+    assert_eq!(
+        &analysis.sentence.text()[whole.token.span.clone()],
+        "東京都"
+    );
     assert_eq!(whole.token.dictionary_form, "東京都");
     let components: Vec<_> = whole
         .components
         .iter()
-        .map(|token| &sentence.text()[token.span.clone()])
+        .map(|token| &analysis.sentence.text()[token.span.clone()])
         .collect();
     assert_eq!(components, ["東京", "都"]);
     assert_eq!(analysis.units.last().unwrap().token.span, 12..15);

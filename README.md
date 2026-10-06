@@ -338,7 +338,6 @@ code pins are preserved in [generation history](docs/GENERATION_HISTORY.md).
 ```sh
 # Explicit one-time download of the pinned public dictionary, outside Git:
 python3 scripts/setup_a1_dictionary.py
-cargo run --locked --example a1 -- target/a1/current/system_core.dic tests/fixtures/a1/smoke.json
 ```
 
 Setup verifies the dictionary and both notices as one bundle, then publishes it
@@ -346,12 +345,14 @@ through an atomic `current` link. Rerun setup for the new layout; older flat fil
 stay untouched. Existing complete bundles survive failures before publication;
 errors after publication distinguish uncertain durability.
 
-This runs three original synthetic smoke cases through the real analyzer. Reports
-retain whole words/components, original spans, explicit grammar permissions, and
-Pass/Fail/Inconclusive outcomes separately from errors/NotRun. They never certify
-accepted exercises. Naturalness, idioms, and contextual reading/sense remain
-unassessed. No learner data, token, sync, runtime model, or general analysis CLI
-is involved. See [setup, API boundaries, pins, and limits](docs/A1_IMPLEMENTATION.md).
+The research packet runner is retired. Its three-case smoke input, protocols,
+reports and conclusions remain historical evidence; reproduce the runner in the
+pinned checkout documented in [A1 evidence](docs/A1_IMPLEMENTATION.md).
+Current story, evaluation and real-analyzer tests protect Pass/Fail/Inconclusive,
+execution errors/NotRun, partial results and original UTF-8 spans. The current
+`analyze` CLI and library functions remain available for supplied text. These
+checks never certify accepted exercises; naturalness, idioms and contextual
+reading/sense remain unassessed.
 
 The [active visible draft, revision 2](tests/fixtures/a1/review-draft-v2.json)
 now has **frozen provisional references and a completed visible evaluation**. Review of the
@@ -389,7 +390,9 @@ future work; [ARCHITECTURE.md](ARCHITECTURE.md) records their intended compositi
 
 The repository is a Cargo workspace. `crates/yomibu` contains the reusable
 library; `crates/yomibu-cli` contains the executable named `yomibu`. Start at
-[`run_generation`](crates/yomibu-cli/src/story_command.rs) for the story sequence.
+[`plan_generation` and `generate_story`](crates/yomibu/src/story.rs) for the shared
+story sequence. The CLI calls these functions and owns files, credentials,
+runtime, reports and exit status; other callers reuse the same sequence.
 Root CLI/example commands above still work. Use `cargo test --locked -p yomibu`
 for library tests or `cargo test --locked -p yomibu-cli` for CLI tests; the checks
 below cover both packages. Shared fixtures remain under `tests/fixtures` and the

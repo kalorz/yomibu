@@ -1,12 +1,12 @@
 //! Bounded offline analysis of supplied text, never exercise acceptance.
 
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 
 use serde::Serialize;
 
 /// An unchanged, nonblank input of at most 100 Unicode scalar values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct Sentence<'a>(&'a str);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Sentence<'a>(Cow<'a, str>);
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SentenceError {
@@ -72,10 +72,20 @@ impl<'a> Sentence<'a> {
         if characters > 100 {
             return Err(SentenceError::TooLong { characters });
         }
-        Ok(Self(text))
+        Ok(Self(Cow::Borrowed(text)))
     }
 
-    pub fn text(self) -> &'a str {
-        self.0
+    pub fn text(&self) -> &str {
+        &self.0
+    }
+}
+
+impl SentenceAnalysis<'_> {
+    pub(crate) fn into_owned(self) -> SentenceAnalysis<'static> {
+        SentenceAnalysis {
+            sentence: Sentence(Cow::Owned(self.sentence.text().to_owned())),
+            units: self.units,
+            provenance: self.provenance,
+        }
     }
 }

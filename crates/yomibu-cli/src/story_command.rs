@@ -16,9 +16,8 @@ use yomibu::{
     ports::Embedder,
     retrieval::{EmbeddingCache, EmbeddingInput, EmbeddingModelIdentity, prepare_embedding_inputs},
     story::{
-        AiModelRequest, StoryAssessmentInputs, StoryCandidateAssessment, StoryCandidates,
-        StoryGenerationOptions, StoryRequest, assess_candidates, build_ai_model_request,
-        select_vocabulary,
+        StoryGenerationOptions, StoryGenerationPlan, StoryGenerationResult, StoryRequest,
+        generate_story, plan_generation,
     },
 };
 mod report;
@@ -70,7 +69,7 @@ pub(super) struct EmbeddingArgs {
     allow_embedding_call: bool,
 }
 
-pub(super) fn run_generation(
+pub(super) fn generate_story_command(
     args: &StoryArgs,
     embedding: &EmbeddingArgs,
     options: StoryGenerationOptions,
@@ -81,28 +80,19 @@ pub(super) fn run_generation(
 ) -> Result<()> {
     let (inventory, request) = load_generation_inputs(args, options)?;
     let cache = load_or_prepare_embeddings(args, embedding, &inventory, &request)?;
-    let plan = select_vocabulary(
+    let plan = plan_generation(
         &inventory,
         &request,
         &cache,
         &cache.model,
         usize::from(args.select),
+        options,
     )?;
-    let (plan, ai_request) = build_ai_model_request(&inventory, &request, plan, options)?;
-
-    let inputs = StoryAssessmentInputs::new(&inventory, &request, &plan)?;
     let analyzer = dictionary.load().context("Dictionary initialization")?;
-    let generated = request_candidates_from_openai(&ai_request, make_client)?;
-    let assessments = assess_candidates(&generated, &inputs, &analyzer);
+    let result = execute_story_plan(&plan, &analyzer, make_client)?;
 
-    report::write_generation(
-        out,
-        report::preview(&request, &plan, &ai_request),
-        &generated,
-        &assessments,
-        json,
-    )?;
-    require_completed_assessments(&assessments)
+    report::write_generation(out, &request, &plan, &result, json)?;
+    require_successful_execution(&result)
 }
 
 fn load_generation_inputs(
@@ -136,10 +126,11 @@ fn load_or_prepare_embeddings(
     cache.context("Embedding cache missing; run prepare-retrieval explicitly.")
 }
 
-fn request_candidates_from_openai(
-    ai_request: &AiModelRequest,
+fn execute_story_plan(
+    plan: &StoryGenerationPlan<'_>,
+    analyzer: &yomibu::adapters::sudachi::SudachiAnalyzer,
     make_client: impl FnOnce(&str) -> Result<Client, ProviderError>,
-) -> Result<StoryCandidates> {
+) -> Result<StoryGenerationResult> {
     let key = read_key("OPENAI_API_KEY")?;
     let client = make_client(&key)?;
     drop(key);
@@ -147,16 +138,11 @@ fn request_candidates_from_openai(
         .enable_all()
         .build()
         .context("Generation runtime")?;
-    Ok(io_runtime.block_on(client.generate_story_candidates(ai_request))?)
+    Ok(io_runtime.block_on(generate_story(plan, &client, analyzer))?)
 }
 
-fn require_completed_assessments(assessments: &[StoryCandidateAssessment<'_>]) -> Result<()> {
-    if assessments.iter().any(|a| {
-        matches!(
-            a.assessment,
-            yomibu::generation::CandidateAssessment::ExecutionError { .. }
-        )
-    }) {
+fn require_successful_execution(result: &StoryGenerationResult) -> Result<()> {
+    if result.has_execution_errors() {
         bail!("One or more candidate executions failed; see the experimental report.");
     }
     Ok(())
@@ -173,16 +159,17 @@ pub(super) fn run_preview(
     request.validate(&inventory)?;
     let cache = load_cache(&args.embedding_cache)?
         .context("Embedding cache missing; run prepare-retrieval explicitly.")?;
-    let plan = select_vocabulary(
+    let plan = plan_generation(
         &inventory,
         &request,
         &cache,
         &cache.model,
         usize::from(args.select),
+        options,
     )?;
-    let (plan, ai_request) = build_ai_model_request(&inventory, &request, plan, options)?;
-    report::write_preview(out, &request, &plan, &ai_request, json)
+    report::write_preview(out, &request, &plan, json)
 }
+
 pub(super) fn run_prepare(
     args: &StoryArgs,
     embedding: &EmbeddingArgs,

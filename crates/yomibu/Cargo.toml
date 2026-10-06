@@ -19,12 +19,5 @@ memmap2.workspace = true
 sudachi.workspace = true
 
 [dev-dependencies]
-# The preserved A1 example owns argument parsing and executable diagnostics.
-anyhow.workspace = true
-clap.workspace = true
 wiremock.workspace = true
 tokio = { workspace = true, features = ["macros", "io-util", "sync", "test-util"] }
-
-[[example]]
-name = "a1"
-test = true

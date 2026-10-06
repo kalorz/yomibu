@@ -1,32 +1,29 @@
-//! One story request and plan, independent of the learner inventory's source.
+//! Shared story planning and execution, independent of the inventory source.
 //!
-//! The CLI's complete sequence is in `story_command::run_generation`. Library
-//! callers provide data, execution resources and their own async runtime:
+//! Read [`plan_generation`] then [`generate_story`] for the complete sequence.
+//! Planning is offline; callers initialize execution resources after it succeeds.
 //!
 //! ```no_run
 //! use yomibu::{
 //!     adapters::{openai::Client, sudachi::SudachiAnalyzer},
 //!     inventory::LearnerInventory,
-//!     story::{StoryRequest, select_vocabulary, build_ai_model_request, assess_candidates, StoryAssessmentInputs},
+//!     story::{StoryRequest, plan_generation, generate_story},
 //!     retrieval::EmbeddingCache,
 //! };
 //! # async fn example(inventory: &LearnerInventory, request: &StoryRequest,
 //! #     cache: &EmbeddingCache, dictionary: &std::path::Path, api_key: &str)
 //! #     -> Result<(), Box<dyn std::error::Error>> {
-//! let plan = select_vocabulary(inventory, request, cache, &cache.model, 12)?;
-//! let (plan, ai_request) = build_ai_model_request(inventory, request, plan, Default::default())?;
-//! let inputs = StoryAssessmentInputs::new(inventory, request, &plan)?;
+//! let plan = plan_generation(inventory, request, cache, &cache.model, 12, Default::default())?;
 //! let analyzer = SudachiAnalyzer::load(dictionary)?;
 //! let client = Client::new(api_key)?;
-//! let generated = client.generate_story_candidates(&ai_request).await?;
-//! let assessments = assess_candidates(&generated, &inputs, &analyzer);
-//! assert_eq!(generated.texts().len(), assessments.len());
+//! let result = generate_story(&plan, &client, &analyzer).await?;
+//! assert_eq!(result.candidates().texts().len(), result.assessments().len());
 //! # Ok(())
 //! # }
 //! ```
 use crate::{
     adapters::{
-        openai::{ProviderError, prepare_candidate_body},
+        openai::{Client, ProviderError, prepare_candidate_body},
         sudachi::SudachiAnalyzer,
     },
     analysis::{Sentence, SentenceAnalysis},
@@ -128,6 +125,83 @@ impl StoryRequest {
         Ok(())
     }
 }
+/// Complete offline preflight: finalized selection, exact payload and full-inventory
+/// assessment inputs. Fields are private so execution cannot replace those inputs.
+#[derive(Debug)]
+pub struct StoryGenerationPlan<'a> {
+    selection: StoryVocabularySelection<'a>,
+    ai_request: AiModelRequest,
+    assessment_inputs: StoryAssessmentInputs<'a>,
+}
+impl<'a> StoryGenerationPlan<'a> {
+    pub fn selection(&self) -> &StoryVocabularySelection<'a> {
+        &self.selection
+    }
+    pub fn ai_model_request(&self) -> &AiModelRequest {
+        &self.ai_request
+    }
+}
+
+/// Plan offline before initializing the caller's dictionary, credential or client.
+pub fn plan_generation<'a>(
+    inventory: &'a LearnerInventory,
+    request: &'a StoryRequest,
+    cache: &EmbeddingCache,
+    model: &EmbeddingModelIdentity,
+    selection_limit: usize,
+    options: StoryGenerationOptions,
+) -> Result<StoryGenerationPlan<'a>, StoryError> {
+    options.validate()?;
+    request.validate_selection_limit(selection_limit)?;
+    request.validate(inventory)?;
+    let selection = select_vocabulary(inventory, request, cache, model, selection_limit)?;
+    let (selection, ai_request) = build_ai_model_request(inventory, request, selection, options)?;
+    let assessment_inputs = StoryAssessmentInputs::new(inventory, request, &selection)?;
+    Ok(StoryGenerationPlan {
+        selection,
+        ai_request,
+        assessment_inputs,
+    })
+}
+
+/// The shared execution entry point for CLI and other library callers. The caller
+/// supplies resources and drives the future; candidate errors remain in the result.
+pub async fn generate_story(
+    plan: &StoryGenerationPlan<'_>,
+    client: &Client,
+    analyzer: &SudachiAnalyzer,
+) -> Result<StoryGenerationResult, ProviderError> {
+    let generated = client.generate_story_candidates(&plan.ai_request).await?;
+    let assessments = assess_candidates(&generated, &plan.assessment_inputs, analyzer)
+        .into_iter()
+        .map(StoryCandidateAssessment::into_owned)
+        .collect();
+    Ok(StoryGenerationResult {
+        generated,
+        assessments,
+    })
+}
+
+/// Owns every original candidate, available assessment and typed execution error.
+#[derive(Debug)]
+pub struct StoryGenerationResult {
+    generated: StoryCandidates,
+    assessments: Vec<StoryCandidateAssessment<'static>>,
+}
+impl StoryGenerationResult {
+    pub fn candidates(&self) -> &StoryCandidates {
+        &self.generated
+    }
+    pub fn assessments(&self) -> &[StoryCandidateAssessment<'static>] {
+        &self.assessments
+    }
+    pub fn has_execution_errors(&self) -> bool {
+        self.assessments
+            .iter()
+            .any(|a| matches!(a.assessment, CandidateAssessment::ExecutionError { .. }))
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct SelectedVocabulary<'a> {
     pub word: &'a InventoryWord,
@@ -135,7 +209,7 @@ pub struct SelectedVocabulary<'a> {
     pub similarity: f64,
 }
 #[derive(Debug, Serialize)]
-pub struct StoryGenerationPlan<'a> {
+pub struct StoryVocabularySelection<'a> {
     pub selector_revision: &'static str,
     pub selected: Vec<SelectedVocabulary<'a>>,
     pub vocabulary_targets: &'a [String],
@@ -148,7 +222,7 @@ pub fn select_vocabulary<'a>(
     cache: &EmbeddingCache,
     model: &EmbeddingModelIdentity,
     limit: usize,
-) -> Result<StoryGenerationPlan<'a>, StoryError> {
+) -> Result<StoryVocabularySelection<'a>, StoryError> {
     let inputs = prepare_embedding_inputs(inventory, request)?;
     request.validate_selection_limit(limit)?;
     let vectors = cache.vectors(model, &inputs)?;
@@ -184,7 +258,7 @@ pub fn select_vocabulary<'a>(
             });
         }
     }
-    Ok(StoryGenerationPlan {
+    Ok(StoryVocabularySelection {
         selector_revision: "inventory-similarity-v1",
         selected,
         vocabulary_targets: &request.targets.vocabulary,
@@ -228,9 +302,9 @@ impl AiModelRequest {
 pub fn build_ai_model_request<'a>(
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
-    mut plan: StoryGenerationPlan<'a>,
+    mut plan: StoryVocabularySelection<'a>,
     options: StoryGenerationOptions,
-) -> Result<(StoryGenerationPlan<'a>, AiModelRequest), StoryError> {
+) -> Result<(StoryVocabularySelection<'a>, AiModelRequest), StoryError> {
     request.validate(inventory)?;
     options.validate()?;
     let prompt = format!(
@@ -312,14 +386,14 @@ pub fn build_ai_model_request<'a>(
         }
     }
 }
-/// Full original inventory and the final plan used to assess generated candidates.
+/// Full original inventory, request and selected IDs for candidate assessment.
 /// The structural checker needs an owned projection; vocabulary checks still use
 /// the complete inventory, including entries not selected for the prompt.
 #[derive(Debug)]
 pub struct StoryAssessmentInputs<'a> {
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
-    plan: &'a StoryGenerationPlan<'a>,
+    selected_vocabulary: Vec<&'a str>,
     grammar: GrammarDeclarations,
     bindings: EvaluationBindings,
 }
@@ -327,14 +401,14 @@ impl<'a> StoryAssessmentInputs<'a> {
     pub fn new(
         inventory: &'a LearnerInventory,
         request: &'a StoryRequest,
-        plan: &'a StoryGenerationPlan<'a>,
+        plan: &StoryVocabularySelection<'a>,
     ) -> Result<Self, StoryError> {
         request.validate(inventory)?;
         let (grammar, bindings) = project_structural_inputs(inventory)?;
         Ok(Self {
             inventory,
             request,
-            plan,
+            selected_vocabulary: plan.selected.iter().map(|s| s.word.id.as_str()).collect(),
             grammar,
             bindings,
         })
@@ -417,6 +491,31 @@ pub struct StoryCandidateAssessment<'a> {
     pub plan_departures: Vec<PlanDeparture>,
 }
 
+impl StoryCandidateAssessment<'_> {
+    fn into_owned(self) -> StoryCandidateAssessment<'static> {
+        let assessment = match self.assessment {
+            CandidateAssessment::Completed {
+                analysis,
+                evaluation,
+            } => CandidateAssessment::Completed {
+                analysis: analysis.into_owned(),
+                evaluation,
+            },
+            CandidateAssessment::ExecutionError { analysis, error } => {
+                CandidateAssessment::ExecutionError {
+                    analysis: analysis.map(SentenceAnalysis::into_owned),
+                    error,
+                }
+            }
+        };
+        StoryCandidateAssessment {
+            assessment,
+            targets: self.targets,
+            plan_departures: self.plan_departures,
+        }
+    }
+}
+
 /// Original generated texts and metadata, independent of request/input lifetimes.
 #[derive(Debug)]
 pub struct StoryCandidates {
@@ -494,7 +593,7 @@ pub fn assess_candidates<'a>(
                             if entries.is_empty()
                                 || entries
                                     .iter()
-                                    .any(|id| inputs.plan.selected.iter().any(|s| &s.word.id == id))
+                                    .any(|id| inputs.selected_vocabulary.contains(&id.as_str()))
                             {
                                 None
                             } else {
