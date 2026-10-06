@@ -387,6 +387,15 @@ implemented knowledge/preparation types from future components such as
 `ExerciseGenerator`. Validated generation, multi-source learners, SQL, and Cloud remain
 future work; [ARCHITECTURE.md](ARCHITECTURE.md) records their intended composition.
 
+The repository is a Cargo workspace. `crates/yomibu` contains the reusable
+library; `crates/yomibu-cli` contains the executable named `yomibu`. Start at
+[`run_generation`](crates/yomibu-cli/src/story_command.rs) for the story sequence.
+Root CLI/example commands above still work. Use `cargo test --locked -p yomibu`
+for library tests or `cargo test --locked -p yomibu-cli` for CLI tests; the checks
+below cover both packages. Shared fixtures remain under `tests/fixtures` and the
+pinned dictionary under `target/a1/current`. An API crate will be added when its
+HTTP application is implemented.
+
 Real A1 adapter tests require the pinned dictionary. Run the setup command above
 first (Python 3.8+); tests fail clearly if it is unavailable and never download or
 substitute it automatically. Subsequent analysis and tests use the local file.

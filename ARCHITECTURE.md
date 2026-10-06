@@ -17,7 +17,7 @@ manual/WaniKani inventory projection, multiple
 targets, a brief and explicit embedding retrieval, described below. Validated generation, grammar database persistence,
 multi-source learner management, PostgreSQL, Cloud HTTP endpoints, and additional
 provider integrations follow later.
-Keep one Cargo package with a library and a thin CLI binary.
+Keep one Cargo workspace with separate library and CLI packages.
 
 The completed **G0 — Manual candidate preview** slice in `PLAN.md` adds
 explicit in-memory word/grammar input, deterministic selection, independent
@@ -245,7 +245,7 @@ CLI argument parsing -> structured word/grammar inputs + requested count
                     -> deterministic selection -> independent checks -> report
 ```
 
-`src/preview.rs` exposes `preview(words, grammar, take)` with concrete
+`crates/yomibu/src/preview.rs` exposes `preview(words, grammar, take)` with concrete
 `WordEntry` inputs, a borrowed `Preview` result, `PreviewChecks`, `CheckOutcome`,
 and typed `PreviewError`. Private functions validate all supplied inputs and
 check the produced selection. Borrowed slices retain order, duplicates, and
@@ -322,7 +322,7 @@ A1 is a synchronous, concrete library slice alongside preparation and G0:
   tuples plus seven explicit grammar bindings. It preserves arbitrary declaration
   content and IDs. Five checks report Pass/Fail/Inconclusive; typed input/execution
   errors remain outside those judgments, and NotRun is a distinct state.
-- `examples/a1.rs` composes the real adapter and evaluator with explicit synthetic
+- `crates/yomibu/examples/a1.rs` composes the real adapter and evaluator with explicit synthetic
   JSON and renders reports/exit codes. No general analysis CLI, learner-store
   integration, async runtime, review framework, or model/provider access is added.
 - `scripts/setup_a1_dictionary.py` is explicit development/CI setup, outside runtime
@@ -380,7 +380,7 @@ CLI arguments -> bounded explicit JSON read -> Sentence + GrammarDeclarations
               -> escaped text or versioned JSON -> execution exit status
 ```
 
-`src/analyze.rs` is a private module of the binary, not a library adapter or a new
+`crates/yomibu-cli/src/analyze.rs` is a private module of the binary, not a library adapter or a new
 domain service. It owns the small version-1 input envelope, 64 KiB bounded file
 read, report envelope, and rendering. It reuses `EvaluationBindings` directly;
 the library remains the sole authority on bindings and linguistic judgments.
@@ -401,7 +401,7 @@ The branch in `main.rs` constructs no learner store, source or runtime. Explicit
 `--dictionary` remains the owned, checksum-pinned operation; otherwise managed
 selection resolves its directory's HOME default. There is no implicit setup,
 ambient analyzer configuration or learner-file discovery. The research harness
-`examples/a1.rs` and its frozen packet contract stay separate and unchanged.
+`crates/yomibu/examples/a1.rs` and its frozen packet contract stay separate and unchanged.
 This CLI does not revise A1's historical no-go or the later object-combination
 restriction. Real-adapter subprocess tests compare CLI output to direct library
 evaluation and check errors, spans, escaping and absence of writes.
@@ -430,7 +430,7 @@ from pre-publication failure. See [dictionary safety](docs/DICTIONARY.md).
 
 ## Shared story composition
 
-Open `src/story_command.rs::run_generation` for the complete current execution
+Open `crates/yomibu-cli/src/story_command.rs::run_generation` for the complete current execution
 sequence. `main.rs` dispatches to it, or separately to offline `run_preview` and
 explicit `run_prepare`. Source differences end at `load_inventory`:
 
@@ -620,53 +620,60 @@ explicit result persistence need their own documented contract.
 The current implementation slice is organized by responsibility:
 
 ```text
-src/
-  lib.rs                     public entry points
-  main.rs                    CLI composition and rendering
-  analyze.rs                 binary-private analysis input and rendering
-  story_command.rs           current run_generation/run_preview/run_prepare sequences
-  story_command/report.rs    current story JSON/text conversion and rendering
-  inventory.rs               common manual/WaniKani inventory and validation
-  story.rs                   request, selection, AI payload and assessment stages
-  retrieval.rs               embedding inputs, identity/cache and cosine ranking
-  candidate_report.rs        story candidate DTOs and rendering
-  cli_support.rs             shared bounded reads and terminal presentation
-  app.rs                     sync/status orchestration and reports
-  domain.rs                  retained source data and invariants
-  summary.rs                 deterministic source summaries
-  preview.rs                 synchronous manual selection, validation, and checks
-  grammar.rs                 validated manual familiarity declarations
-  knowledge.rs               on-demand policy decisions and borrowed evidence
-  preparation.rs             exact cached lexical retrieval for explicit targets
-  analysis.rs                bounded sentence and original C/A morphological evidence
-  evaluation.rs              synchronous bounded checks and explicit bindings
-  generation.rs              candidate assessment/errors and provider metadata
-  ports.rs                   source, atomic storage and explicit embedding capabilities
-  adapters/
-    mod.rs
-    grammar_file.rs           explicit read-only versioned JSON input
-    openai.rs                 one bounded Responses attempt and private DTOs
-    embeddings.rs             explicit local/hosted encoders and lexical baseline
-    openai_tests.rs           real socket deadline/body-bound tests
-    sudachi.rs                explicit checksum-pinned analyzer adapter
-    sudachi.json              embedded analyzer configuration
-    sources/
-      mod.rs
-      wanikani/              HTTP client, private DTOs, boundary tests
-    stores/
-      mod.rs
-      in_memory.rs           real volatile storage
-      file/
-        mod.rs               file store adapter
-        cache.rs             existing validated persistence and locking
-        cache/tests.rs       filesystem fault/interruption tests
-tests/                       use-case, store-contract, CLI and integration tests
-examples/preview.rs          runnable direct manual preview
-examples/prepare.rs          runnable direct preparation from synthetic values
-examples/a1.rs               preserved synthetic research packet harness
-ARCHITECTURE.md              this design
+Cargo.toml                   workspace, shared versions and test profile
+Cargo.lock                   one pinned dependency graph
+crates/
+  yomibu/
+    Cargo.toml               library dependencies; no CLI dependency
+    src/
+      lib.rs                 public entry points
+      inventory.rs           common manual/WaniKani inventory and validation
+      story.rs               adjacent request, selection, payload and assessment stages
+      retrieval.rs           embedding inputs/cache and cosine ranking
+      generation.rs          candidate assessment/errors and provider metadata
+      app.rs                 sync/status orchestration
+      domain.rs              source data and invariants
+      summary.rs             source summaries
+      preview.rs             manual selection and checks
+      grammar.rs             manual familiarity declarations
+      knowledge.rs           source eligibility policy
+      preparation.rs         exact cached lexical retrieval
+      analysis.rs            original C/A morphological evidence
+      evaluation.rs          bounded checks and executable bindings
+      ports.rs               source/storage/embedding capabilities
+      adapters/
+        mod.rs
+        grammar_file.rs      explicit read-only grammar input
+        dictionary.rs        verified managed dictionary publication
+        dictionary/tests.rs  publication/failure boundary tests
+        sudachi.rs           real checksum-pinned analyzer
+        sudachi.json         embedded analyzer configuration
+        openai.rs            one bounded Responses attempt
+        openai_tests.rs      socket deadline/body-bound tests
+        embeddings.rs        local/hosted encoders and lexical baseline
+        sources/wanikani/    HTTP source, DTOs and boundary tests
+        stores/              file and in-memory storage adapters
+    tests/                   library use-case and adapter contracts
+    examples/                direct-library preview, prepare and preserved A1 harness
+  yomibu-cli/
+    Cargo.toml               depends on yomibu; binary name remains yomibu
+    src/
+      main.rs                arguments, dispatch and executable startup
+      story_command.rs       run_generation/run_preview/run_prepare sequences
+      story_command/report.rs  story JSON/text conversion and rendering
+      story_tests.rs         executable/report unit tests
+      analyze.rs             supplied analysis input and rendering
+      dictionary.rs          dictionary CLI arguments and execution
+      candidate_report.rs    candidate presentation
+      cli_support.rs         bounded input reads and terminal presentation
+    tests/                   CLI and combined library/executable contracts
+tests/fixtures/              shared immutable synthetic inputs and snapshots
+scripts/                     dictionary setup and explicit retrieval probe
+target/a1/current/           ignored real pinned dictionary bundle
+docs/                        current usage and historical evidence
+ARCHITECTURE.md              composition and repository boundaries
 SPEC.md                      product contracts
-PLAN.md                      implementation stages and evidence
+PLAN.md                      delivery and verification evidence
 ```
 
 As working functionality arrives, split `domain.rs` into `domain/learner.rs`,
@@ -677,10 +684,21 @@ Group future model adapters in `adapters/models/`, prompt adapters in
 under `adapters/sources/wanikani`; Bunpro joins that category when implemented.
 Create files for cohesive responsibilities, not one file for each field/type.
 
-Keep code in one public GitHub repository initially, including source adapters,
-SQL adapters, and potentially the Cloud host. Add a workspace package for a real
-deployable Cloud binary or independently consumed client when build/dependency
-boundaries justify it. Do not split packages merely to mirror every module.
+Keep code in one public GitHub repository. The workspace contains the existing
+library and CLI only; `yomibu-api` will join it when HTTP behavior is implemented.
+CLI owns argument parsing, file/credential selection, runtime creation, rendering
+and exit status. Library callers still supply explicit inputs/resources and their
+own runtime. No library API or CLI contract changes in this move, and no API
+skeleton or generic engine object is introduced.
+
+Root Cargo commands select both workspace members. The CLI binary has `doc = false`
+to keep public Rustdoc at `target/doc/yomibu` without a same-name output collision. `cargo run -- …` selects the
+single CLI binary; `cargo run --example …` selects the library example. Package
+selection is explicit when useful: `-p yomibu` for library checks and
+`-p yomibu-cli` for CLI checks. Test fixtures and dictionary setup remain rooted
+in the repository. Member manifests inherit shared versions; only the CLI has
+production Clap/anyhow dependencies (the A1 example keeps them as library dev
+dependencies). Do not split packages merely to mirror every module.
 Private prompt sets and corpora can live in a private asset repository or store
 with separate access/deployment; their generic readers need not be private.
 

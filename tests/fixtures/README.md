@@ -3,7 +3,7 @@
 These are synthetic Yomibu schema-1 caches, created for milestone 1a. They contain
 no account export or credentials. Resource shapes and nullable dates are grounded
 in the [WaniKani v2 revision 20170710 reference](https://docs.api.wanikani.com/20170710/),
-checked on 2026-09-27. Fields are normalized to `src/domain.rs`, not copied API
+checked on 2026-09-27. Fields are normalized to `crates/yomibu/src/domain.rs`, not copied API
 response envelopes. IDs, learner identity, times, and counters are invented.
 
 - `empty.json`: valid account with no subjects or progress.

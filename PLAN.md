@@ -5,6 +5,57 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Library/CLI workspace — 2026-10-06
+
+The user approved moving to a Cargo workspace before the API slice. Two members
+now make the existing boundary visible: `crates/yomibu` is the reusable library;
+`crates/yomibu-cli` depends on it and builds the executable named `yomibu`.
+No `yomibu-api` directory/package or placeholder HTTP behavior is introduced.
+Public Rust library paths and CLI behavior stay unchanged.
+
+Moved library modules, adapter tests, 16 integration suites and three examples
+into the library package. Moved executable modules/unit tests and six executable
+integration suites (including combined sync coverage) into the CLI package.
+Shared immutable fixtures remain under root `tests/fixtures`; analyzer tests
+still load the real pinned bundle under root `target/a1/current`. Updated include
+and dictionary paths explicitly, without fake analysis or copied fixtures.
+
+The root manifest owns shared package metadata, dependency versions and the
+unchanged SHA-256 test profile. Member manifests declare their own dependencies.
+Clap/anyhow are CLI production dependencies; the preserved A1 library example
+uses them only as development dependencies. Normal library dependency-tree
+inspection confirms neither is present. The lockfile adds only the local CLI
+package; existing external versions, sources, checksums and options are unchanged.
+Root CLI/example commands still select their unique target, with one target
+directory and one pinned toolchain/lockfile. Existing CI commands cover both
+members without workflow changes.
+
+Behavior-preserving moves first passed all 203 existing tests. Follow-up
+verification caught Clap deriving `--version` from the new package name.
+RED: an executable regression (including hostile argv[0] on Unix) confirmed
+`yomibu-cli 0.1.0` instead of `yomibu 0.1.0`. GREEN: explicitly name the command
+`yomibu`, retaining its existing trusted binary name, version and diagnostic
+layout. No version/CLI contract change is intended. Rustdoc also confirmed a
+same-name binary/library output collision; `doc = false` on the CLI binary keeps
+public Rustdoc with the library, as before.
+
+Simplification review kept the existing adjacent story stages and ordinary
+command functions, rather than combining file moves with a new engine object,
+service hierarchy or orchestration API. No public library API rename or extra
+package is warranted. Updated SPEC, architecture, README/current usage and
+current navigation links; historical generation documentation retains its pinned
+code paths. All shared fixture data and current request bytes/hashes are unchanged.
+
+Verification: `cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**204 passed**, none failed/ignored),
+`git diff --check` and strict Rustdoc passed. Nine dictionary-setup Python tests
+also passed. Root CLI help/version/manual preview, all three direct-library
+examples, offline preparation/retrieval and story preview passed; story preview
+matches the exact existing payload/hash. All 73 Rust include paths and updated
+current documentation links resolve. No live model calls or hosted CI runs were
+made for this workspace move; macOS was not checked locally.
+
 ## Legacy G1/G2 retirement — 2026-10-06
 
 The authorized cleanup leaves one generation path, beginning at
