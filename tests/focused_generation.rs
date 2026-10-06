@@ -150,10 +150,7 @@ async fn real_sudachi_assessment_uses_full_permissions_and_keeps_fail_spans_and_
         adapters::sudachi::SudachiAnalyzer,
         analysis::Sentence,
         evaluation::{CheckKind, CheckOutcome, CheckState, evaluate},
-        generation::{
-            CandidateAssessment, ContextUnitStatus, FocusCompleteness, FocusStatus,
-            assess_context_usage, assess_focus_occurrence,
-        },
+        generation::{CandidateAssessment, ContextUnitStatus, FocusCompleteness, FocusStatus},
     };
     let analyzer = SudachiAnalyzer::load(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/current/system_core.dic"),
@@ -187,9 +184,10 @@ async fn real_sudachi_assessment_uses_full_permissions_and_keeps_fail_spans_and_
             .mount(&server)
             .await;
         let generated = client.generate_focused_candidates(&prepared).await.unwrap();
-        let assessments = generated.assess(&analyzer);
+        let assessments = generated.assess_focused(&analyzer, prepared.context());
         assert_eq!(generated.texts(), &pair);
-        for (text, assessment) in pair.iter().zip(&assessments) {
+        for (text, focused) in pair.iter().zip(&assessments) {
+            let assessment = &focused.assessment;
             if let Ok(sentence) = Sentence::new(text) {
                 let direct = analyzer.analyze(sentence).unwrap();
                 let expected = evaluate(&direct, &grammar, &permissions).unwrap();
@@ -202,8 +200,8 @@ async fn real_sudachi_assessment_uses_full_permissions_and_keeps_fail_spans_and_
                 };
                 assert_eq!(analysis, &direct);
                 assert_eq!(**evaluation, expected);
-                let usage = assess_context_usage(Some(analysis), prepared.context());
-                let focus = assess_focus_occurrence(Some(analysis), prepared.context());
+                let usage = &focused.context_usage;
+                let focus = &focused.focus_occurrence;
                 match *text {
                     "猫は寝ます。" => {
                         assert_eq!(usage.units[0].status, ContextUnitStatus::SelectedEvidence);
@@ -262,6 +260,15 @@ async fn real_sudachi_assessment_uses_full_permissions_and_keeps_fail_spans_and_
                     assessment,
                     CandidateAssessment::ExecutionError { analysis: None, .. }
                 ));
+                assert_eq!(focused.focus_occurrence.status, FocusStatus::NotRun);
+                assert_eq!(
+                    focused.focus_occurrence.completeness,
+                    FocusCompleteness::NotRun
+                );
+                assert_eq!(
+                    focused.context_usage.status,
+                    yomibu::generation::ContextUsageStatus::NotRun
+                );
             }
         }
         assert_eq!(server.received_requests().await.unwrap().len(), 1);

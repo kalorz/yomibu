@@ -456,9 +456,10 @@ No analyzer trait, self-referential result, accepted-exercise type or learner st
 is needed. `EvaluationBindings::validate` exposes the same validation for preflight;
 `evaluate` still validates analysis first, then bindings, preserving error precedence.
 
-The binary's `generate.rs` owns the input/report DTOs, credential lookup and runtime
-startup. `cli_support.rs` shares bounded file reads, check rendering and safe JSON
-encoding with `analyze.rs`. The latter retains its output and fully offline flow.
+The binary's `generate.rs` owns G1 input/top-level report DTOs, credential lookup
+and runtime startup. `candidate_report.rs` owns shared G1/G2 candidate DTOs, error
+conversion, and candidate/provenance rendering. `cli_support.rs` shares bounded
+file reads, check rendering and safe JSON encoding with `analyze.rs`. The latter retains its output and fully offline flow.
 Only the binary maps errors to exit codes. Reports borrow completed evidence and
 keep execution errors separate from Fail/Inconclusive; all untrusted presentation
 fields are escaped before composing readable output.
@@ -501,9 +502,12 @@ the evaluator inputs. G1 keeps `g1-sentence-v1`. The developer-only
 and existing CLI reports; no runtime prompt switch or benchmark abstraction exists.
 `Client::generate_focused_candidates` sends precisely
 those bytes through the same G1 transport/parser, adding local selection provenance.
-`GeneratedCandidates::assess` is unchanged and evaluates both original texts with
-real pinned Sudachi and the complete input permissions. Separate functions in
-`generation` observe focus occurrence and whole-unit context membership; no new
+`GeneratedCandidates::assess_focused` in `generation.rs` calls the unchanged
+`assess` method for both original texts with real pinned Sudachi and complete input
+permissions, then calls the existing focus-occurrence and context-membership
+functions. Each `FocusedCandidateAssessment` contains the candidate assessment and
+both observations, including available analysis after an evaluation error. These
+are additive public APIs; lower-level assessment functions remain available. No new
 evaluator check or acceptance gate exists. Only the existing reading/stem helpers
 become crate-visible; judgments, spans and object safeguards are unchanged.
 `FocusOccurrenceReport` separates focus status from lexical observation
@@ -512,13 +516,33 @@ preserving observed focus; focus-specific uncertainty and uncertain absence stay
 explicit. JSON and text expose both dimensions without feeding either back into
 evaluation or provider requests.
 
-The binary-private `focused` module owns bounded file reads, input storage,
-credential lookup, runtime, preflight order and rendering for `context-preview`
-and `generate-focused`. Preview reaches no dictionary, credential or client.
+Start at binary-private `focused::run_generation` in `src/focused.rs` to follow
+focused generation in execution order:
+
+```text
+read_permissions -> select_context -> prepare_focused_request
+  -> dictionary.load -> read_openai_key -> client/runtime construction
+  -> generate_focused_candidates -> assess_focused
+  -> GenerationReport::new -> write_generation -> execution status
+```
+
+`main.rs` dispatches preview separately to `focused::run_preview`, which performs
+only input, selection, request preparation and preview reporting. Preview accepts
+no dictionary or client constructor. Both command bodies show unavailable-context
+reporting explicitly; other preflight/provider failures return without a report.
+Candidate execution errors retain both original texts and partial evidence, and
+only produce a command error after the complete report has been written.
+
+`focused.rs` owns bounded file reads, input storage, credential lookup, runtime
+and preflight order. `focused/report.rs` converts results and renders focused
+JSON/text without performing assessment. `candidate_report.rs` contains the shared
+G1/G2 candidate reporting seam. Selection remains in `generation_context.rs`,
+request preparation/transport in `adapters/openai.rs`, and assessment/observations
+in `generation.rs`. The small duplicated preparation sequence keeps each command
+readable; the existing lazy client constructor is only a concrete adapter-test seam.
 Generation has no import, retained session or interactive confirmation and ignores
-`--data-dir`. Shared rendering preserves G1 reporting; a parameterized read helper
-keeps the older 64 KiB boundaries. No new dependency, trait, catalogue loader,
-ranking/retrieval framework, automatic data bridge or source access is introduced.
+`--data-dir`. No new dependency, trait, catalogue loader, ranking/retrieval framework,
+automatic data bridge or source access is introduced.
 
 Frozen A1 records remain untouched: no-go, 24/24 outcomes, 120/120 judgments,
 11/12 exact negative reason/span matches. Observed morphological focus does not
@@ -643,7 +667,10 @@ src/
   lib.rs                     public entry points
   main.rs                    CLI composition and rendering
   analyze.rs                 binary-private analysis input and rendering
-  generate.rs                binary-private opt-in, input and candidate reports
+  generate.rs                binary-private G1 input, execution and top-level report
+  focused.rs                 binary-private run_generation/run_preview sequences
+  focused/report.rs          focused JSON/text conversion and rendering
+  candidate_report.rs        shared G1/G2 candidate DTOs and rendering
   cli_support.rs             shared bounded reads and terminal presentation
   app.rs                     sync/status orchestration and reports
   domain.rs                  retained source data and invariants
@@ -654,7 +681,8 @@ src/
   preparation.rs             exact cached lexical retrieval for explicit targets
   analysis.rs                bounded sentence and original C/A morphological evidence
   evaluation.rs              synchronous bounded checks and explicit bindings
-  generation.rs              experimental pair, provenance and independent assessment
+  generation.rs              experimental pair, assessment and focused observations
+  generation_context.rs      full-input validation and deterministic focused selection
   ports.rs                   source and atomic storage capabilities
   adapters/
     mod.rs

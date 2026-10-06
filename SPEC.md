@@ -618,6 +618,13 @@ assesses both original candidates. `context-preview --permissions PATH
 reserves nor authorizes a later request. There is no preview import, required
 handoff, confirmation loop, REPL or retained session. Both ignore `--data-dir`.
 
+The executable's `focused::run_generation` exposes that sequence directly;
+`run_preview` is a separate offline entry point. Library
+`GeneratedCandidates::assess_focused` combines the existing full-permission
+assessment and separate focus/context observations without environment lookup,
+runtime startup or presentation. Its `FocusedCandidateAssessment` result type is
+additive; existing lower-level APIs, reports and CLI contracts remain unchanged.
+
 Use the three private compiled original suggestions `pet-rest`, `pet-walk`,
 `book-reading` in fixed order with exact tuples and bound rule prerequisites.
 Validate the full inventory before selecting at most three distinct tuples. Keep
