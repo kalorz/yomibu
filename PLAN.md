@@ -5,6 +5,202 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Story naming and explicit assessment inputs — 2026-10-06
+
+Approved breaking rename: `yomibu::story`, `StoryRequest`,
+`StoryGenerationOptions`, `StoryGenerationPlan`, `AiModelRequest`,
+`StoryCandidates`, `StoryCandidateAssessment`, and `StoryError` replace the current
+reading API names. CLI names are `preview-story` and `generate-story`, without
+aliases; `prepare-retrieval` is unchanged. Pronunciation readings are unchanged.
+No new story-content requirements, dependencies or generation features were added.
+
+`build_ai_model_request` returns `(StoryGenerationPlan, AiModelRequest)` so any
+request-budget trimming is visible in the final plan. The AI payload owns only
+bytes/hash and encoded options. `StoryAssessmentInputs::new` builds the separate
+full-inventory assessment inputs before execution resources are initialized;
+`assess_candidates` receives them explicitly. Returned candidates own their texts
+and provenance with no borrow of the outgoing request. Reporting remains separate
+from orchestration and assessment. Historical G1/G2 entry points and frozen
+fixtures remain; their removal is a separate cleanup.
+
+Current JSON kinds: `story_generation_plan`, `story_generation_plan_preview`, and
+`experimental_story_candidates`; prompt revision `story-inventory-v1`. Current
+fixture bytes/hash intentionally change with the kind value; the prompt's actual
+instructions, model settings, limits and one-attempt behavior are unchanged.
+
+TDD: updated CLI tests failed on unrecognized new command names and acceptance of
+old names; the executable report test failed on the old JSON kind before changes.
+Local mock HTTP tests required sandbox socket access; the real pinned dictionary
+is used for assessment. Behavior-preserving ownership changes use existing tests.
+Simplification review: removed request/candidate lifetime parameters and hidden
+assessment state from transport, retained concrete adjacent stages and separate
+report conversion, and named the existing projection `project_structural_inputs`.
+No full-inventory clone, generic request framework or extra dependencies were needed.
+The default request fixture is now 2,231 bytes, SHA-256
+`40aa1a47429ef6a72de095f991476edef7019757cf4273cb3789706d0bf91d65`.
+
+Verification after refactoring: `cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**235 passed**, none failed/ignored),
+`git diff --check`, and `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`
+passed. The renamed retrieval script parses successfully. HTTP tests use local
+mock servers; analyzer tests use the real pinned dictionary. No live model calls,
+native macOS checks or hosted CI were run. Dependency files and historical G1/G2
+request fixtures are unchanged.
+
+## Reading orchestration and execution options follow-up — 2026-10-06
+
+The user requested a higher-level entry body and configurable candidate count,
+then clarified that output intent and execution options should be separate.
+`run_generation` now consists of concrete stage calls: load/validate inputs,
+load/prepare embeddings, select vocabulary, prepare the request, load the analyzer,
+request candidates, assess, report, and determine execution status. Cache branches,
+credential handling and Tokio event-loop construction are nearby private helpers.
+No generic pipeline, new trait, runtime-owning library API or service hierarchy
+was introduced. Existing executable tests passed after the extraction.
+
+`StoryRequest` retains brief/targets. New `StoryGenerationOptions { candidate_count }`
+defaults to 2; preview and generation accept `--candidates N`. Per user preference,
+there is no arbitrary 4/8 ceiling. Counts must be positive and `512 × N` must fit
+checked arithmetic before embedding/dictionary/credential work. Actual provider
+token limits and the existing 64 KiB response cap still apply, so large counts
+can fail explicitly. There is one request, without automatic splitting/clamping
+or retry. Repair-round settings are deferred until repair exists.
+
+API changes (names updated by the later story follow-up): `build_ai_model_request` takes an explicit fourth `StoryGenerationOptions`
+argument; current reading results expose a string slice, assessments return a
+vector, and reports contain every candidate plus separate `generation_options`.
+The fixed-pair G1/G2 APIs/fixtures remain unchanged; they share the same bounded
+HTTP transport. Before the story naming follow-up, the prompt revision was `reading-inventory-v2`. Its default
+request fixture was 2,222 bytes, SHA-256
+`340e0fbae60cd88b6a424479e8825392c91ebca18648b3738aaaeb9616649bc6`.
+
+TDD: first confirmed failures for missing options support and the unrecognized
+`--candidates` flag. Tests now cover 1, 3, 8 and 9 returned candidates, exact
+prompt/schema/token count, unchanged prepared bytes, too few/many response items,
+retained original texts and partial failures, default count, no arbitrary cap,
+zero count and arithmetic overflow before resource work. The changed current
+fixture was reviewed and updated; legacy fixtures remain byte-identical.
+Simplification review kept ordinary functions and one small options value,
+removed fixed-pair assumptions only from the current path, and kept async details
+inside concrete I/O helpers. Tokio local variables are named `io_runtime`.
+
+Follow-up verification on Linux with the real pinned analyzer/dictionary:
+`cargo fmt --check`, `cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**235 passed**, none failed/ignored), `git diff --check`,
+and `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps` all passed. Existing
+G1/G2 request fixtures and the dependency manifest/lockfile are unchanged. Native
+macOS and hosted CI were not run here.
+No API key was configured and no live provider call was made. A configured Cloud
+secret would enable the still-pending hosted embedding comparison; automated tests
+continue to use loopback HTTP and the real pinned analyzer/dictionary.
+
+## Shared reading implementation — 2026-10-06
+
+This is the current change after merged PR #14 (`9ceba44`). The dated sections
+below remain historical records. Branch: `codex/shared-reading-inventory`.
+
+Implemented the approved breaking design in one package, without dependencies,
+service hierarchy or a generic pipeline. `LearnerInventory` joins explicit
+manual input and the existing WaniKani policy projection. `StoryRequest` carries
+a free-form brief and multiple vocabulary/grammar target IDs. One common story
+path ranks a cached plan, freezes provider bytes, generates once, then assesses
+all original candidates against the full inventory. The later story naming follow-up
+separates outbound request ownership from explicit assessment inputs (see above).
+
+Current CLI: `prepare-retrieval`, `preview-story`, `generate-story`. Old
+`generate-focused`/`context-preview` commands and permissions/focus-entry flags
+are removed, without aliases. The new prompt revision and JSON contracts are
+intentional changes. Historical G2 library operations, v1/v2 request fixtures,
+comparison recipes, A1 frozen evidence and unrelated command behavior remain.
+The current entry is `story_command::run_generation`; library stages are
+adjacent in `story.rs`, presentation separate in `story_command/report.rs`.
+See [usage and migration](docs/STORY_GENERATION.md).
+
+The one `Embedder` port has local/hosted HTTP implementations and an explicit
+nonsemantic lexical baseline. Flat model-specific vector caching validates shape,
+finite/nonzero values, exact input/model identity and complete responses.
+Missing vectors never trigger implicit hosted work. Preview is offline and
+constructs no dictionary/credential/client/runtime. Embedding preparation is
+explicit; generation's final request preflight precedes its dictionary and
+credential initialization. Cache publication preserves prior data on batch or
+pre-publication failure and distinguishes post-publication durability uncertainty.
+
+### TDD and simplification record
+
+The initial source projection, request/ranking, adapter and CLI tests were run RED
+before implementation (missing APIs/commands), then GREEN. Focused regressions
+also reproduced and corrected these issues during the new-path review:
+
+- Impossible selection wrote vectors before failing: selection bounds now fail
+  before embedding work.
+- Duplicate document keys hid an invalid returned vector: every returned vector
+  is validated before cache deduplication.
+- Unrelated OOV evidence hid an observed target: observation and completeness
+  are separate, including `partial` in JSON and text.
+- Competing source alternatives or unsupported morphology could claim a target:
+  conservative observations retain uncertainty.
+- Grammar observation accepted malformed object/copula structure: bounded shape
+  recognition now rejects it.
+- Structural projection discarded competing word alternatives and incorrectly
+  treated direct-object evidence as unambiguous: only unique single-use forms
+  enter that projection; the full inventory remains the lexical boundary.
+- Combined vocabulary findings inherited a particle coverage label: current
+  inventory coverage is explicit for every outcome.
+- Oversized cache publication could produce an unreadable replacement: a
+  pre-publication size check retains the prior file, tested with a small limit.
+
+Existing behavior-preserving composition changes use the existing tests; no
+artificial behavioral test was added merely to move code. The final simplification
+review retained concrete adjacent stages, separated rendering, reused existing
+provider transport/checks, and avoided cloning the full inventory. Small owned
+embedding metadata simplifies lifetimes. Duplicate-form counting uses one local
+map rather than a quadratic scan. No extra analyzer/generator trait was justified.
+
+New coverage includes equivalent manual/WaniKani prepared bytes, multiple targets,
+full-inventory assessment, real Sudachi spans, object uncertainty, exact new request
+fixture/hash, offline preview, terminal escaping/layout, both candidate texts and
+partial results, cache reuse/429 preservation, opt-in and removed-command errors.
+The real checksum-pinned analyzer/dictionary is used in all analysis cases;
+loopback provider mocks only supply transport responses, never fake analysis.
+
+### Evidence and remaining prerequisite
+
+The public six-brief retrieval probe ran with the explicit lexical baseline:
+mean recall@3 **0.4722**, approximately 11–24 ms preparation per case in one debug
+run. This is not useful evidence for selecting a semantic model. The local default
+endpoint had no service and no hosted credential was configured; **local dense
+and hosted comparisons remain unrun**, with no implicit substitute/default.
+[RETRIEVAL](docs/RETRIEVAL.md) records the corpus, recipe, measurements and limits.
+No live generation call or linguistic acceptance is claimed. A1's no-go and
+object-combination safeguard remain unchanged.
+
+Final verification on Linux/x86_64 with the pinned Rust toolchain:
+
+- `cargo fmt --check`: passed.
+- `cargo clippy --locked --all-targets --all-features -- -D warnings`: passed.
+- `cargo test --locked --all`: **231 passed**, none failed or ignored, including
+  four doctests and real pinned dictionary tests.
+- `git diff --check`: passed, including newly added files.
+- `RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps`: passed.
+- Dictionary setup verified the existing checksum-pinned files; nine offline
+  Python installer tests passed.
+- Manual fixture preview and WaniKani-plus-manual CLI preparation/preview smoke
+  passed with cleared environments and explicit lexical-baseline retrieval.
+- Cargo manifest/lockfile, toolchain pin, historical focused fixtures and A1
+  fixtures remain unchanged. New request fixture: 2,224 bytes, SHA-256
+  `7243bf73c97265e786d26b7f5b83a13fa0f64fb188827b85cb4f9e350c5deb76`.
+
+Native macOS and hosted CI were not run here. The existing CI matrix is unchanged.
+The dense retrieval comparison is the only remaining external evaluation
+prerequisite in this slice; no quality/default-model claim is made for it.
+
+Rust notes for a Ruby developer: data is passed directly between named functions.
+Borrowing keeps the request/inventory alive through assessment without copying
+whole collections; a small result wrapper ties the generated pair to those exact
+inputs. `?` propagates stage errors, while candidate errors remain values so both
+results can be reported. Async is confined to provider I/O; the CLI owns runtimes.
+
 ## Current state and stopping point
 
 Milestone **1d — Milestone acceptance is complete**. The macOS/Linux CI workflow

@@ -20,12 +20,16 @@
 //! distinct. A1 does not establish accepted exercises, naturalness, idioms, or
 //! contextual reading/sense correctness. See the `a1` example for composition.
 //!
-//! Focused generation uses [`generation_context::select_context`], then
-//! [`adapters::openai::prepare_focused_request`] before initializing execution
-//! resources. [`adapters::openai::Client::generate_focused_candidates`] sends those
-//! prepared bytes; [`generation::GeneratedCandidates::assess_focused`] assesses
-//! both texts against full permissions and adds separate focus/context observations.
-//! See [`generation`] for direct library composition and `docs/G2.md` for CLI usage.
+//! Current story generation starts with [`inventory::LearnerInventory`] from
+//! manual data or a WaniKani projection, then [`story::StoryRequest`] supplies
+//! a brief and vocabulary/grammar targets. [`story::select_vocabulary`] uses an
+//! explicit validated embedding cache. [`story::build_ai_model_request`] freezes
+//! the outbound bytes before execution resources are initialized.
+//! [`adapters::openai::Client::generate_story_candidates`] sends those bytes;
+//! [`story::assess_candidates`] checks every text against the full inventory.
+//! [`story::StoryGenerationOptions`] sets candidate count separately from story intent.
+//! See `docs/STORY_GENERATION.md` for the complete sequence. Older G2 library operations in
+//! [`generation_context`] remain available for historical fixture verification.
 //!
 //! [`App`] coordinates explicit synchronization and offline status for a single
 //! account-scoped store. Supply a file or in-memory store and, for synchronization,
@@ -70,9 +74,12 @@ pub mod evaluation;
 pub mod generation;
 pub mod generation_context;
 pub mod grammar;
+pub mod inventory;
 pub mod knowledge;
 pub mod ports;
 pub mod preparation;
 pub mod preview;
+pub mod retrieval;
+pub mod story;
 pub mod summary;
 pub use adapters::sources::wanikani;

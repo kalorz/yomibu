@@ -1,0 +1,164 @@
+{
+  "inventory": {
+    "version": 1,
+    "vocabulary": [
+      {
+        "id": "cat",
+        "written_form": "猫",
+        "readings": [
+          "ねこ"
+        ],
+        "meanings": [
+          "cat"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "dog",
+        "written_form": "犬",
+        "readings": [
+          "いぬ"
+        ],
+        "meanings": [
+          "dog"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "sleep",
+        "written_form": "寝る",
+        "readings": [
+          "ねる"
+        ],
+        "meanings": [
+          "sleep"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "station",
+        "written_form": "駅",
+        "readings": [
+          "えき"
+        ],
+        "meanings": [
+          "station"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "meet",
+        "written_form": "会う",
+        "readings": [
+          "あう"
+        ],
+        "meanings": [
+          "meet"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "flower",
+        "written_form": "花",
+        "readings": [
+          "はな"
+        ],
+        "meanings": [
+          "flower"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "water",
+        "written_form": "水",
+        "readings": [
+          "みず"
+        ],
+        "meanings": [
+          "water"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "rain",
+        "written_form": "雨",
+        "readings": [
+          "あめ"
+        ],
+        "meanings": [
+          "rain"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "eat",
+        "written_form": "食べる",
+        "readings": [
+          "たべる"
+        ],
+        "meanings": [
+          "eat"
+        ],
+        "direct_object": null
+      },
+      {
+        "id": "read",
+        "written_form": "読む",
+        "readings": [
+          "よむ"
+        ],
+        "meanings": [
+          "read"
+        ],
+        "direct_object": null
+      }
+    ],
+    "grammar_declarations": [],
+    "grammar_bindings": []
+  },
+  "cases": [
+    {
+      "brief": "A cat sleeping",
+      "relevant": [
+        "cat",
+        "sleep"
+      ]
+    },
+    {
+      "brief": "Meeting someone at the train station",
+      "relevant": [
+        "station",
+        "meet"
+      ]
+    },
+    {
+      "brief": "Watering flowers after the rain",
+      "relevant": [
+        "flower",
+        "water",
+        "rain"
+      ]
+    },
+    {
+      "brief": "Reading while eating",
+      "relevant": [
+        "read",
+        "eat"
+      ]
+    },
+    {
+      "brief": "猫が寝る",
+      "relevant": [
+        "cat",
+        "sleep"
+      ]
+    },
+    {
+      "brief": "A canine having a nap",
+      "relevant": [
+        "dog",
+        "sleep"
+      ]
+    }
+  ]
+}

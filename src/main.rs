@@ -22,6 +22,7 @@ use yomibu::{
     ports::LearningStore,
     preparation::{PracticeTarget, PreparedContext, UnassessedAspect, prepare_context},
     preview::{CheckOutcome, Preview, WordEntry, preview},
+    story::StoryGenerationOptions,
     summary::{Accuracy, Summary},
     wanikani::Client,
 };
@@ -30,13 +31,13 @@ mod analyze;
 mod candidate_report;
 mod cli_support;
 mod dictionary;
-mod focused;
 mod generate;
+mod story_command;
 
 #[cfg(test)]
-mod focused_tests;
-#[cfg(test)]
 mod generate_tests;
+#[cfg(test)]
+mod story_tests;
 
 #[derive(Parser)]
 #[command(
@@ -45,7 +46,7 @@ mod generate_tests;
     about = "Generate experimental candidates, analyze supplied text, prepare practice context, preview entries, or sync/inspect WaniKani (unofficial tool)"
 )]
 struct Cli {
-    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze/generate-candidates/context-preview/generate-focused).
+    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze/generate-candidates/story commands).
     #[arg(long, global = true, value_name = "PATH")]
     data_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -59,27 +60,36 @@ enum Command {
         #[command(subcommand)]
         command: dictionary::DictionaryCommand,
     },
-    /// Inspect focused selection and exact request content entirely offline.
-    ContextPreview {
-        /// Version-1 explicit vocabulary/grammar permissions (at most 4 MiB).
-        #[arg(long, value_name = "PATH")]
-        permissions: PathBuf,
-        /// Positive one-based full-inventory entry number; tuples stay associated.
-        #[arg(long, value_name = "N")]
-        focus_entry: std::num::NonZeroUsize,
+    /// Preview a topic-based story generation plan offline using cached embeddings.
+    PreviewStory {
+        #[command(flatten)]
+        story: story_command::StoryArgs,
+        /// Number of candidates to request in one provider call.
+        #[arg(long, default_value = "2")]
+        candidates: std::num::NonZeroUsize,
         #[arg(long)]
         json: bool,
     },
-    /// Select focused context and request two experimental sentences in one attempt.
-    GenerateFocused {
+    /// Explicitly prepare/cache lexical and brief embeddings; no generation.
+    PrepareRetrieval {
+        #[command(flatten)]
+        story: story_command::StoryArgs,
+        #[command(flatten)]
+        embedding: story_command::EmbeddingArgs,
+    },
+    /// Generate experimental sentences from either learner inventory source.
+    GenerateStory {
         #[arg(long, required = true)]
         allow_model_call: bool,
-        #[arg(long, value_name = "PATH")]
-        permissions: PathBuf,
-        #[arg(long, value_name = "N")]
-        focus_entry: std::num::NonZeroUsize,
+        #[command(flatten)]
+        story: story_command::StoryArgs,
+        #[command(flatten)]
+        embedding: story_command::EmbeddingArgs,
         #[command(flatten)]
         dictionary: dictionary::DictionaryArgs,
+        /// Number of candidates to request in one provider call.
+        #[arg(long, default_value = "2")]
+        candidates: std::num::NonZeroUsize,
         #[arg(long)]
         json: bool,
     },
@@ -193,26 +203,36 @@ fn run(
     match cli.command {
         Command::Dictionary { command } => dictionary::run(command, &mut io::stdout().lock())
             .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
-        Command::ContextPreview {
-            permissions,
-            focus_entry,
+        Command::PreviewStory {
+            story,
+            candidates,
             json,
-        } => focused::run_preview(
-            &permissions,
-            focus_entry.get(),
+        } => story_command::run_preview(
+            &story,
+            StoryGenerationOptions {
+                candidate_count: candidates.get(),
+            },
             json,
             &mut io::stdout().lock(),
         )
         .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
-        Command::GenerateFocused {
-            permissions,
-            focus_entry,
+        Command::PrepareRetrieval { story, embedding } => {
+            story_command::run_prepare(&story, &embedding, &mut io::stdout().lock())
+                .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?
+        }
+        Command::GenerateStory {
+            story,
+            embedding,
             dictionary,
+            candidates,
             json,
             ..
-        } => focused::run_generation(
-            &permissions,
-            focus_entry.get(),
+        } => story_command::run_generation(
+            &story,
+            &embedding,
+            StoryGenerationOptions {
+                candidate_count: candidates.get(),
+            },
             &dictionary,
             json,
             make_client,

@@ -1,4 +1,4 @@
-//! Contracts used by the current single-account synchronization use case.
+//! Narrow I/O contracts for synchronization/storage and explicit embeddings.
 //!
 //! The stored unit includes related source material and learner progress. It is
 //! currently WaniKani-specific; this is not a general learner or material catalog.
@@ -61,4 +61,14 @@ pub trait LearningStore {
     /// Reserve a writer without waiting. Files may create a directory and lock
     /// file here. A failure must not replace existing source data.
     fn begin_sync(&self) -> Result<Self::Writer, Self::WriteError>;
+}
+
+/// Encodes explicit lexical documents/briefs; adapters own no process environment
+/// or runtime. Purpose distinguishes asymmetric document/query encoders.
+pub trait Embedder {
+    fn model_identity(&self) -> &crate::retrieval::EmbeddingModelIdentity;
+    fn embed(
+        &self,
+        inputs: &[crate::retrieval::EmbeddingInput],
+    ) -> impl Future<Output = Result<Vec<Vec<f32>>, crate::retrieval::EmbeddingError>> + Send;
 }

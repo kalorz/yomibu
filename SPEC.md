@@ -6,7 +6,8 @@ architecture migration authorized on 2026-10-01, followed by the generation
 design and Cloud handoff on the same date, and bounded A1 evaluation scope
 accepted on 2026-10-03, with A1 implementation subsequently approved that day,
 and a separate offline analysis CLI and G1 experimental candidates authorized on
-2026-10-04, and G2 focused experimental context on 2026-10-05. Changes must
+2026-10-04, G2 focused experimental context on 2026-10-05, and the shared
+learner-inventory story path on 2026-10-06. Changes must
 be reflected here, in [ARCHITECTURE.md](ARCHITECTURE.md), and in `PLAN.md`.
 Future capabilities described below are direction, not authorization to implement
 them in milestone 1.
@@ -589,6 +590,95 @@ Repair/retries/fallbacks, naturalness judges, stories, quizzes, new grammar, idi
 detection and automatic data access remain excluded. Later validated generation
 requires separately authorized evidence, acceptance rules and review/repair scope.
 
+## Shared learner-inventory story path — 2026-10-06
+
+This approved breaking slice supersedes G2's **current CLI and input/report
+contracts**. The historical G2 section below and frozen fixtures remain records,
+not alternate current command syntax. G0, sync/status, preparation, analyze and G1
+contracts remain unchanged. Full current formats/limits are in
+[STORY GENERATION](docs/STORY_GENERATION.md); measured retrieval evidence is in
+[RETRIEVAL](docs/RETRIEVAL.md).
+
+`LearnerInventory` is the source-independent complete material for an attempt.
+Project the existing explicit WaniKani eligibility policy or a versioned manual
+inventory into it; manual grammar/vocabulary may supplement WaniKani. Preserve
+original source state, source-qualified IDs, accepted-answer reading/meaning
+alternatives, missing kana readings and unknown direct-object evidence. Never
+construct reading/sense Cartesian pairs or infer transitivity from source POS.
+Normalize kana only for analyzer comparison. Source eligibility is not mastery.
+
+`StoryRequest { version, brief, targets: { vocabulary, grammar } }` uses stable
+string IDs, zero or more targets and a free-form topic/scene. Targets must exist
+in the complete inventory. They do not grant material or create grammar rules.
+`StoryGenerationOptions` separately controls execution: `candidate_count` defaults
+to 2 and is exposed as `--candidates N` in generation and preview. Counts must
+be positive and fit checked `512 × N` output-token arithmetic, with no arbitrary
+4/8 ceiling. Real provider token limits and the 64 KiB response cap still apply;
+large requests may fail explicitly, without clamping, splitting or retry. Future
+repair settings belong here only when repair exists. Story-request JSON keeps
+brief/targets, not execution choices.
+`StoryGenerationPlan` selects vocabulary for the prompt; every vocabulary target is
+included, followed by supports ranked by brief similarity, with ID-based ties.
+`build_ai_model_request` returns the final bounded plan plus an `AiModelRequest`
+containing immutable payload bytes/hash and encoded options, with no assessment
+state. `StoryAssessmentInputs` separately borrows the original inventory/request
+and final plan and owns the structural-check projection; construct it before
+execution resources and pass it explicitly to assessment. `StoryCandidates` owns
+original texts/provenance independently of both inputs and outbound request.
+The complete inventory remains the assessment boundary. No separate generic
+constraints/context configuration or pipeline framework is introduced.
+
+Keep one obvious CLI execution body: input/selection preflight, explicit compatible
+embedding cache, vocabulary selection, bounded request preparation, dictionary/
+generation credentials/runtime, one generation attempt, assessment, report/status.
+Library stages own no environment lookup, file selection, runtime or terminal.
+Preview is a separate offline operation with no dictionary, credentials, HTTP
+client or runtime and no cache refresh. Missing/stale embeddings fail explicitly.
+`prepare-retrieval` may prepare vectors; generation may do so only with explicit
+backend configuration. Hosted work additionally requires `--allow-embedding-call`.
+`--allow-model-call` independently authorizes the generation attempt.
+
+Use one narrow `Embedder` port for local/hosted encoders, a model-specific flat
+vector cache and cosine similarity. Identity includes provider/model/revision,
+dimensions and encoding revision. Invalid vectors/partial responses fail; cached
+files replace atomically only after successful complete preparation. Embedding
+requests contain lexical documents/brief, without learner IDs/progress history.
+Generation sends only selected vocabulary, brief/targets and supplied grammar.
+No implicit remote call, automatic model selection or fallback occurs. The explicit
+lexical baseline is nonsemantic; a local/hosted quality comparison must precede
+choosing a default dense model. Those two comparisons remain blocked on configured
+model services/credentials; this is not a completed model-selection claim.
+
+The current slice produces the requested number of experimental single-sentence candidates,
+each nonblank and at most 100 Unicode scalar values. New prompt revision:
+`story-inventory-v1`; request cap remains 16,384 bytes. Freeze the final prepared
+body/hash and send unchanged, with count-specific schema and output-token budget; other provider settings,
+limits and one-attempt/no-retry behavior remain unchanged. The parser requires
+exactly the requested count. G1/historical G2 retain their fixed pair contracts. Request bounds precede dictionary/generation-credential startup.
+Explicit targets and grammar are never silently removed for size; optional
+supports may be removed during preparation without another selection pass.
+
+Keep all original texts and all available analysis after candidate execution
+failure. Distinguish Fail, Inconclusive, execution error and NotRun. Multiple
+vocabulary/grammar target observations and unselected-inventory departures remain
+separate from bounded checks. Alternatives, competing identities, missing evidence
+and unsupported morphology cannot become positive intended-use claims. Preserve
+partial completeness beside an observed target with unrelated uncertainty.
+A1's no-go, original UTF-8 spans and object-combination safeguard remain unchanged.
+Topic adherence, contextual reading/sense, naturalness and comprehension remain
+unassessed; no accepted exercise, longer-text generation, repair or live generation
+evaluation is part of implementation verification. "Story" includes single-sentence
+scenes/dialogues and adds no narrative-content requirement.
+
+CLI names are `prepare-retrieval`, `preview-story`, `generate-story` with
+`--inventory`/`--wanikani-cache`, `--request` and `--embedding-cache`. Removed
+`generate-focused`, `context-preview`, `--permissions` and numeric `--focus-entry`
+have no aliases. `preview-reading`/`generate-reading` and the `reading` Rust module
+are also replaced without aliases. Current Rust/JSON vocabulary agrees; current hashes and schemas
+intentionally change. Legacy G2 library APIs and historical exact-byte fixtures
+remain independently testable. JSON/text keep terminal escaping, diagnostic
+layout, all candidate results and the existing exit-status distinctions.
+
 ## G2 — focused experimental context, 2026-10-05
 
 G2 adds deterministic offline context selection and optional inspection before a
@@ -677,7 +767,7 @@ source eligibility or gloss/POS/examples.
 
 ## Managed dictionary loading — 2026-10-05
 
-Normal analyze/generate-candidates/generate-focused commands select a managed
+Normal analyze/generate-candidates/generate-story commands select a managed
 installation when `--dictionary` is absent. The default is
 `$HOME/.yomibu/dictionaries`; `--dictionary-dir PATH` overrides it and conflicts
 with `--dictionary PATH`. Missing HOME requires an explicit managed root.
@@ -741,7 +831,7 @@ product features.
 | `ExampleSearch` | Retrieves usage examples matching explicit search criteria. |
 | `PromptTemplate` | Describes reusable prompt content with inputs to be supplied for a particular model task. |
 | `PromptStore` | Provides identified, versioned sets of prompt templates. |
-| `ModelRequest` | Contains the prepared input and options for one model invocation. |
+| `AiModelRequest` | Owns the finalized serialized payload, hash and encoded execution options for one AI model invocation; assessment inputs remain separate. |
 | `LanguageModel` | Executes a prepared model request using the explicitly selected model backend. |
 | `CandidateGenerator` | Produces exercise candidates that still require validation. |
 | `PromptedCandidateGenerator` | Uses a prompt store and language model to produce candidates for the defined generation task. |

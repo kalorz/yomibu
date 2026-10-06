@@ -515,3 +515,102 @@ fn valid_token(token: &Token, text: &str) -> bool {
         && token.part_of_speech.len() == 6
         && !token.dictionary_form.is_empty()
 }
+
+/// Reuse the frozen structural checks while checking lexical availability against
+/// the complete source-independent inventory. No reading/sense pairs are invented.
+pub(crate) fn evaluate_inventory(
+    analysis: &SentenceAnalysis<'_>,
+    grammar: &GrammarDeclarations,
+    structural_bindings: &EvaluationBindings,
+    inventory: &crate::inventory::LearnerInventory,
+) -> Result<Evaluation, EvaluationError> {
+    let mut result = evaluate(analysis, grammar, structural_bindings)?;
+    let mut vocabulary = passed("full learner inventory; contextual reading/sense unassessed");
+    for unit in &analysis.units {
+        let t = &unit.token;
+        if !t.out_of_vocabulary
+            && ["助詞", "助動詞", "補助記号"].contains(&t.part_of_speech[0].as_str())
+        {
+            continue;
+        }
+        let entries: Vec<_> = inventory
+            .vocabulary
+            .iter()
+            .filter(|w| w.written_form == t.dictionary_form)
+            .collect();
+        let uncertainty = if t.out_of_vocabulary || t.part_of_speech[0] == "空白" {
+            Some("lexical identity is unresolved")
+        } else if entries.is_empty() {
+            vocabulary = combine(
+                vocabulary,
+                problem(
+                    CheckOutcome::Fail,
+                    t.span.clone(),
+                    "whole word is outside the learner inventory",
+                ),
+            );
+            continue;
+        } else if entries.len() != 1 {
+            Some("competing inventory identities are unresolved")
+        } else if crate::story::single_use(entries[0])
+            .is_none_or(|w| !reading_matches(&w, t, analysis.sentence.text()))
+        {
+            Some("reading or meaning alternatives are unresolved")
+        } else {
+            None
+        };
+        if let Some(reason) = uncertainty {
+            vocabulary = combine(
+                vocabulary,
+                problem(CheckOutcome::Inconclusive, t.span.clone(), reason),
+            );
+        }
+    }
+    vocabulary.coverage = "full learner inventory; contextual reading/sense unassessed";
+    result.vocabulary = vocabulary;
+    Ok(result)
+}
+
+/// Positive rule occurrences only within the same bounded recognized shapes.
+/// None means the structure is unsupported, not that a target is absent.
+pub(crate) fn observed_grammar(
+    analysis: &SentenceAnalysis<'_>,
+) -> Option<Vec<(GrammarRule, Range<usize>)>> {
+    let text = analysis.sentence.text();
+    let mut tokens: Vec<_> = analysis.units.iter().map(|u| &u.token).collect();
+    if tokens
+        .last()
+        .is_some_and(|t| surface(t, text) == "。" && !t.out_of_vocabulary)
+    {
+        tokens.pop();
+    }
+    let mut predicate = tokens.as_slice();
+    let mut found = Vec::new();
+    if let [noun, wa, rest @ ..] = predicate
+        && is_noun(noun)
+        && is_particle(wa, "は", text)
+    {
+        found.push((GrammarRule::TopicWa, wa.span.clone()));
+        predicate = rest;
+    }
+    if let [noun, wo, rest @ ..] = predicate
+        && is_noun(noun)
+        && is_particle(wo, "を", text)
+    {
+        found.push((GrammarRule::ObjectWo, wo.span.clone()));
+        predicate = rest;
+    }
+    if let [noun, copula] = predicate
+        && !found.iter().any(|(rule, _)| *rule == GrammarRule::ObjectWo)
+        && is_noun(noun)
+        && surface(copula, text) == "です"
+        && copula.part_of_speech[0] == "助動詞"
+    {
+        found.push((GrammarRule::NominalDesu, copula.span.clone()));
+    } else {
+        let rule = polite_form(predicate, text)?;
+        let end = predicate.last()?.span.end;
+        found.push((rule, predicate.first()?.span.end..end));
+    }
+    Some(found)
+}

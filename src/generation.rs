@@ -504,7 +504,7 @@ fn grammar_token(token: &Token) -> bool {
     !token.out_of_vocabulary
         && ["助詞", "助動詞", "補助記号"].contains(&token.part_of_speech[0].as_str())
 }
-fn morphology(token: &Token, text: &str) -> Option<OccurrenceEvidence> {
+pub(crate) fn morphology(token: &Token, text: &str) -> Option<OccurrenceEvidence> {
     match token.part_of_speech[0].as_str() {
         "名詞" | "代名詞" => Some(OccurrenceEvidence::Noninflected),
         "動詞" => {

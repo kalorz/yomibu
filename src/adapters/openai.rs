@@ -27,6 +27,8 @@ const PROMPT: &str = "Generate exactly two short modern Japanese single-sentence
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
+    #[error("Candidate count must be positive and fit the output token budget.")]
+    InvalidCandidateCount,
     #[error("OpenAI credential must be nonblank and valid for an authorization header.")]
     InvalidCredential,
     #[error(
@@ -177,6 +179,22 @@ impl Client {
         Ok(generated)
     }
 
+    /// Send the bounded, immutable source-independent AI model request once.
+    pub async fn generate_story_candidates(
+        &self,
+        request: &crate::story::AiModelRequest,
+    ) -> Result<crate::story::StoryCandidates, GenerationError> {
+        let (texts, provenance) = self
+            .send_request(
+                request.body_utf8(),
+                request.sha256(),
+                crate::story::STORY_PROMPT_REVISION,
+                request.options().candidate_count,
+            )
+            .await?;
+        Ok(crate::story::StoryCandidates { texts, provenance })
+    }
+
     async fn send_candidates<'input>(
         &self,
         grammar: &'input GrammarDeclarations,
@@ -185,6 +203,24 @@ impl Client {
         sha256: &str,
         prompt_revision: &'static str,
     ) -> Result<GeneratedCandidates<'input>, GenerationError> {
+        let (texts, provenance) = self.send_request(body, sha256, prompt_revision, 2).await?;
+        Ok(GeneratedCandidates {
+            texts: texts
+                .try_into()
+                .map_err(|_| ProviderError::InvalidResponse)?,
+            grammar,
+            bindings,
+            provenance,
+        })
+    }
+
+    async fn send_request(
+        &self,
+        body: &str,
+        sha256: &str,
+        prompt_revision: &'static str,
+        candidate_count: usize,
+    ) -> Result<(Vec<String>, GenerationProvenance), GenerationError> {
         let mut response = self
             .http
             .post(self.endpoint.clone())
@@ -260,11 +296,12 @@ impl Client {
         let payload = payload.ok_or(ProviderError::InvalidResponse)?;
         let candidates: Payload =
             serde_json::from_str(&payload).map_err(|_| ProviderError::InvalidResponse)?;
-        Ok(GeneratedCandidates {
-            texts: candidates.candidates,
-            grammar,
-            bindings,
-            provenance: GenerationProvenance {
+        if candidates.candidates.len() != candidate_count {
+            return Err(ProviderError::InvalidResponse.into());
+        }
+        Ok((
+            candidates.candidates,
+            GenerationProvenance {
                 provider: "OpenAI",
                 requested_model: MODEL,
                 returned_model: envelope.model,
@@ -279,7 +316,7 @@ impl Client {
                 request_count: 1,
                 usage: envelope.usage,
             },
-        })
+        ))
     }
 }
 
@@ -348,16 +385,28 @@ pub fn prepare_focused_request(
     })
 }
 
-fn prepare_body(prompt: &str, data: &str) -> Result<String, ProviderError> {
+pub(crate) fn prepare_body(prompt: &str, data: &str) -> Result<String, ProviderError> {
+    prepare_candidate_body(prompt, data, 2)
+}
+
+pub(crate) fn prepare_candidate_body(
+    prompt: &str,
+    data: &str,
+    candidate_count: usize,
+) -> Result<String, ProviderError> {
+    let max_output_tokens = candidate_count
+        .checked_mul(512)
+        .filter(|_| candidate_count > 0)
+        .ok_or(ProviderError::InvalidCandidateCount)?;
     let body = serde_json::to_string(&json!({
         "model":MODEL, "service_tier":"default", "reasoning":{"effort":"none"},
-        "max_output_tokens":1024, "store":false, "background":false, "stream":false,
+        "max_output_tokens":max_output_tokens, "store":false, "background":false, "stream":false,
         "truncation":"disabled", "tools":[], "tool_choice":"none",
         "prompt_cache_options":{"mode":"explicit"},
         "input":[{"role":"developer","content":prompt},{"role":"user","content":data}],
         "text":{"format":{"type":"json_schema","name":"sentence_candidates","strict":true,
             "schema":{"type":"object","properties":{"candidates":{"type":"array",
-                "minItems":2,"maxItems":2,"items":{"type":"string","minLength":1,"maxLength":100}}},
+                "minItems":candidate_count,"maxItems":candidate_count,"items":{"type":"string","minLength":1,"maxLength":100}}},
                 "required":["candidates"],"additionalProperties":false}}}
     }))
     .map_err(|_| ProviderError::Serialization)?;
@@ -414,7 +463,7 @@ enum Content {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Payload {
-    candidates: [String; 2],
+    candidates: Vec<String>,
 }
 
 #[cfg(test)]

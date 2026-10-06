@@ -1,6 +1,6 @@
 # Yomibu architecture
 
-Accepted direction as of 2026-10-03. `SPEC.md` defines product requirements and
+Accepted direction, including the shared story slice of 2026-10-06. `SPEC.md` defines product requirements and
 invariants; this document defines responsibilities, composition, and code
 boundaries; `PLAN.md` records delivery and verification. Future examples here
 describe intended contracts, not implemented features or authorization to build
@@ -12,8 +12,9 @@ The completed migration covers the existing WaniKani `sync` and offline `status`
 use cases, an application entry point, and interchangeable file and in-memory
 stores. Offline preparation adds explicit grammar-file input, on-demand knowledge
 policy, and cached lexical retrieval. G1 adds one explicit experimental provider
-request and independent bounded assessment; G2 adds focused offline selection
-and optional request preview, described below. Validated generation, grammar database persistence,
+request and independent bounded assessment. The shared story slice replaces
+G2 command composition with manual/WaniKani inventory projection, multiple
+targets, a brief and explicit embedding retrieval, described below. Validated generation, grammar database persistence,
 multi-source learner management, PostgreSQL, Cloud HTTP endpoints, and additional
 provider integrations follow later.
 Keep one Cargo package with a library and a thin CLI binary.
@@ -43,7 +44,7 @@ The central distinctions are:
 - **Source connection:** one learner's specific provider account or input. A
   provider kind is not a connection ID, and a provider account ID is not the
   future Yomibu learner ID.
-- **Prompt template:** stored reusable instructions. **Model request:** prepared
+- **Prompt template:** stored reusable instructions. **AI model request:** finalized
   input for one invocation, including the selected exercise data and options.
 
 Grammar entries keep provider-scoped IDs. Bunpro and Renshuu entries are not
@@ -165,7 +166,7 @@ The following is the target responsibility model, not G0's implementation list:
 
 ```text
 LearnerKnowledge + GenerationRequest
-                -> GenerationPlan
+                -> StoryGenerationPlan
                 -> CandidateGenerator
                 -> Candidate[]
                 -> Analysis + required checks
@@ -457,7 +458,7 @@ is needed. `EvaluationBindings::validate` exposes the same validation for prefli
 `evaluate` still validates analysis first, then bindings, preserving error precedence.
 
 The binary's `generate.rs` owns G1 input/top-level report DTOs, credential lookup
-and runtime startup. `candidate_report.rs` owns shared G1/G2 candidate DTOs, error
+and runtime startup. `candidate_report.rs` owns shared G1/current candidate DTOs, error
 conversion, and candidate/provenance rendering. `cli_support.rs` shares bounded
 file reads, check rendering and safe JSON encoding with `analyze.rs`. The latter retains its output and fully offline flow.
 Only the binary maps errors to exit codes. Reports borrow completed evidence and
@@ -478,76 +479,77 @@ remain unchanged. The later validated-generation architecture elsewhere in this
 document remains deferred. See [SPEC](SPEC.md#g1--experimental-single-sentence-candidates)
 for contracts and [G1 usage](docs/G1.md) for privacy, spending and the separate smoke.
 
-## G2 focused context composition
+## Shared story composition
 
-The [G2 contract](docs/G2.md) keeps source progress, full evaluator permissions,
-lexical focus and selected generation context separate. Comfortable reading and
-comprehension are later learner-feedback goals; a REPL is not this delivery.
-`App`, stores, source adapters, knowledge policy and preparation are unchanged.
-
-`generation_context::select_context` synchronously validates full inventory bounds
-and bindings, resolves a checked one-based `VocabularyEntryId`, examines the three
-private compiled situations, explains every decision and independently validates
-produced membership/focus/slots/order/size. `GenerationContext<'a>` holds selected
-references and borrows immutable original permissions/declarations. Conflicting
-same-spelling tuples never resolve through entry number or situation priority.
-
-`openai::prepare_focused_request` performs no I/O: it consumes that context and
-owns one bounded serialized body and hash in `FocusedRequest<'a>`, retaining full
-borrowed evaluation inputs. The compiled `g2-focused-sentence-v2` prompt makes
-selected entries the content-word boundary, with optional supports and grammar
-licensed separately through explicit bindings. This restriction does not replace
-the evaluator inputs. G1 keeps `g1-sentence-v1`. The developer-only
-[v1/v2 comparison recipe](docs/G2_COMPARISON.md) uses isolated pinned checkouts
-and existing CLI reports; no runtime prompt switch or benchmark abstraction exists.
-`Client::generate_focused_candidates` sends precisely
-those bytes through the same G1 transport/parser, adding local selection provenance.
-`GeneratedCandidates::assess_focused` in `generation.rs` calls the unchanged
-`assess` method for both original texts with real pinned Sudachi and complete input
-permissions, then calls the existing focus-occurrence and context-membership
-functions. Each `FocusedCandidateAssessment` contains the candidate assessment and
-both observations, including available analysis after an evaluation error. These
-are additive public APIs; lower-level assessment functions remain available. No new
-evaluator check or acceptance gate exists. Only the existing reading/stem helpers
-become crate-visible; judgments, spans and object safeguards are unchanged.
-`FocusOccurrenceReport` separates focus status from lexical observation
-completeness. Unrelated OOV/unsupported evidence makes completeness partial while
-preserving observed focus; focus-specific uncertainty and uncertain absence stay
-explicit. JSON and text expose both dimensions without feeding either back into
-evaluation or provider requests.
-
-Start at binary-private `focused::run_generation` in `src/focused.rs` to follow
-focused generation in execution order:
+Open `src/story_command.rs::run_generation` for the complete current execution
+sequence. `main.rs` dispatches to it, or separately to offline `run_preview` and
+explicit `run_prepare`. Source differences end at `load_inventory`:
 
 ```text
-read_permissions -> select_context -> prepare_focused_request
-  -> dictionary.load -> read_openai_key -> client/runtime construction
-  -> generate_focused_candidates -> assess_focused
-  -> GenerationReport::new -> write_generation -> execution status
+manual input / WaniKani cache + policy (+ optional manual supplement)
+  -> LearnerInventory + StoryRequest + separate StoryGenerationOptions
+  -> load_generation_inputs (validate inputs/options/selection bounds)
+  -> load_or_prepare_embeddings
+  -> story::select_vocabulary
+  -> story::build_ai_model_request (final plan + AiModelRequest)
+  -> StoryAssessmentInputs::new (full original inventory)
+  -> dictionary.load
+  -> request_candidates_from_openai (credential, concrete client and Tokio I/O runtime)
+  -> story::assess_candidates
+  -> story_command::report::write_generation
+  -> require_completed_assessments (execution exit status)
 ```
 
-`main.rs` dispatches preview separately to `focused::run_preview`, which performs
-only input, selection, request preparation and preview reporting. Preview accepts
-no dictionary or client constructor. Both command bodies show unavailable-context
-reporting explicitly; other preflight/provider failures return without a report.
-Candidate execution errors retain both original texts and partial evidence, and
-only produce a command error after the complete report has been written.
+`inventory.rs` validates the common data and projects the existing source policy.
+The source cache stays untouched. `story.rs` keeps the request, selection,
+prepared bytes and assessment stages adjacent. `retrieval.rs` owns encoding,
+identity/cache validation and cosine similarity; `ports::Embedder` is the only new
+port, implemented by explicit lexical-baseline and local/hosted HTTP adapters.
+There is no model/default selection service or generic pipeline.
+`StoryGenerationOptions` currently contains only `candidate_count`, default 2. It is
+passed separately to request preparation; brief/targets stay in `StoryRequest`.
+CLI `--candidates N` accepts positive integers with checked token-budget arithmetic,
+without an arbitrary 4/8 cap. Provider token limits and the 64 KiB response cap
+still apply. The prompt/schema/parser require the requested count, output tokens
+scale at 512 per candidate, and current results/assessments use vectors/slices.
+G1/G2 retain their fixed arrays and exact fixtures through the common bounded
+transport. No repair-round configuration exists until repair is implemented.
 
-`focused.rs` owns bounded file reads, input storage, credential lookup, runtime
-and preflight order. `focused/report.rs` converts results and renders focused
-JSON/text without performing assessment. `candidate_report.rs` contains the shared
-G1/G2 candidate reporting seam. Selection remains in `generation_context.rs`,
-request preparation/transport in `adapters/openai.rs`, and assessment/observations
-in `generation.rs`. The small duplicated preparation sequence keeps each command
-readable; the existing lazy client constructor is only a concrete adapter-test seam.
-Generation has no import, retained session or interactive confirmation and ignores
-`--data-dir`. No new dependency, trait, catalogue loader, ranking/retrieval framework,
-automatic data bridge or source access is introduced.
+`StoryGenerationPlan` borrows selected inventory entries. `build_ai_model_request`
+returns the final bounded plan alongside `AiModelRequest`, which owns immutable
+outbound bytes/hash and the options encoded in them. It has no inventory,
+assessment state or lifetime parameter. `StoryCandidates` owns returned texts and
+provenance independently of the request.
 
-Frozen A1 records remain untouched: no-go, 24/24 outcomes, 120/120 judgments,
-11/12 exact negative reason/span matches. Observed morphological focus does not
-validate contextual reading/sense. Intended-use grounding and all later validated
-practice requirements remain deferred, including ambiguous accepted targets.
+`StoryAssessmentInputs` separately borrows the complete inventory, original story
+request and final plan, and owns the small structural-check projection. Callers
+pass it explicitly to `assess_candidates`; the CLI constructs it from the same
+inputs before dictionary/credential initialization. All original texts and every
+available assessment survive candidate errors. No full-inventory clone is needed.
+The library has no credential lookup, runtime creation or terminal output.
+
+Selection is cached cosine ranking with explicit targets first. Preparation may
+remove lowest-ranked non-target supports to fit the unchanged byte limit, then
+freezes the exact body. Provider transport and existing G1 settings remain in
+`adapters/openai.rs`. The new `story-inventory-v1` format intentionally changes
+prompt bytes/hash; old G1/G2 fixtures remain untouched. `evaluation.rs` reuses the
+bounded structural checks, adds a conservative full-inventory lexical check and
+bounded grammar observations; it does not reinterpret source alternatives as
+verified reading/sense pairs. The historical object safeguard remains intact.
+
+`story_command/report.rs` converts finished plans/assessments into the new
+JSON/text forms, reusing `candidate_report.rs` for G1 and current candidate
+presentation. Report conversion performs no assessment. Preview requires cached
+vectors and performs no provider/dictionary/runtime initialization. Generation
+initializes its dictionary/credentials only after its final request is prepared.
+Embedding preparation is separately explicit and may need its own credentials.
+
+See [STORY GENERATION](docs/STORY_GENERATION.md) for contracts and [RETRIEVAL](docs/RETRIEVAL.md)
+for backend configuration, cache boundaries and the incomplete dense comparison.
+G2's old command composition was removed. Its lower-level `generation_context`,
+`prepare_focused_request` and focused observation APIs remain as historical
+fixture/experiment support, documented in [G2](docs/G2.md). They are not a second
+source-specific story path. A1's no-go and frozen records remain unchanged.
 
 ## Stores, source data, and consistency
 
@@ -668,9 +670,12 @@ src/
   main.rs                    CLI composition and rendering
   analyze.rs                 binary-private analysis input and rendering
   generate.rs                binary-private G1 input, execution and top-level report
-  focused.rs                 binary-private run_generation/run_preview sequences
-  focused/report.rs          focused JSON/text conversion and rendering
-  candidate_report.rs        shared G1/G2 candidate DTOs and rendering
+  story_command.rs           current run_generation/run_preview/run_prepare sequences
+  story_command/report.rs    current story JSON/text conversion and rendering
+  inventory.rs               common manual/WaniKani inventory and validation
+  story.rs                   request, selection, AI payload and assessment stages
+  retrieval.rs               embedding inputs, identity/cache and cosine ranking
+  candidate_report.rs        shared G1/current candidate DTOs and rendering
   cli_support.rs             shared bounded reads and terminal presentation
   app.rs                     sync/status orchestration and reports
   domain.rs                  retained source data and invariants
@@ -683,11 +688,12 @@ src/
   evaluation.rs              synchronous bounded checks and explicit bindings
   generation.rs              experimental pair, assessment and focused observations
   generation_context.rs      full-input validation and deterministic focused selection
-  ports.rs                   source and atomic storage capabilities
+  ports.rs                   source, atomic storage and explicit embedding capabilities
   adapters/
     mod.rs
     grammar_file.rs           explicit read-only versioned JSON input
     openai.rs                 one bounded Responses attempt and private DTOs
+    embeddings.rs             explicit local/hosted encoders and lexical baseline
     openai_tests.rs           real socket deadline/body-bound tests
     sudachi.rs                explicit checksum-pinned analyzer adapter
     sudachi.json              embedded analyzer configuration
