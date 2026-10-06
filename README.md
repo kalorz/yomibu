@@ -303,8 +303,12 @@ The repository is a Cargo workspace. `crates/yomibu` contains the reusable
 library; `crates/yomibu-cli` contains the executable named `yomibu`. Start at
 [`plan_generation` and `generate_story`](crates/yomibu/src/story.rs) for the shared
 story sequence. The CLI calls these functions and owns files, credentials,
-runtime, reports and exit status; other callers reuse the same sequence.
-Root CLI/example commands above still work. Use `cargo test --locked -p yomibu`
+runtime, terminal rendering and exit status; other callers reuse the same sequence
+and structured `reports` projections. CLI `main.rs` handles parsing and exit status,
+`args.rs` defines flags, `commands/` configures concrete resources, and `output/`
+formats terminal output. Reusable cache preparation and explicit-path file adapters
+are in the library.
+Root CLI commands above still work. Use `cargo test --locked -p yomibu`
 for library tests or `cargo test --locked -p yomibu-cli` for CLI tests; the checks
 below cover both packages. Shared fixtures remain under `tests/fixtures` and the
 pinned dictionary under `target/a1/current`. An API crate will be added when its
@@ -318,6 +322,7 @@ substitute it automatically. Subsequent analysis and tests use the local file.
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all
+git diff --check
 ```
 
 The [CI workflow](.github/workflows/ci.yml) runs those gates on `ubuntu-latest` and

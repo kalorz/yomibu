@@ -1,45 +1,36 @@
-//! Shared executable-only bounded input and terminal-safe presentation.
-use anyhow::{Context, Result, bail};
+//! Terminal-safe rendering; shared serializable report data belongs to the library.
+use anyhow::{Result, anyhow};
+use clap::error::{ContextKind, ContextValue};
 use serde::Serialize;
-use std::{
-    io::{Read, Write},
-    path::Path,
-};
+use std::io::Write;
 use yomibu::evaluation::{CheckKind, CheckOutcome, CheckState, Evaluation, UnassessedAspect};
 
-pub(super) fn read_input(path: &Path, kind: &str) -> Result<Vec<u8>> {
-    read_input_bounded(path, kind, 65536, "64 KiB (65536 bytes)")
-}
+pub(crate) mod analysis;
+pub(crate) mod candidate;
+pub(crate) mod dictionary;
+pub(crate) mod status;
+pub(crate) mod story;
 
-pub(super) fn read_input_bounded(
-    path: &Path,
-    kind: &str,
-    limit: usize,
-    limit_label: &str,
-) -> Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .with_context(|| {
-            format!(
-                "Cannot open the explicitly supplied {} input",
-                kind.to_ascii_lowercase()
-            )
-        })?
-        .take(limit as u64 + 1)
-        .read_to_end(&mut bytes)
-        .with_context(|| {
-            format!(
-                "Cannot read the explicitly supplied {} input",
-                kind.to_ascii_lowercase()
-            )
-        })?;
-    if bytes.len() > limit {
-        bail!("{kind} input exceeds {limit_label}.");
+pub(crate) fn escape_argument_error(mut error: clap::Error) -> clap::Error {
+    // Escape supplied values before Clap adds its diagnostic layout.
+    for kind in [
+        ContextKind::InvalidArg,
+        ContextKind::InvalidValue,
+        ContextKind::InvalidSubcommand,
+    ] {
+        if let Some(ContextValue::String(value)) = error.get(kind) {
+            let escaped = value.escape_debug().to_string();
+            error.insert(kind, ContextValue::String(escaped));
+        }
     }
-    Ok(bytes)
+    error
 }
 
-pub(super) fn write_json(out: &mut impl Write, report: &impl Serialize) -> Result<()> {
+pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
+    anyhow!("{}", format!("{error:#}").escape_debug())
+}
+
+pub(crate) fn write_json(out: &mut impl Write, report: &impl Serialize) -> Result<()> {
     let json = serde_json::to_string_pretty(report)?;
     let mut start = 0;
     // Serde escapes C0 controls. DEL and nonprinting Unicode also need escaping
@@ -60,7 +51,7 @@ pub(super) fn write_json(out: &mut impl Write, report: &impl Serialize) -> Resul
     Ok(())
 }
 
-pub(super) fn write_checks(
+pub(crate) fn write_checks(
     out: &mut impl Write,
     original: &str,
     evaluation: &Evaluation,
@@ -97,7 +88,7 @@ pub(super) fn write_checks(
     Ok(())
 }
 
-pub(super) fn state_label(state: CheckState) -> &'static str {
+pub(crate) fn state_label(state: CheckState) -> &'static str {
     match state {
         CheckState::Completed(CheckOutcome::Pass) => "Pass",
         CheckState::Completed(CheckOutcome::Fail) => "Fail",

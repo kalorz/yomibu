@@ -387,7 +387,7 @@ Rust API changes: the former subset-only `StoryGenerationPlan` is renamed
 Ordinary analysis still borrows; returned story analyses own a bounded text copy
 without changing original spans or serialized reports. No wire-format change occurs.
 
-CLI `generate_story_command` loads inputs/embeddings, calls library planning,
+CLI `commands::story::generate` loads inputs/embeddings, calls library planning,
 initializes dictionary/credentials/runtime, awaits library generation, then renders
 and determines exit status. Library orchestration owns no environment lookup,
 file selection, runtime or terminal. An API caller uses the same entry pair.
@@ -396,6 +396,17 @@ client or runtime and no cache refresh. Missing/stale embeddings fail explicitly
 `prepare-retrieval` may prepare vectors; generation may do so only with explicit
 backend configuration. Hosted work additionally requires `--allow-embedding-call`.
 `--allow-model-call` independently authorizes the generation attempt.
+
+Shared serializable report projections live in `reports::{story,candidate,analysis}`.
+Candidate execution-error classification and NotRun check data belong to the
+library; terminal-safe JSON/text rendering belongs to CLI `output/`. Report
+construction does not rerun analysis or assessment and leaves serialized keys,
+original texts/spans, provider request bytes and hashes unchanged.
+`adapters::input_file::read_bounded` takes an explicit path and caller-supplied
+limit; it has typed errors and performs no environment lookup or writes.
+CLI `args.rs` defines arguments, `commands/` selects resources and invokes library
+use cases, and `main.rs` handles parsing/exit status. No generation app wrapper,
+service hierarchy, API placeholder or new dependency is introduced.
 
 Reusable retrieval preparation is `retrieval::prepare_cache`: reuse compatible
 vectors, encode missing inputs in groups of 32 and validate the complete result.

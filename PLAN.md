@@ -5,6 +5,45 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Thin CLI, slice 3 — shared reports and executable layout — 2026-10-06
+
+Completed all three approved slices without an intermediate approval pause.
+`main.rs` now parses and chooses exit status; `args.rs` defines Clap inputs;
+`commands/` configures paths/adapters/credentials/runtime and calls library use
+cases; `output/` owns terminal escaping and layout. Story handlers still call
+adjacent `story::plan_generation` and `story::generate_story`. No generation app
+wrapper, new trait, dependency, provider behavior or API placeholder was added.
+
+Moved existing wire projections and candidate-error/NotRun classification to
+`reports::{story,candidate,analysis}`, with the existing report-boundary regression
+migrated to the library. Added a concrete bounded explicit-file input adapter with
+typed errors. RED confirmed its absent API; GREEN covers exact UTF-8 bytes, the
+read limit, maximum limit arithmetic and no writes/directory creation. JSON
+formats and process environment lookup remain CLI choices. Historical grammar
+input is archived byte-for-byte under `docs/history/commands/`; current inventory
+fixtures and historical A1/G1/G2 evidence remain unchanged.
+
+The first complete test run exposed parser-safety assertions still using retired
+commands. Migrated them to active candidate-count/knowledge-policy flags, confirmed
+the focused test passes, then reran the complete suite. Full verification: 180
+Rust tests/doctests passed, none skipped, using the real pinned dictionary; all nine
+Python dictionary-setup tests passed. `cargo fmt --check`, strict locked Clippy on
+all targets/features, `cargo test --locked --all`, `git diff --check` and strict
+Rustdoc passed. Dictionary setup verified the local checksum-pinned bundle;
+offline lexical retrieval/story-preview demonstrations passed. No live model calls.
+
+Explicit simplification review covered ownership, naming, API size, duplication
+and navigation. Reused one cache-file adapter instance, removed the unnecessary
+optional prepared-cache conversion and its impossible error path, and kept
+concrete stage calls. Shared reports only project results; neither rendering nor
+conversion repeats assessment. Remaining command logic selects host resources or
+formats input/output, and source eligibility, request preparation, retrieval
+batching and assessment are library responsibilities. No further wrapper or
+service extraction was justified. Exact current story request fixtures, hashes,
+prompt/provider settings, evaluation source, original spans and lockfile are
+unchanged. Documentation is aligned with the final layout. Review/merge status is
+recorded by the pull request rather than an unverified future claim here.
+
 ## Thin CLI, slice 2 — retrieval and file cache — 2026-10-06
 
 Moved missing-vector reuse, batching/merging and complete validation into

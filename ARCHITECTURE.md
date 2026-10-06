@@ -10,7 +10,7 @@ every adapter.
 
 The completed migration covers the existing WaniKani `sync` and offline `status`
 use cases, an application entry point, and interchangeable file and in-memory
-stores. Offline preparation adds explicit grammar-file input, on-demand knowledge
+stores. Story preparation uses explicit inventory/request input, on-demand knowledge
 policy, and cached lexical retrieval. The single current story path makes one
 explicit experimental provider request with independent bounded assessment,
 manual/WaniKani inventory projection, multiple
@@ -104,8 +104,8 @@ resources and execute work.
 For the current CLI:
 
 1. Parse the command. Resolve a data directory for sync/status; only `sync`
-   resolves the WaniKani token. Preview parses structured entries and directly
-   calls the synchronous library operation described below. Analyze validates
+   resolves the WaniKani token. Story preview loads explicit inventory/request/cache files and directly
+   calls synchronous library planning without initializing execution resources. Analyze validates
    explicit input, then selects an external dictionary or a managed installation.
    Only managed selection resolves its dictionary directory's HOME default.
 2. For sync/status, construct `FileLearningStore` for that directory and `App`.
@@ -349,8 +349,8 @@ embedded configuration/character definitions for owned and mapped bytes. Its
 `unsafe load_managed` API documents installation verification and lifetime-long
 file stability as caller obligations; receipts/checks do not prove immutability.
 
-Binary-private `dictionary::DictionaryArgs` shares resource selection among
-analyze and both generation commands after their existing preflight. Environment
+Binary-private `args::DictionaryArgs`, implemented in `commands/dictionary.rs`,
+shares resource selection between analyze and generation after their preflight. Environment
 resolution remains executable-only. One analyzer is reused for the command;
 analysis/evaluation and candidate assessment have no storage-policy branches.
 Both policies can serve future sessions/servers without a new analyzer trait.
@@ -364,8 +364,8 @@ from pre-publication failure. See [dictionary safety](docs/DICTIONARY.md).
 ## Shared story composition
 
 Open `crates/yomibu/src/story.rs::plan_generation` and the adjacent `generate_story`
-for the shared sequence. The CLI dispatches to `generate_story_command`, separate
-from offline `run_preview` and explicit `run_prepare`. Source differences end at
+for the shared sequence. The CLI dispatches to `commands::story::generate`, separate
+from offline `commands::story::preview` and explicit `commands::retrieval::prepare`. Source differences end at
 `load_inventory`; an API supplies the same inventory/request/cache and resources.
 
 ```text
@@ -383,7 +383,7 @@ manual input / WaniKani cache + policy (+ optional manual supplement)
          client.generate_story_candidates (one attempt; unchanged bytes)
          assess_candidates (every original text)
          StoryGenerationResult (owned originals + partial assessments)
-  -> CLI report::write_generation
+  -> CLI output::story::write_generation
   -> CLI require_successful_execution (exit status)
 ```
 
@@ -433,8 +433,12 @@ verified reading/sense pairs. The grammar observer and structural checker share
 the same direct-object evidence predicate, while the historical object-combination
 safeguard remains intact.
 
-`story_command/report.rs` converts finished plans/assessments into the new
-JSON/text forms, using `candidate_report.rs` for candidate presentation. Report conversion performs no assessment. Preview requires cached
+`reports/story.rs`, `reports/candidate.rs` and `reports/analysis.rs` expose shared
+serializable projections of completed results. Candidate error classification and
+NotRun checks live here; report conversion performs no assessment. CLI `output/`
+adds terminal escaping and text layout without owning the wire schema.
+`adapters/input_file.rs` performs bounded reads of explicitly chosen paths; the
+CLI selects the input format and decodes JSON. Preview requires cached
 vectors and performs no provider/dictionary/runtime initialization. Generation
 initializes its dictionary/credentials only after its final request is prepared.
 Embedding preparation is separately explicit and may need its own credentials.
@@ -573,6 +577,7 @@ crates/
       story.rs               shared planning/execution and adjacent concrete stages
       retrieval.rs           embedding inputs/cache and cosine ranking
       generation.rs          candidate assessment/errors and provider metadata
+      reports/               serializable story/candidate/analysis projections
       app.rs                 sync/status orchestration
       domain.rs              source data and invariants
       summary.rs             source summaries
@@ -590,20 +595,32 @@ crates/
         openai.rs            one bounded Responses attempt
         openai_tests.rs      socket deadline/body-bound tests
         embeddings.rs        local/hosted encoders and lexical baseline
+        embedding_cache_file.rs bounded reads and atomic cache publication
+        input_file.rs        bounded explicit-path input reads
         sources/wanikani/    HTTP source, DTOs and boundary tests
         stores/              file and in-memory storage adapters
     tests/                   library use-case and adapter contracts
   yomibu-cli/
     Cargo.toml               depends on yomibu; binary name remains yomibu
     src/
-      main.rs                arguments, dispatch and executable startup
-      story_command.rs       generation resources, preview and retrieval commands
-      story_command/report.rs  story JSON/text conversion and rendering
-      story_tests.rs         executable/report unit tests
-      analyze.rs             supplied analysis input and rendering
-      dictionary.rs          dictionary CLI arguments and execution
-      candidate_report.rs    candidate presentation
-      cli_support.rs         bounded input reads and terminal presentation
+      main.rs                parse, startup and exit status
+      args.rs                Clap arguments only
+      commands/
+        mod.rs               command dispatch
+        story.rs             generation/preview files and execution resources
+        retrieval.rs         encoder/credentials/runtime and cache adapter calls
+        input.rs             input formats, inventory source selection and secrets
+        analyze.rs           explicit analysis input and dictionary composition
+        dictionary.rs        dictionary selection/import/verification
+        sync.rs              unchanged sync/status environment and resources
+      output/
+        mod.rs               safe JSON, diagnostics and shared check rendering
+        story.rs             story/preview terminal layout
+        candidate.rs         candidate/provenance terminal layout
+        analysis.rs          analysis terminal layout
+        dictionary.rs        dictionary loading provenance layout
+        status.rs            source summary terminal layout
+      story_tests.rs         executable/report integration test harness
     tests/                   CLI and combined library/executable contracts
 tests/fixtures/              shared immutable synthetic inputs and snapshots
 scripts/                     dictionary setup and explicit retrieval probe

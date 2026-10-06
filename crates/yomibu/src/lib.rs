@@ -51,6 +51,12 @@
 //! guard alive across retrieval and replacement. Root `cache` and `wanikani`
 //! module paths re-export the adapters for existing callers.
 //!
+//! [`retrieval::prepare_cache`] reuses compatible vectors and prepares missing
+//! inputs through a caller-selected encoder. [`adapters::embedding_cache_file`]
+//! and [`adapters::input_file`] accept explicit paths without environment lookup.
+//! [`reports`] exposes serializable story/candidate/analysis projections;
+//! terminal formatting and escaping remain the executable's responsibility.
+//!
 //! [`cache::load`] and [`domain::WaniKaniSyncData::summarize`] support offline inspection.
 //! Public domain fields allow callers to construct data; loading, replacement,
 //! summarization, knowledge derivation, and story planning each validate it. This
@@ -69,6 +75,7 @@ pub mod grammar;
 pub mod inventory;
 pub mod knowledge;
 pub mod ports;
+pub mod reports;
 pub mod retrieval;
 pub mod story;
 pub mod summary;

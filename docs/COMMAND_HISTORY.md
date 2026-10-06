@@ -18,7 +18,9 @@ source-inspection slices, independent of current story generation.
 
 The last complete implementation is pinned at
 [`4df4e0c2bf76cd88938488a7ea8f12a48eec89b8`](https://github.com/kalorz/yomibu/tree/4df4e0c2bf76cd88938488a7ea8f12a48eec89b8).
-Use that checkout for historical commands/examples. No historical accuracy or
+The synthetic grammar input is archived byte-for-byte at
+[`history/commands/grammar.json`](history/commands/grammar.json).
+Use the pinned checkout for historical commands/examples. No historical accuracy or
 exercise-acceptance claim is added. The original contract below is historical.
 
 ### Manual candidate preview (implemented G0)
@@ -168,9 +170,10 @@ borrowed material, assignment, and review-statistic evidence.
 ID, synchronization interval, grammar assertions, and target/source associations.
 Exclusion precedence is unavailable content, hidden evidence, no assignment,
 then the selected missing lifecycle timestamp. Other evidence remains available.
-See README.md and `crates/yomibu/examples/prepare.rs` for CLI and direct-library usage.
+See the [historical README](https://github.com/kalorz/yomibu/blob/4df4e0c2bf76cd88938488a7ea8f12a48eec89b8/README.md)
+and [prepare example](https://github.com/kalorz/yomibu/blob/4df4e0c2bf76cd88938488a7ea8f12a48eec89b8/crates/yomibu/examples/prepare.rs)
+for the retired CLI and direct-library usage.
 
 Implementation and real-learner acceptance of this preparation slice are complete
 as of 2026-10-03; `PLAN.md` records the user's completed acceptance evidence.
 Eligibility remains distinct from mastery, and linguistic validity is unassessed.
-
