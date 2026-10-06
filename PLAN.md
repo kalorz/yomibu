@@ -5,6 +5,91 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Thin CLI review follow-up — 2026-10-06
+
+Greptile initially scored PR #19 3/5 and raised two valid public-boundary findings.
+Confirmed RED separately: invalid cache save returned success, and a later
+oversized input caused one HTTP call before rejection. GREEN validates cache
+contents before temporary-file creation/replacement and validates all input sizes
+before encoder work. Regressions cover unsupported versions, wrong dimensions,
+unchanged usable bytes, no directory creation, zero HTTP calls for an oversized
+33rd UTF-8 input, and accepted exact-limit input in ordinary [32, 1] batches.
+Simplification review extracted one private size check shared by story embedding
+input construction and public cache preparation. No new error layer or service
+was warranted. Existing valid CLI behavior, size limits and request bytes remain
+unchanged. Required checks and strict Rustdoc passed again after the fixes (182 Rust
+tests/doctests, none skipped, with the real pinned dictionary). Current PR records
+the resulting CI/re-review and merge status.
+
+## Thin CLI, slice 3 — shared reports and executable layout — 2026-10-06
+
+Completed all three approved slices without an intermediate approval pause.
+`main.rs` now parses and chooses exit status; `args.rs` defines Clap inputs;
+`commands/` configures paths/adapters/credentials/runtime and calls library use
+cases; `output/` owns terminal escaping and layout. Story handlers still call
+adjacent `story::plan_generation` and `story::generate_story`. No generation app
+wrapper, new trait, dependency, provider behavior or API placeholder was added.
+
+Moved existing wire projections and candidate-error/NotRun classification to
+`reports::{story,candidate,analysis}`, with the existing report-boundary regression
+migrated to the library. Added a concrete bounded explicit-file input adapter with
+typed errors. RED confirmed its absent API; GREEN covers exact UTF-8 bytes, the
+read limit, maximum limit arithmetic and no writes/directory creation. JSON
+formats and process environment lookup remain CLI choices. Historical grammar
+input is archived byte-for-byte under `docs/history/commands/`; current inventory
+fixtures and historical A1/G1/G2 evidence remain unchanged.
+
+The first complete test run exposed parser-safety assertions still using retired
+commands. Migrated them to active candidate-count/knowledge-policy flags, confirmed
+the focused test passes, then reran the complete suite. Full verification: 180
+Rust tests/doctests passed, none skipped, using the real pinned dictionary; all nine
+Python dictionary-setup tests passed. `cargo fmt --check`, strict locked Clippy on
+all targets/features, `cargo test --locked --all`, `git diff --check` and strict
+Rustdoc passed. Dictionary setup verified the local checksum-pinned bundle;
+offline lexical retrieval/story-preview demonstrations passed. No live model calls.
+
+Explicit simplification review covered ownership, naming, API size, duplication
+and navigation. Reused one cache-file adapter instance, removed the unnecessary
+optional prepared-cache conversion and its impossible error path, and kept
+concrete stage calls. Shared reports only project results; neither rendering nor
+conversion repeats assessment. Remaining command logic selects host resources or
+formats input/output, and source eligibility, request preparation, retrieval
+batching and assessment are library responsibilities. No further wrapper or
+service extraction was justified. Exact current story request fixtures, hashes,
+prompt/provider settings, evaluation source, original spans and lockfile are
+unchanged. Documentation is aligned with the final layout. Review/merge status is
+recorded by the pull request rather than an unverified future claim here.
+
+## Thin CLI, slice 2 — retrieval and file cache — 2026-10-06
+
+Moved missing-vector reuse, batching/merging and complete validation into
+`retrieval::prepare_cache`, returning typed `EmbeddingError`. Moved bounded file
+reads and synchronized atomic publication into `EmbeddingCacheFile`, including
+explicit before-replacement and uncertain-durability outcomes. CLI selects paths,
+encoder/credentials/runtime and calls these boundaries. No dependency or behavior
+change is intended; the existing 32-input batching, cache format and byte limits
+are preserved. RED confirmed the missing library APIs; GREEN: four boundary tests,
+the migrated oversized-publication regression and all ten story CLI tests pass.
+Tests cover complete-cache reuse, model changes, later-batch failure, unchanged
+previous data, malformed files and absent parent directories. Simplification review
+kept one preparation function and one concrete file adapter without a new store
+trait or application wrapper. Documentation records the reusable call path.
+
+## Thin CLI, slice 1 — prototype retirement — 2026-10-06
+
+Retired old `preview`/`prepare`, their examples, library APIs, standalone grammar-file
+adapter and obsolete first-N/source-inspection tests. Kept source eligibility and
+migrated its three evidence/policy tests to `tests/knowledge.rs`. `derive(source)`
+and `LearnerKnowledge` now have no grammar dependency; inventory calls the same
+rules directly. RED confirmed old preview exit 0 rather than the intended parser
+exit 2, and the new one-argument eligibility API initially failed to compile.
+Historical purposes/contracts/code pin are in COMMAND_HISTORY; current story,
+analysis, sync/status and source evidence contracts remain unchanged. CI demos now
+exercise offline story retrieval and preview rather than retired commands.
+GREEN: knowledge/inventory/grammar and CLI suites pass (18 tests). Simplification
+review removed the unused grammar-file adapter and avoided replacing retired APIs
+with compatibility wrappers; no full-source copies or changed eligibility rules.
+
 ## Shared library story workflow and A1 runner retirement — 2026-10-06
 
 The approved follow-up moves reusable orchestration out of the CLI. Read adjacent

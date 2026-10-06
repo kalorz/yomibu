@@ -1,6 +1,7 @@
 //! Explicit embedding inputs and a model-specific local vector cache.
 use crate::{
     inventory::LearnerInventory,
+    ports::Embedder,
     story::{StoryError, StoryRequest},
 };
 use serde::{Deserialize, Serialize};
@@ -190,14 +191,61 @@ pub fn prepare_embedding_inputs(
         purpose: EmbeddingPurpose::Query,
         text: request.brief.clone(),
     });
+    validate_embedding_input_sizes(&inputs)?;
+    Ok(inputs)
+}
+
+fn validate_embedding_input_sizes(inputs: &[EmbeddingInput]) -> Result<(), EmbeddingError> {
     if inputs
         .iter()
         .any(|input| input.text.len() > MAX_EMBEDDING_INPUT_BYTES)
     {
         return Err(EmbeddingError::Invalid(
             "combined embedding document exceeds the 32768-byte input limit",
-        )
-        .into());
+        ));
     }
-    Ok(inputs)
+    Ok(())
+}
+
+/// Reuse compatible cached vectors and encode missing inputs in bounded batches.
+/// All input sizes are checked before encoder work. Failure returns no partial
+/// cache; publication remains the caller's explicit step.
+pub async fn prepare_cache(
+    embedder: &impl Embedder,
+    inputs: &[EmbeddingInput],
+    previous: Option<&EmbeddingCache>,
+) -> Result<EmbeddingCache, EmbeddingError> {
+    validate_embedding_input_sizes(inputs)?;
+    let model = embedder.model_identity();
+    let previous = previous.filter(|c| &c.model == model);
+    let mut entries: std::collections::BTreeMap<String, Vec<f32>> = previous
+        .map(|c| {
+            c.entries
+                .iter()
+                .map(|e| (e.key.clone(), e.vector.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let missing: Vec<_> = inputs
+        .iter()
+        .filter(|i| !entries.contains_key(&i.key()))
+        .cloned()
+        .collect();
+    for chunk in missing.chunks(32) {
+        let vectors = embedder.embed(chunk).await?;
+        let batch = EmbeddingCache::from_vectors(model.clone(), chunk, vectors)?;
+        for entry in batch.entries {
+            entries.insert(entry.key, entry.vector);
+        }
+    }
+    let result = EmbeddingCache {
+        version: 1,
+        model: model.clone(),
+        entries: entries
+            .into_iter()
+            .map(|(key, vector)| CachedVector { key, vector })
+            .collect(),
+    };
+    result.vectors(model, inputs)?;
+    Ok(result)
 }

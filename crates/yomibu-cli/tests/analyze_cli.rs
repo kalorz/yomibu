@@ -349,11 +349,11 @@ fn argument_errors_escape_invalid_subcommands_and_values_without_flattening_help
     for (args, message) in [
         (vec![UNTRUSTED], "unrecognized subcommand"),
         (
-            vec!["preview", "--take", UNTRUSTED],
+            vec!["preview-story", "--candidates", UNTRUSTED],
             "invalid digit found in string",
         ),
         (
-            vec!["prepare", "--knowledge-policy", UNTRUSTED],
+            vec!["prepare-retrieval", "--knowledge-policy", UNTRUSTED],
             "\n  [possible values: lesson-started, recorded-pass]",
         ),
     ] {

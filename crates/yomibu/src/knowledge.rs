@@ -1,10 +1,7 @@
 //! Revisable, deterministic eligibility derived from preserved learner evidence.
 
-use crate::{
-    domain::{
-        Assignment, ReviewStatistic, Subject, SubjectKind, ValidationError, WaniKaniSyncData,
-    },
-    grammar::{GrammarDeclaration, GrammarDeclarations},
+use crate::domain::{
+    Assignment, ReviewStatistic, Subject, SubjectKind, ValidationError, WaniKaniSyncData,
 };
 use chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
@@ -57,8 +54,6 @@ pub struct LearnerKnowledge<'a> {
     pub sync_completed_at: DateTime<Utc>,
     /// Ordered by source subject ID, independently of collection order.
     pub materials: Vec<MaterialKnowledge<'a>>,
-    /// Self-declared familiarity, without a grammar recognizer or equivalence map.
-    pub grammar: &'a [GrammarDeclaration],
 }
 
 impl LearnerKnowledgePolicy {
@@ -70,7 +65,6 @@ impl LearnerKnowledgePolicy {
     pub fn derive<'a>(
         &self,
         source: &'a WaniKaniSyncData,
-        grammar: &'a GrammarDeclarations,
     ) -> Result<LearnerKnowledge<'a>, ValidationError> {
         use ExclusionReason::{
             ContentUnavailable, Hidden, NoAssignment, NoRecordedLessonStart, NoRecordedPass,
@@ -144,7 +138,6 @@ impl LearnerKnowledgePolicy {
             sync_started_at: source.sync_started_at,
             sync_completed_at: source.sync_completed_at,
             materials,
-            grammar: grammar.entries(),
         })
     }
 }

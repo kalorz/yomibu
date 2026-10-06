@@ -85,106 +85,17 @@ update imports and matches. The schema-1 JSON key remains `snapshot`, so existin
 cache files need no migration. This data covers one account's synchronization
 interval, not the entire catalog or an instantaneous remote state.
 
-## Manual preview and offline preparation
+## Learner eligibility and retired commands
 
-G0 selects supplied entries without an account, cache, or runtime:
+`LearnerKnowledgePolicy::derive(&source)` explains which saved WaniKani materials
+are eligible under the explicit `lesson-started` or `recorded-pass` rule. It keeps
+source evidence and does not imply mastery or require grammar declarations.
+Story inventory projection uses this same policy.
 
-```sh
-cargo run --locked -- preview --word '猫:ねこ:cat' --word '犬:いぬ:dog' \
-  --grammar 'です' --take 2
-cargo run --locked --example preview
-```
-
-Preparation uses preserved source progress and explicit practice intentions. Save
-a grammar file such as `grammar.json`:
-
-```json
-{"version":1,"declarations":["です","は as a topic marker"]}
-```
-
-These descriptions assert familiarity; they do not prove grammar usage or mastery.
-Descriptions and duplicates are preserved. Each gets a one-based ID scoped to
-this loaded file, with no cross-edit identity or write-back. Empty declarations
-are allowed; blank strings and unsupported versions are errors.
-
-With your existing cache, choose a word, an accepted reading, and an accepted
-gloss exactly as recorded there:
-
-```sh
-cargo run --locked -- prepare --grammar-file grammar.json \
-  --target '一つ:ひとつ:one thing'
-# Explicit alternative policy:
-cargo run --locked -- prepare --grammar-file grammar.json \
-  --knowledge-policy recorded-pass --target '一つ:ひとつ:one thing'
-```
-
-The example tuple works only if that exact use is present and eligible in your
-cache. `--target` is repeatable. The CLI splits at the first two ASCII colons,
-trims field boundaries, and preserves further colons in the sense. The default
-`lesson-started` policy requires a recorded assignment `started_at`; the
-alternative requires `passed_at`. Both exclude unavailable content, any retained
-hidden flag, and material without an assignment. SRS stage, accuracy, and elapsed
-time are not cutoffs. A target request does not declare knowledge.
-
-The report includes policy decisions, source IDs and timestamps, lexical fields,
-manual assertions, and all source-attached examples. Each decision includes
-content availability, hidden evidence from all three source records, and recorded
-lesson-start/pass timestamps; missing records are explicit. Exact reading/gloss field
-matches do not establish their linguistic association or the suitability of an
-example. Grammar, reading/sense association, example suitability, and linguistic
-correctness remain explicitly unassessed. Absent, unsupported, ambiguous, or
-ineligible targets fail without a partial report. Kana-only records lack readings
-and cannot satisfy this slice's exact-reading request.
-
-No token, network, runtime, implicit synchronization, or writes are used.
-`--data-dir` selects the existing cache directory; it defaults to
-`$HOME/.yomibu`. Preview ignores that option. Preparation leaves schema 1 intact
-and never saves derived knowledge.
-
-Run the complete synthetic demonstration without an account:
-
-```sh
-yomibu_demo_dir=$(mktemp -d)
-cp tests/fixtures/preparation.json "$yomibu_demo_dir/wanikani.json"
-cp tests/fixtures/grammar.json "$yomibu_demo_dir/grammar.json"
-cargo run --locked -- prepare --data-dir "$yomibu_demo_dir" \
-  --grammar-file "$yomibu_demo_dir/grammar.json" --target '一つ:ひとつ:one thing'
-cargo run --locked --example prepare
-```
-
-The fixture is synthetic, not a learner export. See
-[its provenance](tests/fixtures/README.md). The result selects subject 2,
-assignment 102 and its attached example; 2 subjects are eligible and 3 excluded.
-
-Direct library usage is synchronous and accepts structured values:
-
-```rust,ignore
-use yomibu::{
-    adapters::{grammar_file, stores::FileLearningStore},
-    knowledge::{LearnerKnowledgePolicy, WaniKaniKnowledgeRule},
-    ports::LearningStore,
-    preparation::{PracticeTarget, prepare_context},
-};
-
-let source = FileLearningStore::new(data_dir).load()?;
-let grammar = grammar_file::load(grammar_path)?;
-let policy = LearnerKnowledgePolicy {
-    wanikani: WaniKaniKnowledgeRule::LessonStarted,
-};
-let targets = [PracticeTarget {
-    word: "一つ".into(),
-    intended_reading: "ひとつ".into(),
-    intended_sense: "one thing".into(),
-}];
-let context = prepare_context(&source, &grammar, &policy, &targets)?;
-assert_eq!(context.targets[0].target, &targets[0]);
-```
-
-A caller with existing `WaniKaniSyncData` needs no store. Construct manual inputs
-with `GrammarDeclarations::from_descriptions` or use the explicit file adapter.
-`policy.derive(&source, &grammar)` exposes all decisions and borrowed evidence
-without requiring targets. No new trait is needed for this one lexical source
-and two concrete policy choices.
+The old `preview` (first-N selection) and `prepare` (source-use inspection)
+commands and examples are retired. Use `preview-story` for the exact offline
+request and `prepare-retrieval` for embedding preparation. See
+[command history](docs/COMMAND_HISTORY.md) for conclusions and a reproducible code pin.
 
 ## Analyze one supplied sentence offline
 
@@ -392,8 +303,12 @@ The repository is a Cargo workspace. `crates/yomibu` contains the reusable
 library; `crates/yomibu-cli` contains the executable named `yomibu`. Start at
 [`plan_generation` and `generate_story`](crates/yomibu/src/story.rs) for the shared
 story sequence. The CLI calls these functions and owns files, credentials,
-runtime, reports and exit status; other callers reuse the same sequence.
-Root CLI/example commands above still work. Use `cargo test --locked -p yomibu`
+runtime, terminal rendering and exit status; other callers reuse the same sequence
+and structured `reports` projections. CLI `main.rs` handles parsing and exit status,
+`args.rs` defines flags, `commands/` configures concrete resources, and `output/`
+formats terminal output. Reusable cache preparation and explicit-path file adapters
+are in the library.
+Root CLI commands above still work. Use `cargo test --locked -p yomibu`
 for library tests or `cargo test --locked -p yomibu-cli` for CLI tests; the checks
 below cover both packages. Shared fixtures remain under `tests/fixtures` and the
 pinned dictionary under `target/a1/current`. An API crate will be added when its
@@ -407,6 +322,7 @@ substitute it automatically. Subsequent analysis and tests use the local file.
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all
+git diff --check
 ```
 
 The [CI workflow](.github/workflows/ci.yml) runs those gates on `ubuntu-latest` and
@@ -455,10 +371,9 @@ and composition examples, [PLAN.md](PLAN.md) for milestones and TDD evidence, an
 - Ordered maps make SRS output deterministic. Unlike Ruby's growable integers,
   Rust integers have fixed widths: review counts widen from `u64` to `u128`
   before aggregation, with conversion to floating point only for percentages.
-- `PreparedContext<'a>` borrows its source, declarations, and targets. Unlike Ruby
-  references, the compiler ensures these inputs remain alive while the result is
-  used. Enum decisions and typed errors make exclusions and unsupported uses
-  explicit. Changing policy recomputes a view rather than rewriting learner data.
+- `LearnerKnowledge<'a>` borrows source evidence. Rust checks that it remains alive
+  while the view is used. Changing policy recomputes eligibility without rewriting
+  learner data.
 - `Sentence<'a>` borrows unchanged input; A1's enums distinguish a completed
   judgment from uncertainty, an execution error, or a check not run. The concrete
   analyzer owns verified dictionary bytes. Boxing a large upstream error preserves

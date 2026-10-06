@@ -2,7 +2,6 @@
 use crate::{
     domain::{LexicalContent, WaniKaniSyncData},
     evaluation::GrammarRule,
-    grammar::GrammarDeclarations,
     knowledge::{KnowledgeDecision, LearnerKnowledgePolicy},
 };
 use serde::{Deserialize, Serialize};
@@ -106,9 +105,7 @@ impl LearnerInventory {
         source: &WaniKaniSyncData,
         policy: &LearnerKnowledgePolicy,
     ) -> Result<Self, InventoryError> {
-        let grammar = GrammarDeclarations::from_descriptions(Vec::<String>::new())
-            .map_err(|_| InventoryError::Invalid("grammar declarations"))?;
-        let knowledge = policy.derive(source, &grammar)?;
+        let knowledge = policy.derive(source)?;
         let mut result = Self {
             vocabulary: Vec::new(),
             grammar_declarations: Vec::new(),

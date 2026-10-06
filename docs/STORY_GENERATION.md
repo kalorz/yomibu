@@ -3,8 +3,8 @@
 The current experimental path accepts either manual material or an explicit
 WaniKani cache. Source conversion ends at `LearnerInventory`; both sources use
 the same request, selection, generation and assessment code. This replaces the
-G1/G2 generation implementations, without aliases. G0 preview, preparation,
-sync, status and analyze remain unchanged.
+G1/G2 generation implementations, without aliases. Old manual preview/source
+preparation are retired; sync, status and analyze remain unchanged.
 
 "Story" includes short scenes and dialogues, including a single sentence. The
 rename adds no plot/character requirements and does not expand the current
@@ -156,12 +156,16 @@ generate_story (caller drives async I/O)
   return owned StoryGenerationResult
 ```
 
-The CLI's `story_command::generate_story_command` loads input files and embeddings,
+The CLI's `commands::story::generate` in `crates/yomibu-cli/src/commands/story.rs`
+loads input files and embeddings,
 calls planning, loads the dictionary, and calls `execute_story_plan`. That helper
 reads the credential, builds the client/runtime and awaits shared generation.
 The handler then writes the report and determines exit status. An API uses the
 same library functions with its own inputs/resources/executor; no orchestration
 needs copying. Preview calls only offline planning and report conversion.
+Shared `reports::story::{StoryPreviewReport, StoryReport}` constructors project the
+existing JSON contract; CLI `output/story.rs` and `output/candidate.rs` provide
+terminal formatting. Neither projection nor rendering reruns assessment.
 
 Selection ranks cached cosine similarity, with explicit vocabulary targets first
 in request order and ID-based ties for supports. Targets are never dropped to

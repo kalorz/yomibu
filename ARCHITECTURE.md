@@ -10,7 +10,7 @@ every adapter.
 
 The completed migration covers the existing WaniKani `sync` and offline `status`
 use cases, an application entry point, and interchangeable file and in-memory
-stores. Offline preparation adds explicit grammar-file input, on-demand knowledge
+stores. Story preparation uses explicit inventory/request input, on-demand knowledge
 policy, and cached lexical retrieval. The single current story path makes one
 explicit experimental provider request with independent bounded assessment,
 manual/WaniKani inventory projection, multiple
@@ -19,11 +19,8 @@ multi-source learner management, PostgreSQL, Cloud HTTP endpoints, and additiona
 provider integrations follow later.
 Keep one Cargo workspace with separate library and CLI packages.
 
-The completed **G0 — Manual candidate preview** slice in `PLAN.md` adds
-explicit in-memory word/grammar input, deterministic selection, independent
-result checks, and a CLI entry point. Its synchronous library operation has no
-store, account, runtime, or service dependency. The existing storage/source
-contracts are unchanged; the future generation pipeline remains deferred.
+The early manual preview and source-inspection commands are retired; current
+story preview/retrieval and eligibility replace their relevant roles.
 
 Do not replace the existing safety behavior during migration: source-state
 preservation, full-refresh replacement, account protection, writer exclusion,
@@ -106,9 +103,9 @@ resources and execute work.
 
 For the current CLI:
 
-1. Parse the command. Resolve a data directory for sync/status/prepare; only `sync`
-   resolves the WaniKani token. Preview parses structured entries and directly
-   calls the synchronous library operation described below. Analyze validates
+1. Parse the command. Resolve a data directory for sync/status; only `sync`
+   resolves the WaniKani token. Story preview loads explicit inventory/request/cache files and directly
+   calls synchronous library planning without initializing execution resources. Analyze validates
    explicit input, then selects an external dictionary or a managed installation.
    Only managed selection resolves its dictionary directory's HOME default.
 2. For sync/status, construct `FileLearningStore` for that directory and `App`.
@@ -123,9 +120,7 @@ For the current CLI:
    in-memory retention versus acknowledged durable persistence.
 6. `App.status` loads a coherent data version and computes an owned summary. It
    never fetches, resolves secrets, or writes. The CLI renders the result.
-7. `prepare` reads one version through `LearningStore::load` and its explicit
-   grammar file, calls `prepare_context`, then renders the complete result.
-   It constructs no source/runtime, holds no writer, and saves no classification.
+
 
 One current store instance/directory is an explicit account scope. It must not
 switch to a different account after its first successful write. This is not yet
@@ -237,80 +232,17 @@ validated response shapes. This does not require a heterogeneous task registry
 or arbitrary schema-merging framework. Role-specific contracts and their exact
 Rust ownership/dispatch choices are verified in the implementing slice.
 
-### Implemented minimal adaptation for G0
+## Retired prototype commands
 
-```text
-CLI argument parsing -> structured word/grammar inputs + requested count
-                    -> synchronous library preview
-                    -> deterministic selection -> independent checks -> report
-```
-
-`crates/yomibu/src/preview.rs` exposes `preview(words, grammar, take)` with concrete
-`WordEntry` inputs, a borrowed `Preview` result, `PreviewChecks`, `CheckOutcome`,
-and typed `PreviewError`. Private functions validate all supplied inputs and
-check the produced selection. Borrowed slices retain order, duplicates, and
-associations without copying strings. A temporary `HashSet<&WordEntry>` checks
-complete-entry membership with expected O(n + k) entry operations for n supplied
-and k selected entries, plus string hashing cost and O(n) auxiliary storage.
-`Hash` and equality are derived over all three fields. The set serves lookup
-only; the original slice supplies ordered output with duplicates intact.
-An independent length check compares the result with the requested count.
-Grammar and linguistic correctness are explicitly unassessed.
-
-CLI delimiter parsing and rendering stay in the executable. Rendering applies
-`str::escape_debug` to word fields and grammar descriptions, keeping declarations
-on one line and control sequences visible without mutating the library inputs.
-A private data-dir resolver serves sync/status/prepare, but not preview.
-Transient preview input never passes through `LearningStore`, `WaniKaniSyncData`, an account-scoped `App`, or a
-knowledge policy. There is no generator/checker substitution need in this slice:
-unit tests exercise the actual private checker with deliberately invalid data.
-No trait, future text type, registry, or fake backend was added. Existing
-sync/status behavior, cache schema, adapter layout, and package boundary remain.
-
-## Implemented offline preparation slice
-
-Its explicit flow is:
-
-```text
-CLI -> one LearningStore read + explicit grammar-file read
-    -> synchronous prepare_context(source, grammar, policy, targets)
-    -> knowledge derivation + structured lexical retrieval -> explanatory report
-```
-
-The standalone operation borrows the already-loaded WaniKani version and manual
-grammar declarations. The selected concrete `LearnerKnowledgePolicy` derives
-knowledge without fetching, saving, reading the environment, or consulting the
-clock. The result preserves policy and source evidence, target associations,
-grammar assertions, and unassessed linguistic limits. Source-subject eligibility
-must not be represented as proof of every reading/sense combination.
-The CLI renders the retained content, assignment, and review-statistic evidence
-beside each decision, including absences, without reimplementing policy rules.
-
-Grammar declarations belong to learner data; their separate versioned JSON input
-does not change WaniKani schema 1. One-based declaration IDs are scoped to the
-loaded input, not a cross-edit or cross-provider ontology. File loading is an
-explicit adapter operation, while derivation and retrieval remain synchronous
-deterministic library logic.
-
-The existing `LearningStore` provides the demonstrated file/memory substitution.
-One lexical source and concrete policy alternatives do not justify a new trait.
-Do not retrofit G0, add a material-store hierarchy, or introduce a registry.
-Retrieval uses associated source fields without claiming linguistic validation;
-source examples are not automatically safe practice passages.
-
-`grammar.rs` owns validated manual declarations. `knowledge.rs` owns concrete
-policy choices and borrowed `LearnerKnowledge` evidence. `preparation.rs` exposes
-`PracticeTarget`, `PreparedContext`, retrieved target evidence, typed errors, and
-explicit unassessed aspects. It indexes available vocabulary by exact word, then
-matches accepted reading/gloss fields without synthesizing combinations. Multiple
-matches are errors before eligibility is considered. Input order and duplicates
-survive selection; source examples remain ordered and unfiltered. Private helpers
-validate target fields and match one source record. There is no new storage port,
-policy trait, generator, or checker abstraction.
+G0 first-N preview and standalone source-use preparation are retired. Their
+original contracts and last Git pin are in [COMMAND HISTORY](docs/COMMAND_HISTORY.md).
+Eligibility remains in `knowledge.rs`: `derive(source)` returns ordered decisions
+and borrowed source evidence without grammar input. `inventory.rs` uses it for
+WaniKani projection; manual inventories supply material explicitly.
 
 ## A1 evaluation boundary (complete; no-go)
 
-A1 is a synchronous, concrete library slice alongside preparation and G0:
+A1 introduced the synchronous analysis/evaluation reused by current story generation:
 
 - `analysis.rs` owns the bounded borrowed sentence and morphological evidence
   shapes. Whole units and components retain original UTF-8 byte spans.
@@ -362,7 +294,7 @@ material belong in analyzer composition, Git, or this implementer's early contex
 Versioned public synthetic drafts contain only runtime inputs. Private revision
 logs preserve exclusions, family lineage, references and disagreements; changing
 a draft does not change the analyzer or erase exposure for holdout separation.
-G0, preparation, source/store boundaries, sync/status, and schema 1 are preserved.
+The historical slice preserved source/store, sync/status and schema-1 boundaries.
 
 The separate [post-A1 safeguard](docs/A1_FOLLOWUP.md) changes only the concrete
 evaluator's treatment of recognized object/predicate combinations. It borrows the
@@ -417,8 +349,8 @@ embedded configuration/character definitions for owned and mapped bytes. Its
 `unsafe load_managed` API documents installation verification and lifetime-long
 file stability as caller obligations; receipts/checks do not prove immutability.
 
-Binary-private `dictionary::DictionaryArgs` shares resource selection among
-analyze and both generation commands after their existing preflight. Environment
+Binary-private `args::DictionaryArgs`, implemented in `commands/dictionary.rs`,
+shares resource selection between analyze and generation after their preflight. Environment
 resolution remains executable-only. One analyzer is reused for the command;
 analysis/evaluation and candidate assessment have no storage-policy branches.
 Both policies can serve future sessions/servers without a new analyzer trait.
@@ -432,8 +364,8 @@ from pre-publication failure. See [dictionary safety](docs/DICTIONARY.md).
 ## Shared story composition
 
 Open `crates/yomibu/src/story.rs::plan_generation` and the adjacent `generate_story`
-for the shared sequence. The CLI dispatches to `generate_story_command`, separate
-from offline `run_preview` and explicit `run_prepare`. Source differences end at
+for the shared sequence. The CLI dispatches to `commands::story::generate`, separate
+from offline `commands::story::preview` and explicit `commands::retrieval::prepare`. Source differences end at
 `load_inventory`; an API supplies the same inventory/request/cache and resources.
 
 ```text
@@ -451,18 +383,20 @@ manual input / WaniKani cache + policy (+ optional manual supplement)
          client.generate_story_candidates (one attempt; unchanged bytes)
          assess_candidates (every original text)
          StoryGenerationResult (owned originals + partial assessments)
-  -> CLI report::write_generation
+  -> CLI output::story::write_generation
   -> CLI require_successful_execution (exit status)
 ```
 
 `inventory.rs` validates the common data and projects the existing source policy.
 The source cache stays untouched. `story.rs` keeps the request, selection,
 prepared bytes and assessment stages adjacent. `retrieval.rs` owns encoding,
-identity/cache validation and cosine similarity; `ports::Embedder` is the only new
+identity/cache validation, bounded cache preparation and cosine similarity; `ports::Embedder` is the only new
 port, implemented by explicit lexical-baseline and local/hosted HTTP adapters.
 The HTTP embedding adapter splits each input group by its actual serialized size;
-common embedding-input preparation validates the combined document limit before
-any provider work. There is no model/default selection service or generic pipeline.
+the explicit file-cache adapter owns bounded reads, validation before publication
+and atomic replacement;
+common embedding-input preparation and public cache preparation share the same
+whole-input size preflight before any provider work. There is no model/default selection service or generic pipeline.
 `StoryGenerationOptions` currently contains only `candidate_count`, default 2. It is
 passed separately to request preparation; brief/targets stay in `StoryRequest`.
 CLI `--candidates N` accepts positive integers with checked token-budget arithmetic,
@@ -500,8 +434,12 @@ verified reading/sense pairs. The grammar observer and structural checker share
 the same direct-object evidence predicate, while the historical object-combination
 safeguard remains intact.
 
-`story_command/report.rs` converts finished plans/assessments into the new
-JSON/text forms, using `candidate_report.rs` for candidate presentation. Report conversion performs no assessment. Preview requires cached
+`reports/story.rs`, `reports/candidate.rs` and `reports/analysis.rs` expose shared
+serializable projections of completed results. Candidate error classification and
+NotRun checks live here; report conversion performs no assessment. CLI `output/`
+adds terminal escaping and text layout without owning the wire schema.
+`adapters/input_file.rs` performs bounded reads of explicitly chosen paths; the
+CLI selects the input format and decodes JSON. Preview requires cached
 vectors and performs no provider/dictionary/runtime initialization. Generation
 initializes its dictionary/credentials only after its final request is prepared.
 Embedding preparation is separately explicit and may need its own credentials.
@@ -600,7 +538,7 @@ differences behind a uniform success value or automatic fallback.
 
 The implemented storage entry points are `App.new(store).status()` and
 `App.new(store).with_source(source).sync()`. Manual preview has the separate
-`preview::preview` entry point described above. `SyncReport` contains an owned
+current offline story planning entry point. `SyncReport` contains an owned
 summary, source synchronization times, and persistence classification. Errors
 retain the source/storage type. In particular, a file
 `WriteError::DurabilityUncertain` must remain distinguishable through `SyncError`;
@@ -640,19 +578,17 @@ crates/
       story.rs               shared planning/execution and adjacent concrete stages
       retrieval.rs           embedding inputs/cache and cosine ranking
       generation.rs          candidate assessment/errors and provider metadata
+      reports/               serializable story/candidate/analysis projections
       app.rs                 sync/status orchestration
       domain.rs              source data and invariants
       summary.rs             source summaries
-      preview.rs             manual selection and checks
       grammar.rs             manual familiarity declarations
       knowledge.rs           source eligibility policy
-      preparation.rs         exact cached lexical retrieval
       analysis.rs            original C/A morphological evidence
       evaluation.rs          bounded checks and executable bindings
       ports.rs               source/storage/embedding capabilities
       adapters/
         mod.rs
-        grammar_file.rs      explicit read-only grammar input
         dictionary.rs        verified managed dictionary publication
         dictionary/tests.rs  publication/failure boundary tests
         sudachi.rs           real checksum-pinned analyzer
@@ -660,21 +596,32 @@ crates/
         openai.rs            one bounded Responses attempt
         openai_tests.rs      socket deadline/body-bound tests
         embeddings.rs        local/hosted encoders and lexical baseline
+        embedding_cache_file.rs bounded reads and atomic cache publication
+        input_file.rs        bounded explicit-path input reads
         sources/wanikani/    HTTP source, DTOs and boundary tests
         stores/              file and in-memory storage adapters
     tests/                   library use-case and adapter contracts
-    examples/                direct-library preview and prepare
   yomibu-cli/
     Cargo.toml               depends on yomibu; binary name remains yomibu
     src/
-      main.rs                arguments, dispatch and executable startup
-      story_command.rs       generation resources, preview and retrieval commands
-      story_command/report.rs  story JSON/text conversion and rendering
-      story_tests.rs         executable/report unit tests
-      analyze.rs             supplied analysis input and rendering
-      dictionary.rs          dictionary CLI arguments and execution
-      candidate_report.rs    candidate presentation
-      cli_support.rs         bounded input reads and terminal presentation
+      main.rs                parse, startup and exit status
+      args.rs                Clap arguments only
+      commands/
+        mod.rs               command dispatch
+        story.rs             generation/preview files and execution resources
+        retrieval.rs         encoder/credentials/runtime and cache adapter calls
+        input.rs             input formats, inventory source selection and secrets
+        analyze.rs           explicit analysis input and dictionary composition
+        dictionary.rs        dictionary selection/import/verification
+        sync.rs              unchanged sync/status environment and resources
+      output/
+        mod.rs               safe JSON, diagnostics and shared check rendering
+        story.rs             story/preview terminal layout
+        candidate.rs         candidate/provenance terminal layout
+        analysis.rs          analysis terminal layout
+        dictionary.rs        dictionary loading provenance layout
+        status.rs            source summary terminal layout
+      story_tests.rs         executable/report integration test harness
     tests/                   CLI and combined library/executable contracts
 tests/fixtures/              shared immutable synthetic inputs and snapshots
 scripts/                     dictionary setup and explicit retrieval probe

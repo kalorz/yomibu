@@ -15,8 +15,6 @@ response envelopes. IDs, learner identity, times, and counters are invented.
 - `preparation.json`: copy of `mixed.json` with assignment 102's hidden flag
   cleared, allowing the exact vocabulary target `一つ:ひとつ:one thing`. All
   identities, dates, and progress are synthetic. Original fixtures are unchanged.
-- `grammar.json`: manual familiarity assertions used by the preparation demo;
-  not a grammar catalog or an assertion that its example uses these declarations.
 - `mixed-status.txt`: deterministic CLI output for the mixed cache. Reading
   accuracy is 9/11, meaning accuracy is 10/20; neither averages per-item rates.
 
@@ -24,6 +22,10 @@ The tests write fixtures to isolated temporary directories as `wanikani.json`
 and call the production cache reader. Application code never loads these files
 as a fallback or fake source. Invalid cache cases mutate the mixed fixture only
 inside individual tests.
+
+The retired preparation grammar sample is archived under
+[`docs/history/commands/grammar.json`](../../docs/history/commands/grammar.json);
+see [COMMAND HISTORY](../../docs/COMMAND_HISTORY.md). It is not a current test input.
 
 ## API fixtures (1b)
 

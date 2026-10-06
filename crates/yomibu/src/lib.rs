@@ -1,16 +1,8 @@
-//! WaniKani synchronization, offline preparation, preview, and bounded A1 analysis.
+//! WaniKani synchronization, shared story generation and bounded supplied-text analysis.
 //!
-//! [`preview::preview`] synchronously selects structured word entries and checks
-//! membership/count. It borrows explicit inputs and needs no account, store, or
-//! runtime. Grammar and linguistic correctness remain explicitly unassessed.
-//!
-//! [`preparation::prepare_context`] derives revisable knowledge and retrieves
-//! cached lexical evidence for explicit word/reading/sense targets. It borrows
-//! source observations, validated manual grammar declarations, and targets;
-//! no store or runtime is required. [`knowledge::LearnerKnowledgePolicy`] selects
-//! the concrete source-evidence rule. [`adapters::grammar_file`] explicitly loads
-//! versioned manual assertions without writing or interpreting grammar.
-//! Retrieval does not establish reading/sense association or example suitability.
+//! [`knowledge::LearnerKnowledgePolicy`] derives eligibility from preserved
+//! WaniKani evidence without grammar input, I/O or persistence. Historical manual
+//! preview and source-inspection commands are retired; see `docs/COMMAND_HISTORY.md`.
 //!
 //! [`adapters::sudachi::SudachiAnalyzer`] explicitly loads a checksum-pinned
 //! dictionary for offline C/A morphology with original UTF-8 spans.
@@ -50,7 +42,7 @@
 //! ```
 //!
 //! Network synchronization needs a caller-owned Tokio runtime with I/O and time
-//! enabled. File operations, validation, summaries, and preparation are synchronous.
+//! enabled. File operations, validation, summaries, and planning are synchronous.
 //! Read [`App::sync`] for cancellation and persistence outcomes; backend errors remain typed.
 //! [`app::SyncReport`] distinguishes volatile retention from durable persistence.
 //!
@@ -59,9 +51,15 @@
 //! guard alive across retrieval and replacement. Root `cache` and `wanikani`
 //! module paths re-export the adapters for existing callers.
 //!
+//! [`retrieval::prepare_cache`] reuses compatible vectors and prepares missing
+//! inputs through a caller-selected encoder. [`adapters::embedding_cache_file`]
+//! and [`adapters::input_file`] accept explicit paths without environment lookup.
+//! [`reports`] exposes serializable story/candidate/analysis projections;
+//! terminal formatting and escaping remain the executable's responsibility.
+//!
 //! [`cache::load`] and [`domain::WaniKaniSyncData::summarize`] support offline inspection.
 //! Public domain fields allow callers to construct data; loading, replacement,
-//! summarization, knowledge derivation, and preparation each validate it. This
+//! summarization, knowledge derivation, and story planning each validate it. This
 //! library does not read credentials or paths from the environment, start a
 //! runtime, or print output.
 
@@ -77,8 +75,7 @@ pub mod grammar;
 pub mod inventory;
 pub mod knowledge;
 pub mod ports;
-pub mod preparation;
-pub mod preview;
+pub mod reports;
 pub mod retrieval;
 pub mod story;
 pub mod summary;

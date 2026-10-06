@@ -46,18 +46,19 @@ jobs:
           python3 scripts/setup_a1_dictionary.py
       - name: Test
         run: cargo test --locked --all
-      - name: Run documented synthetic demonstrations
+      - name: Run documented offline story demonstrations
         shell: bash
         run: |
-          cargo run --locked -- preview --word '猫:ねこ:cat' --word '犬:いぬ:dog' --grammar 'です' --take 2
-          cargo run --locked --example preview
-          cargo run --locked --example prepare
           yomibu_demo_dir=$(mktemp -d)
           trap 'rm -rf "$yomibu_demo_dir"' EXIT
-          cp tests/fixtures/preparation.json "$yomibu_demo_dir/wanikani.json"
-          cp tests/fixtures/grammar.json "$yomibu_demo_dir/grammar.json"
-          cargo run --locked -- prepare --data-dir "$yomibu_demo_dir" \
-            --grammar-file "$yomibu_demo_dir/grammar.json" --target '一つ:ひとつ:one thing'
+          cargo run --locked -- prepare-retrieval \
+            --inventory tests/fixtures/story/inventory.json \
+            --request tests/fixtures/story/request.json \
+            --embedding-cache "$yomibu_demo_dir/vectors.json" --embedding-provider lexical-baseline
+          cargo run --locked -- preview-story \
+            --inventory tests/fixtures/story/inventory.json \
+            --request tests/fixtures/story/request.json \
+            --embedding-cache "$yomibu_demo_dir/vectors.json" --json
       - name: Build API documentation
         env:
           RUSTDOCFLAGS: -D warnings

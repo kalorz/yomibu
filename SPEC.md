@@ -127,158 +127,19 @@ placeholder versions. Local files are sufficient for the CLI proof of concept.
 PostgreSQL is the likely later web database; pgvector remains conditional on a
 real vector-search need.
 
-### Manual candidate preview (implemented G0)
+## Retired manual preview and source preparation — 2026-10-06
 
-Before integrating linguistic analysis or an LLM, G0 provides a synchronous library
-operation and a thin `yomibu preview` command that select the first N supplied
-word entries. This is a real deterministic preview, not an accepted Japanese
-exercise or an automatic fallback for another generator.
+The G0 `preview` and source-inspection `prepare` commands, their examples and
+library entry points (`preview`, `preparation`, `adapters::grammar_file`) are
+retired without aliases. [COMMAND HISTORY](docs/COMMAND_HISTORY.md) preserves
+purpose, original contracts and the last complete Git pin. Current preview and
+retrieval are `preview-story` and `prepare-retrieval`.
 
-```sh
-yomibu preview \
-  --word '猫:ねこ:cat' \
-  --word '犬:いぬ:dog' \
-  --word '学校:がっこう:school' \
-  --grammar 'です' \
-  --grammar 'は' \
-  --take 2
-```
-
-- Each repeatable `--word` value contains text, reading, and meaning. Split only
-  at the first two ASCII colons; further colons belong to the meaning. Trim field
-  boundaries, preserve internal content, and reject missing or blank fields.
-  This shorthand does not support colons in the text or reading fields.
-- The library receives structured entries, not CLI-delimited strings. Keep the
-  three fields associated: another reading or meaning of the same written form
-  is not implicitly supplied or allowed. These are user declarations, not verified
-  dictionary facts. Do not infer other readings, synonyms, inflections, or mastery.
-- `--take` is required and positive, and cannot exceed the supplied entry count.
-  Preserve entry order and duplicates; select the first N entries, retaining
-  text, reading, and meaning. The count concerns entries, not unique words or
-  generation candidates. Invalid input produces a typed library error and a
-  nonzero CLI exit with a useful explanation, rather than partial success.
-- Repeatable `--grammar` values are nonblank manual descriptions. Retain them
-  with the preview inputs and explicitly report grammar as not assessed. No
-  grammar matcher, provider mapping, durable identity, or learner registration
-  is required for these transient inputs.
-- Return selected entries and an explicit report checking membership in the
-  supplied entries and the requested count. Run these checks on the produced
-  result; do not have the selector assert its own success. Readings, meanings,
-  naturalness, and grammar are not linguistically verified by this slice.
-- The CLI renders each selected word entry and grammar description on one line,
-  using Rust's `str::escape_debug` for each field. Control characters, line
-  separators, backslashes, and quotes are displayed as escapes so declarations
-  cannot introduce extra report lines or terminal control sequences. Ordinary
-  Japanese text remains readable; the underlying structured values are unchanged.
-  The CLI reports the limited assessment. The direct library call exposes
-  equivalent data without parsing arguments or printing.
-  Preview does not resolve HOME/data directories, require tokens, create files,
-  open stores, synchronize, start an async runtime, or call any service/model.
-
-The public `preview::preview` function accepts word/grammar slices and a `usize`
-count, returning `Result<Preview<'_>, PreviewError>`.
-`WordEntry` has associated `text`, `reading`, and `meaning` strings. All supplied
-entries and grammar descriptions are validated before selection, including the
-unselected suffix. Structured library inputs are retained verbatim; CLI word
-field trimming happens only at the executable boundary. Grammar descriptions
-retain their content, order, and duplicates. No grammar input is also valid.
-
-`Preview` borrows the selected entries and grammar descriptions. Its
-`PreviewChecks` reports membership and count as `CheckOutcome::Pass` or `Fail`,
-and grammar/linguistic correctness as `NotAssessed`. Membership compares the
-complete text/reading/meaning entry, with no normalization or inferred lexical
-equivalence. A temporary borrowed hash set indexes supplied entries for membership
-checks; it does not deduplicate or reorder the selected output. A separate private
-function checks the produced selection; its tests deliberately supply invalid
-selections. Invalid input returns `PreviewError::InvalidCount`, `BlankWordField`,
-or `BlankGrammar`; field errors
-identify the one-based input entry. There is no partial result on input failure.
-
-Run the synchronous direct-library example with
-`cargo run --locked --example preview`; see [crates/yomibu/examples/preview.rs](crates/yomibu/examples/preview.rs).
-The CLI's global `--data-dir` option is ignored for preview. Sync/status/prepare
-resolve that option or the HOME default.
-
-This slice's detailed delivery and acceptance criteria are in `PLAN.md` under
-**G0 — Manual candidate preview**. File/stdin imports, alternate delimiters,
-JSON input, Japanese text generation, model adapters, and a plugin host are
-outside G0. Existing sync/status and schema-1 persistence retain their contracts.
-
-## Learner constraints and retrieval — approved preparation slice
-
-This slice implements synchronous, offline practice-context preparation through
-`preparation::prepare_context` and a thin `yomibu prepare` command. Its result is
-retrieval evidence, not an accepted exercise.
-
-Read one coherent schema-1 WaniKani cache and one explicit grammar input. Preserve
-the source observations and manual declarations; derive `LearnerKnowledge` on
-demand with an explicit `LearnerKnowledgePolicy`. Never persist the derived
-classification or alter synchronization/status behavior.
-
-The default `lesson-started` rule requires a recorded assignment `started_at`;
-the alternative `recorded-pass` rule requires `passed_at`. Both exclude
-unavailable material and subjects hidden in any retained subject, assignment, or
-review-statistic record. Review-only material is not eligible. No SRS-stage,
-accuracy, recency, or linguistic-mastery threshold is implied. Eligibility is a
-source-subject decision, not proof of knowledge of every reading or sense.
-Report the selected policy, synchronization interval, source evidence, and
-inclusion/exclusion reasons. Unavailable content has only its retained identifier
-and kind; do not invent its spelling.
-For each decision, the CLI shows content availability and `hidden_at`, assignment
-identity/hidden state and `started_at`/`passed_at`, and review-statistic
-identity/hidden state. Missing records remain explicit, including evidence that
-did not determine the highest-precedence exclusion.
-
-Grammar input is a separate local JSON document:
-`{"version":1,"declarations":["です","は as a topic marker"]}`.
-Each entry asserts learner familiarity for practice. Preserve descriptions
-verbatim and keep duplicates independent. Assign one-based technical entry IDs
-scoped to the loaded input; there is no cross-edit identity promise or write-back.
-Empty declarations are valid. Reject blank descriptions, malformed input, and
-unsupported versions. The file preserves learner assertions, not policy-derived
-knowledge. No grammar recognizer or provider equivalence is implied.
-
-Each repeatable `--target WORD:READING:SENSE` preserves one intended use. The CLI
-splits at the first two ASCII colons and trims field boundaries; library inputs
-are structured and retained verbatim. Here SENSE must match an exact cached
-accepted gloss, and READING an exact cached accepted reading. No paraphrase,
-normalization, inferred reading, or reading/gloss Cartesian product is supported.
-A request never declares a word known. Detect multiple exact lexical matches
-before applying policy; eligibility cannot disambiguate records. Resolve only
-eligible vocabulary records; kanji knowledge cannot establish vocabulary
-knowledge. Missing, ambiguous,
-unsupported, or policy-ineligible targets fail explicitly without partial success.
-Kana-only records retain their lack of source readings; do not fabricate one.
-
-Return the selected subjects' readings, meanings, answer flags, parts of speech,
-and all attached examples in source order. Keep target request order and
-duplicates. Matching separate source fields does not verify their association:
-reading/sense correctness and example suitability remain unassessed. Examples
-are selected by subject attachment, not by proven correspondence to the intended
-use or learner constraints. Missing examples are explicit empty results; there
-is no synthetic or network fallback.
-
-The preparation path requires no token, HTTP client, async runtime, implicit sync,
-or writes. The CLI owns argument/environment handling and escaped presentation;
-the library accepts existing values without requiring a store. The existing
-`LearningStore::load` supports file/memory composition. No new trait, generator
-substitution, plugin host, model integration, linguistic analysis, external
-dictionary, or later milestone is included.
-
-`GrammarDeclarations::from_descriptions` creates validated manual inputs;
-`adapters::grammar_file::{load, parse}` provides the explicit read boundary.
-`LearnerKnowledgePolicy::derive` returns all decisions in subject-ID order with
-borrowed material, assignment, and review-statistic evidence.
-`prepare_context(source, grammar, policy, targets)` returns a borrowed
-`PreparedContext` or a typed `PrepareError`. The result preserves policy, learner
-ID, synchronization interval, grammar assertions, and target/source associations.
-Exclusion precedence is unavailable content, hidden evidence, no assignment,
-then the selected missing lifecycle timestamp. Other evidence remains available.
-See README.md and `crates/yomibu/examples/prepare.rs` for CLI and direct-library usage.
-
-Implementation and real-learner acceptance of this preparation slice are complete
-as of 2026-10-03; `PLAN.md` records the user's completed acceptance evidence.
-Eligibility remains distinct from mastery, and linguistic validity is unassessed.
+Eligibility remains active: `LearnerKnowledgePolicy::derive(source)` validates
+source data and returns ordered decisions with original evidence, without grammar
+input or persistence. `LearnerKnowledge` no longer carries grammar declarations.
+Inventory projection uses these unchanged rules. Grammar descriptions/bindings
+remain separate inputs to story assessment and supplied-text analysis.
 
 ## A1 — bounded offline analysis evaluation (complete; no-go)
 
@@ -292,7 +153,7 @@ generation, repair, quiz, provider integration, or speculative framework.
 
 Keep completed `Pass`/`Fail`/`Inconclusive` judgments distinct from execution
 errors and `NotRun`. No A1 report may describe sentences as accepted exercises.
-Preserve G0 and its fixes, preparation, sync/status, and schema 1. A1
+This historical A1 slice preserved the then-current preview/preparation contracts. A1
 evaluation uses explicit bindings while preserving free-form grammar inputs;
 it must not automatically interpret learner declarations.
 
@@ -479,8 +340,8 @@ callable. See README for runnable synthetic examples and PLAN for TDD/check evid
 ## Shared learner-inventory story path — 2026-10-06
 
 This approved breaking slice is the only current generation path; G1/G2
-implementations are retired below. G0, sync/status, preparation and analyze
-contracts remain unchanged. Full current formats/limits are in
+implementations and old preview/preparation are retired below. Sync/status and
+analyze contracts remain unchanged. Full current formats/limits are in
 [STORY GENERATION](docs/STORY_GENERATION.md); measured retrieval evidence is in
 [RETRIEVAL](docs/RETRIEVAL.md).
 
@@ -526,7 +387,7 @@ Rust API changes: the former subset-only `StoryGenerationPlan` is renamed
 Ordinary analysis still borrows; returned story analyses own a bounded text copy
 without changing original spans or serialized reports. No wire-format change occurs.
 
-CLI `generate_story_command` loads inputs/embeddings, calls library planning,
+CLI `commands::story::generate` loads inputs/embeddings, calls library planning,
 initializes dictionary/credentials/runtime, awaits library generation, then renders
 and determines exit status. Library orchestration owns no environment lookup,
 file selection, runtime or terminal. An API caller uses the same entry pair.
@@ -535,6 +396,25 @@ client or runtime and no cache refresh. Missing/stale embeddings fail explicitly
 `prepare-retrieval` may prepare vectors; generation may do so only with explicit
 backend configuration. Hosted work additionally requires `--allow-embedding-call`.
 `--allow-model-call` independently authorizes the generation attempt.
+
+Shared serializable report projections live in `reports::{story,candidate,analysis}`.
+Candidate execution-error classification and NotRun check data belong to the
+library; terminal-safe JSON/text rendering belongs to CLI `output/`. Report
+construction does not rerun analysis or assessment and leaves serialized keys,
+original texts/spans, provider request bytes and hashes unchanged.
+`adapters::input_file::read_bounded` takes an explicit path and caller-supplied
+limit; it has typed errors and performs no environment lookup or writes.
+CLI `args.rs` defines arguments, `commands/` selects resources and invokes library
+use cases, and `main.rs` handles parsing/exit status. No generation app wrapper,
+service hierarchy, API placeholder or new dependency is introduced.
+
+Reusable retrieval preparation is `retrieval::prepare_cache`: reuse compatible
+vectors, validate every input size before encoder calls, encode missing inputs in
+groups of 32 and validate the complete result.
+`adapters::embedding_cache_file::EmbeddingCacheFile` owns bounded reads and atomic
+publication with typed pre-replacement/uncertain-durability errors. Saving validates
+the complete cache before temporary-file creation or replacement. The host selects
+path, encoder, credentials and executor; no file is replaced after a batch failure.
 
 Use one narrow `Embedder` port for local/hosted encoders, a model-specific flat
 vector cache and cosine similarity. Identity includes provider/model/revision,
@@ -664,7 +544,7 @@ See [installation and safety](docs/DICTIONARY.md).
 This vocabulary records the accepted direction. `WaniKaniSyncData`, `App`,
 `LearningSource`, `LearningStore`, `SourceSyncWriter`, and the file/in-memory
 stores exist for single-account sync/status. `LearnerKnowledgePolicy` and
-`LearnerKnowledge` now implement the concrete WaniKani/manual-input preparation
+`LearnerKnowledge` implement the concrete WaniKani eligibility projection
 slice. The remaining names do not authorize placeholder types, traits, or future
 product features.
 
@@ -1178,7 +1058,7 @@ directory; both steps are explicit. See
 [ARCHITECTURE.md](ARCHITECTURE.md#files-packages-and-repositories) records the
 current tree, planned modules, dependency direction, ownership, composition
 examples, and public/private repository boundaries. It distinguishes implemented
-sync/status, manual preview, and offline preparation from future generation and
+sync/status, current story generation and supplied-text analysis from future
 Cloud capabilities.
 Keep one public code repository. The approved library/CLI workspace split makes
 existing responsibilities and dependency boundaries visible before the API slice.
