@@ -11,9 +11,9 @@ every adapter.
 The completed migration covers the existing WaniKani `sync` and offline `status`
 use cases, an application entry point, and interchangeable file and in-memory
 stores. Offline preparation adds explicit grammar-file input, on-demand knowledge
-policy, and cached lexical retrieval. G1 adds one explicit experimental provider
-request and independent bounded assessment. The shared story slice replaces
-G2 command composition with manual/WaniKani inventory projection, multiple
+policy, and cached lexical retrieval. The single current story path makes one
+explicit experimental provider request with independent bounded assessment,
+manual/WaniKani inventory projection, multiple
 targets, a brief and explicit embedding retrieval, described below. Validated generation, grammar database persistence,
 multi-source learner management, PostgreSQL, Cloud HTTP endpoints, and additional
 provider integrations follow later.
@@ -159,7 +159,7 @@ Prioritize the learner's reading experience. Reuse deterministic offline
 preparation, constrained candidate construction, checks and narrowly defined
 repair where their behavior is supported. Model calls are explicit bounded
 contributions; neither offline construction nor a model assertion establishes
-linguistic validity. These are future composition choices, not new G1/G2 behavior
+linguistic validity. These are future composition choices, not current experimental generation behavior
 or a requirement to introduce generator abstractions now.
 
 The following is the target responsibility model, not G0's implementation list:
@@ -428,57 +428,6 @@ The standard-library writer lock coordinates importers only. Published generatio
 are retained and never edited in place. Post-publication sync failure is distinct
 from pre-publication failure. See [dictionary safety](docs/DICTIONARY.md).
 
-## G1 experimental candidate composition
-
-```text
-CLI opt-in + explicit paths -> bounded input + existing binding validation
-                           -> pinned dictionary -> explicit credential/client/runtime
-                           -> one OpenAI POST -> immutable pair and provenance
-                           -> independent synchronous Sudachi/evaluate per candidate
-                           -> both results or separate execution errors -> report/exit
-```
-
-`adapters::openai::Client` is the single concrete provider adapter. Private DTOs
-enforce completed Responses envelopes and the strict two-string payload. It sends
-one versioned compiled prompt and explicit data with fixed model/schema/settings;
-limits, sanitized typed errors, response parsing and request provenance stay here.
-There is no SDK, generic model trait, prompt store, retry loop or persistence.
-`Client::new` uses the official endpoint; `with_base_url` accepts that exact base
-or numeric loopback HTTP without URL credentials/query/fragment for adapter tests.
-The production executable offers no endpoint flag or environment override.
-
-`generation::GeneratedCandidates` owns `[String; 2]` and provenance, borrowing the
-original immutable `GrammarDeclarations`/`EvaluationBindings`. Its synchronous
-`assess(&SudachiAnalyzer)` returns two `CandidateAssessment` values that borrow
-the original texts. Completed values retain analysis and evaluation; typed errors
-retain available analysis without inventing completed checks. A boxed Evaluation
-keeps the enum compact; it does not introduce a new assessment abstraction.
-No analyzer trait, self-referential result, accepted-exercise type or learner store
-is needed. `EvaluationBindings::validate` exposes the same validation for preflight;
-`evaluate` still validates analysis first, then bindings, preserving error precedence.
-
-The binary's `generate.rs` owns G1 input/top-level report DTOs, credential lookup
-and runtime startup. `candidate_report.rs` owns shared G1/current candidate DTOs, error
-conversion, and candidate/provenance rendering. `cli_support.rs` shares bounded
-file reads, check rendering and safe JSON encoding with `analyze.rs`. The latter retains its output and fully offline flow.
-Only the binary maps errors to exit codes. Reports borrow completed evidence and
-keep execution errors separate from Fail/Inconclusive; all untrusted presentation
-fields are escaped before composing readable output.
-
-The same CLI entry takes a lazy, non-null concrete OpenAI client constructor.
-Production supplies `Client::new`; the binary's test subprocess helper supplies a
-loopback constructor explicitly. The helper and its environment variables exist
-only under `cfg(test)`; no alternate production mode or fake tokenizer ships.
-Tests run the real provider adapter, real pinned Sudachi and evaluator, with
-synthetic keys and isolated HTTP servers/directories. Typed downstream-error
-report tests are labelled boundary tests, not induced real-analyzer failures.
-
-G1 never selects accepted exercises. A1's historical no-go, 24/24 outcomes,
-120/120 judgments, 11/12 exact negative matches, frozen records and object safeguard
-remain unchanged. The later validated-generation architecture elsewhere in this
-document remains deferred. See [SPEC](SPEC.md#g1--experimental-single-sentence-candidates)
-for contracts and [G1 usage](docs/G1.md) for privacy, spending and the separate smoke.
-
 ## Shared story composition
 
 Open `src/story_command.rs::run_generation` for the complete current execution
@@ -514,8 +463,8 @@ CLI `--candidates N` accepts positive integers with checked token-budget arithme
 without an arbitrary 4/8 cap. Provider token limits and the 64 KiB response cap
 still apply. The prompt/schema/parser require the requested count, output tokens
 scale at 512 per candidate, and current results/assessments use vectors/slices.
-G1/G2 retain their fixed arrays and exact fixtures through the common bounded
-transport. No repair-round configuration exists until repair is implemented.
+Retired G1/G2 fixtures are archived outside the test tree. No repair-round
+configuration exists until repair is implemented.
 
 `StoryGenerationPlan` borrows selected inventory entries. `build_ai_model_request`
 returns the final bounded plan alongside `AiModelRequest`, which owns immutable
@@ -532,9 +481,10 @@ The library has no credential lookup, runtime creation or terminal output.
 
 Selection is cached cosine ranking with explicit targets first. Preparation may
 remove lowest-ranked non-target supports to fit the unchanged byte limit, then
-freezes the exact body. Provider transport and existing G1 settings remain in
-`adapters/openai.rs`. The new `story-inventory-v1` format intentionally changes
-prompt bytes/hash; old G1/G2 fixtures remain untouched. `evaluation.rs` reuses the
+freezes the exact body. Provider transport and settings live in
+`adapters/openai.rs`. The `story-inventory-v1` format replaced historical request
+formats; this cleanup leaves current bytes/hash unchanged. `generate_story_candidates`
+returns `ProviderError` directly, with no generation-error wrapper. `evaluation.rs` reuses the
 bounded structural checks, adds a conservative full-inventory lexical check and
 bounded grammar observations; it does not reinterpret source alternatives as
 verified reading/sense pairs. The grammar observer and structural checker share
@@ -542,18 +492,19 @@ the same direct-object evidence predicate, while the historical object-combinati
 safeguard remains intact.
 
 `story_command/report.rs` converts finished plans/assessments into the new
-JSON/text forms, reusing `candidate_report.rs` for G1 and current candidate
-presentation. Report conversion performs no assessment. Preview requires cached
+JSON/text forms, using `candidate_report.rs` for candidate presentation. Report conversion performs no assessment. Preview requires cached
 vectors and performs no provider/dictionary/runtime initialization. Generation
 initializes its dictionary/credentials only after its final request is prepared.
 Embedding preparation is separately explicit and may need its own credentials.
 
 See [STORY GENERATION](docs/STORY_GENERATION.md) for contracts and [RETRIEVAL](docs/RETRIEVAL.md)
 for backend configuration, cache boundaries and the incomplete dense comparison.
-G2's old command composition was removed. Its lower-level `generation_context`,
-`prepare_focused_request` and focused observation APIs remain as historical
-fixture/experiment support, documented in [G2](docs/G2.md). They are not a second
-source-specific story path. A1's no-go and frozen records remain unchanged.
+G1/G2 implementations, context selector and focused observation APIs are removed.
+`generation.rs` contains only live assessment/error and provider metadata types;
+target morphology support stays beside its caller in `story.rs`. Historical
+fixtures live under `docs/history/generation/`, with reproducible code pins and
+conclusions in [GENERATION HISTORY](docs/GENERATION_HISTORY.md). A1's no-go and
+frozen records remain unchanged.
 
 ## Stores, source data, and consistency
 
@@ -673,13 +624,12 @@ src/
   lib.rs                     public entry points
   main.rs                    CLI composition and rendering
   analyze.rs                 binary-private analysis input and rendering
-  generate.rs                binary-private G1 input, execution and top-level report
   story_command.rs           current run_generation/run_preview/run_prepare sequences
   story_command/report.rs    current story JSON/text conversion and rendering
   inventory.rs               common manual/WaniKani inventory and validation
   story.rs                   request, selection, AI payload and assessment stages
   retrieval.rs               embedding inputs, identity/cache and cosine ranking
-  candidate_report.rs        shared G1/current candidate DTOs and rendering
+  candidate_report.rs        story candidate DTOs and rendering
   cli_support.rs             shared bounded reads and terminal presentation
   app.rs                     sync/status orchestration and reports
   domain.rs                  retained source data and invariants
@@ -690,8 +640,7 @@ src/
   preparation.rs             exact cached lexical retrieval for explicit targets
   analysis.rs                bounded sentence and original C/A morphological evidence
   evaluation.rs              synchronous bounded checks and explicit bindings
-  generation.rs              experimental pair, assessment and focused observations
-  generation_context.rs      full-input validation and deterministic focused selection
+  generation.rs              candidate assessment/errors and provider metadata
   ports.rs                   source, atomic storage and explicit embedding capabilities
   adapters/
     mod.rs
@@ -722,7 +671,7 @@ PLAN.md                      implementation stages and evidence
 
 As working functionality arrives, split `domain.rs` into `domain/learner.rs`,
 `materials.rs`, `progress.rs`, and `exercise.rs`; add `knowledge/` and
-`generation/` when the implemented scope outgrows the concrete G1 module.
+`generation/` when the implemented scope outgrows the concrete story module.
 Group future model adapters in `adapters/models/`, prompt adapters in
 `adapters/prompts/`, and corpus adapters in `adapters/examples/`. WaniKani stays
 under `adapters/sources/wanikani`; Bunpro joins that category when implemented.

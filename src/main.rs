@@ -31,11 +31,8 @@ mod analyze;
 mod candidate_report;
 mod cli_support;
 mod dictionary;
-mod generate;
 mod story_command;
 
-#[cfg(test)]
-mod generate_tests;
 #[cfg(test)]
 mod story_tests;
 
@@ -46,7 +43,7 @@ mod story_tests;
     about = "Generate experimental candidates, analyze supplied text, prepare practice context, preview entries, or sync/inspect WaniKani (unofficial tool)"
 )]
 struct Cli {
-    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze/generate-candidates/story commands).
+    /// Sync/status/prepare directory containing wanikani.json (default: $HOME/.yomibu; ignored by preview/analyze/story commands).
     #[arg(long, global = true, value_name = "PATH")]
     data_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -90,20 +87,6 @@ enum Command {
         /// Number of candidates to request in one provider call.
         #[arg(long, default_value = "2")]
         candidates: std::num::NonZeroUsize,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Request two experimental sentences from OpenAI; never accepted exercises.
-    GenerateCandidates {
-        /// Authorize one paid model attempt sending the supplied permissions/grammar.
-        #[arg(long, required = true)]
-        allow_model_call: bool,
-        #[command(flatten)]
-        dictionary: dictionary::DictionaryArgs,
-        /// Version-1 JSON grammar declarations and explicit vocabulary/grammar bindings.
-        #[arg(long, value_name = "PATH")]
-        input: PathBuf,
-        /// Emit both candidates, checks, errors, provenance and original UTF-8 spans.
         #[arg(long)]
         json: bool,
     },
@@ -234,19 +217,6 @@ fn run(
                 candidate_count: candidates.get(),
             },
             &dictionary,
-            json,
-            make_client,
-            &mut io::stdout().lock(),
-        )
-        .map_err(|error| anyhow!("{}", format!("{error:#}").escape_debug()))?,
-        Command::GenerateCandidates {
-            dictionary,
-            input,
-            json,
-            ..
-        } => generate::run(
-            &dictionary,
-            &input,
             json,
             make_client,
             &mut io::stdout().lock(),

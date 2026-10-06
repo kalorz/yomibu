@@ -1,12 +1,16 @@
 # G2 v1/v2 comparison — prepared, not run
 
+> Historical experiment: G2 implementations are retired. This recipe builds the
+> pinned historical checkouts and reads archived fixtures; it does not use current
+> generation APIs. See [generation history](GENERATION_HISTORY.md).
+
 This is a small descriptive experiment using public synthetic data. No paid call
 has run and no improvement in adherence, naturalness or comprehension is claimed.
 Passing request snapshots and mocked responses establish engineering contracts only.
 The user's task explicitly requires approval before these paid OpenAI calls.
 Credentials and usable network access are also prerequisites; never print a key.
 
-The [manifest](../tests/fixtures/focused/comparison/manifest.json) fixes the code,
+The [manifest](history/generation/g2-fixtures/comparison/manifest.json) fixes the code,
 inputs, exact request files, byte lengths, SHA-256 hashes and execution order:
 
 - Baseline: `818dda5e6897e4d8ab729ed9198e5070d16af50b`, merged PR #9 with
@@ -29,9 +33,9 @@ Offline execution of both pinned binaries confirmed ready contexts and identical
 user messages, schema and provider settings: only developer prompt text differs.
 All six stored requests have no trailing newline; Python and `wc`/`sha256sum`
 independently agree on length/hash. The manifest supplies full hashes.
-The focused request suite also regenerates all three current-version requests,
-checks their exact fixture bytes and revision, and verifies input/request paths,
-byte lengths and SHA-256 hashes against the manifest. This detects fixture drift;
+The historical focused request suite regenerated all three v2 requests,
+checked their exact fixture bytes and revision, and verified input/request paths,
+byte lengths and SHA-256 hashes against the manifest. This detected fixture drift at the pinned revision;
 it supplies no evidence that the model follows the prompt.
 
 | Situation | v1 bytes | v2 bytes |
@@ -104,7 +108,7 @@ from pathlib import Path
 repo = Path(os.environ['YOMIBU_COMPARISON_REPO'])
 work = Path(os.environ['YOMIBU_COMPARISON_WORK'])
 results = Path(os.environ['YOMIBU_COMPARISON_RESULTS'])
-fixtures = repo / 'tests/fixtures/focused/comparison'
+fixtures = repo / 'docs/history/generation/g2-fixtures/comparison'
 manifest = json.loads((fixtures / 'manifest.json').read_bytes())
 assert not (results / 'live-started').exists()
 results.mkdir(parents=True, exist_ok=True)

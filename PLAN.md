@@ -5,6 +5,54 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Legacy G1/G2 retirement — 2026-10-06
+
+The authorized cleanup leaves one generation path, beginning at
+`story_command.rs::run_generation`. Removed the G1 `generate-candidates` command,
+its binary composition/report module and G1/G2 public generation entry points,
+fixed-pair/context types, authored situation selector and focused observations.
+Unrelated preview/preparation/sync/status/analysis and dictionary behavior stays
+unchanged. Current story request bytes/hash, prompt revision, provider settings,
+limits, reports, full-inventory assessment, partial results, original UTF-8 spans,
+A1 no-go and object-combination safeguard are unchanged.
+
+Migrated provider tests before removal and verified them green through
+`generate_story_candidates`: exact current request/settings/provenance,
+whole-response rejection, redirects/credentials/no retry, deadlines and truncated,
+chunked or close-delimited bodies. Migrated typed downstream report errors to
+story tests, preserving available analysis and NotRun without completed judgments.
+The credential subprocess regression now uses story inputs and the real pinned
+dictionary; `.env` is ignored, invalid secrets stay out of diagnostics and no files
+are written. Existing story/evaluation tests cover full-inventory membership,
+original candidates, partial results, terminal presentation and object uncertainty.
+Removed only obsolete focused selector, fixed-pair and legacy CLI/schema tests.
+
+RED: the obsolete-command subprocess test still accepted `generate-candidates`;
+confirmed the expected exit-0 versus exit-2 failure before removing dispatch.
+GREEN: the migrated tests and current story suites pass after removal.
+Simplification review removed the now-single-variant `GenerationError` wrapper;
+`Client::generate_story_candidates` returns `ProviderError` directly. Removed the
+never-emitted story `GenerationProvenance::focused_context` field and placed the
+small target morphology predicate beside its only caller in `story.rs`.
+`generation.rs` now contains only live candidate assessment/error and provider
+metadata types. No new dependency, trait, framework or legacy Rust archive exists.
+
+[Generation history](docs/GENERATION_HISTORY.md) records conclusions and exact
+Git pins. Moved 15 non-Markdown artifacts byte-for-byte from the old test fixture
+folders to `docs/history/generation/`; kept detailed G1/G2 usage clearly historical
+and updated the comparison recipe to read the archive. The v1/v2 live comparison
+remains **not run**, with no new linguistic-quality claim. SPEC, architecture,
+README and current usage describe only the story implementation and explicit
+breaking Rust API changes. All current story fixtures match the pre-cleanup pin.
+
+Verification: `cargo fmt --check`,
+`cargo clippy --locked --all-targets --all-features -- -D warnings`,
+`cargo test --locked --all` (**203 passed**, none failed/ignored),
+`git diff --check`, strict Rustdoc and **9 dictionary-setup Python tests** passed.
+Real analyzer/dictionary tests used the pinned installed dictionary. No live
+model calls were made; dependency files are unchanged. Hosted checks/review are
+recorded on the cleanup PR; native macOS was not run locally.
+
 ## PR #15 Greptile corrections — 2026-10-06
 
 Read Greptile's 4/5 summary and all three inline comments on `8849125`.

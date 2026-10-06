@@ -76,20 +76,17 @@ async fn real_socket_deadlines_disconnects_and_truncated_bodies_make_one_attempt
             Duration::from_millis(150),
         )
         .unwrap();
-        let grammar = GrammarDeclarations::from_descriptions(["description"]).unwrap();
+        let request = story_request();
         let error = client
-            .generate_candidates(&grammar, &EvaluationBindings::default())
+            .generate_story_candidates(&request)
             .await
             .unwrap_err();
         assert!(
-            matches!(error, GenerationError::Provider(ProviderError::Timeout)) == timeout,
+            matches!(error, ProviderError::Timeout) == timeout,
             "{error:?}"
         );
         if !timeout {
-            assert!(
-                matches!(error, GenerationError::Provider(ProviderError::Transport)),
-                "{error:?}"
-            );
+            assert!(matches!(error, ProviderError::Transport), "{error:?}");
         }
         assert_eq!(count.load(Ordering::SeqCst), 1);
         server.abort();
@@ -99,8 +96,7 @@ async fn real_socket_deadlines_disconnects_and_truncated_bodies_make_one_attempt
 
 #[tokio::test]
 async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
-    let grammar = GrammarDeclarations::from_descriptions(["description"]).unwrap();
-    let bindings = EvaluationBindings::default();
+    let request = story_request();
     let envelope = json!({"id":"resp_synthetic","model":"reported","status":"completed","output":[
         {"type":"message","role":"assistant","status":"completed","content":[
             {"type":"output_text","text":"{\"candidates\":[\"犬です。\",\"猫です。\"]}"}]}]})
@@ -125,15 +121,12 @@ async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
             };
             let (base, count, server) = raw_server(bytes, false).await;
             let client = Client::with_base_url("synthetic", &base).unwrap();
-            let result = client.generate_candidates(&grammar, &bindings).await;
+            let result = client.generate_story_candidates(&request).await;
             if size == 65536 {
                 assert!(result.is_ok(), "{result:?}");
             } else {
                 assert!(
-                    matches!(
-                        result,
-                        Err(GenerationError::Provider(ProviderError::ResponseTooLarge))
-                    ),
+                    matches!(result, Err(ProviderError::ResponseTooLarge)),
                     "{result:?}"
                 );
             }
@@ -144,80 +137,45 @@ async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
     }
 }
 
-#[tokio::test]
-async fn focused_request_shares_real_socket_deadlines_truncation_and_chunk_bounds() {
-    use crate::generation_context::{VocabularyEntryId, select_context};
-    let value: serde_json::Value =
-        serde_json::from_str(include_str!("../../tests/fixtures/focused/pet-rest.json")).unwrap();
-    let grammar = GrammarDeclarations::from_descriptions(["topic", "polite"]).unwrap();
-    let bindings = serde_json::from_value(value["bindings"].clone()).unwrap();
-    let request = prepare_focused_request(
-        select_context(&grammar, &bindings, VocabularyEntryId::new(1).unwrap()).unwrap(),
+fn story_request() -> crate::story::AiModelRequest {
+    use crate::{
+        inventory::LearnerInventory,
+        retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
+        story::{StoryRequest, build_ai_model_request, select_vocabulary},
+    };
+    let inventory = LearnerInventory::from_manual(
+        serde_json::from_str(include_str!("../../tests/fixtures/story/inventory.json")).unwrap(),
     )
     .unwrap();
-    let envelope=json!({"id":"synthetic","model":"reported","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"{\"candidates\":[\"猫\",\"猫\"]}"}]}]}).to_string();
-    let mut cases = vec![
-        (Vec::new(), true, "timeout"),
-        (
-            b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\n{".to_vec(),
-            true,
-            "timeout",
-        ),
-        (
-            b"HTTP/1.1 200 OK\r\nContent-Length: 40\r\n\r\n{".to_vec(),
-            false,
-            "transport",
-        ),
-    ];
-    for chunked in [true, false] {
-        for size in [65536, 65537] {
-            let mut body = envelope.as_bytes().to_vec();
-            body.resize(size, b' ');
-            let mut wire = if chunked {
-                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec()
-            } else {
-                b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec()
-            };
-            if chunked {
-                for chunk in body.chunks(997) {
-                    wire.extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
-                    wire.extend_from_slice(chunk);
-                    wire.extend_from_slice(b"\r\n");
-                }
-                wire.extend_from_slice(b"0\r\n\r\n");
-            } else {
-                wire.extend_from_slice(&body);
-            }
-            cases.push((wire, false, if size == 65536 { "ok" } else { "oversize" }));
-        }
-    }
-    for (bytes, stall, expected) in cases {
-        let (base, count, server) = raw_server(bytes, stall).await;
-        let client = Client::build(
-            "synthetic",
-            &base,
-            Duration::from_millis(100),
-            Duration::from_millis(150),
-        )
-        .unwrap();
-        let result = client.generate_focused_candidates(&request).await;
-        match expected {
-            "ok" => assert!(result.is_ok()),
-            "oversize" => assert!(matches!(
-                result,
-                Err(GenerationError::Provider(ProviderError::ResponseTooLarge))
-            )),
-            "timeout" => assert!(matches!(
-                result,
-                Err(GenerationError::Provider(ProviderError::Timeout))
-            )),
-            _ => assert!(matches!(
-                result,
-                Err(GenerationError::Provider(ProviderError::Transport))
-            )),
-        };
-        assert_eq!(count.load(Ordering::SeqCst), 1);
-        server.abort();
-        let _ = server.await;
-    }
+    let request: StoryRequest =
+        serde_json::from_str(include_str!("../../tests/fixtures/story/request.json")).unwrap();
+    let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
+    let model = EmbeddingModelIdentity {
+        provider: "test".into(),
+        model: "fixture-vectors".into(),
+        revision: "1".into(),
+        dimensions: 2,
+        encoding_revision: "1".into(),
+    };
+    let cache =
+        EmbeddingCache::from_vectors(model.clone(), &inputs, vec![vec![1., 0.]; inputs.len()])
+            .unwrap();
+    let plan = select_vocabulary(&inventory, &request, &cache, &model, 2).unwrap();
+    build_ai_model_request(&inventory, &request, plan, Default::default())
+        .unwrap()
+        .1
+}
+
+#[test]
+fn encoded_request_byte_limit_is_exact() {
+    let short = prepare_candidate_body("prompt", "x", 2).unwrap();
+    let data = "x".repeat(1 + 16384 - short.len());
+    assert_eq!(
+        prepare_candidate_body("prompt", &data, 2).unwrap().len(),
+        16384
+    );
+    assert!(matches!(
+        prepare_candidate_body("prompt", &(data + "x"), 2),
+        Err(ProviderError::RequestTooLarge)
+    ));
 }

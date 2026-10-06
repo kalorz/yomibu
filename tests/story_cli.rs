@@ -156,8 +156,9 @@ fn brief_is_data_and_terminal_controls_are_escaped_in_json_and_text() {
 }
 
 #[test]
-fn obsolete_focused_commands_are_removed_without_aliases() {
+fn obsolete_generation_commands_are_removed_without_aliases() {
     for old in [
+        "generate-candidates",
         "generate-focused",
         "context-preview",
         "preview-reading",
@@ -360,4 +361,40 @@ async fn oversized_combined_embedding_document_fails_before_any_provider_call() 
             .unwrap()
             .contains("32768-byte")
     );
+}
+
+#[test]
+fn generation_credentials_are_explicit_after_local_preflight_without_discovery_or_writes() {
+    let dir = setup();
+    prepare(dir.path());
+    fs::write(dir.path().join(".env"), "OPENAI_API_KEY=synthetic-unused").unwrap();
+    let before = fs::read_dir(dir.path()).unwrap().count();
+    let dictionary =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("target/a1/current/system_core.dic");
+    for key in [None, Some("synthetic-secret\nInjected")] {
+        let mut command = cli(dir.path(), "generate-story");
+        command
+            .args(["--allow-model-call", "--dictionary"])
+            .arg(&dictionary)
+            .args(["--data-dir", "ignored"]);
+        if let Some(key) = key {
+            command.env("OPENAI_API_KEY", key);
+        }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains(if key.is_none() {
+                "Set OPENAI_API_KEY"
+            } else {
+                "credential"
+            }),
+            "{stderr}"
+        );
+        assert!(!stderr.contains("synthetic-secret"));
+        assert!(!stderr.contains("synthetic-unused"));
+        assert!(!stderr.contains("Injected"));
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), before);
+    }
 }

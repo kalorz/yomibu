@@ -535,8 +535,7 @@ fn observe_targets(
                 .count()
                 != 1;
             for unit in &a.units {
-                let supported =
-                    crate::generation::morphology(&unit.token, a.sentence.text()).is_some();
+                let supported = supports_target_morphology(&unit.token, a.sentence.text());
                 if unit.token.dictionary_form == word.written_form {
                     let matches = !competing
                         && lexical.as_ref().is_some_and(|w| {
@@ -630,4 +629,20 @@ fn observe_targets(
         });
     }
     observations
+}
+
+fn supports_target_morphology(token: &crate::analysis::Token, text: &str) -> bool {
+    match token.part_of_speech[0].as_str() {
+        "名詞" | "代名詞" => true,
+        "動詞" => {
+            let Some(stem) = evaluation::regular_stem(&token.dictionary_form, token) else {
+                return false;
+            };
+            let Some(surface) = text.get(token.span.clone()) else {
+                return false;
+            };
+            surface == token.dictionary_form || surface == stem
+        }
+        _ => false,
+    }
 }
