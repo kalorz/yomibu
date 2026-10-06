@@ -6,7 +6,8 @@ synchronization, offline inspection of learner observations, and macOS/Linux CI.
 The library composes sync/status through `App` with file or in-memory storage.
 Manual candidate preview, offline learner-context preparation, and a bounded
 offline `analyze` command are available. G1 adds explicitly requested experimental
-sentence candidates with local checks. G2 adds focused selection and optional offline
+sentence candidates with local checks. The shared story path adds manual/WaniKani
+inventories, a topic brief, multiple targets and cached retrieval with offline
 request preview; validated reading exercises remain deferred.
 
 Offline preparation implementation and real-learner acceptance are complete as
@@ -319,33 +320,39 @@ The existing `analyze` command remains fully offline.
 The documented generation command also uses `--release` to reduce local dictionary
 startup time. Waiting for the provider is additional.
 
-## Focused experimental candidates (G2)
+## Shared experimental story candidates
 
-With explicit permissions, choose 寝る and generate in one command:
-
-```sh
-yomibu generate-focused --permissions /tmp/g2-permissions.json --focus-entry 1 \
-  --dictionary /path/to/pinned/system_core.dic --allow-model-call --json
-```
-
-The [synthetic example permissions](tests/fixtures/focused/pet-rest.json) select
-寝る and 猫 from a larger allowed inventory. All original permissions are used
-for local evaluation; only selected vocabulary and all supplied grammar are sent.
-The situation associations are original suggestions, not verified linguistic facts.
-
-Optional inspection needs no dictionary, API key or network:
+Use one inventory from manual JSON, an explicit WaniKani cache, or both. A separate
+story request gives the topic/scene and lists vocabulary and grammar targets.
+Selection chooses supporting words; assessment keeps the complete inventory.
 
 ```sh
-yomibu context-preview --permissions /tmp/g2-permissions.json --focus-entry 1
+cargo run --locked -- prepare-retrieval \
+  --inventory tests/fixtures/story/inventory.json \
+  --request tests/fixtures/story/request.json \
+  --embedding-cache /tmp/yomibu-vectors.json --embedding-provider lexical-baseline
+cargo run --locked -- preview-story \
+  --inventory tests/fixtures/story/inventory.json \
+  --request tests/fixtures/story/request.json \
+  --embedding-cache /tmp/yomibu-vectors.json --json
 ```
 
-There is no preview import, required confirmation or retained session. Generation
-reports the actual context, both candidates, unchanged checks and separate lexical
-focus/context evidence. Naturalness and contextual reading/sense are unverified.
-A missing focus does not trigger another request. Estimated attempt cost is below
-US$0.01, not a guaranteed billing ceiling. See [G2](docs/G2.md) for exact input,
-selection, output, privacy, cost and evidence contracts. Implementation testing
-uses loopback mocks, never an implicitly authorized live model call.
+Preview is offline and initializes no dictionary, credential, client or runtime.
+The lexical baseline above is explicitly nonsemantic. Local and hosted embedding
+adapters are available, but no dense model is selected by default; see the
+[retrieval comparison and limitations](docs/RETRIEVAL.md).
+
+To generate, use `generate-story` with the same input/cache flags plus
+`--allow-model-call` and `--dictionary PATH` (or `--dictionary-dir PATH`). This
+requires `OPENAI_API_KEY` and makes one paid generation attempt. Set
+`--candidates N` (default 2) on generation or preview; this is an execution option,
+separate from the story request. All original texts and partial assessments are reported; no automatic
+retry or accepted exercise is produced. Hosted embedding preparation has its own
+separate opt-in. See [story usage, library flow and limits](docs/STORY_GENERATION.md).
+
+The former `generate-focused`/`context-preview` commands and `--permissions` flag
+have no aliases. Current request/report schemas and hashes intentionally change;
+[historical G2](docs/G2.md) remains documented for reproducibility.
 
 ## Bounded offline analysis investigation (A1; historical no-go)
 

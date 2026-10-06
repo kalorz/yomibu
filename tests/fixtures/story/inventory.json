@@ -1,0 +1,7 @@
+{"version":1,"vocabulary":[
+{"id":"sleep","written_form":"寝る","readings":["ねる"],"meanings":["sleep"],"direct_object":false},
+{"id":"cat","written_form":"猫","readings":["ねこ"],"meanings":["cat"],"direct_object":null},
+{"id":"dog","written_form":"犬","readings":["いぬ"],"meanings":["dog"],"direct_object":null},
+{"id":"walk","written_form":"歩く","readings":["あるく"],"meanings":["walk"],"direct_object":false}],
+"grammar_declarations":[{"id":"topic","description":"は — topic marker"},{"id":"polite","description":"ます — polite nonpast"}],
+"grammar_bindings":[{"declaration_id":"topic","rule":"TopicWa"},{"declaration_id":"polite","rule":"PoliteNonPast"}]}

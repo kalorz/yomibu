@@ -5,3 +5,5 @@ pub mod openai;
 pub mod sources;
 pub mod stores;
 pub mod sudachi;
+
+pub mod embeddings;
