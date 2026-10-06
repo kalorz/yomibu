@@ -3,8 +3,8 @@
 The current experimental path accepts either manual material or an explicit
 WaniKani cache. Source conversion ends at `LearnerInventory`; both sources use
 the same request, selection, generation and assessment code. This replaces the
-G1/G2 generation implementations, without aliases. G0 preview, preparation,
-sync, status and analyze remain unchanged.
+G1/G2 generation implementations, without aliases. Old manual preview/source
+preparation are retired; sync, status and analyze remain unchanged.
 
 "Story" includes short scenes and dialogues, including a single sentence. The
 rename adds no plot/character requirements and does not expand the current

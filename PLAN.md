@@ -5,6 +5,21 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Thin CLI, slice 1 — prototype retirement — 2026-10-06
+
+Retired old `preview`/`prepare`, their examples, library APIs, standalone grammar-file
+adapter and obsolete first-N/source-inspection tests. Kept source eligibility and
+migrated its three evidence/policy tests to `tests/knowledge.rs`. `derive(source)`
+and `LearnerKnowledge` now have no grammar dependency; inventory calls the same
+rules directly. RED confirmed old preview exit 0 rather than the intended parser
+exit 2, and the new one-argument eligibility API initially failed to compile.
+Historical purposes/contracts/code pin are in COMMAND_HISTORY; current story,
+analysis, sync/status and source evidence contracts remain unchanged. CI demos now
+exercise offline story retrieval and preview rather than retired commands.
+GREEN: knowledge/inventory/grammar and CLI suites pass (18 tests). Simplification
+review removed the unused grammar-file adapter and avoided replacing retired APIs
+with compatibility wrappers; no full-source copies or changed eligibility rules.
+
 ## Shared library story workflow and A1 runner retirement — 2026-10-06
 
 The approved follow-up moves reusable orchestration out of the CLI. Read adjacent
