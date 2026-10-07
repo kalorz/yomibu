@@ -184,6 +184,45 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
 }
 
 #[test]
+fn request_bounds_count_brief_bytes_and_each_target_kind_independently() {
+    let mut inventory = inventory();
+    let word = inventory.vocabulary[0].clone();
+    for index in 0..17 {
+        let mut word = word.clone();
+        word.id = format!("word-{index}");
+        inventory.vocabulary.push(word);
+        inventory
+            .grammar_declarations
+            .push(yomibu::inventory::InventoryGrammar {
+                id: format!("grammar-{index}"),
+                description: "familiar grammar".into(),
+            });
+    }
+    let mut request = request();
+    request.targets.vocabulary = (0..16).map(|index| format!("word-{index}")).collect();
+    request.targets.grammar = (0..16).map(|index| format!("grammar-{index}")).collect();
+    request.brief = format!("{}ab", "猫".repeat(682));
+    assert_eq!(request.brief.len(), 2048);
+    assert!(request.validate(&inventory).is_ok());
+    assert!(request.validate_selection_limit(16).is_ok());
+    for limit in [0, 15, 17] {
+        assert!(request.validate_selection_limit(limit).is_err());
+    }
+
+    request.brief.push('c');
+    assert!(matches!(
+        request.validate(&inventory),
+        Err(StoryError::Invalid("version, brief or target limits"))
+    ));
+    request.brief.pop();
+    request.targets.vocabulary.push("word-16".into());
+    assert!(request.validate(&inventory).is_err());
+    request.targets.vocabulary.pop();
+    request.targets.grammar.push("grammar-16".into());
+    assert!(request.validate(&inventory).is_err());
+}
+
+#[test]
 fn request_budget_drops_lowest_ranked_supports_and_keeps_targets_and_grammar() {
     let mut inventory = inventory();
     for word in &mut inventory.vocabulary {

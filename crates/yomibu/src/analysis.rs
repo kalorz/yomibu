@@ -4,6 +4,8 @@ use std::{borrow::Cow, ops::Range};
 
 use serde::Serialize;
 
+pub(crate) const MAX_SENTENCE_UNICODE_SCALARS: usize = 100;
+
 /// An unchanged, nonblank input of at most 100 Unicode scalar values.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Sentence<'a>(Cow<'a, str>);
@@ -69,7 +71,7 @@ impl<'a> Sentence<'a> {
             return Err(SentenceError::Blank);
         }
         let characters = text.chars().count();
-        if characters > 100 {
+        if characters > MAX_SENTENCE_UNICODE_SCALARS {
             return Err(SentenceError::TooLong { characters });
         }
         Ok(Self(Cow::Borrowed(text)))

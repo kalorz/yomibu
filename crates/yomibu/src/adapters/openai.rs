@@ -9,10 +9,16 @@ use reqwest::{
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::candidate::{GenerationProvenance, TokenUsage};
+use crate::{
+    analysis::MAX_SENTENCE_UNICODE_SCALARS,
+    candidate::{GenerationProvenance, TokenUsage},
+};
 
 const BASE_URL: &str = "https://api.openai.com/v1/";
 const MODEL: &str = "gpt-6-luna";
+pub(crate) const OUTPUT_TOKENS_PER_CANDIDATE: usize = 512;
+const MAX_REQUEST_BODY_BYTES: usize = 16384;
+const MAX_RESPONSE_BODY_BYTES: usize = 65536;
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
     #[error("Candidate count must be positive and fit the output token budget.")]
@@ -158,13 +164,13 @@ impl Client {
             .map(str::to_owned);
         if response
             .content_length()
-            .is_some_and(|length| length > 65536)
+            .is_some_and(|length| length > MAX_RESPONSE_BODY_BYTES as u64)
         {
             return Err(ProviderError::ResponseTooLarge);
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(transport_error)? {
-            if chunk.len() > 65536 - bytes.len() {
+            if chunk.len() > MAX_RESPONSE_BODY_BYTES - bytes.len() {
                 return Err(ProviderError::ResponseTooLarge);
             }
             bytes.extend_from_slice(&chunk);
@@ -241,7 +247,7 @@ pub(crate) fn prepare_candidate_body(
     candidate_count: usize,
 ) -> Result<String, ProviderError> {
     let max_output_tokens = candidate_count
-        .checked_mul(512)
+        .checked_mul(OUTPUT_TOKENS_PER_CANDIDATE)
         .filter(|_| candidate_count > 0)
         .ok_or(ProviderError::InvalidCandidateCount)?;
     let body = serde_json::to_string(&json!({
@@ -252,11 +258,11 @@ pub(crate) fn prepare_candidate_body(
         "input":[{"role":"developer","content":prompt},{"role":"user","content":data}],
         "text":{"format":{"type":"json_schema","name":"sentence_candidates","strict":true,
             "schema":{"type":"object","properties":{"candidates":{"type":"array",
-                "minItems":candidate_count,"maxItems":candidate_count,"items":{"type":"string","minLength":1,"maxLength":100}}},
+                "minItems":candidate_count,"maxItems":candidate_count,"items":{"type":"string","minLength":1,"maxLength":MAX_SENTENCE_UNICODE_SCALARS}}},
                 "required":["candidates"],"additionalProperties":false}}}
     }))
     .map_err(|_| ProviderError::Serialization)?;
-    if body.len() > 16384 {
+    if body.len() > MAX_REQUEST_BODY_BYTES {
         return Err(ProviderError::RequestTooLarge);
     }
     Ok(body)
