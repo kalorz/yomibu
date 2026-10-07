@@ -1,4 +1,4 @@
-//! Candidate assessments, execution errors and provider metadata.
+//! Generated texts, provider metadata, assessments and execution errors.
 use crate::{
     adapters::sudachi::AnalysisError,
     analysis::{SentenceAnalysis, SentenceError},
@@ -28,6 +28,21 @@ pub struct GenerationProvenance {
     pub request_id: Option<String>,
     pub request_count: u8,
     pub usage: Option<TokenUsage>,
+}
+
+/// Original generated texts and metadata, independent of request/input lifetimes.
+#[derive(Debug)]
+pub struct GeneratedCandidates {
+    pub(crate) texts: Vec<String>,
+    pub(crate) provenance: GenerationProvenance,
+}
+impl GeneratedCandidates {
+    pub fn texts(&self) -> &[String] {
+        &self.texts
+    }
+    pub fn provenance(&self) -> &GenerationProvenance {
+        &self.provenance
+    }
 }
 
 #[derive(Debug)]

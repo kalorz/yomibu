@@ -8,21 +8,96 @@ use reqwest::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use crate::{
     analysis::MAX_SENTENCE_UNICODE_SCALARS,
-    candidate::{GenerationProvenance, TokenUsage},
+    candidate::{GeneratedCandidates, GenerationProvenance, TokenUsage},
 };
 
 const BASE_URL: &str = "https://api.openai.com/v1/";
 const MODEL: &str = "gpt-6-luna";
-pub(crate) const OUTPUT_TOKENS_PER_CANDIDATE: usize = 512;
-const MAX_REQUEST_BODY_BYTES: usize = 16384;
+const OUTPUT_TOKENS_PER_CANDIDATE: usize = 512;
 const MAX_RESPONSE_BODY_BYTES: usize = 65536;
 #[derive(Debug, thiserror::Error)]
-pub enum ProviderError {
+pub enum PreparationError {
     #[error("Candidate count must be positive and fit the output token budget.")]
     InvalidCandidateCount,
+    #[error("Cannot serialize the OpenAI request.")]
+    Serialization,
+    #[error(
+        "OpenAI request is {bytes} bytes, exceeding the {limit}-byte budget; no request was sent."
+    )]
+    RequestTooLarge { bytes: usize, limit: usize },
+}
+
+/// Immutable OpenAI Responses bytes and the identity used to execute them.
+#[derive(Debug)]
+pub struct PreparedRequest {
+    candidate_count: usize,
+    prompt_revision: &'static str,
+    body: String,
+    sha256: String,
+}
+impl PreparedRequest {
+    /// Prepare offline, enforcing the caller's budget on the full encoded body.
+    pub fn new(
+        prompt: &str,
+        data: &str,
+        prompt_revision: &'static str,
+        candidate_count: usize,
+        max_request_bytes: usize,
+    ) -> Result<Self, PreparationError> {
+        let max_output_tokens = output_token_budget(candidate_count)?;
+        let body = serde_json::to_string(&json!({
+            "model":MODEL, "service_tier":"default", "reasoning":{"effort":"none"},
+            "max_output_tokens":max_output_tokens, "store":false, "background":false, "stream":false,
+            "truncation":"disabled", "tools":[], "tool_choice":"none",
+            "prompt_cache_options":{"mode":"explicit"},
+            "input":[{"role":"developer","content":prompt},{"role":"user","content":data}],
+            "text":{"format":{"type":"json_schema","name":"sentence_candidates","strict":true,
+                "schema":{"type":"object","properties":{"candidates":{"type":"array",
+                    "minItems":candidate_count,"maxItems":candidate_count,"items":{"type":"string","minLength":1,"maxLength":MAX_SENTENCE_UNICODE_SCALARS}}},
+                    "required":["candidates"],"additionalProperties":false}}}
+        }))
+        .map_err(|_| PreparationError::Serialization)?;
+        if body.len() > max_request_bytes {
+            return Err(PreparationError::RequestTooLarge {
+                bytes: body.len(),
+                limit: max_request_bytes,
+            });
+        }
+        let sha256 = format!("{:x}", Sha256::digest(body.as_bytes()));
+        Ok(Self {
+            candidate_count,
+            prompt_revision,
+            body,
+            sha256,
+        })
+    }
+    pub fn candidate_count(&self) -> usize {
+        self.candidate_count
+    }
+    pub fn prompt_revision(&self) -> &'static str {
+        self.prompt_revision
+    }
+    pub fn body_utf8(&self) -> &str {
+        &self.body
+    }
+    pub fn sha256(&self) -> &str {
+        &self.sha256
+    }
+}
+
+pub(crate) fn output_token_budget(candidate_count: usize) -> Result<usize, PreparationError> {
+    candidate_count
+        .checked_mul(OUTPUT_TOKENS_PER_CANDIDATE)
+        .filter(|_| candidate_count > 0)
+        .ok_or(PreparationError::InvalidCandidateCount)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProviderError {
     #[error("OpenAI credential must be nonblank and valid for an authorization header.")]
     InvalidCredential,
     #[error(
@@ -31,10 +106,6 @@ pub enum ProviderError {
     InvalidBaseUrl,
     #[error("Cannot construct the OpenAI HTTP client.")]
     Configuration,
-    #[error("Cannot serialize the OpenAI request.")]
-    Serialization,
-    #[error("OpenAI request exceeds 16384 bytes; no request was sent.")]
-    RequestTooLarge,
     #[error(
         "OpenAI request timed out; completion and billing may be uncertain. No retry was made."
     )]
@@ -121,29 +192,12 @@ impl Client {
         })
     }
 
-    /// Send the bounded, immutable source-independent AI model request once.
-    pub async fn generate_story_candidates(
+    /// Send the immutable prepared request once.
+    pub async fn generate_candidates(
         &self,
-        request: &crate::story::AiModelRequest,
-    ) -> Result<crate::story::StoryCandidates, ProviderError> {
-        let (texts, provenance) = self
-            .send_request(
-                request.body_utf8(),
-                request.sha256(),
-                crate::story::STORY_PROMPT_REVISION,
-                request.options().candidate_count,
-            )
-            .await?;
-        Ok(crate::story::StoryCandidates { texts, provenance })
-    }
-
-    async fn send_request(
-        &self,
-        body: &str,
-        sha256: &str,
-        prompt_revision: &'static str,
-        candidate_count: usize,
-    ) -> Result<(Vec<String>, GenerationProvenance), ProviderError> {
+        request: &PreparedRequest,
+    ) -> Result<GeneratedCandidates, ProviderError> {
+        let body = request.body_utf8();
         let mut response = self
             .http
             .post(self.endpoint.clone())
@@ -218,54 +272,27 @@ impl Client {
         let payload = payload.ok_or(ProviderError::InvalidResponse)?;
         let candidates: Payload =
             serde_json::from_str(&payload).map_err(|_| ProviderError::InvalidResponse)?;
-        if candidates.candidates.len() != candidate_count {
+        if candidates.candidates.len() != request.candidate_count() {
             return Err(ProviderError::InvalidResponse);
         }
-        Ok((
-            candidates.candidates,
-            GenerationProvenance {
+        Ok(GeneratedCandidates {
+            texts: candidates.candidates,
+            provenance: GenerationProvenance {
                 provider: "OpenAI",
                 requested_model: MODEL,
                 returned_model: envelope.model,
                 requested_tier: "default",
                 returned_tier: envelope.service_tier,
-                prompt_revision,
-                request_sha256: sha256.to_owned(),
+                prompt_revision: request.prompt_revision(),
+                request_sha256: request.sha256().to_owned(),
                 request_bytes: body.len(),
                 response_id: envelope.id,
                 request_id,
                 request_count: 1,
                 usage: envelope.usage,
             },
-        ))
+        })
     }
-}
-
-pub(crate) fn prepare_candidate_body(
-    prompt: &str,
-    data: &str,
-    candidate_count: usize,
-) -> Result<String, ProviderError> {
-    let max_output_tokens = candidate_count
-        .checked_mul(OUTPUT_TOKENS_PER_CANDIDATE)
-        .filter(|_| candidate_count > 0)
-        .ok_or(ProviderError::InvalidCandidateCount)?;
-    let body = serde_json::to_string(&json!({
-        "model":MODEL, "service_tier":"default", "reasoning":{"effort":"none"},
-        "max_output_tokens":max_output_tokens, "store":false, "background":false, "stream":false,
-        "truncation":"disabled", "tools":[], "tool_choice":"none",
-        "prompt_cache_options":{"mode":"explicit"},
-        "input":[{"role":"developer","content":prompt},{"role":"user","content":data}],
-        "text":{"format":{"type":"json_schema","name":"sentence_candidates","strict":true,
-            "schema":{"type":"object","properties":{"candidates":{"type":"array",
-                "minItems":candidate_count,"maxItems":candidate_count,"items":{"type":"string","minLength":1,"maxLength":MAX_SENTENCE_UNICODE_SCALARS}}},
-                "required":["candidates"],"additionalProperties":false}}}
-    }))
-    .map_err(|_| ProviderError::Serialization)?;
-    if body.len() > MAX_REQUEST_BODY_BYTES {
-        return Err(ProviderError::RequestTooLarge);
-    }
-    Ok(body)
 }
 
 fn transport_error(error: reqwest::Error) -> ProviderError {

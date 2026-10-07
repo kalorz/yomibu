@@ -6,9 +6,9 @@ use wiremock::{
 };
 use yomibu::{
     App,
+    adapters::sources::wanikani::Client,
     adapters::stores::FileLearningStore,
-    cache::{self, SyncGuard},
-    wanikani::Client,
+    adapters::stores::file::cache::{self, SyncGuard},
 };
 
 const TOKEN: &str = "synthetic-flow-credential";

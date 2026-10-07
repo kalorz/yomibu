@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    adapters::openai::OUTPUT_TOKENS_PER_CANDIDATE,
     inventory::{InventoryError, LearnerInventory},
     retrieval::EmbeddingError,
 };
@@ -39,28 +38,14 @@ impl Default for StoryGenerationOptions {
         Self { candidate_count: 2 }
     }
 }
-impl StoryGenerationOptions {
-    pub fn validate(&self) -> Result<(), StoryError> {
-        if self.candidate_count == 0
-            || self
-                .candidate_count
-                .checked_mul(OUTPUT_TOKENS_PER_CANDIDATE)
-                .is_none()
-        {
-            return Err(StoryError::Invalid(
-                "candidate count must be positive and fit the output token budget",
-            ));
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum StoryError {
     #[error(transparent)]
     Inventory(#[from] InventoryError),
     #[error(transparent)]
     Embedding(#[from] EmbeddingError),
+    #[error("Invalid story request: targets and grammar exceed the {limit}-byte request limit.")]
+    RequiredMaterialTooLarge { bytes: usize, limit: usize },
     #[error("Invalid story request: {0}.")]
     Invalid(&'static str),
 }

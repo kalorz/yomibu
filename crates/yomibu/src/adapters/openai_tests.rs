@@ -76,11 +76,8 @@ async fn real_socket_deadlines_disconnects_and_truncated_bodies_make_one_attempt
             Duration::from_millis(150),
         )
         .unwrap();
-        let request = story_request();
-        let error = client
-            .generate_story_candidates(&request)
-            .await
-            .unwrap_err();
+        let request = prepared_request();
+        let error = client.generate_candidates(&request).await.unwrap_err();
         assert!(
             matches!(error, ProviderError::Timeout) == timeout,
             "{error:?}"
@@ -96,7 +93,7 @@ async fn real_socket_deadlines_disconnects_and_truncated_bodies_make_one_attempt
 
 #[tokio::test]
 async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
-    let request = story_request();
+    let request = prepared_request();
     let envelope = json!({"id":"resp_synthetic","model":"reported","status":"completed","output":[
         {"type":"message","role":"assistant","status":"completed","content":[
             {"type":"output_text","text":"{\"candidates\":[\"犬です。\",\"猫です。\"]}"}]}]})
@@ -121,9 +118,11 @@ async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
             };
             let (base, count, server) = raw_server(bytes, false).await;
             let client = Client::with_base_url("synthetic", &base).unwrap();
-            let result = client.generate_story_candidates(&request).await;
+            let result = client.generate_candidates(&request).await;
             if size == 65536 {
-                assert!(result.is_ok(), "{result:?}");
+                let result = result.unwrap();
+                assert_eq!(result.provenance().prompt_revision, "adapter-test-v1");
+                assert_eq!(result.provenance().request_sha256, request.sha256());
             } else {
                 assert!(
                     matches!(result, Err(ProviderError::ResponseTooLarge)),
@@ -137,50 +136,54 @@ async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
     }
 }
 
-fn story_request() -> crate::story::AiModelRequest {
-    use crate::{
-        inventory::LearnerInventory,
-        retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
-        story::{StoryRequest, build_ai_model_request, select_vocabulary},
-    };
-    let inventory = LearnerInventory::from_manual(
-        serde_json::from_str(include_str!(
-            "../../../../tests/fixtures/story/inventory.json"
-        ))
-        .unwrap(),
-    )
-    .unwrap();
-    let request: StoryRequest = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/story/request.json"
-    ))
-    .unwrap();
-    let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
-    let model = EmbeddingModelIdentity {
-        provider: "test".into(),
-        model: "fixture-vectors".into(),
-        revision: "1".into(),
-        dimensions: 2,
-        encoding_revision: "1".into(),
-    };
-    let cache =
-        EmbeddingCache::from_vectors(model.clone(), &inputs, vec![vec![1., 0.]; inputs.len()])
-            .unwrap();
-    let plan = select_vocabulary(&inventory, &request, &cache, &model, 2).unwrap();
-    build_ai_model_request(&inventory, &request, plan, Default::default())
-        .unwrap()
-        .1
+fn prepared_request() -> PreparedRequest {
+    PreparedRequest::new("prompt", "data", "adapter-test-v1", 2, 16384).unwrap()
+}
+
+#[test]
+fn preparation_uses_caller_budget_for_escaped_utf8_and_keeps_request_identity() {
+    use sha2::{Digest, Sha256};
+
+    let data = "\u{001b}\"\\\n猫".repeat(2000);
+    let request = PreparedRequest::new("prompt", &data, "test-prompt-v1", 3, usize::MAX).unwrap();
+    let bytes = request.body_utf8().len();
+    assert!(bytes > 16384);
+    assert_eq!(request.candidate_count(), 3);
+    assert_eq!(request.prompt_revision(), "test-prompt-v1");
+    assert_eq!(
+        request.sha256(),
+        format!("{:x}", Sha256::digest(request.body_utf8()))
+    );
+    let body: serde_json::Value = serde_json::from_str(request.body_utf8()).unwrap();
+    assert_eq!(body["input"][1]["content"], data);
+    assert_eq!(body["max_output_tokens"], 1536);
+
+    let exact = PreparedRequest::new("prompt", &data, "test-prompt-v1", 3, bytes).unwrap();
+    assert_eq!(exact.body_utf8(), request.body_utf8());
+    assert_eq!(exact.sha256(), request.sha256());
+    assert!(matches!(
+        PreparedRequest::new("prompt", &data, "test-prompt-v1", 3, bytes - 1),
+        Err(PreparationError::RequestTooLarge { bytes: actual, limit })
+            if actual == bytes && limit == bytes - 1
+    ));
 }
 
 #[test]
 fn encoded_request_byte_limit_is_exact() {
-    let short = prepare_candidate_body("prompt", "x", 2).unwrap();
-    let data = "x".repeat(1 + 16384 - short.len());
+    let short = PreparedRequest::new("prompt", "x", "test-v1", 2, 16384).unwrap();
+    let data = "x".repeat(1 + 16384 - short.body_utf8().len());
     assert_eq!(
-        prepare_candidate_body("prompt", &data, 2).unwrap().len(),
+        PreparedRequest::new("prompt", &data, "test-v1", 2, 16384)
+            .unwrap()
+            .body_utf8()
+            .len(),
         16384
     );
     assert!(matches!(
-        prepare_candidate_body("prompt", &(data + "x"), 2),
-        Err(ProviderError::RequestTooLarge)
+        PreparedRequest::new("prompt", &(data + "x"), "test-v1", 2, 16384),
+        Err(PreparationError::RequestTooLarge {
+            bytes: 16385,
+            limit: 16384
+        })
     ));
 }

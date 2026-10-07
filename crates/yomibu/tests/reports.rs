@@ -3,8 +3,8 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
     use yomibu::{
         adapters::sudachi::AnalysisError,
         analysis::{AnalysisProvenance, Sentence, SentenceAnalysis},
+        candidate::{CandidateAssessment, CandidateError},
         evaluation::EvaluationError,
-        generation::{CandidateAssessment, CandidateError},
     };
     let analysis = SentenceAnalysis {
         sentence: Sentence::new("猫です。").unwrap(),

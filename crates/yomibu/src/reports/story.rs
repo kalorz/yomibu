@@ -23,18 +23,18 @@ pub struct StoryPreviewReport<'a> {
 }
 impl<'a> StoryPreviewReport<'a> {
     pub fn new(request: &'a StoryRequest, plan: &'a StoryGenerationPlan<'a>) -> Self {
-        let ai_request = plan.ai_model_request();
+        let prepared_request = plan.prepared_request();
         Self {
             version: 1,
             kind: "story_generation_plan_preview",
             request,
             plan: plan.selection(),
-            generation_options: ai_request.options(),
+            generation_options: plan.generation_options(),
             provider_request: RequestBytes {
-                body_utf8: ai_request.body_utf8(),
-                bytes: ai_request.body_utf8().len(),
-                sha256: ai_request.sha256(),
-                prompt_revision: crate::story::STORY_PROMPT_REVISION,
+                body_utf8: prepared_request.body_utf8(),
+                bytes: prepared_request.body_utf8().len(),
+                sha256: prepared_request.sha256(),
+                prompt_revision: prepared_request.prompt_revision(),
             },
         }
     }

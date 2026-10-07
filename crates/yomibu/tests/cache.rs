@@ -1,5 +1,5 @@
 use std::fs;
-use yomibu::cache::load;
+use yomibu::adapters::stores::file::cache::load;
 
 #[test]
 fn loads_an_empty_account_with_unicode_and_utc_times() {
@@ -258,7 +258,7 @@ fn rejects_blank_kanji_reading_classification() {
 #[test]
 fn locked_writer_round_trips_and_fully_replaces_sync_data_privately() {
     use std::os::unix::fs::PermissionsExt;
-    use yomibu::cache::SyncGuard;
+    use yomibu::adapters::stores::file::cache::SyncGuard;
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("private/nested");
     let fixture = tempfile::tempdir().unwrap();
@@ -298,7 +298,7 @@ fn locked_writer_round_trips_and_fully_replaces_sync_data_privately() {
 
 #[test]
 fn writer_preserves_invalid_caches_and_rejects_other_accounts_or_invalid_sync_data() {
-    use yomibu::cache::SyncGuard;
+    use yomibu::adapters::stores::file::cache::SyncGuard;
     let fixture = tempfile::tempdir().unwrap();
     fs::write(
         fixture.path().join("wanikani.json"),
@@ -338,7 +338,7 @@ fn writer_preserves_invalid_caches_and_rejects_other_accounts_or_invalid_sync_da
 
 #[test]
 fn writer_lock_fails_promptly_and_status_can_read_until_guard_is_dropped() {
-    use yomibu::cache::SyncGuard;
+    use yomibu::adapters::stores::file::cache::SyncGuard;
     let dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("wanikani.json"),
@@ -348,7 +348,7 @@ fn writer_lock_fails_promptly_and_status_can_read_until_guard_is_dropped() {
     let guard = SyncGuard::acquire(dir.path()).unwrap();
     assert!(matches!(
         SyncGuard::acquire(dir.path()),
-        Err(yomibu::cache::WriteError::Locked)
+        Err(yomibu::adapters::stores::file::cache::WriteError::Locked)
     ));
     assert_eq!(load(dir.path()).unwrap().learner.id, "synthetic-learner");
     drop(guard);

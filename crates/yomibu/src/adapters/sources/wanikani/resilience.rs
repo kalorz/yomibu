@@ -85,7 +85,7 @@ async fn request_deadline_covers_stalled_headers_and_stalled_body() {
 }
 
 pub(super) async fn fails_without_replacing_cache(client: &mut Client) -> Error {
-    use crate::cache::{self, SyncGuard};
+    use crate::adapters::stores::file::cache::{self, SyncGuard};
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("wanikani.json");
     let bytes = include_bytes!("../../../../../../tests/fixtures/mixed.json");

@@ -224,7 +224,8 @@ Name implemented responsibilities consistently:
 - Use `InMemory...` for volatile adapters and provider/backend names for others.
 - Source progress is evidence; `LearnerKnowledgePolicy` derives eligibility.
   Inventory is the complete allowed material; selection is only the prompt subset.
-- Prompt templates are reusable content. `AiModelRequest` is one finalized payload.
+- Prompt templates are reusable content. `openai::PreparedRequest` is one finalized
+  Responses payload.
   An exercise generator would own acceptance; current story generation does not.
 
 Future responsibility names are not reserved APIs. Add types and extension points

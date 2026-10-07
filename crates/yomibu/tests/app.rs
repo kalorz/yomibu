@@ -175,8 +175,8 @@ async fn source_and_validation_failures_are_typed_and_preserve_data() {
 #[tokio::test]
 async fn unusable_store_prevents_fetch_and_preserves_its_error() {
     use yomibu::{
+        adapters::stores::file::cache::{CacheError, WriteError},
         app::SyncError,
-        cache::{CacheError, WriteError},
     };
     let directory = tempfile::tempdir().unwrap();
     let store = FileLearningStore::new(directory.path());

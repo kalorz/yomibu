@@ -1,5 +1,5 @@
 use std::fs;
-use yomibu::{cache::load, domain::WaniKaniSyncData};
+use yomibu::{adapters::stores::file::cache::load, domain::WaniKaniSyncData};
 
 fn fixture(json: &str) -> WaniKaniSyncData {
     let dir = tempfile::tempdir().unwrap();

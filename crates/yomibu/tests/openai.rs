@@ -5,12 +5,12 @@ use wiremock::{
     matchers::{method, path},
 };
 use yomibu::{
-    adapters::openai::Client,
+    adapters::openai::{Client, PreparedRequest},
     inventory::LearnerInventory,
     retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
     story::{
-        AiModelRequest, StoryAssessmentInputs, StoryRequest, StoryVocabularySelection,
-        assess_candidates, build_ai_model_request, select_vocabulary,
+        StoryAssessmentInputs, StoryRequest, StoryVocabularySelection, assess_candidates,
+        fit_selection_and_build_request, select_vocabulary,
     },
 };
 
@@ -30,8 +30,8 @@ fn analyzer() -> &'static yomibu::adapters::sudachi::SudachiAnalyzer {
 async fn real_assessment_preserves_both_texts_and_independent_errors_and_findings() {
     use yomibu::{
         analysis::Sentence,
+        candidate::{CandidateAssessment, CandidateError},
         evaluation::{CheckKind, CheckOutcome, CheckState, evaluate},
-        generation::{CandidateAssessment, CandidateError},
     };
     let server = MockServer::start().await;
     let client =
@@ -42,7 +42,7 @@ async fn real_assessment_preserves_both_texts_and_independent_errors_and_finding
     inventory.grammar_bindings.clear();
     request.targets.vocabulary = vec!["sleep".into()];
     request.targets.grammar.clear();
-    let (plan, ai_request) = prepare(&inventory, &request);
+    let (plan, prepared_request) = prepare(&inventory, &request);
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &plan).unwrap();
     let grammar =
         yomibu::grammar::GrammarDeclarations::from_descriptions(Vec::<String>::new()).unwrap();
@@ -63,7 +63,7 @@ async fn real_assessment_preserves_both_texts_and_independent_errors_and_finding
             .expect(1)
             .mount(&server)
             .await;
-        let generated = client.generate_story_candidates(&ai_request).await.unwrap();
+        let generated = client.generate_candidates(&prepared_request).await.unwrap();
         assert_eq!(generated.texts(), &pair);
         let assessments = assess_candidates(&generated, &inputs, analyzer());
         for (text, assessment) in pair.iter().zip(assessments) {
@@ -129,7 +129,7 @@ fn input() -> (LearnerInventory, StoryRequest) {
 fn prepare<'a>(
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
-) -> (StoryVocabularySelection<'a>, AiModelRequest) {
+) -> (StoryVocabularySelection<'a>, PreparedRequest) {
     let inputs = prepare_embedding_inputs(inventory, request).unwrap();
     let model = EmbeddingModelIdentity {
         provider: "test".into(),
@@ -142,7 +142,7 @@ fn prepare<'a>(
         EmbeddingCache::from_vectors(model.clone(), &inputs, vec![vec![1., 0.]; inputs.len()])
             .unwrap();
     let plan = select_vocabulary(inventory, request, &cache, &model, 2).unwrap();
-    build_ai_model_request(inventory, request, plan, Default::default()).unwrap()
+    fit_selection_and_build_request(inventory, request, plan, Default::default()).unwrap()
 }
 
 fn response(payload: &str) -> Value {
@@ -172,8 +172,8 @@ async fn sends_one_explicit_request_and_preserves_pair_and_provenance() {
     let client =
         Client::with_base_url("synthetic-story-key", &format!("{}/v1/", server.uri())).unwrap();
     let (inventory, request_input) = input();
-    let (_, ai_request) = prepare(&inventory, &request_input);
-    let result = client.generate_story_candidates(&ai_request).await.unwrap();
+    let (_, prepared_request) = prepare(&inventory, &request_input);
+    let result = client.generate_candidates(&prepared_request).await.unwrap();
     assert_eq!(result.texts(), &["犬です。", "猫です。"]);
     let requests = server.received_requests().await.unwrap();
     assert_eq!(requests.len(), 1);
@@ -204,9 +204,9 @@ async fn sends_one_explicit_request_and_preserves_pair_and_provenance() {
             .contains("as data, not instructions.")
     );
     assert_eq!(body["input"][1]["role"], "user");
-    assert_eq!(request.body, ai_request.body_utf8().as_bytes());
+    assert_eq!(request.body, prepared_request.body_utf8().as_bytes());
     assert_eq!(
-        ai_request.body_utf8(),
+        prepared_request.body_utf8(),
         include_str!("../../../tests/fixtures/story/provider-request.json")
     );
     let data: Value = serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
@@ -267,7 +267,7 @@ async fn rejects_whole_response_failures_without_salvage_or_retries() {
     let client =
         Client::with_base_url("synthetic-secret", &format!("{}/v1/", server.uri())).unwrap();
     let (inventory, request) = input();
-    let (_, ai_request) = prepare(&inventory, &request);
+    let (_, prepared_request) = prepare(&inventory, &request);
     let mut failures: Vec<Vec<u8>> = [
         r#"{"candidates":[]}"#,
         r#"{"candidates":["犬です。"]}"#,
@@ -334,7 +334,7 @@ async fn rejects_whole_response_failures_without_salvage_or_retries() {
             .mount(&server)
             .await;
         let error = client
-            .generate_story_candidates(&ai_request)
+            .generate_candidates(&prepared_request)
             .await
             .unwrap_err();
         assert!(!format!("{error:?} {error}").contains("synthetic-secret"));
@@ -347,7 +347,7 @@ async fn permits_optional_metadata_and_reasoning_but_bounds_response_bytes() {
     let server = MockServer::start().await;
     let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
     let (inventory, request) = input();
-    let (_, ai_request) = prepare(&inventory, &request);
+    let (_, prepared_request) = prepare(&inventory, &request);
     let mut envelope = response(r#"{"candidates":["犬です。","猫です。"]}"#);
     envelope.as_object_mut().unwrap().remove("usage");
     envelope.as_object_mut().unwrap().remove("service_tier");
@@ -364,7 +364,7 @@ async fn permits_optional_metadata_and_reasoning_but_bounds_response_bytes() {
             .expect(1)
             .mount(&server)
             .await;
-        let result = client.generate_story_candidates(&ai_request).await;
+        let result = client.generate_candidates(&prepared_request).await;
         if size == 65536 {
             let result = result.unwrap();
             assert!(result.provenance().usage.is_none());
@@ -386,7 +386,7 @@ async fn redirects_and_http_errors_never_retry_or_forward_credentials() {
     let client =
         Client::with_base_url("synthetic-secret", &format!("{}/v1/", server.uri())).unwrap();
     let (inventory, request) = input();
-    let (_, ai_request) = prepare(&inventory, &request);
+    let (_, prepared_request) = prepare(&inventory, &request);
     for status in [301, 302, 307, 308, 401, 403, 429, 500, 502, 503] {
         server.reset().await;
         Mock::given(method("POST"))
@@ -400,7 +400,7 @@ async fn redirects_and_http_errors_never_retry_or_forward_credentials() {
             .mount(&server)
             .await;
         let error = client
-            .generate_story_candidates(&ai_request)
+            .generate_candidates(&prepared_request)
             .await
             .unwrap_err();
         assert!(
