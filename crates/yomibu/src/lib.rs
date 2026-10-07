@@ -25,5 +25,8 @@ pub mod story;
 pub mod summary;
 
 #[cfg(test)]
+extern crate self as yomibu;
+
+#[cfg(test)]
 #[path = "../../../tests/support/dictionary.rs"]
 mod test_dictionary;

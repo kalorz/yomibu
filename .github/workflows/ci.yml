@@ -44,6 +44,10 @@ jobs:
         run: |
           python3 -B -m unittest discover -s scripts -p 'test_setup_test_dictionary.py' -v
           python3 scripts/setup_test_dictionary.py
+          cargo run --locked --profile test -- dictionary import \
+            --bundle target/test-resources/sudachi-core/current \
+            --data-dir target/test-resources/setup \
+            --dictionary-dir target/test-resources/managed-dictionary
       - name: Test
         run: cargo test --locked --all
       - name: Run documented offline story demonstrations

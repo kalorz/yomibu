@@ -7,7 +7,6 @@ use yomibu::{
     adapters::{
         embeddings::LexicalEmbedder,
         openai::{Client, ProviderError},
-        sudachi::SudachiAnalyzer,
     },
     candidate::CandidateAssessment,
     evaluation::{CheckKind, CheckOutcome, CheckState},
@@ -61,8 +60,7 @@ async fn shared_workflow_preserves_owned_texts_full_inventory_and_findings_after
         .unwrap();
         let bytes = plan.prepared_request().body_utf8().as_bytes().to_vec();
         let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
-        let analyzer =
-            SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+        let analyzer = test_dictionary::load_analyzer();
         let result = generate_story(&plan, &client, &analyzer).await.unwrap();
         assert_eq!(server.received_requests().await.unwrap()[0].body, bytes);
         result
@@ -182,8 +180,7 @@ async fn provider_failure_returns_no_result_and_never_retries() {
         sentence_options(2),
     )
     .unwrap();
-    let analyzer =
-        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+    let analyzer = test_dictionary::load_analyzer();
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(429).set_body_string("secret"))

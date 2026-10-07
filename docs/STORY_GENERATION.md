@@ -117,6 +117,8 @@ adherence, naturalness or comprehension, and never trigger a retry.
 Normal stdout contains the passage; warnings use stderr. `--verbose` adds module
 states, progress and monotonic step timings to stdout. `--json --verbose` sends
 progress to stderr and writes one JSON report, including states and timings.
+An absent default dictionary skips assessment. Explicit unusable dictionary
+selections warn and retain generated text.
 Missing/disabled assessment returns `NotRun`; missing grammar knowledge leaves
 grammar-dependent checks unassessed. Optional assessment errors exit zero with
 warnings. Provider/preflight failures exit 1; parsing failures exit 2.

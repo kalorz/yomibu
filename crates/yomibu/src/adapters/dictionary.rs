@@ -5,7 +5,7 @@
 
 use std::{
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{self, Read, Seek, Write},
     path::{Path, PathBuf},
 };
 
@@ -17,6 +17,7 @@ use sudachi::dic::header::{Header, HeaderVersion, SystemDictVersion};
 use super::sudachi::{DICTIONARY_BYTES, DICTIONARY_SHA256, DICTIONARY_VERSION};
 
 const MANIFEST_LIMIT: u64 = 16 * 1024;
+const RECEIPT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -55,6 +56,33 @@ struct Receipt {
     version: u32,
     dictionary_version: String,
     files: Vec<Artifact>,
+    dictionary_fingerprint: FileFingerprint,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileFingerprint {
+    device: u64,
+    inode: u64,
+    bytes: u64,
+    mtime_seconds: i64,
+    mtime_nanoseconds: i64,
+    ctime_seconds: i64,
+    ctime_nanoseconds: i64,
+}
+
+impl From<&fs::Metadata> for FileFingerprint {
+    fn from(metadata: &fs::Metadata) -> Self {
+        Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            bytes: metadata.len(),
+            mtime_seconds: metadata.mtime(),
+            mtime_nanoseconds: metadata.mtime_nsec(),
+            ctime_seconds: metadata.ctime(),
+            ctime_nanoseconds: metadata.ctime_nsec(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -70,10 +98,20 @@ pub enum InstallationError {
         "Cannot access dictionary installation; use yomibu dictionary import --bundle PATH: {0}"
     )]
     Io(#[from] io::Error),
-    #[error("Invalid dictionary installation manifest: {0}")]
+    #[error("Dictionary installation record error: {0}")]
     Manifest(#[from] serde_json::Error),
-    #[error("Dictionary installation does not match the supported pinned bundle.")]
+    #[error(
+        "Unsafe dictionary storage at {path}; check ownership, private permissions and links, or import into a new --dictionary-dir PATH."
+    )]
+    UnsafeStorage { path: PathBuf },
+    #[error(
+        "Invalid or unsafe dictionary installation; reimport with yomibu dictionary import --bundle PATH."
+    )]
     Invalid,
+    #[error(
+        "Dictionary metadata changed since installation; run yomibu dictionary verify --dictionary-dir PATH, then reimport with yomibu dictionary import --bundle PATH --dictionary-dir PATH."
+    )]
+    Changed,
     #[error("Dictionary bundle file {0} does not match its pinned length/SHA-256.")]
     Mismatch(String),
     #[error("Another dictionary import holds the installation lock; wait for it to finish.")]
@@ -93,7 +131,22 @@ pub struct ManagedInstallation {
 impl ManagedInstallation {
     /// Select one completed generation without installing, downloading or writing.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, InstallationError> {
-        let root = root.as_ref();
+        let (mut installation, fingerprint) = Self::select(root.as_ref())?;
+        if FileFingerprint::from(&installation.dictionary.metadata()?) != fingerprint {
+            return Err(InstallationError::Changed);
+        }
+        let mut bytes = [0; Header::STORAGE_SIZE];
+        installation.dictionary.read_exact(&mut bytes)?;
+        let header = Header::parse(&bytes).map_err(|_| InstallationError::Invalid)?;
+        if header.version != HeaderVersion::SystemDict(SystemDictVersion::Version2)
+            || header.description != "20260723"
+        {
+            return Err(InstallationError::Invalid);
+        }
+        Ok(installation)
+    }
+
+    fn select(root: &Path) -> Result<(Self, FileFingerprint), InstallationError> {
         private_directory(root)?;
         private_directory(&root.join("bundles"))?;
         let current: Current = read_manifest(&root.join("current"))?;
@@ -103,24 +156,14 @@ impl ManagedInstallation {
         let bundle = root.join("bundles").join(&current.generation);
         private_directory(&bundle)?;
         let receipt: Receipt = read_manifest_file(&bundle.join("installation.json"), true)?;
-        if receipt.version != 1
+        if receipt.version != RECEIPT_VERSION
             || receipt.dictionary_version != DICTIONARY_VERSION
             || receipt.files != pins()
+            || receipt.dictionary_fingerprint.bytes != DICTIONARY_BYTES
         {
             return Err(InstallationError::Invalid);
         }
-        let mut dictionary = open_regular(&bundle.join("system_core.dic"), true)?;
-        if dictionary.metadata()?.len() != DICTIONARY_BYTES {
-            return Err(InstallationError::Invalid);
-        }
-        let mut bytes = [0; Header::STORAGE_SIZE];
-        dictionary.read_exact(&mut bytes)?;
-        let header = Header::parse(&bytes).map_err(|_| InstallationError::Invalid)?;
-        if header.version != HeaderVersion::SystemDict(SystemDictVersion::Version2)
-            || header.description != "20260723"
-        {
-            return Err(InstallationError::Invalid);
-        }
+        let dictionary = open_regular(&bundle.join("system_core.dic"), true)?;
         for pin in pins()
             .into_iter()
             .filter(|pin| pin.name != "system_core.dic")
@@ -130,11 +173,14 @@ impl ManagedInstallation {
                 return Err(InstallationError::Invalid);
             }
         }
-        Ok(Self {
-            dictionary,
-            generation: current.generation,
-            bundle,
-        })
+        Ok((
+            Self {
+                dictionary,
+                generation: current.generation,
+                bundle,
+            },
+            receipt.dictionary_fingerprint,
+        ))
     }
 
     pub fn generation(&self) -> &str {
@@ -178,7 +224,7 @@ fn private_directory(path: &Path) -> Result<(), InstallationError> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
         .open(path)?;
     if !owned_private(&directory.metadata()?) {
-        return Err(InstallationError::Invalid);
+        return Err(InstallationError::UnsafeStorage { path: path.into() });
     }
     Ok(())
 }
@@ -199,11 +245,12 @@ fn open_regular(path: &Path, read_only: bool) -> Result<File, InstallationError>
     Ok(file)
 }
 
-fn verify_file(path: &Path, pin: &Artifact) -> Result<(), InstallationError> {
-    let file = File::open(path)?;
-    if !file.metadata()?.is_file() || file.metadata()?.len() != pin.bytes {
+fn verify_file(file: &mut File, pin: &Artifact) -> Result<(), InstallationError> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() != pin.bytes {
         return Err(InstallationError::Mismatch(pin.name.clone()));
     }
+    file.rewind()?;
     let mut input = file.take(pin.bytes + 1);
     let mut hash = Sha256::new();
     let mut length = 0;
@@ -222,13 +269,27 @@ fn verify_file(path: &Path, pin: &Artifact) -> Result<(), InstallationError> {
     Ok(())
 }
 
+/// Full byte verification results; metadata equality does not establish file stability.
+#[derive(Debug)]
+pub struct Verification {
+    pub metadata_matches_installation: bool,
+}
+
 /// Fully verify the selected dictionary and both notices; never repair implicitly.
-pub fn verify(root: impl AsRef<Path>) -> Result<(), InstallationError> {
-    let installation = ManagedInstallation::open(root)?;
+pub fn verify(root: impl AsRef<Path>) -> Result<Verification, InstallationError> {
+    let (mut installation, fingerprint) = ManagedInstallation::select(root.as_ref())?;
     for pin in pins() {
-        verify_file(&installation.bundle.join(&pin.name), &pin)?;
+        if pin.name == "system_core.dic" {
+            verify_file(&mut installation.dictionary, &pin)?;
+        } else {
+            let mut notice = open_regular(&installation.bundle.join(&pin.name), true)?;
+            verify_file(&mut notice, &pin)?;
+        }
     }
-    Ok(())
+    Ok(Verification {
+        metadata_matches_installation: FileFingerprint::from(&installation.dictionary.metadata()?)
+            == fingerprint,
+    })
 }
 
 /// Copy and fully verify a publisher bundle before publishing a new generation.
@@ -289,7 +350,9 @@ fn import_with(
         .open(root.join("installation.lock"))?;
     let metadata = lock.metadata()?;
     if !metadata.is_file() || !owned_private(&metadata) || metadata.nlink() != 1 {
-        return Err(InstallationError::Invalid);
+        return Err(InstallationError::UnsafeStorage {
+            path: root.join("installation.lock"),
+        });
     }
     match lock.try_lock() {
         Ok(()) => {}
@@ -319,27 +382,39 @@ fn import_with(
         .tempdir_in(root)?;
     let bundle = staging.path().join("bundle");
     fs::DirBuilder::new().mode(0o700).create(&bundle)?;
+    let mut dictionary_fingerprint = None;
     for pin in files {
         before(ImportStep::Copy)?;
         let input = fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(source.join(&pin.name))?;
-        if !input.metadata()?.is_file() || input.metadata()?.len() != pin.bytes {
+        let metadata = input.metadata()?;
+        if !metadata.is_file() || metadata.len() != pin.bytes {
             return Err(InstallationError::Mismatch(pin.name.clone()));
         }
         let path = bundle.join(&pin.name);
-        let mut output = File::create(&path)?;
+        let mut output = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)?;
         io::copy(&mut input.take(pin.bytes + 1), &mut output)?;
-        verify_file(&path, pin)?;
+        verify_file(&mut output, pin)?;
         output.set_permissions(fs::Permissions::from_mode(0o400))?;
         before(ImportStep::SyncFile)?;
         output.sync_all()?;
+        if pin.name == "system_core.dic" {
+            // Publishing moves the containing directory, leaving this metadata intact.
+            dictionary_fingerprint = Some(FileFingerprint::from(&output.metadata()?));
+        }
     }
     let receipt = Receipt {
-        version: 1,
+        version: RECEIPT_VERSION,
         dictionary_version: DICTIONARY_VERSION.into(),
         files: files.to_vec(),
+        dictionary_fingerprint: dictionary_fingerprint.ok_or(InstallationError::Invalid)?,
     };
     let mut record = File::create(bundle.join("installation.json"))?;
     serde_json::to_writer(&mut record, &receipt)?;

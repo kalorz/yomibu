@@ -4,7 +4,7 @@ mod test_dictionary;
 use serde_json::json;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 use yomibu::{
-    adapters::{embeddings::LexicalEmbedder, openai::Client, sudachi::SudachiAnalyzer},
+    adapters::{embeddings::LexicalEmbedder, openai::Client},
     candidate::CandidateAssessment,
     evaluation::{CheckKind, CheckOutcome, CheckState},
     inventory::{LearnerInventory, ManualInventory},
@@ -47,8 +47,7 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
     assert!(prepared_request.body_utf8().contains("A cat sleeping"));
     let server = MockServer::start().await;
     let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
-    let analyzer =
-        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+    let analyzer = test_dictionary::load_analyzer();
     for pair in [
         ["犬は寝ます。", "猫は寝ます。"],
         [" \n", "鳥は寝ます。"],
@@ -141,8 +140,7 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
 
 #[tokio::test]
 async fn target_observations_preserve_lexical_and_object_evidence_limits() {
-    let analyzer =
-        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+    let analyzer = test_dictionary::load_analyzer();
     let server = MockServer::start().await;
     let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
     for case in [
@@ -316,8 +314,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
 async fn configured_count_controls_schema_transport_and_every_candidate_assessment() {
     let inventory = inventory();
     let encoder = LexicalEmbedder::new();
-    let analyzer =
-        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+    let analyzer = test_dictionary::load_analyzer();
     let server = MockServer::start().await;
     let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
     for count in [1, 3, 8, 9] {

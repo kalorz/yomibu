@@ -18,14 +18,9 @@ use crate::{
 pub(super) unsafe fn load_analyzer(
     config: &Configuration,
 ) -> Result<SudachiAnalyzer, ApplicationError> {
-    if let Some(path) = &config.dictionary {
-        return Ok(SudachiAnalyzer::load(path)?);
-    }
     let installation = ManagedInstallation::open(&config.dictionary_dir)?;
-    // App-managed selection uses the importer's immutable generations. External
-    // dictionary paths use verified owned bytes; managed files must never change
-    // while mapped. Receipts and permissions cannot establish that guarantee.
-    Ok(unsafe { SudachiAnalyzer::load_managed(installation) }?)
+    // The caller guarantees verified, unchanged files for the analyzer's lifetime.
+    Ok(unsafe { SudachiAnalyzer::load(installation) }?)
 }
 
 pub(super) async fn prepare_embeddings(

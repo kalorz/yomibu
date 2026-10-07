@@ -2,7 +2,6 @@
 mod test_dictionary;
 use serde_json::json;
 use yomibu::{
-    adapters::sudachi::SudachiAnalyzer,
     candidate::GeneratedPassage,
     evaluation::{CheckKind, CheckOutcome, CheckState},
     inventory::LearnerInventory,
@@ -26,8 +25,7 @@ fn passage_checks_full_inventory_sentence_by_sentence_and_leaves_missing_grammar
         text: "猫は寝ます。猫です。猫は寝ます。".into(),
         sentence_spans: vec![0..18, 18..30, 30..48],
     };
-    let analyzer =
-        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+    let analyzer = test_dictionary::load_analyzer();
     let results = assess_passages(&[passage], &inputs, Some(&analyzer));
     let result = &results[0];
     assert_eq!(result.sentences.len(), 3);
@@ -69,8 +67,7 @@ fn missing_grammar_preserves_independent_scope_findings_and_vocabulary_failures(
             .unwrap();
     let selection = select_builtin_vocabulary(&inventory, &request, 3, 7).unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
-    let analyzer =
-        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+    let analyzer = test_dictionary::load_analyzer();
     for (text, span, reason, vocabulary) in [
         (
             "本を読みます。",

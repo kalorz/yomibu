@@ -1,16 +1,16 @@
 #[path = "../../../tests/support/dictionary.rs"]
 mod test_dictionary;
 
+use test_dictionary::analyzer;
+
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Output},
-    sync::OnceLock,
 };
 
 use serde_json::{Value, json};
 use yomibu::{
-    adapters::sudachi::SudachiAnalyzer,
     analysis::Sentence,
     evaluation::{CheckKind, EvaluationBindings, evaluate},
     grammar::GrammarDeclarations,
@@ -20,30 +20,18 @@ const NOMINAL: &str = include_str!("../../../tests/fixtures/analyze/nominal.json
 const UNTRUSTED: &str =
     "犬\u{1b}[31m\r\n\t\u{007f}\u{009b}31m\u{2028}\u{2029}\u{202e}\u{e0001}\\\"";
 
-fn dictionary() -> PathBuf {
-    test_dictionary::bundle().join("system_core.dic")
-}
-
-fn analyzer() -> &'static SudachiAnalyzer {
-    static ANALYZER: OnceLock<SudachiAnalyzer> = OnceLock::new();
-    ANALYZER.get_or_init(|| {
-        SudachiAnalyzer::load(dictionary())
-            .expect("install the pinned dictionary using scripts/setup_test_dictionary.py")
-    })
-}
-
 fn cli(dir: &Path) -> Command {
-    cli_with_dictionary(dir, &dictionary())
+    cli_with_installation(dir, &test_dictionary::installation())
 }
 
-fn cli_with_dictionary(dir: &Path, dictionary: &Path) -> Command {
+fn cli_with_installation(dir: &Path, root: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
     command
         .env_clear()
         .current_dir(dir)
         .env("YOMIBU_DATA_DIR", dir.join("data"))
-        .args(["analyze", "--dictionary"])
-        .arg(dictionary)
+        .args(["analyze", "--dictionary-dir"])
+        .arg(root)
         .args(["--input", "input.json"]);
     command
 }
@@ -364,7 +352,7 @@ fn argument_errors_escape_untrusted_values_and_help_still_succeeds() {
     );
     assert!(error.contains(&UNTRUSTED.escape_debug().to_string()));
     let help = stdout(cli(dir.path()).arg("--help").output().unwrap());
-    for option in ["--dictionary", "--input", "--json"] {
+    for option in ["--dictionary-dir", "--input", "--json"] {
         assert!(help.contains(option), "{help}");
     }
 }
@@ -465,14 +453,13 @@ fn input_path_is_required_and_explicit_dictionary_errors_have_no_report() {
             vec!["analyze", "--input", "input.json"],
             "explicitly supplied analysis input",
         ),
-        (vec!["analyze", "--dictionary", "missing.dic"], "--input"),
+        (vec!["analyze", "--dictionary-dir", "missing"], "--input"),
     ] {
         assert_error(
             Command::new(env!("CARGO_BIN_EXE_yomibu"))
                 .env_clear()
                 .env("YOMIBU_DATA_DIR", dir.path().join("data"))
                 .current_dir(dir.path())
-                .env("YOMIBU_DATA_DIR", dir.path().join("data"))
                 .args(args)
                 .output()
                 .unwrap(),
@@ -480,21 +467,23 @@ fn input_path_is_required_and_explicit_dictionary_errors_have_no_report() {
         );
     }
     fs::write(dir.path().join("input.json"), NOMINAL).unwrap();
-    let path = dir.path().join("dictionary.dic");
-    for message in [
-        "Cannot read the explicitly selected dictionary",
-        "does not match the pinned",
-    ] {
+    let path = dir.path().join("dictionary");
+    for incomplete in [false, true] {
+        if incomplete {
+            use std::os::unix::fs::DirBuilderExt;
+            fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        }
         for json in [false, true] {
-            let mut command = cli_with_dictionary(dir.path(), &path);
+            let mut command = cli_with_installation(dir.path(), &path);
             if json {
                 command.arg("--json");
             }
-            assert_error(command.output().unwrap(), message);
+            let output = command.output().unwrap();
+            assert_eq!(output.status.code(), Some(1));
+            assert_error(output, "dictionary import --bundle PATH");
         }
-        fs::write(&path, b"not a pinned dictionary").unwrap();
     }
-    assert_eq!(fs::read(&path).unwrap(), b"not a pinned dictionary");
+    assert_eq!(fs::read_dir(&path).unwrap().count(), 0);
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
 }
 

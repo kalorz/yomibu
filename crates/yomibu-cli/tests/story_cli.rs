@@ -197,13 +197,14 @@ fn malformed_and_oversized_inputs_fail_before_dictionary_or_credentials() {
     for input in ["{".to_owned(), " ".repeat(4_194_305)] {
         fs::write(dir.path().join("inventory.json"), input).unwrap();
         let o = cli(dir.path(), "story")
-            .args(["--dictionary", "missing.dic"])
+            .args(["--dictionary-dir", "missing", "--json", "--verbose"])
             .output()
             .unwrap();
         assert_eq!(o.status.code(), Some(1));
         assert!(o.stdout.is_empty());
         let e = String::from_utf8(o.stderr).unwrap();
-        assert!(!e.contains("Dictionary initialization"));
+        assert!(e.contains("inventory"), "{e}");
+        assert!(!e.contains("[Assessment]"), "{e}");
         assert!(!e.contains("OPENAI_API_KEY"));
     }
 }
@@ -268,10 +269,10 @@ fn impossible_selection_fails_before_embedding_work() {
     request["targets"]["vocabulary"] = json!(["cat", "sleep", "dog"]);
     fs::write(dir.path().join("request.json"), request.to_string()).unwrap();
     let out = cli(dir.path(), "story")
-        .args(["--openai-api-key", "unused"])
+        .args(["--openai-api-key", "unused", "--json", "--verbose"])
         .args([
-            "--dictionary",
-            "missing.dic",
+            "--dictionary-dir",
+            "missing",
             "--embedding-provider",
             "lexical-baseline",
         ])
@@ -279,11 +280,10 @@ fn impossible_selection_fails_before_embedding_work() {
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
     assert!(!dir.path().join("vectors.json").exists());
-    assert!(
-        String::from_utf8(out.stderr)
-            .unwrap()
-            .contains("selection limit")
-    );
+    assert!(out.stdout.is_empty());
+    let error = String::from_utf8(out.stderr).unwrap();
+    assert!(error.contains("selection limit"), "{error}");
+    assert!(!error.contains("[Assessment]"), "{error}");
 }
 
 #[tokio::test]
@@ -361,11 +361,12 @@ fn invalid_candidate_count_fails_before_any_embedding_or_dictionary_work() {
     let dir = setup();
     for (count, status) in [("0".to_owned(), 2), (usize::MAX.to_string(), 1)] {
         let out = cli(dir.path(), "story")
+            .args(["--json", "--verbose"])
             .args([
                 "--candidates",
                 &count,
-                "--dictionary",
-                "missing.dic",
+                "--dictionary-dir",
+                "missing",
                 "--embedding-provider",
                 "lexical-baseline",
             ])
@@ -383,7 +384,7 @@ fn invalid_candidate_count_fails_before_any_embedding_or_dictionary_work() {
             }),
             "{error}"
         );
-        assert!(!error.contains("Dictionary initialization"));
+        assert!(!error.contains("[Assessment]"));
     }
 }
 
@@ -450,11 +451,11 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
     prepare(dir.path());
     fs::write(dir.path().join(".env"), "OPENAI_API_KEY=synthetic-unused").unwrap();
     let before = fs::read_dir(dir.path()).unwrap().count();
-    let dictionary = test_dictionary::bundle().join("system_core.dic");
+    let dictionary = test_dictionary::installation();
     for key in [None, Some("synthetic-secret\nInjected")] {
         let mut command = cli(dir.path(), "story");
         command
-            .args(["--dictionary"])
+            .args(["--json", "--verbose", "--dictionary-dir"])
             .arg(&dictionary)
             .args(["--data-dir", "ignored"]);
         if let Some(key) = key {
@@ -475,6 +476,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
         assert!(!stderr.contains("synthetic-secret"));
         assert!(!stderr.contains("synthetic-unused"));
         assert!(!stderr.contains("Injected"));
+        assert!(!stderr.contains("[Assessment]"), "{stderr}");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), before);
     }
 }

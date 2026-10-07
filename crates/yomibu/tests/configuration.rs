@@ -5,6 +5,29 @@ use yomibu::app::{
 };
 
 #[test]
+fn configuration_rejects_the_removed_arbitrary_dictionary_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "dictionary = 'external.dic'\n",
+    )
+    .unwrap();
+    assert!(matches!(
+        Configuration::load(
+            ConfigurationInput {
+                data_dir: Some(dir.path().into()),
+                config: None,
+                home: None,
+                environment: BTreeMap::new(),
+                flags: Settings::default(),
+            },
+            &Operation::Analyze("input.json".into())
+        ),
+        Err(yomibu::app::config::ConfigError::Invalid { .. })
+    ));
+}
+
+#[test]
 fn each_operation_validates_its_resources_without_parsing_unused_settings() {
     let dir = tempfile::tempdir().unwrap();
     let unused_story =
@@ -12,11 +35,11 @@ fn each_operation_validates_its_resources_without_parsing_unused_settings() {
     for (operation, text) in [
         (Operation::Status, format!("{unused_story}wanikani_cache = 'source.json'\n")),
         (Operation::Sync, format!("{unused_story}wanikani_cache = 'source.json'\n")),
-        (Operation::Analyze("input.json".into()), format!("{unused_story}dictionary = 'external.dic'\n")),
-        (Operation::Import("bundle".into()), format!("{unused_story}dictionary = 'ignored.dic'\ndictionary_dir = 'managed'\n")),
-        (Operation::Verify, format!("{unused_story}dictionary = 'ignored.dic'\ndictionary_dir = 'managed'\n")),
+        (Operation::Analyze("input.json".into()), format!("{unused_story}dictionary_dir = 'managed'\n")),
+        (Operation::Import("bundle".into()), format!("{unused_story}dictionary_dir = 'managed'\n")),
+        (Operation::Verify, format!("{unused_story}dictionary_dir = 'managed'\n")),
         (Operation::Retrieval, "model = 7\nformat = 'unused-invalid'\ncandidates = 0\nselect = 2\nembedding_provider = 'lexical-baseline'\n".into()),
-        (Operation::Preview, "dictionary = false\ndictionary_dir = false\n".into()),
+        (Operation::Preview, "dictionary_dir = false\n".into()),
     ] {
         std::fs::write(dir.path().join("config.toml"), text).unwrap();
         let config = Configuration::load(ConfigurationInput {
@@ -25,13 +48,12 @@ fn each_operation_validates_its_resources_without_parsing_unused_settings() {
         }, &operation).unwrap_or_else(|error| panic!("{operation:?}: {error}"));
         match operation {
             Operation::Status | Operation::Sync => assert_eq!(config.wanikani_cache, Some(dir.path().join("source.json"))),
-            Operation::Analyze(_) => assert_eq!(config.dictionary, Some(dir.path().join("external.dic"))),
+            Operation::Analyze(_) => assert_eq!(config.dictionary_dir, dir.path().join("managed")),
             Operation::Import(_) | Operation::Verify => {
                 assert_eq!(config.dictionary_dir, dir.path().join("managed"));
-                assert!(config.dictionary.is_none());
             }
             Operation::Retrieval => assert_eq!(config.select, 2),
-            Operation::Preview => assert!(config.dictionary.is_none()),
+            Operation::Preview => assert_eq!(config.dictionary_dir, dir.path().join("dictionaries")),
             Operation::Story => unreachable!(),
         }
     }

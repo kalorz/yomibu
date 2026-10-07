@@ -90,16 +90,18 @@ pub async fn generate_story(
 ///
 /// ```no_run
 /// use yomibu::{
-///     adapters::{openai::Client, sudachi::SudachiAnalyzer},
+///     adapters::{dictionary::ManagedInstallation, openai::Client, sudachi::SudachiAnalyzer},
 ///     inventory::LearnerInventory,
 ///     story::{StoryRequest, plan_generation, generate_story},
 ///     retrieval::EmbeddingCache,
 /// };
-/// # async fn example(inventory: &LearnerInventory, request: &StoryRequest,
-/// #     cache: &EmbeddingCache, dictionary: &std::path::Path, api_key: &str)
+/// # async unsafe fn example(inventory: &LearnerInventory, request: &StoryRequest,
+/// #     cache: &EmbeddingCache, dictionary_dir: &std::path::Path, api_key: &str)
 /// #     -> Result<(), Box<dyn std::error::Error>> {
 /// let plan = plan_generation(inventory, request, cache, &cache.model, 12, Default::default())?;
-/// let analyzer = SudachiAnalyzer::load(dictionary)?;
+/// // The caller keeps this imported generation unchanged for the analyzer's lifetime.
+/// let installation = ManagedInstallation::open(dictionary_dir)?;
+/// let analyzer = unsafe { SudachiAnalyzer::load(installation) }?;
 /// let client = Client::new(api_key)?;
 /// let result = generate_story(&plan, &client, &analyzer).await?;
 /// assert_eq!(result.candidates().passages().iter().map(|p| p.sentence_spans.len()).sum::<usize>(), result.assessments().len());
