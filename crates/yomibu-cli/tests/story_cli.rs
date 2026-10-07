@@ -20,17 +20,20 @@ fn setup() -> tempfile::TempDir {
 }
 fn cli(dir: &Path, command: &str) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_yomibu"));
-    c.env_clear().current_dir(dir).args([
-        command,
-        "--inventory",
-        "inventory.json",
-        "--request",
-        "request.json",
-        "--embedding-cache",
-        "vectors.json",
-        "--select",
-        "2",
-    ]);
+    c.env_clear()
+        .current_dir(dir)
+        .env("YOMIBU_DATA_DIR", dir.join("data"))
+        .args([
+            command,
+            "--inventory",
+            "inventory.json",
+            "--request",
+            "request.json",
+            "--embedding-cache",
+            "vectors.json",
+            "--select",
+            "2",
+        ]);
     c
 }
 fn prepare(dir: &Path) {
@@ -44,13 +47,9 @@ fn prepare(dir: &Path) {
 fn offline_preview_has_no_implicit_embedding_call_and_preserves_exact_bytes_and_layout() {
     let dir = setup();
     let missing = cli(dir.path(), "preview-story").output().unwrap();
-    assert_eq!(missing.status.code(), Some(1));
-    assert!(missing.stdout.is_empty());
-    assert!(
-        String::from_utf8(missing.stderr)
-            .unwrap()
-            .contains("prepare-retrieval")
-    );
+    assert!(missing.status.success());
+    assert!(missing.stderr.is_empty());
+    assert!(!dir.path().join("vectors.json").exists());
     prepare(dir.path());
     let inventory = yomibu::inventory::LearnerInventory::from_manual(
         serde_json::from_slice(&fs::read(dir.path().join("inventory.json")).unwrap()).unwrap(),
@@ -85,8 +84,14 @@ fn offline_preview_has_no_implicit_embedding_call_and_preserves_exact_bytes_and_
     assert!(output.stderr.is_empty());
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["kind"], "story_generation_plan_preview");
-    assert_eq!(report["request"]["brief"], "A cat sleeping");
-    assert_eq!(report["plan"]["selected"].as_array().unwrap().len(), 2);
+    assert_eq!(report["request"]["topic"], "A cat sleeping");
+    assert_eq!(
+        report["selection"]["vocabulary_ids"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     let body = report["provider_request"]["body_utf8"].as_str().unwrap();
     assert!(!body.contains("いぬ"));
     assert_eq!(body, plan.prepared_request().body_utf8());
@@ -97,14 +102,69 @@ fn offline_preview_has_no_implicit_embedding_call_and_preserves_exact_bytes_and_
     let text = cli(dir.path(), "preview-story").output().unwrap();
     assert!(text.status.success());
     assert!(String::from_utf8(text.stdout).unwrap().starts_with(
-        "Experimental story generation plan — no generation performed\nBrief: A cat sleeping\n"
+        "Experimental story generation plan — no generation performed\nTopic: A cat sleeping\n"
     ));
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), before);
 }
+
 #[test]
-fn new_cli_requires_opt_in_rejects_old_flags_and_keeps_diagnostics_readable() {
+fn preview_falls_back_for_partial_embedding_settings_and_reports_a_safe_warning() {
     let dir = setup();
-    let o = cli(dir.path(), "generate-story").output().unwrap();
+    let topic = "日本語\nInjected\u{1b}";
+    fs::write(
+        dir.path().join("request.json"),
+        json!({"version":1,"topic":topic,"targets":{"vocabulary":["cat"],"grammar":[]}})
+            .to_string(),
+    )
+    .unwrap();
+    prepare(dir.path());
+    let before = fs::read(dir.path().join("vectors.json")).unwrap();
+    for json in [false, true] {
+        let mut command = cli(dir.path(), "preview-story");
+        command.args([
+            "--enable",
+            "embeddings",
+            "--embedding-model",
+            "another-model",
+        ]);
+        if json {
+            command.arg("--json");
+        }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(0));
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.starts_with("warning: Embeddings:"), "{stderr}");
+        assert!(stderr.contains("--embedding-provider"));
+        assert_eq!(stderr.lines().count(), 1);
+        assert!(!stdout.contains('\u{1b}'));
+        assert!(!stderr.contains('\u{1b}'));
+        assert!(!stdout.contains("\nInjected"));
+        assert!(stdout.contains("日本語"));
+        if json {
+            let report: Value = serde_json::from_str(&stdout).unwrap();
+            assert_eq!(report["selection"]["selector_revision"], "builtin-v2");
+            assert_eq!(report["request"]["topic"], topic);
+            assert_eq!(report["warnings"].as_array().unwrap().len(), 1);
+        } else {
+            assert!(
+                stdout
+                    .starts_with("Experimental story generation plan — no generation performed\n")
+            );
+            assert!(stdout.contains("\nSelector revision: builtin-v2\n"));
+            assert!(stdout.ends_with("Generation requests made: 0\n"));
+        }
+    }
+    assert_eq!(fs::read(dir.path().join("vectors.json")).unwrap(), before);
+    assert!(!dir.path().join("data").exists());
+}
+#[test]
+fn story_invocation_authorizes_generation_and_rejects_the_removed_opt_in_flag() {
+    let dir = setup();
+    let o = cli(dir.path(), "story")
+        .arg("--allow-model-call")
+        .output()
+        .unwrap();
     assert_eq!(o.status.code(), Some(2));
     let e = String::from_utf8(o.stderr).unwrap();
     assert!(e.contains("--allow-model-call"));
@@ -117,7 +177,7 @@ fn new_cli_requires_opt_in_rejects_old_flags_and_keeps_diagnostics_readable() {
     assert!(!String::from_utf8(o.stderr).unwrap().contains('\u{1b}'));
     for args in [
         vec!["--help"],
-        vec!["generate-story", "--help"],
+        vec!["story", "--help"],
         vec!["prepare-retrieval", "--help"],
         vec!["--version"],
     ] {
@@ -136,8 +196,8 @@ fn malformed_and_oversized_inputs_fail_before_dictionary_or_credentials() {
     let dir = setup();
     for input in ["{".to_owned(), " ".repeat(4_194_305)] {
         fs::write(dir.path().join("inventory.json"), input).unwrap();
-        let o = cli(dir.path(), "generate-story")
-            .args(["--allow-model-call", "--dictionary", "missing.dic"])
+        let o = cli(dir.path(), "story")
+            .args(["--dictionary", "missing.dic"])
             .output()
             .unwrap();
         assert_eq!(o.status.code(), Some(1));
@@ -148,10 +208,10 @@ fn malformed_and_oversized_inputs_fail_before_dictionary_or_credentials() {
     }
 }
 #[test]
-fn brief_is_data_and_terminal_controls_are_escaped_in_json_and_text() {
+fn topic_is_data_and_terminal_controls_are_escaped_in_json_and_text() {
     let dir = setup();
     let hostile = "日本語\nInjected\u{1b}\r\t\u{202e}";
-    let r = json!({"version":1,"brief":hostile,"targets":{"vocabulary":["cat"],"grammar":[]}});
+    let r = json!({"version":1,"topic":hostile,"targets":{"vocabulary":["cat"],"grammar":[]}});
     fs::write(dir.path().join("request.json"), r.to_string()).unwrap();
     prepare(dir.path());
     for json in [false, true] {
@@ -169,7 +229,7 @@ fn brief_is_data_and_terminal_controls_are_escaped_in_json_and_text() {
         assert!(text.contains("日本語"));
         if json {
             let v: Value = serde_json::from_str(&text).unwrap();
-            assert_eq!(v["request"]["brief"], hostile);
+            assert_eq!(v["request"]["topic"], hostile);
         } else {
             assert!(!text.contains("\nInjected"));
         }
@@ -179,6 +239,7 @@ fn brief_is_data_and_terminal_controls_are_escaped_in_json_and_text() {
 #[test]
 fn obsolete_generation_commands_are_removed_without_aliases() {
     for old in [
+        "generate-story",
         "generate-candidates",
         "generate-focused",
         "context-preview",
@@ -206,9 +267,9 @@ fn impossible_selection_fails_before_embedding_work() {
         serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
     request["targets"]["vocabulary"] = json!(["cat", "sleep", "dog"]);
     fs::write(dir.path().join("request.json"), request.to_string()).unwrap();
-    let out = cli(dir.path(), "generate-story")
+    let out = cli(dir.path(), "story")
+        .args(["--openai-api-key", "unused"])
         .args([
-            "--allow-model-call",
             "--dictionary",
             "missing.dic",
             "--embedding-provider",
@@ -272,7 +333,7 @@ async fn retrieval_reuses_complete_cache_and_preserves_it_on_provider_failure() 
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
     server.reset().await;
     let request =
-        json!({"version":1,"brief":"A dog sleeping","targets":{"vocabulary":[],"grammar":[]}});
+        json!({"version":1,"topic":"A dog sleeping","targets":{"vocabulary":[],"grammar":[]}});
     fs::write(dir.path().join("request.json"), request.to_string()).unwrap();
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(429).set_body_string("untrusted\n\u{1b}secret"))
@@ -299,11 +360,10 @@ async fn retrieval_reuses_complete_cache_and_preserves_it_on_provider_failure() 
 fn invalid_candidate_count_fails_before_any_embedding_or_dictionary_work() {
     let dir = setup();
     for (count, status) in [("0".to_owned(), 2), (usize::MAX.to_string(), 1)] {
-        let out = cli(dir.path(), "generate-story")
+        let out = cli(dir.path(), "story")
             .args([
                 "--candidates",
                 &count,
-                "--allow-model-call",
                 "--dictionary",
                 "missing.dic",
                 "--embedding-provider",
@@ -319,7 +379,7 @@ fn invalid_candidate_count_fails_before_any_embedding_or_dictionary_work() {
             error.contains(if status == 2 {
                 "--candidates"
             } else {
-                "output token budget"
+                "output budget"
             }),
             "{error}"
         );
@@ -392,13 +452,13 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
     let before = fs::read_dir(dir.path()).unwrap().count();
     let dictionary = test_dictionary::bundle().join("system_core.dic");
     for key in [None, Some("synthetic-secret\nInjected")] {
-        let mut command = cli(dir.path(), "generate-story");
+        let mut command = cli(dir.path(), "story");
         command
-            .args(["--allow-model-call", "--dictionary"])
+            .args(["--dictionary"])
             .arg(&dictionary)
             .args(["--data-dir", "ignored"]);
         if let Some(key) = key {
-            command.env("OPENAI_API_KEY", key);
+            command.env("YOMIBU_OPENAI_API_KEY", key);
         }
         let output = command.output().unwrap();
         assert_eq!(output.status.code(), Some(1));
@@ -406,7 +466,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
             stderr.contains(if key.is_none() {
-                "Set OPENAI_API_KEY"
+                "YOMIBU_OPENAI_API_KEY"
             } else {
                 "credential"
             }),

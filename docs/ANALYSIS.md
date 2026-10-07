@@ -69,8 +69,8 @@ JSON version 1 retains decoded strings and original spans; presentation escaping
 does not change them. No structured error report is defined.
 
 Analysis reads no learner state or credentials and performs no writes or network
-calls. Explicit `--dictionary PATH` needs no HOME; managed defaults use their own root.
-It ignores `--data-dir` and starts no runtime. Diagnostics preserve trusted line
+calls. Shared configuration resolves storage and dictionary paths; use `--data-dir`
+when HOME is unavailable. Analysis starts no runtime. Diagnostics preserve trusted line
 breaks and indentation while escaping supplied values; help/usage names `yomibu`.
 
 ## Library and evidence

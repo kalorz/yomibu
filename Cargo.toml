@@ -24,6 +24,7 @@ libc = "0.2"
 memmap2 = "0.9"
 sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", rev = "90fd6068c80c2fc3b63e0dbab0e341475bad4d8f" }
 wiremock = "0.6"
+toml = "1"
 
 # cargo test also uses this profile for CLI binaries launched by integration tests.
 # Optimize hashing while retaining full pinned-dictionary verification.

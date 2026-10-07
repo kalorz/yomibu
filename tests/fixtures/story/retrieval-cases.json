@@ -118,21 +118,21 @@
   },
   "cases": [
     {
-      "brief": "A cat sleeping",
+      "topic": "A cat sleeping",
       "relevant": [
         "cat",
         "sleep"
       ]
     },
     {
-      "brief": "Meeting someone at the train station",
+      "topic": "Meeting someone at the train station",
       "relevant": [
         "station",
         "meet"
       ]
     },
     {
-      "brief": "Watering flowers after the rain",
+      "topic": "Watering flowers after the rain",
       "relevant": [
         "flower",
         "water",
@@ -140,21 +140,21 @@
       ]
     },
     {
-      "brief": "Reading while eating",
+      "topic": "Reading while eating",
       "relevant": [
         "read",
         "eat"
       ]
     },
     {
-      "brief": "猫が寝る",
+      "topic": "猫が寝る",
       "relevant": [
         "cat",
         "sleep"
       ]
     },
     {
-      "brief": "A canine having a nap",
+      "topic": "A canine having a nap",
       "relevant": [
         "dog",
         "sleep"

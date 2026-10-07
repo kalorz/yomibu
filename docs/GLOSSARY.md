@@ -31,7 +31,7 @@ Analyze uses one-based grammar IDs; story input uses string IDs.
 | G0 | First-N word preview; `preview` retired |
 | Preparation slice | Source-use inspection; `prepare` retired, eligibility retained |
 | A1 | Bounded analysis investigation; historical no-go, runner retired, analyzer active |
-| G1 | Fixed-pair sentence generation; replaced by `generate-story` |
+| G1 | Fixed-pair sentence generation; replaced by `story` |
 | G2 | Focused-context experiments; replaced by the current story path |
 
 See [history](history/README.md) for frozen evidence and code pins.

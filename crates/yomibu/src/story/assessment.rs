@@ -11,7 +11,7 @@ use super::{
 use crate::{
     adapters::sudachi::SudachiAnalyzer,
     analysis::{Sentence, SentenceAnalysis},
-    candidate::{CandidateAssessment, CandidateError, GeneratedCandidates},
+    candidate::{CandidateAssessment, CandidateError, GeneratedCandidates, GeneratedPassage},
     evaluation::{
         self, DirectObjectEvidence, LexicalStatus, LexicalUncertainty, SentenceAssessment,
     },
@@ -50,7 +50,7 @@ pub struct PlanDeparture {
     pub inventory_entries: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct StoryCandidateAssessment<'a> {
     pub assessment: CandidateAssessment<'a>,
     pub targets: Vec<TargetObservation>,
@@ -60,6 +60,7 @@ pub struct StoryCandidateAssessment<'a> {
 impl StoryCandidateAssessment<'_> {
     pub(super) fn into_owned(self) -> StoryCandidateAssessment<'static> {
         let assessment = match self.assessment {
+            CandidateAssessment::NotRun => CandidateAssessment::NotRun,
             CandidateAssessment::Completed {
                 analysis,
                 evaluation,
@@ -82,15 +83,133 @@ impl StoryCandidateAssessment<'_> {
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct StorySentenceAssessment {
+    pub span: Range<usize>,
+    pub assessment: StoryCandidateAssessment<'static>,
+}
+#[derive(Debug, Serialize)]
+pub struct StoryPassageAssessment {
+    pub sentences: Vec<StorySentenceAssessment>,
+    pub targets: Vec<TargetObservation>,
+    pub plan_departures: Vec<PlanDeparture>,
+}
+
+pub fn assess_passages(
+    passages: &[GeneratedPassage],
+    inputs: &StoryAssessmentInputs<'_>,
+    analyzer: Option<&SudachiAnalyzer>,
+) -> Vec<StoryPassageAssessment> {
+    passages
+        .iter()
+        .map(|passage| {
+            let sentences: Vec<_> = passage
+                .sentence_spans
+                .iter()
+                .map(|span| {
+                    let assessment = match analyzer {
+                        Some(analyzer) => match passage.text.get(span.clone()) {
+                            Some(text) => assess_candidate(text, inputs, analyzer),
+                            None => failed_candidate(
+                                None,
+                                CandidateError::Analysis(
+                                    crate::adapters::sudachi::AnalysisError::InvalidSpan,
+                                ),
+                                inputs,
+                            ),
+                        },
+                        None => StoryCandidateAssessment {
+                            assessment: CandidateAssessment::NotRun,
+                            targets: unrun_targets(inputs),
+                            plan_departures: Vec::new(),
+                        },
+                    };
+                    StorySentenceAssessment {
+                        span: span.clone(),
+                        assessment: assessment.into_owned(),
+                    }
+                })
+                .collect();
+            let mut targets = unrun_targets(inputs);
+            for target in &mut targets {
+                let mut spans = Vec::new();
+                let mut uncertainties = Vec::new();
+                let mut ran = false;
+                for sentence in &sentences {
+                    if let Some(observed) =
+                        sentence.assessment.targets.iter().find(|observed| {
+                            observed.id == target.id && observed.kind == target.kind
+                        })
+                    {
+                        ran |= observed.state != TargetState::NotRun;
+                        spans.extend(observed.spans.iter().map(|span| {
+                            span.start + sentence.span.start..span.end + sentence.span.start
+                        }));
+                        uncertainties.extend(observed.uncertainties.iter().map(|uncertainty| {
+                            TargetUncertainty {
+                                span: uncertainty.span.start + sentence.span.start
+                                    ..uncertainty.span.end + sentence.span.start,
+                                scope: uncertainty.scope,
+                                reason: uncertainty.reason,
+                                inventory_entries: uncertainty.inventory_entries.clone(),
+                            }
+                        }));
+                        if observed.state == TargetState::NotRun && analyzer.is_some() {
+                            uncertainties.push(TargetUncertainty {
+                                span: sentence.span.clone(),
+                                scope: TargetUncertaintyScope::SentenceCoverage,
+                                reason: TargetUncertaintyReason::AssessmentUnavailable,
+                                inventory_entries: Vec::new(),
+                            });
+                        }
+                    }
+                }
+                if ran {
+                    *target = TargetObservation::from_evidence(
+                        target.kind,
+                        &target.id,
+                        spans,
+                        uncertainties,
+                    );
+                }
+            }
+            let plan_departures = sentences
+                .iter()
+                .flat_map(|sentence| {
+                    sentence
+                        .assessment
+                        .plan_departures
+                        .iter()
+                        .map(|departure| PlanDeparture {
+                            span: departure.span.start + sentence.span.start
+                                ..departure.span.end + sentence.span.start,
+                            inventory_entries: departure.inventory_entries.clone(),
+                        })
+                })
+                .collect();
+            StoryPassageAssessment {
+                sentences,
+                targets,
+                plan_departures,
+            }
+        })
+        .collect()
+}
+
 pub fn assess_candidates<'a>(
     generated: &'a GeneratedCandidates,
     inputs: &StoryAssessmentInputs<'_>,
     analyzer: &SudachiAnalyzer,
 ) -> Vec<StoryCandidateAssessment<'a>> {
     generated
-        .texts()
+        .passages()
         .iter()
-        .map(|text| assess_candidate(text, inputs, analyzer))
+        .flat_map(|passage| {
+            passage
+                .sentence_spans
+                .iter()
+                .map(move |span| assess_candidate(&passage.text[span.clone()], inputs, analyzer))
+        })
         .collect()
 }
 
@@ -135,7 +254,16 @@ fn failed_candidate<'a>(
     error: CandidateError,
     inputs: &StoryAssessmentInputs<'_>,
 ) -> StoryCandidateAssessment<'a> {
-    let targets = [
+    let targets = unrun_targets(inputs);
+    StoryCandidateAssessment {
+        assessment: CandidateAssessment::ExecutionError { analysis, error },
+        targets,
+        plan_departures: Vec::new(),
+    }
+}
+
+fn unrun_targets(inputs: &StoryAssessmentInputs<'_>) -> Vec<TargetObservation> {
+    [
         (TargetKind::Vocabulary, &inputs.request.targets.vocabulary),
         (TargetKind::Grammar, &inputs.request.targets.grammar),
     ]
@@ -149,12 +277,7 @@ fn failed_candidate<'a>(
             uncertainties: Vec::new(),
         })
     })
-    .collect();
-    StoryCandidateAssessment {
-        assessment: CandidateAssessment::ExecutionError { analysis, error },
-        targets,
-        plan_departures: Vec::new(),
-    }
+    .collect()
 }
 
 fn observe_plan_departures(

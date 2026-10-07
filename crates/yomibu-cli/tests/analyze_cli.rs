@@ -41,6 +41,7 @@ fn cli_with_dictionary(dir: &Path, dictionary: &Path) -> Command {
     command
         .env_clear()
         .current_dir(dir)
+        .env("YOMIBU_DATA_DIR", dir.join("data"))
         .args(["analyze", "--dictionary"])
         .arg(dictionary)
         .args(["--input", "input.json"]);
@@ -318,14 +319,14 @@ fn sentence_length_error_states_the_limit_without_a_milestone_name() {
         let error = assert_error(output, "101 Unicode characters");
         assert_eq!(
             error,
-            "error: Sentence input: Sentence has 101 Unicode characters; limit is 100.\n"
+            "error: Sentence has 101 Unicode characters; limit is 100.\n"
         );
     }
 }
 
 #[test]
 fn input_reads_are_bounded_at_64_kib() {
-    rejects_input(vec![b' '; 65_537], "exceeds 64 KiB");
+    rejects_input(vec![b' '; 65_537], "exceeds 65536 bytes");
     let mut input: Value = serde_json::from_str(NOMINAL).unwrap();
     input["version"] = json!(2);
     let mut bytes = input.to_string().into_bytes();
@@ -379,7 +380,7 @@ fn argument_errors_escape_invalid_subcommands_and_values_without_flattening_help
         ),
         (
             vec!["prepare-retrieval", "--knowledge-policy", UNTRUSTED],
-            "\n  [possible values: lesson-started, recorded-pass]",
+            "Choose lesson-started or recorded-pass.",
         ),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_yomibu"))
@@ -469,7 +470,9 @@ fn input_path_is_required_and_explicit_dictionary_errors_have_no_report() {
         assert_error(
             Command::new(env!("CARGO_BIN_EXE_yomibu"))
                 .env_clear()
+                .env("YOMIBU_DATA_DIR", dir.path().join("data"))
                 .current_dir(dir.path())
+                .env("YOMIBU_DATA_DIR", dir.path().join("data"))
                 .args(args)
                 .output()
                 .unwrap(),
@@ -562,7 +565,7 @@ fn maximum_sizes_and_poisoned_ambient_state_do_not_trigger_implicit_access_or_wr
     fs::write(dir.path().join("input.json"), &bytes).unwrap();
     let state = dir.path().join(".yomibu");
     fs::create_dir(&state).unwrap();
-    for name in ["wanikani.json", "wanikani.lock", "config.toml"] {
+    for name in ["wanikani.json", "wanikani.json.lock", "config.toml"] {
         fs::write(state.join(name), b"poisoned, never read").unwrap();
     }
     fs::write(dir.path().join("sudachi.json"), b"invalid ambient config").unwrap();
@@ -571,7 +574,7 @@ fn maximum_sizes_and_poisoned_ambient_state_do_not_trigger_implicit_access_or_wr
             .env("HOME", dir.path())
             .env("WANIKANI_API_TOKEN", "invalid\nunused")
             .arg("--data-dir")
-            .arg(state.join("wanikani.json"))
+            .arg(dir.path().join("data"))
             .arg("--json")
             .output()
             .unwrap(),
@@ -585,7 +588,7 @@ fn maximum_sizes_and_poisoned_ambient_state_do_not_trigger_implicit_access_or_wr
     );
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
     assert_eq!(fs::read_dir(&state).unwrap().count(), 3);
-    for name in ["wanikani.json", "wanikani.lock", "config.toml"] {
+    for name in ["wanikani.json", "wanikani.json.lock", "config.toml"] {
         assert_eq!(fs::read(state.join(name)).unwrap(), b"poisoned, never read");
     }
 }

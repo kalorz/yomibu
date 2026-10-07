@@ -1,10 +1,10 @@
 use args::Cli;
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches};
 use std::{
     io::{self, Write},
     process::ExitCode,
 };
-use yomibu::adapters::openai::{Client as OpenAiClient, ProviderError};
+use yomibu::app::{local::ServiceEndpoints, modules::MODULES};
 
 mod args;
 mod commands;
@@ -14,17 +14,33 @@ mod output;
 mod story_tests;
 
 fn main() -> ExitCode {
-    ExitCode::from(entry(std::env::args_os(), OpenAiClient::new))
+    ExitCode::from(entry(std::env::args_os(), ServiceEndpoints::default()))
 }
 
 fn entry(
     args: impl IntoIterator<Item = impl Into<std::ffi::OsString> + Clone>,
-    make_client: impl FnOnce(&str) -> Result<OpenAiClient, ProviderError>,
+    endpoints: ServiceEndpoints,
 ) -> u8 {
-    let cli = match Cli::try_parse_from(args) {
+    let guidance = MODULES
+        .iter()
+        .map(|module| format!("{}: {}\n  {}", module.name, module.purpose, module.guidance))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut command =
+        Cli::command().mut_subcommand("story", |command| command.after_help(guidance));
+    let cli = match command
+        .try_get_matches_from_mut(args)
+        .and_then(|matches| Cli::from_arg_matches(&matches))
+    {
         Ok(cli) => cli,
-        Err(error) => {
+        Err(mut error) => {
             if error.use_stderr() {
+                if error.get(clap::error::ContextKind::Usage).is_none() {
+                    error.insert(
+                        clap::error::ContextKind::Usage,
+                        clap::error::ContextValue::StyledStr(command.render_usage()),
+                    );
+                }
                 let _ = write!(
                     io::stderr().lock(),
                     "{}",
@@ -35,7 +51,10 @@ fn entry(
             return if error.print().is_ok() { 0 } else { 1 };
         }
     };
-    match commands::run(cli, make_client) {
+    if cli.command.is_none() {
+        return if command.print_help().is_ok() { 0 } else { 1 };
+    }
+    match commands::run(cli, endpoints).map_err(output::command_error) {
         Ok(()) => 0,
         Err(error) => {
             let _ = writeln!(io::stderr().lock(), "error: {error}");

@@ -175,6 +175,7 @@ outcomes; all original text must be accounted for before Scope can Pass.
 Applicability remains unresolved for unrecognized constructions. Supported
 permission failures retain their Fail reason/span beside other uncertainty.
 Keep completed Pass/Fail/Inconclusive, execution errors and NotRun distinct.
+Aggregate precedence is Fail, NotRun, Inconclusive, then Pass.
 
 A transitive-use binding cannot resolve an object/predicate combination. Recognized
 object + を + regular polite verb therefore retains Inconclusive for Particles
@@ -205,7 +206,8 @@ The CLI exposes the bounded checks above; it adds no exercise acceptance decisio
 [Story generation](docs/STORY_GENERATION.md) owns the inventory/request formats,
 planning and assessment contracts, provider limits, and CLI behavior.
 [Retrieval](docs/RETRIEVAL.md) owns embedding/cache contracts and measured evidence.
-Manual and WaniKani material use this same path. Generation does not implicitly sync.
+Manual and WaniKani material use this same path. The application handles optional
+auto-sync; the story guide defines cache and first-run policies.
 
 ## Managed dictionary loading
 
@@ -249,8 +251,8 @@ For future validated generation:
 
 ### Data flow and storage boundaries
 
-- Keep settings, learner/source data, and exercise requests separate. The CLI or
-  Cloud resolves credentials and resources. Construction does not start work.
+- Keep settings, learner/source data, and exercise requests separate. Callers supply
+  credentials; the application resolves resources. Construction does not start work.
 - Calls select an explicit learner/source scope; shared objects have no mutable
   current user. A source connection identifies one provider account/input.
   The current WaniKani learner ID must not become a multi-source Yomibu identity.
@@ -282,23 +284,23 @@ full refresh synchronization.
 ### CLI and local files
 
 ```sh
-WANIKANI_API_TOKEN=... yomibu sync
+YOMIBU_WANIKANI_API_KEY=... yomibu sync
 yomibu status
 ```
 
 Both accept a global `--data-dir PATH`. The default is `$HOME/.yomibu`; if HOME is
-unavailable or empty, require an explicit directory. Read `WANIKANI_API_TOKEN`
-only for `sync`. Do not accept or persist a token through a CLI argument or config file.
+unavailable or empty, require an explicit directory. API-key flags override prefixed
+environment bindings. Never persist credentials or load them from configuration files.
 
 ```text
 ~/.yomibu/
   wanikani.json
-  wanikani.lock
+  wanikani.json.lock
 ```
 
-`wanikani.lock` is a separate advisory lock file; its existence alone does not
-indicate a running sync. Reserve `config.toml` for later application settings.
-Sync/status neither creates nor parses it and does not persist grammar knowledge.
+`wanikani.json.lock` is a separate advisory lock file; its existence alone does not
+indicate a running sync. Optional `config.toml` holds non-secret application settings;
+see [story configuration](docs/STORY_GENERATION.md#configuration-and-optional-work).
 
 ### Synchronization behavior
 
@@ -419,9 +421,9 @@ an ordered synchronization interval, and reported percentages within 0–100.
 
 Loading and summarizing both validate the sync data; library callers who construct
 or modify domain structs cannot silently obtain a summary of invalid data.
-Status never creates directories or files or reads config/lock contents. Cache
-errors direct users to a valid backup, another directory, or a compatible Yomibu
-version; missing-cache guidance points to `yomibu sync` and the token environment
+Status reads shared configuration to select its cache. It never writes or reads
+lock contents. Cache errors direct users to a valid backup, another directory,
+or a compatible Yomibu version; missing-cache guidance points to `yomibu sync` and the token environment
 variable.
 
 ### Source boundary

@@ -72,6 +72,7 @@ pub enum TargetUncertaintyScope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "code", content = "detail", rename_all = "snake_case")]
 pub enum TargetUncertaintyReason {
+    AssessmentUnavailable,
     Lexical(LexicalUncertainty),
     UnsupportedMorphology,
     ComponentOnly,

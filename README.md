@@ -1,9 +1,22 @@
 # Yomibu
 
-Yomibu is an unofficial WaniKani tool for Japanese reading practice, with a Rust
-CLI and library. It syncs learner data, previews story requests, generates sentence
-candidates, and checks supplied text. The candidates are experimental; the checks
-do not prove naturalness or correct meaning in context.
+Yomibu creates Japanese readings from vocabulary you have studied. It has a Rust
+CLI and library. Readings are experimental; checks do not prove naturalness or
+correct meaning in context.
+
+## First story
+
+Build with `cargo build --locked`, then supply two keys:
+
+```sh
+export YOMIBU_WANIKANI_API_KEY=...
+export YOMIBU_OPENAI_API_KEY=...
+target/debug/yomibu story
+```
+
+Usable vocabulary is required. No dictionary or embedding model is needed.
+Run `yomibu` for all commands or `yomibu help story` for setup and permissions.
+See [story settings](docs/STORY_GENERATION.md#configuration-and-optional-work).
 
 ## Try it without an account
 
@@ -18,20 +31,12 @@ trap 'rm -rf "$yomibu_demo_dir"' EXIT
 cp tests/fixtures/mixed.json "$yomibu_demo_dir/wanikani.json"
 cargo run --locked -- status --data-dir "$yomibu_demo_dir"
 
-cargo run --locked -- prepare-retrieval \
+cargo run --locked -- preview-story --data-dir "$yomibu_demo_dir" \
   --inventory tests/fixtures/story/inventory.json \
-  --request tests/fixtures/story/request.json \
-  --embedding-cache "$yomibu_demo_dir/vectors.json" \
-  --embedding-provider lexical-baseline
-
-cargo run --locked -- preview-story \
-  --inventory tests/fixtures/story/inventory.json \
-  --request tests/fixtures/story/request.json \
-  --embedding-cache "$yomibu_demo_dir/vectors.json" --json
+  --request tests/fixtures/story/request.json --json
 ```
 
-Status prints saved observations. Preparation writes a vector cache using token
-overlap, without understanding meaning. Preview shows the request without sending it.
+Status prints saved observations. Preview shows the request without sending it.
 Add Cargo's `--offline` before `--` once dependencies are cached.
 
 ## Current commands
@@ -41,10 +46,10 @@ Use `cargo run --locked -- --help` for flags.
 | Command | Purpose |
 | --- | --- |
 | `status` | Read the saved WaniKani cache; no network or writes |
-| `sync` | Refresh the cache; needs `WANIKANI_API_TOKEN` |
+| `sync` | Refresh the cache; needs `YOMIBU_WANIKANI_API_KEY` |
 | `prepare-retrieval` | Prepare vectors with an explicitly chosen encoder |
-| `preview-story` | Show the exact request using cached vectors; offline |
-| `generate-story` | Make one paid attempt; needs a dictionary, `OPENAI_API_KEY`, and `--allow-model-call` |
+| `preview-story` | Show the exact generation request offline |
+| `story` | Generate one short passage with one AI request |
 | `analyze` | Check one sentence offline; needs input JSON and a dictionary |
 | `dictionary import` / `verify` | Install or verify a local dictionary bundle; no downloads |
 

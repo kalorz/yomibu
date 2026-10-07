@@ -74,7 +74,7 @@ fn inventory() -> LearnerInventory {
         "grammar_bindings":[{"declaration_id":"past","rule":"PolitePast"}]})).unwrap()).unwrap()
 }
 fn request() -> StoryRequest {
-    serde_json::from_value(json!({"version":1,"brief":"Meeting at a train station","targets":{"vocabulary":["cat"],"grammar":["past"]}})).unwrap()
+    serde_json::from_value(json!({"version":1,"topic":"Meeting at a train station","targets":{"vocabulary":["cat"],"grammar":["past"]}})).unwrap()
 }
 fn model() -> EmbeddingModelIdentity {
     EmbeddingModelIdentity {
@@ -125,7 +125,7 @@ fn stale_model_text_and_invalid_vectors_fail_before_selection() {
     let mut changed = model();
     changed.revision = "2".into();
     assert!(select_vocabulary(&inventory, &request, &cache, &changed, 2).is_err());
-    request.brief = "flowers".into();
+    request.topic = Some(yomibu::story::StoryTopic::new("flowers".into()).unwrap());
     assert!(select_vocabulary(&inventory, &request, &cache, &model(), 2).is_err());
 }
 #[test]
@@ -183,7 +183,7 @@ async fn manual_and_wanikani_sources_share_embedding_inputs_and_prepared_request
     )
     .unwrap();
     let request: StoryRequest = serde_json::from_value(
-        json!({"version":1,"brief":"one thing","targets":{"vocabulary":[],"grammar":[]}}),
+        json!({"version":1,"topic":"one thing","targets":{"vocabulary":[],"grammar":[]}}),
     )
     .unwrap();
     let encoder = LexicalEmbedder::new();
@@ -216,26 +216,28 @@ async fn manual_and_wanikani_sources_share_embedding_inputs_and_prepared_request
 #[test]
 fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() {
     use yomibu::story::StoryGenerationOptions;
-    assert_eq!(StoryGenerationOptions::default().candidate_count, 2);
+    assert_eq!(StoryGenerationOptions::default().candidate_count, 1);
     assert!(
         serde_json::to_value(request())
             .unwrap()
             .get("candidate_count")
             .is_none()
     );
-    for count in [1, 2, 8, 9, 100, usize::MAX / 512] {
+    for count in [1, 2, 8, 9, 100, usize::MAX / 2560] {
         assert!(
             StoryGenerationOptions {
-                candidate_count: count
+                candidate_count: count,
+                ..Default::default()
             }
             .validate()
             .is_ok()
         );
     }
-    for count in [0, usize::MAX / 512 + 1, usize::MAX] {
+    for count in [0, usize::MAX / 2560 + 1, usize::MAX] {
         assert!(
             StoryGenerationOptions {
-                candidate_count: count
+                candidate_count: count,
+                ..Default::default()
             }
             .validate()
             .is_err()
@@ -244,7 +246,7 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
 }
 
 #[test]
-fn request_bounds_count_brief_bytes_and_each_target_kind_independently() {
+fn request_bounds_count_topic_bytes_and_each_target_kind_independently() {
     let mut inventory = inventory();
     let word = inventory.vocabulary[0].clone();
     for index in 0..17 {
@@ -261,20 +263,28 @@ fn request_bounds_count_brief_bytes_and_each_target_kind_independently() {
     let mut request = request();
     request.targets.vocabulary = (0..16).map(|index| format!("word-{index}")).collect();
     request.targets.grammar = (0..16).map(|index| format!("grammar-{index}")).collect();
-    request.brief = format!("{}ab", "猫".repeat(682));
-    assert_eq!(request.brief.len(), 2048);
+    request.topic =
+        Some(yomibu::story::StoryTopic::new(format!("{}ab", "猫".repeat(682))).unwrap());
+    assert_eq!(request.topic.as_ref().unwrap().text().len(), 2048);
     assert!(request.validate(&inventory).is_ok());
     assert!(request.validate_selection_limit(16).is_ok());
     for limit in [0, 15, 17] {
         assert!(request.validate_selection_limit(limit).is_err());
     }
 
-    request.brief.push('c');
+    request.topic = Some(
+        serde_json::from_value(json!(format!(
+            "{}c",
+            request.topic.as_ref().unwrap().text()
+        )))
+        .unwrap(),
+    );
     assert!(matches!(
         request.validate(&inventory),
-        Err(StoryError::Invalid("version, brief or target limits"))
+        Err(StoryError::Invalid("version, topic or target limits"))
     ));
-    request.brief.pop();
+    request.topic =
+        Some(yomibu::story::StoryTopic::new(format!("{}ab", "猫".repeat(682))).unwrap());
     request.targets.vocabulary.push("word-16".into());
     assert!(request.validate(&inventory).is_err());
     request.targets.vocabulary.pop();

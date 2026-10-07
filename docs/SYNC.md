@@ -5,7 +5,7 @@ The saved data records progress; it does not prove mastery.
 
 ## CLI usage
 
-Set `WANIKANI_API_TOKEN` in the environment before sync:
+Set `YOMIBU_WANIKANI_API_KEY` in the environment before sync:
 
 ```sh
 cargo run --locked -- sync
@@ -17,7 +17,8 @@ The default directory is `$HOME/.yomibu`. Status reads `wanikani.json` without
 network access or writes. Use a separate directory for each account.
 The [README demo](../README.md#try-it-without-an-account) needs no account.
 
-Sync locks the writer before fetching and validates data before replacing the cache.
+Explicit sync always refreshes. Story auto-sync follows the
+[story cache policy](STORY_GENERATION.md#cache). Sync locks the writer before fetching and validates data before replacing the cache.
 Failures before replacement preserve the old cache. `DurabilityUncertain` means
 replacement happened but directory synchronization failed; it does not mean rollback.
 

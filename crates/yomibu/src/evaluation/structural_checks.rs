@@ -64,11 +64,20 @@ pub(crate) fn assess_inventory(
         .iter()
         .map(|binding| binding.rule)
         .collect();
-    Ok(assess_permissions(
-        analysis,
-        &rules,
-        LexicalPermissions::Inventory(inventory),
-    ))
+    let mut assessment =
+        assess_permissions(analysis, &rules, LexicalPermissions::Inventory(inventory));
+    if inventory.grammar_bindings.is_empty() {
+        for check in [
+            &mut assessment.evaluation.inflection,
+            &mut assessment.evaluation.particles,
+            &mut assessment.evaluation.nominal,
+        ] {
+            check.state = super::CheckState::NotRun;
+            check.findings.clear();
+            check.coverage = "grammar knowledge was not supplied";
+        }
+    }
+    Ok(assessment)
 }
 
 fn assess_permissions(

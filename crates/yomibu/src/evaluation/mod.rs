@@ -143,15 +143,14 @@ impl Evaluation {
             self.nominal.state,
             self.scope.state,
         ];
-        if states.contains(&CheckState::NotRun) {
-            return CheckState::NotRun;
-        }
-        for outcome in [Fail, Inconclusive] {
-            if states.contains(&CheckState::Completed(outcome)) {
-                return CheckState::Completed(outcome);
-            }
-        }
-        CheckState::Completed(Pass)
+        [
+            CheckState::Completed(Fail),
+            CheckState::NotRun,
+            CheckState::Completed(Inconclusive),
+        ]
+        .into_iter()
+        .find(|state| states.contains(state))
+        .unwrap_or(CheckState::Completed(Pass))
     }
 }
 

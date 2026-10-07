@@ -153,12 +153,15 @@ impl LearnerInventory {
         result.validate()?;
         Ok(result)
     }
-    pub fn with_manual(mut self, input: ManualInventory) -> Result<Self, InventoryError> {
-        let manual = Self::from_manual(input)?;
+    pub fn with_manual(self, input: ManualInventory) -> Result<Self, InventoryError> {
+        self.merge(Self::from_manual(input)?)
+    }
+    pub fn merge(mut self, manual: Self) -> Result<Self, InventoryError> {
         self.vocabulary.extend(manual.vocabulary);
         self.grammar_declarations
             .extend(manual.grammar_declarations);
         self.grammar_bindings.extend(manual.grammar_bindings);
+        self.excluded.extend(manual.excluded);
         self.validate()?;
         Ok(self)
     }

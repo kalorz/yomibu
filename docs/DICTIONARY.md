@@ -28,13 +28,11 @@ Its source directory must contain regular `system_core.dic`, `LEGAL` and
 destination lengths and SHA-256 pins before publication. It never trusts a
 source path or a source receipt instead of verifying copied bytes.
 
-The default root is `$HOME/.yomibu/dictionaries`. Use `--dictionary-dir PATH` on
-import, verify and dictionary-backed commands to select another root. Missing or
-empty HOME requires that explicit option. `--data-dir` remains learner storage
-and does not select a dictionary. `--dictionary-dir` conflicts with `--dictionary`.
-Help/version and preview commands do not open
-an installation. Generation retains explicit model opt-in and existing preflight;
-import/verify/analyze make no provider call.
+The default root is `<data-dir>/dictionaries`. Use `--dictionary-dir PATH` on
+import, verify and dictionary-backed commands to select another root.
+`--dictionary-dir` conflicts with `--dictionary`. Help/version and preview do not
+open an installation. Story assessment is optional; import/verify/analyze require
+their resources and make no provider call.
 
 ```text
 dictionaries/
