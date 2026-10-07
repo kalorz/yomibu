@@ -1,29 +1,29 @@
 //! Full-inventory assessment, target observations and original candidates.
 
-use std::{collections::BTreeMap, ops::Range};
+use std::ops::Range;
 
 use serde::Serialize;
 
-use super::{StoryError, StoryRequest, StoryVocabularySelection};
+use super::{
+    StoryError, StoryRequest, StoryVocabularySelection, TargetKind, TargetObservation, TargetState,
+    TargetUncertainty, TargetUncertaintyReason, TargetUncertaintyScope,
+};
 use crate::{
     adapters::sudachi::SudachiAnalyzer,
-    analysis::{Sentence, SentenceAnalysis, Token},
+    analysis::{Sentence, SentenceAnalysis},
     candidate::{CandidateAssessment, CandidateError, GenerationProvenance},
-    evaluation::{self, EvaluationBindings, GrammarBinding, GrammarRule},
-    grammar::GrammarDeclarations,
+    evaluation::{
+        self, DirectObjectEvidence, LexicalStatus, LexicalUncertainty, SentenceAssessment,
+    },
     inventory::LearnerInventory,
 };
 
-/// Full original inventory, request and selected IDs for candidate assessment.
-/// The structural checker needs an owned projection; vocabulary checks still use
-/// the complete inventory, including entries not selected for the prompt.
+/// Assessment always uses the full inventory, including unselected material.
 #[derive(Debug)]
 pub struct StoryAssessmentInputs<'a> {
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
     selected_vocabulary_ids: Vec<&'a str>,
-    structural_grammar: GrammarDeclarations,
-    structural_bindings: EvaluationBindings,
 }
 impl<'a> StoryAssessmentInputs<'a> {
     pub fn new(
@@ -32,7 +32,6 @@ impl<'a> StoryAssessmentInputs<'a> {
         selection: &StoryVocabularySelection<'a>,
     ) -> Result<Self, StoryError> {
         request.validate(inventory)?;
-        let (structural_grammar, structural_bindings) = project_structural_inputs(inventory)?;
         Ok(Self {
             inventory,
             request,
@@ -41,68 +40,16 @@ impl<'a> StoryAssessmentInputs<'a> {
                 .iter()
                 .map(|entry| entry.word.id.as_str())
                 .collect(),
-            structural_grammar,
-            structural_bindings,
         })
     }
 }
 
-fn project_structural_inputs(
-    inventory: &LearnerInventory,
-) -> Result<(GrammarDeclarations, EvaluationBindings), StoryError> {
-    let grammar = GrammarDeclarations::from_descriptions(
-        inventory
-            .grammar_declarations
-            .iter()
-            .map(|declaration| declaration.description.as_str()),
-    )
-    .map_err(|_| StoryError::Invalid("grammar declarations"))?;
-    let mut written_form_counts = BTreeMap::new();
-    for word in &inventory.vocabulary {
-        *written_form_counts.entry(&word.written_form).or_insert(0) += 1;
-    }
-    let vocabulary = inventory
-        .vocabulary
-        .iter()
-        .filter(|word| written_form_counts.get(&word.written_form) == Some(&1))
-        .filter_map(evaluation::single_use)
-        .collect();
-    let bindings = inventory
-        .grammar_bindings
-        .iter()
-        .map(|binding| {
-            inventory
-                .grammar_declarations
-                .iter()
-                .position(|declaration| declaration.id == binding.declaration_id)
-                .map(|index| GrammarBinding {
-                    declaration_id: index + 1,
-                    rule: binding.rule,
-                })
-                .ok_or(StoryError::Invalid("missing grammar declaration"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok((
-        grammar,
-        EvaluationBindings {
-            vocabulary,
-            grammar: bindings,
-        },
-    ))
-}
-#[derive(Debug, Serialize)]
-pub struct TargetObservation {
-    pub kind: &'static str,
-    pub id: String,
-    pub status: &'static str,
-    pub completeness: &'static str,
-    pub spans: Vec<Range<usize>>,
-}
 #[derive(Debug, Serialize)]
 pub struct PlanDeparture {
     pub span: Range<usize>,
     pub inventory_entries: Vec<String>,
 }
+
 #[derive(Debug)]
 pub struct StoryCandidateAssessment<'a> {
     pub assessment: CandidateAssessment<'a>,
@@ -158,86 +105,87 @@ pub fn assess_candidates<'a>(
     generated
         .texts()
         .iter()
-        .map(|text| {
-            let assessment = evaluate_candidate(text, inputs, analyzer);
-            let analysis = match &assessment {
-                CandidateAssessment::Completed { analysis, .. } => Some(analysis),
-                CandidateAssessment::ExecutionError { analysis, .. } => analysis.as_ref(),
-            };
-            let mut targets = observe_vocabulary_targets(analysis, inputs);
-            targets.extend(observe_grammar_targets(analysis, inputs));
-            let plan_departures = observe_plan_departures(analysis, inputs);
-            StoryCandidateAssessment {
-                assessment,
-                targets,
-                plan_departures,
-            }
-        })
+        .map(|text| assess_candidate(text, inputs, analyzer))
         .collect()
 }
 
-fn evaluate_candidate<'a>(
+fn assess_candidate<'a>(
     text: &'a str,
     inputs: &StoryAssessmentInputs<'_>,
     analyzer: &SudachiAnalyzer,
-) -> CandidateAssessment<'a> {
+) -> StoryCandidateAssessment<'a> {
     let sentence = match Sentence::new(text) {
         Ok(sentence) => sentence,
         Err(error) => {
-            return CandidateAssessment::ExecutionError {
-                analysis: None,
-                error: CandidateError::Sentence(error),
-            };
+            return failed_candidate(None, CandidateError::Sentence(error), inputs);
         }
     };
     let analysis = match analyzer.analyze(sentence) {
         Ok(analysis) => analysis,
         Err(error) => {
-            return CandidateAssessment::ExecutionError {
-                analysis: None,
-                error: CandidateError::Analysis(error),
-            };
+            return failed_candidate(None, CandidateError::Analysis(error), inputs);
         }
     };
-    match evaluation::evaluate_inventory(
-        &analysis,
-        &inputs.structural_grammar,
-        &inputs.structural_bindings,
-        inputs.inventory,
-    ) {
-        Ok(evaluation) => CandidateAssessment::Completed {
+    let assessed = match evaluation::assess_inventory(&analysis, inputs.inventory) {
+        Ok(assessed) => assessed,
+        Err(error) => {
+            return failed_candidate(Some(analysis), CandidateError::Evaluation(error), inputs);
+        }
+    };
+    let mut targets = observe_vocabulary_targets(&analysis, &assessed, inputs);
+    targets.extend(observe_grammar_targets(&analysis, &assessed, inputs));
+    let plan_departures = observe_plan_departures(&analysis, &assessed, inputs);
+    StoryCandidateAssessment {
+        assessment: CandidateAssessment::Completed {
             analysis,
-            evaluation: Box::new(evaluation),
+            evaluation: Box::new(assessed.evaluation),
         },
-        Err(error) => CandidateAssessment::ExecutionError {
-            analysis: Some(analysis),
-            error: CandidateError::Evaluation(error),
-        },
+        targets,
+        plan_departures,
+    }
+}
+
+fn failed_candidate<'a>(
+    analysis: Option<SentenceAnalysis<'a>>,
+    error: CandidateError,
+    inputs: &StoryAssessmentInputs<'_>,
+) -> StoryCandidateAssessment<'a> {
+    let targets = [
+        (TargetKind::Vocabulary, &inputs.request.targets.vocabulary),
+        (TargetKind::Grammar, &inputs.request.targets.grammar),
+    ]
+    .into_iter()
+    .flat_map(|(kind, ids)| {
+        ids.iter().map(move |id| TargetObservation {
+            kind,
+            id: id.clone(),
+            state: TargetState::NotRun,
+            spans: Vec::new(),
+            uncertainties: Vec::new(),
+        })
+    })
+    .collect();
+    StoryCandidateAssessment {
+        assessment: CandidateAssessment::ExecutionError { analysis, error },
+        targets,
+        plan_departures: Vec::new(),
     }
 }
 
 fn observe_plan_departures(
-    analysis: Option<&SentenceAnalysis<'_>>,
+    analysis: &SentenceAnalysis<'_>,
+    assessed: &SentenceAssessment,
     inputs: &StoryAssessmentInputs<'_>,
 ) -> Vec<PlanDeparture> {
-    let Some(analysis) = analysis else {
-        return Vec::new();
-    };
     analysis
         .units
         .iter()
-        .filter_map(|unit| {
-            let token = &unit.token;
-            if !token.out_of_vocabulary && is_function_word_or_punctuation(token) {
+        .zip(&assessed.lexical)
+        .filter_map(|(unit, evidence)| {
+            if evidence.status == LexicalStatus::Exempt {
                 return None;
             }
-            let inventory_entries: Vec<_> = inputs
-                .inventory
-                .vocabulary
-                .iter()
-                .filter(|word| word.written_form == token.dictionary_form)
-                .map(|word| word.id.clone())
-                .collect();
+            let inventory_entries = &evidence.inventory_entries;
             if inventory_entries.is_empty()
                 || inventory_entries
                     .iter()
@@ -246,8 +194,8 @@ fn observe_plan_departures(
                 None
             } else {
                 Some(PlanDeparture {
-                    span: token.span.clone(),
-                    inventory_entries,
+                    span: unit.token.span.clone(),
+                    inventory_entries: inventory_entries.clone(),
                 })
             }
         })
@@ -255,7 +203,8 @@ fn observe_plan_departures(
 }
 
 fn observe_vocabulary_targets(
-    analysis: Option<&SentenceAnalysis<'_>>,
+    analysis: &SentenceAnalysis<'_>,
+    assessed: &SentenceAssessment,
     inputs: &StoryAssessmentInputs<'_>,
 ) -> Vec<TargetObservation> {
     let mut observations = Vec::new();
@@ -266,144 +215,130 @@ fn observe_vocabulary_targets(
             .iter()
             .find(|word| &word.id == id);
         let mut spans = Vec::new();
-        let mut has_uncertain_evidence = false;
-        let mut has_uncertain_target_occurrence = false;
-        if let (Some(analysis), Some(word)) = (analysis, word) {
-            let single_use = evaluation::single_use(word);
-            let has_competing_identity = inputs
-                .inventory
-                .vocabulary
-                .iter()
-                .filter(|entry| entry.written_form == word.written_form)
-                .count()
-                != 1;
-            for unit in &analysis.units {
+        let mut uncertainties = Vec::new();
+        if let Some(word) = word {
+            for (unit, evidence) in analysis.units.iter().zip(&assessed.lexical) {
                 let supports_morphology =
-                    supports_target_morphology(&unit.token, analysis.sentence.text());
-                if unit.token.dictionary_form == word.written_form {
-                    let matches_single_use = !has_competing_identity
-                        && single_use.as_ref().is_some_and(|word_use| {
-                            evaluation::reading_matches(
-                                word_use,
-                                &unit.token,
-                                analysis.sentence.text(),
-                            )
-                        });
-                    if matches_single_use && supports_morphology && !unit.token.out_of_vocabulary {
+                    evaluation::supports_target_morphology(&unit.token, analysis.sentence.text());
+                let uncertainty = if unit.token.dictionary_form == word.written_form {
+                    if evidence.status == LexicalStatus::Available && supports_morphology {
                         spans.push(unit.token.span.clone());
+                        None
                     } else {
-                        has_uncertain_evidence = true;
-                        has_uncertain_target_occurrence = true;
+                        Some((
+                            TargetUncertaintyScope::TargetOccurrence,
+                            match evidence.status {
+                                LexicalStatus::Unresolved(reason) => {
+                                    TargetUncertaintyReason::Lexical(reason)
+                                }
+                                _ => TargetUncertaintyReason::UnsupportedMorphology,
+                            },
+                        ))
                     }
                 } else if unit
                     .components
                     .iter()
                     .any(|component| component.dictionary_form == word.written_form)
                 {
-                    has_uncertain_evidence = true;
-                    has_uncertain_target_occurrence = true;
-                }
-                if unit.token.out_of_vocabulary
-                    || (!supports_morphology && !is_function_word_or_punctuation(&unit.token))
-                {
-                    has_uncertain_evidence = true;
+                    Some((
+                        TargetUncertaintyScope::TargetOccurrence,
+                        TargetUncertaintyReason::ComponentOnly,
+                    ))
+                } else if unit.token.out_of_vocabulary {
+                    Some((
+                        TargetUncertaintyScope::SentenceCoverage,
+                        TargetUncertaintyReason::Lexical(LexicalUncertainty::OutOfDictionary),
+                    ))
+                } else if !supports_morphology && !unit.token.is_function_word_or_punctuation() {
+                    Some((
+                        TargetUncertaintyScope::SentenceCoverage,
+                        TargetUncertaintyReason::UnsupportedMorphology,
+                    ))
+                } else {
+                    None
+                };
+                if let Some((scope, reason)) = uncertainty {
+                    uncertainties.push(TargetUncertainty {
+                        span: unit.token.span.clone(),
+                        scope,
+                        reason,
+                        inventory_entries: evidence.inventory_entries.clone(),
+                    });
                 }
             }
         }
-        observations.push(TargetObservation {
-            kind: "vocabulary",
-            id: id.clone(),
-            status: if analysis.is_none() {
-                "not_run"
-            } else if has_uncertain_target_occurrence
-                || (has_uncertain_evidence && spans.is_empty())
-            {
-                "unassessable"
-            } else if spans.is_empty() {
-                "absent"
-            } else {
-                "observed"
-            },
-            completeness: if analysis.is_none() {
-                "not_run"
-            } else if has_uncertain_evidence {
-                "partial"
-            } else {
-                "complete"
-            },
+        observations.push(TargetObservation::from_evidence(
+            TargetKind::Vocabulary,
+            id,
             spans,
-        });
+            uncertainties,
+        ));
     }
     observations
 }
 
 fn observe_grammar_targets(
-    analysis: Option<&SentenceAnalysis<'_>>,
+    analysis: &SentenceAnalysis<'_>,
+    assessed: &SentenceAssessment,
     inputs: &StoryAssessmentInputs<'_>,
 ) -> Vec<TargetObservation> {
     let mut observations = Vec::new();
-    let observed_rules = analysis
-        .and_then(|analysis| evaluation::observed_grammar(analysis, &inputs.structural_bindings));
     for id in &inputs.request.targets.grammar {
-        let rules: Vec<GrammarRule> = inputs
+        let rules: Vec<_> = inputs
             .inventory
             .grammar_bindings
             .iter()
             .filter(|binding| &binding.declaration_id == id)
             .map(|binding| binding.rule)
             .collect();
-        let spans = observed_rules
-            .as_ref()
-            .map(|observed_rules| {
-                observed_rules
-                    .iter()
-                    .filter(|(rule, _)| rules.contains(rule))
-                    .map(|(_, span)| span.clone())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let status = if analysis.is_none() {
-            "not_run"
-        } else if rules.is_empty() || observed_rules.is_none() {
-            "unassessable"
-        } else if spans.is_empty() {
-            "absent"
-        } else {
-            "observed"
-        };
-        observations.push(TargetObservation {
-            kind: "grammar",
-            id: id.clone(),
-            status,
-            completeness: if analysis.is_none() {
-                "not_run"
-            } else if rules.is_empty() || observed_rules.is_none() {
-                "partial"
-            } else {
-                "complete"
-            },
+        let mut spans = Vec::new();
+        let mut uncertainties = Vec::new();
+        if rules.is_empty() || assessed.construction.is_none() {
+            uncertainties.push(TargetUncertainty {
+                span: 0..analysis.sentence.text().len(),
+                scope: TargetUncertaintyScope::SentenceCoverage,
+                reason: if rules.is_empty() {
+                    TargetUncertaintyReason::NoGrammarBinding
+                } else {
+                    TargetUncertaintyReason::UnsupportedConstruction
+                },
+                inventory_entries: Vec::new(),
+            });
+        } else if let Some(construction) = &assessed.construction {
+            for (rule, span) in construction
+                .rules
+                .iter()
+                .filter(|(rule, _)| rules.contains(rule))
+            {
+                if *rule == crate::grammar::GrammarRule::ObjectWo
+                    && let Some(object) = &construction.object
+                    && assessed.lexical[object.lexical_unit].direct_object_evidence()
+                        != DirectObjectEvidence::Confirmed
+                {
+                    let evidence = &assessed.lexical[object.lexical_unit];
+                    uncertainties.push(TargetUncertainty {
+                        span: analysis.units[object.lexical_unit].token.span.clone(),
+                        scope: TargetUncertaintyScope::TargetOccurrence,
+                        reason: TargetUncertaintyReason::DirectObject(
+                            evidence.direct_object_evidence(),
+                        ),
+                        inventory_entries: evidence.inventory_entries.clone(),
+                    });
+                } else {
+                    spans.push(span.clone());
+                }
+            }
+        }
+        observations.push(TargetObservation::from_evidence(
+            TargetKind::Grammar,
+            id,
             spans,
-        });
+            uncertainties,
+        ));
     }
     observations
 }
 
-fn is_function_word_or_punctuation(token: &Token) -> bool {
-    ["助詞", "助動詞", "補助記号"].contains(&token.part_of_speech[0].as_str())
-}
-
-fn supports_target_morphology(token: &Token, text: &str) -> bool {
-    match token.part_of_speech[0].as_str() {
-        "名詞" | "代名詞" => true,
-        "動詞" => {
-            let Some(stem) = evaluation::regular_stem(&token.dictionary_form, token) else {
-                return false;
-            };
-            let Some(surface) = text.get(token.span.clone()) else {
-                return false;
-            };
-            surface == token.dictionary_form || surface == stem
-        }
-        _ => false,
-    }
-}
+#[cfg(test)]
+#[path = "assessment_tests.rs"]
+mod tests;

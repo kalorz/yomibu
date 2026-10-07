@@ -105,6 +105,12 @@
 - REFACTOR: explicitly review production and test code for simplification,
   duplication, naming, modelling, ownership/borrowing, and idiomatic Rust.
   Refactor where worthwhile, then rerun tests.
+- Before delivery, review the full change again, beyond individual TDD cycles.
+  Look for unnecessary types, layers, wrappers, duplicated or stored derived
+  state, ownership machinery, and excessive test setup. Simplify worthwhile
+  cases autonomously; do not wait for a user prompt. Prefer fewer concepts and
+  clear data flow over fewer lines. Preserve behavior, public contracts and
+  meaningful regression coverage, then rerun affected checks.
 - The refactor phase must not be skipped. Report its result briefly in the PR
   or chat; do not add a repository work log.
 - Bug fixes start with a regression test that reproduces the bug.

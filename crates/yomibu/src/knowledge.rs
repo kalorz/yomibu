@@ -4,6 +4,7 @@ use crate::domain::{
     Assignment, ReviewStatistic, Subject, SubjectKind, ValidationError, WaniKaniSyncData,
 };
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -19,12 +20,17 @@ pub struct LearnerKnowledgePolicy {
     pub wanikani: WaniKaniKnowledgeRule,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ExclusionReason {
+    #[serde(rename = "ContentUnavailable")]
     ContentUnavailable,
+    #[serde(rename = "Hidden")]
     Hidden,
+    #[serde(rename = "NoAssignment")]
     NoAssignment,
+    #[serde(rename = "NoRecordedLessonStart")]
     NoRecordedLessonStart,
+    #[serde(rename = "NoRecordedPass")]
     NoRecordedPass,
 }
 

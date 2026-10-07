@@ -70,3 +70,27 @@ fn wanikani_projection_keeps_eligibility_alternatives_and_missing_readings() {
     let combined = inventory.with_manual(supplement).unwrap();
     assert_eq!(combined.grammar_declarations[0].id, "topic");
 }
+
+#[test]
+fn typed_exclusion_reasons_keep_the_existing_inventory_json_codes() {
+    use yomibu::{inventory::ExcludedMaterial, knowledge::ExclusionReason};
+    for (reason, code) in [
+        (ExclusionReason::ContentUnavailable, "ContentUnavailable"),
+        (ExclusionReason::Hidden, "Hidden"),
+        (ExclusionReason::NoAssignment, "NoAssignment"),
+        (
+            ExclusionReason::NoRecordedLessonStart,
+            "NoRecordedLessonStart",
+        ),
+        (ExclusionReason::NoRecordedPass, "NoRecordedPass"),
+    ] {
+        let excluded = ExcludedMaterial {
+            subject_id: 42,
+            reason,
+        };
+        assert_eq!(
+            serde_json::to_value(excluded).unwrap(),
+            json!({"subject_id":42,"reason":code})
+        );
+    }
+}

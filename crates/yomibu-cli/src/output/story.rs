@@ -90,8 +90,8 @@ pub(crate) fn write_generation(
                     "Target {} {}: {}; completeness {}; spans {:?}",
                     t.kind,
                     t.id.escape_debug(),
-                    t.status,
-                    t.completeness,
+                    t.state.status(),
+                    t.state.completeness(),
                     t.spans
                 )?;
             }

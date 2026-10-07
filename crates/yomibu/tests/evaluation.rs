@@ -4,8 +4,8 @@ use yomibu::{
     adapters::sudachi::SudachiAnalyzer,
     analysis::Sentence,
     evaluation::{
-        CheckKind, CheckOutcome, CheckState, EvaluationBindings, GrammarBinding, GrammarRule,
-        UnassessedAspect, VocabularyEntry, evaluate,
+        CheckKind, CheckOutcome, CheckState, EvaluationBasis, EvaluationBindings, GrammarBinding,
+        GrammarRule, UnassessedAspect, VocabularyEntry, evaluate,
     },
     grammar::GrammarDeclarations,
 };
@@ -95,6 +95,13 @@ fn vocabulary_checks_whole_identity_without_promoting_components_or_dictionary_g
         .analyze(Sentence::new("東京都").unwrap())
         .unwrap();
     let report = evaluate(&analysis, &grammar, &bindings).unwrap();
+    assert_eq!(report.basis, EvaluationBasis::ExplicitWordUses);
+    assert!(
+        serde_json::to_value(&report)
+            .unwrap()
+            .get("basis")
+            .is_none()
+    );
     assert_eq!(
         report.check(CheckKind::Vocabulary).state,
         CheckState::Completed(CheckOutcome::Fail)

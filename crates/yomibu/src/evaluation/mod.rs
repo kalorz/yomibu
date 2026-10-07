@@ -1,12 +1,16 @@
 //! Bounded structural and full-inventory evaluation.
 //! A passed check never establishes exercise acceptance or linguistic mastery.
 
-mod inventory_checks;
+mod lexical;
+mod morphology;
 mod structural_checks;
 
-pub(crate) use inventory_checks::{evaluate_inventory, single_use};
+pub use crate::grammar::GrammarRule;
+pub(crate) use lexical::LexicalStatus;
+pub use lexical::{DirectObjectEvidence, EvaluationBasis, LexicalUncertainty};
+pub(crate) use morphology::supports_target_morphology;
 pub use structural_checks::evaluate;
-pub(crate) use structural_checks::{observed_grammar, reading_matches, regular_stem};
+pub(crate) use structural_checks::{SentenceAssessment, assess_inventory};
 
 use std::ops::Range;
 
@@ -24,17 +28,6 @@ pub struct VocabularyEntry {
     /// Explicit synthetic evidence for this lexical use; never inferred from を.
     /// Does not assess an object/predicate combination or resolve multiword uses.
     pub direct_object: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GrammarRule {
-    NominalDesu,
-    TopicWa,
-    ObjectWo,
-    PoliteNonPast,
-    PolitePast,
-    PoliteNegativeNonPast,
-    PoliteNegativePast,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,6 +116,8 @@ pub const REPORT_NOTICE: &str = "Bounded analysis only; these sentences are not 
 pub struct Evaluation {
     pub notice: &'static str,
     pub unassessed: [UnassessedAspect; 3],
+    #[serde(skip)]
+    pub basis: EvaluationBasis,
     vocabulary: Check,
     inflection: Check,
     particles: Check,

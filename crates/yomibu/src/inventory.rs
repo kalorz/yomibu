@@ -1,8 +1,8 @@
 //! Source-independent material available for practice, with explicit uncertainty.
 use crate::{
     domain::{LexicalContent, WaniKaniSyncData},
-    evaluation::GrammarRule,
-    knowledge::{KnowledgeDecision, LearnerKnowledgePolicy},
+    grammar::GrammarRule,
+    knowledge::{ExclusionReason, KnowledgeDecision, LearnerKnowledgePolicy},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -33,20 +33,22 @@ impl InventoryWord {
     pub fn analyzer_readings(&self) -> Vec<String> {
         self.readings
             .iter()
-            .map(|reading| {
-                reading
-                    .chars()
-                    .map(|c| {
-                        if ('\u{3041}'..='\u{3096}').contains(&c) {
-                            char::from_u32(c as u32 + 0x60).unwrap_or(c)
-                        } else {
-                            c
-                        }
-                    })
-                    .collect()
-            })
+            .map(|reading| analyzer_reading(reading))
             .collect()
     }
+}
+
+pub(crate) fn analyzer_reading(reading: &str) -> String {
+    reading
+        .chars()
+        .map(|c| {
+            if ('\u{3041}'..='\u{3096}').contains(&c) {
+                char::from_u32(c as u32 + 0x60).unwrap_or(c)
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,7 +73,7 @@ pub struct ManualInventory {
 #[derive(Debug, Serialize)]
 pub struct ExcludedMaterial {
     pub subject_id: u64,
-    pub reason: String,
+    pub reason: ExclusionReason,
 }
 #[derive(Debug, Serialize)]
 pub struct LearnerInventory {
@@ -116,7 +118,7 @@ impl LearnerInventory {
             if let KnowledgeDecision::Excluded(reason) = item.decision {
                 result.excluded.push(ExcludedMaterial {
                     subject_id: item.subject_id,
-                    reason: format!("{reason:?}"),
+                    reason,
                 });
                 continue;
             }

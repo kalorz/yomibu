@@ -88,7 +88,7 @@ async fn shared_workflow_preserves_exact_request_full_inventory_and_partial_resu
             error: CandidateError::Sentence(SentenceError::Blank)
         }
     ));
-    assert_eq!(assessments[1].targets[0].status, "not_run");
+    assert_eq!(assessments[1].targets[0].state.status(), "not_run");
     assert!(matches!(
         assessments[3].assessment,
         CandidateAssessment::ExecutionError {
@@ -96,7 +96,7 @@ async fn shared_workflow_preserves_exact_request_full_inventory_and_partial_resu
             error: CandidateError::Sentence(SentenceError::TooLong { .. })
         }
     ));
-    assert_eq!(assessments[3].targets[0].status, "not_run");
+    assert_eq!(assessments[3].targets[0].state.status(), "not_run");
     let CandidateAssessment::Completed { evaluation, .. } = &assessments[2].assessment else {
         panic!()
     };
