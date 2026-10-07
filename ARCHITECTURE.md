@@ -25,9 +25,11 @@ and exit status. Library callers supply these explicitly. Constructors do no I/O
 Pure calculations and file operations are synchronous; network calls use the caller's
 executor. Current sync file operations run on that caller's thread.
 
-[ports.rs](crates/yomibu/src/ports.rs) defines I/O contracts. Public imports use
-module re-exports; private files add no wrappers. Root `cache` and `wanikani` imports
-remain compatibility re-exports. Reports do not rerun assessment.
+[ports.rs](crates/yomibu/src/ports.rs) defines sync, storage and embedding contracts.
+The `story` workflow coordinates concrete OpenAI and Sudachi adapters.
+OpenAI owns prepared requests; `candidate` owns generated texts, provider metadata
+and common assessments. [Story preparation](crates/yomibu/src/story/preparation.rs)
+owns the request-byte cap and support trimming. Reports do not rerun assessment.
 
 ## Files, packages, and repositories
 

@@ -2,8 +2,8 @@ use serde_json::json;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 use yomibu::{
     adapters::{embeddings::LexicalEmbedder, openai::Client, sudachi::SudachiAnalyzer},
+    candidate::CandidateAssessment,
     evaluation::{CheckKind, CheckOutcome, CheckState},
-    generation::CandidateAssessment,
     inventory::{LearnerInventory, ManualInventory},
     ports::Embedder,
     reports::story::StoryReport,
@@ -39,9 +39,9 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
         Default::default(),
     )
     .unwrap();
-    let ai_request = plan.ai_model_request();
-    assert!(!ai_request.body_utf8().contains("いぬ"));
-    assert!(ai_request.body_utf8().contains("A cat sleeping"));
+    let prepared_request = plan.prepared_request();
+    assert!(!prepared_request.body_utf8().contains("いぬ"));
+    assert!(prepared_request.body_utf8().contains("A cat sleeping"));
     let server = MockServer::start().await;
     let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
     let analyzer = SudachiAnalyzer::load(
@@ -66,7 +66,7 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
         assert_eq!(result.candidates().texts(), &pair);
         assert_eq!(
             server.received_requests().await.unwrap()[0].body,
-            ai_request.body_utf8().as_bytes()
+            prepared_request.body_utf8().as_bytes()
         );
         if pair[0].trim().is_empty() {
             assert!(matches!(
@@ -333,8 +333,8 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
             },
         )
         .unwrap();
-        let ai_request = plan.ai_model_request();
-        let body: serde_json::Value = serde_json::from_str(ai_request.body_utf8()).unwrap();
+        let prepared_request = plan.prepared_request();
+        let body: serde_json::Value = serde_json::from_str(prepared_request.body_utf8()).unwrap();
         assert_eq!(
             body["text"]["format"]["schema"]["properties"]["candidates"]["minItems"],
             count
@@ -360,7 +360,7 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
             let result = generate_story(&plan, &client, &analyzer).await;
             assert_eq!(
                 server.received_requests().await.unwrap()[0].body,
-                ai_request.body_utf8().as_bytes()
+                prepared_request.body_utf8().as_bytes()
             );
             if returned_count != count {
                 assert!(

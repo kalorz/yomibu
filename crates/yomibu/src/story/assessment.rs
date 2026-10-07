@@ -1,4 +1,4 @@
-//! Full-inventory assessment, target observations and original candidates.
+//! Full-inventory assessment and target observations.
 
 use std::ops::Range;
 
@@ -11,7 +11,7 @@ use super::{
 use crate::{
     adapters::sudachi::SudachiAnalyzer,
     analysis::{Sentence, SentenceAnalysis},
-    candidate::{CandidateAssessment, CandidateError, GenerationProvenance},
+    candidate::{CandidateAssessment, CandidateError, GeneratedCandidates},
     evaluation::{
         self, DirectObjectEvidence, LexicalStatus, LexicalUncertainty, SentenceAssessment,
     },
@@ -82,23 +82,8 @@ impl StoryCandidateAssessment<'_> {
     }
 }
 
-/// Original generated texts and metadata, independent of request/input lifetimes.
-#[derive(Debug)]
-pub struct StoryCandidates {
-    pub(crate) texts: Vec<String>,
-    pub(crate) provenance: GenerationProvenance,
-}
-impl StoryCandidates {
-    pub fn texts(&self) -> &[String] {
-        &self.texts
-    }
-    pub fn provenance(&self) -> &crate::candidate::GenerationProvenance {
-        &self.provenance
-    }
-}
-
 pub fn assess_candidates<'a>(
-    generated: &'a StoryCandidates,
+    generated: &'a GeneratedCandidates,
     inputs: &StoryAssessmentInputs<'_>,
     analyzer: &SudachiAnalyzer,
 ) -> Vec<StoryCandidateAssessment<'a>> {

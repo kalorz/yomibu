@@ -52,7 +52,7 @@ async fn shared_workflow_preserves_exact_request_full_inventory_and_partial_resu
         let (inventory, request, cache) = inputs().await;
         let options = yomibu::story::StoryGenerationOptions { candidate_count: 4 };
         let plan = plan_generation(&inventory, &request, &cache, &cache.model, 2, options).unwrap();
-        let bytes = plan.ai_model_request().body_utf8().as_bytes().to_vec();
+        let bytes = plan.prepared_request().body_utf8().as_bytes().to_vec();
         let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
         let analyzer = SudachiAnalyzer::load(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -123,11 +123,11 @@ async fn offline_planning_validates_options_targets_cache_and_request_bounds() {
     )
     .unwrap();
     assert_eq!(
-        plan.ai_model_request().body_utf8(),
+        plan.prepared_request().body_utf8(),
         include_str!("../../../tests/fixtures/story/provider-request.json")
     );
     assert_eq!(
-        plan.ai_model_request().sha256(),
+        plan.prepared_request().sha256(),
         include_str!("../../../tests/fixtures/story/provider-request.sha256").trim()
     );
     assert!(

@@ -11,12 +11,10 @@
 pub mod adapters;
 pub mod analysis;
 pub mod app;
-pub use adapters::stores::file::cache;
 pub use app::App;
 pub mod candidate;
 pub mod domain;
 pub mod evaluation;
-pub use candidate as generation;
 pub mod grammar;
 pub mod inventory;
 pub mod knowledge;
@@ -25,4 +23,3 @@ pub mod reports;
 pub mod retrieval;
 pub mod story;
 pub mod summary;
-pub use adapters::sources::wanikani;

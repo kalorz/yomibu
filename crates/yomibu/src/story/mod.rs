@@ -1,33 +1,43 @@
-//! Shared story planning and execution, independent of the inventory source.
+//! Story workflow: offline planning, OpenAI execution and Sudachi assessment.
 
 mod assessment;
-mod model_request;
 mod observation;
+mod preparation;
 mod request;
 mod selection;
 
 pub use assessment::{
-    PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, StoryCandidates,
-    assess_candidates,
+    PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, assess_candidates,
 };
-pub use model_request::fit_selection_and_build_request as build_ai_model_request;
-pub use model_request::{AiModelRequest, STORY_PROMPT_REVISION, fit_selection_and_build_request};
 pub use observation::{
     TargetCoverage, TargetKind, TargetObservation, TargetState, TargetUncertainty,
     TargetUncertaintyReason, TargetUncertaintyScope,
 };
+pub use preparation::{STORY_PROMPT_REVISION, fit_selection_and_build_request};
 pub use request::{PracticeTargets, StoryError, StoryGenerationOptions, StoryRequest};
 pub use selection::{SelectedVocabulary, StoryVocabularySelection, select_vocabulary};
 
 use crate::{
     adapters::{
-        openai::{Client, ProviderError},
+        openai::{self, Client, PreparedRequest, ProviderError},
         sudachi::SudachiAnalyzer,
     },
-    candidate::CandidateAssessment,
+    candidate::{CandidateAssessment, GeneratedCandidates},
     inventory::LearnerInventory,
     retrieval::{EmbeddingCache, EmbeddingModelIdentity},
 };
+
+impl StoryGenerationOptions {
+    pub fn validate(&self) -> Result<(), StoryError> {
+        openai::output_token_budget(self.candidate_count)
+            .map(|_| ())
+            .map_err(|_| {
+                StoryError::Invalid(
+                    "candidate count must be positive and fit the output token budget",
+                )
+            })
+    }
+}
 
 /// Plan offline before initializing the caller's dictionary, credential or client.
 pub fn plan_generation<'a>(
@@ -43,12 +53,12 @@ pub fn plan_generation<'a>(
     request.validate(inventory)?;
     let selection =
         selection::select_vocabulary(inventory, request, cache, model, selection_limit)?;
-    let (selection, ai_request) =
-        model_request::fit_selection_and_build_request(inventory, request, selection, options)?;
+    let (selection, prepared_request) =
+        preparation::fit_selection_and_build_request(inventory, request, selection, options)?;
     let assessment_inputs = assessment::StoryAssessmentInputs::new(inventory, request, &selection)?;
     Ok(StoryGenerationPlan {
         selection,
-        ai_request,
+        prepared_request,
         assessment_inputs,
     })
 }
@@ -60,7 +70,7 @@ pub async fn generate_story(
     client: &Client,
     analyzer: &SudachiAnalyzer,
 ) -> Result<StoryGenerationResult, ProviderError> {
-    let generated = client.generate_story_candidates(&plan.ai_request).await?;
+    let generated = client.generate_candidates(&plan.prepared_request).await?;
     let assessments = assessment::assess_candidates(&generated, &plan.assessment_inputs, analyzer)
         .into_iter()
         .map(StoryCandidateAssessment::into_owned)
@@ -95,26 +105,31 @@ pub async fn generate_story(
 #[derive(Debug)]
 pub struct StoryGenerationPlan<'a> {
     selection: StoryVocabularySelection<'a>,
-    ai_request: AiModelRequest,
+    prepared_request: PreparedRequest,
     assessment_inputs: StoryAssessmentInputs<'a>,
 }
 impl<'a> StoryGenerationPlan<'a> {
     pub fn selection(&self) -> &StoryVocabularySelection<'a> {
         &self.selection
     }
-    pub fn ai_model_request(&self) -> &AiModelRequest {
-        &self.ai_request
+    pub fn prepared_request(&self) -> &PreparedRequest {
+        &self.prepared_request
+    }
+    pub fn generation_options(&self) -> StoryGenerationOptions {
+        StoryGenerationOptions {
+            candidate_count: self.prepared_request.candidate_count(),
+        }
     }
 }
 
 /// Owns every original candidate, available assessment and typed execution error.
 #[derive(Debug)]
 pub struct StoryGenerationResult {
-    generated: StoryCandidates,
+    generated: GeneratedCandidates,
     assessments: Vec<StoryCandidateAssessment<'static>>,
 }
 impl StoryGenerationResult {
-    pub fn candidates(&self) -> &StoryCandidates {
+    pub fn candidates(&self) -> &GeneratedCandidates {
         &self.generated
     }
     pub fn assessments(&self) -> &[StoryCandidateAssessment<'static>] {

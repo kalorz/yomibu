@@ -2,7 +2,7 @@ use serde_json::json;
 use yomibu::{
     inventory::{LearnerInventory, ManualInventory},
     retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
-    story::{StoryError, StoryRequest, build_ai_model_request, select_vocabulary},
+    story::{StoryError, StoryRequest, fit_selection_and_build_request, select_vocabulary},
 };
 fn inventory() -> LearnerInventory {
     LearnerInventory::from_manual(serde_json::from_value::<ManualInventory>(json!({"version":1,
@@ -102,10 +102,10 @@ fn duplicate_embedding_inputs_do_not_hide_invalid_provider_vectors() {
 }
 
 #[tokio::test]
-async fn manual_and_wanikani_sources_share_embedding_inputs_and_ai_model_request() {
+async fn manual_and_wanikani_sources_share_embedding_inputs_and_prepared_request() {
     use yomibu::{
         adapters::embeddings::LexicalEmbedder, knowledge::LearnerKnowledgePolicy, ports::Embedder,
-        story::build_ai_model_request,
+        story::fit_selection_and_build_request,
     };
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
@@ -143,9 +143,9 @@ async fn manual_and_wanikani_sources_share_embedding_inputs_and_ai_model_request
     for inventory in [&wk, &manual] {
         let plan =
             select_vocabulary(inventory, &request, &cache, encoder.model_identity(), 4).unwrap();
-        let (_, ai_request) =
-            build_ai_model_request(inventory, &request, plan, Default::default()).unwrap();
-        requests.push(ai_request);
+        let (_, prepared_request) =
+            fit_selection_and_build_request(inventory, &request, plan, Default::default()).unwrap();
+        requests.push(prepared_request);
     }
     assert_eq!(requests[0].body_utf8(), requests[1].body_utf8());
     assert_eq!(requests[0].sha256(), requests[1].sha256());
@@ -163,7 +163,7 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
             .get("candidate_count")
             .is_none()
     );
-    for count in [1, 2, 8, 9, 100] {
+    for count in [1, 2, 8, 9, 100, usize::MAX / 512] {
         assert!(
             StoryGenerationOptions {
                 candidate_count: count
@@ -172,7 +172,7 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
             .is_ok()
         );
     }
-    for count in [0, usize::MAX] {
+    for count in [0, usize::MAX / 512 + 1, usize::MAX] {
         assert!(
             StoryGenerationOptions {
                 candidate_count: count
@@ -235,8 +235,9 @@ fn request_budget_drops_lowest_ranked_supports_and_keeps_targets_and_grammar() {
     let selection = select_vocabulary(&inventory, &request, &cache, &model(), 3).unwrap();
     assert_eq!(selection.selected.len(), 3);
 
-    let (selection, ai_request) =
-        build_ai_model_request(&inventory, &request, selection, Default::default()).unwrap();
+    let (selection, prepared_request) =
+        fit_selection_and_build_request(&inventory, &request, selection, Default::default())
+            .unwrap();
 
     assert_eq!(
         selection
@@ -246,8 +247,8 @@ fn request_budget_drops_lowest_ranked_supports_and_keeps_targets_and_grammar() {
             .collect::<Vec<_>>(),
         ["cat", "meet"]
     );
-    assert!(ai_request.body_utf8().len() <= 16384);
-    let body: serde_json::Value = serde_json::from_str(ai_request.body_utf8()).unwrap();
+    assert!(prepared_request.body_utf8().len() <= 16384);
+    let body: serde_json::Value = serde_json::from_str(prepared_request.body_utf8()).unwrap();
     let data: serde_json::Value =
         serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
     assert_eq!(
@@ -278,9 +279,7 @@ fn request_budget_rejects_targets_that_cannot_fit() {
     let selection = select_vocabulary(&inventory, &request, &cache, &model(), 2).unwrap();
 
     assert!(matches!(
-        build_ai_model_request(&inventory, &request, selection, Default::default()),
-        Err(StoryError::Invalid(
-            "targets and grammar exceed the 16384-byte request limit"
-        ))
+        fit_selection_and_build_request(&inventory, &request, selection, Default::default()),
+        Err(StoryError::RequiredMaterialTooLarge { bytes, limit: 16384 }) if bytes > 16384
     ));
 }

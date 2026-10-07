@@ -5,7 +5,9 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
-use yomibu::{App, adapters::stores::FileLearningStore, app::SyncReport, wanikani::Client};
+use yomibu::{
+    App, adapters::sources::wanikani::Client, adapters::stores::FileLearningStore, app::SyncReport,
+};
 
 pub(super) fn sync(data_dir: Option<PathBuf>, out: &mut impl Write) -> anyhow::Result<()> {
     let data_dir = resolve_data_dir(data_dir)?;
@@ -49,7 +51,7 @@ fn synchronize(data_dir: &Path, client: Client) -> anyhow::Result<SyncReport> {
 mod tests {
     use super::*;
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
-    use yomibu::cache;
+    use yomibu::adapters::stores::file::cache;
 
     #[test]
     fn composes_sync_under_lock_and_renders_the_persisted_sync_data() {

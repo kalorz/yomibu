@@ -1,19 +1,18 @@
-//! Exact outbound request bytes, limits and prompt revision.
+//! Fit selected vocabulary to the story budget and prepare the OpenAI request.
 
 use std::collections::BTreeSet;
-
-use sha2::{Digest, Sha256};
 
 use super::{
     StoryError, StoryGenerationOptions, StoryRequest, StoryVocabularySelection,
     request::MAX_SELECTED_VOCABULARY_ENTRIES,
 };
 use crate::{
-    adapters::openai::{ProviderError, prepare_candidate_body},
+    adapters::openai::{PreparationError, PreparedRequest},
     inventory::LearnerInventory,
 };
 
 pub const STORY_PROMPT_REVISION: &str = "story-inventory-v1";
+const MAX_STORY_REQUEST_BYTES: usize = 16384;
 const STORY_PROMPT: &str = concat!(
     "short, natural, ordinary modern Japanese single-sentence candidates, each nonblank and at most 100 Unicode scalar values. ",
     "Use the supplied brief as the topic or scenario, within the supplied vocabulary and grammar. ",
@@ -23,26 +22,6 @@ const STORY_PROMPT: &str = concat!(
     "Readings and meanings are source alternatives, not verified pairings or proof of contextual use. Missing evidence is unknown. ",
     "Do not add unfamiliar content words, validation claims, translations, explanations or formatting fences. Identical candidates are allowed. Return only the requested JSON object."
 );
-/// Immutable outbound bytes and the execution options encoded in them.
-/// Contains no learner inventory or assessment state.
-#[derive(Debug)]
-pub struct AiModelRequest {
-    options: StoryGenerationOptions,
-    body: String,
-    sha256: String,
-}
-impl AiModelRequest {
-    pub fn options(&self) -> StoryGenerationOptions {
-        self.options
-    }
-    pub fn body_utf8(&self) -> &str {
-        &self.body
-    }
-    pub fn sha256(&self) -> &str {
-        &self.sha256
-    }
-}
-
 /// Build the exact outbound payload, returning the final selection after any optional
 /// supports were removed to fit the byte limit. Explicit targets are never removed.
 pub fn fit_selection_and_build_request<'a>(
@@ -50,7 +29,7 @@ pub fn fit_selection_and_build_request<'a>(
     request: &'a StoryRequest,
     mut selection: StoryVocabularySelection<'a>,
     options: StoryGenerationOptions,
-) -> Result<(StoryVocabularySelection<'a>, AiModelRequest), StoryError> {
+) -> Result<(StoryVocabularySelection<'a>, PreparedRequest), StoryError> {
     request.validate(inventory)?;
     options.validate()?;
     let prompt = format!(
@@ -99,20 +78,16 @@ pub fn fit_selection_and_build_request<'a>(
             "grammar_bindings": inventory.grammar_bindings,
         }))
         .map_err(|_| StoryError::Invalid("request serialization"))?;
-        match prepare_candidate_body(&prompt, &data, options.candidate_count) {
-            Ok(body) => {
-                let sha256 = format!("{:x}", Sha256::digest(body.as_bytes()));
-                return Ok((
-                    selection,
-                    AiModelRequest {
-                        options,
-                        body,
-                        sha256,
-                    },
-                ));
-            }
-            Err(ProviderError::RequestTooLarge) => {
-                drop_lowest_ranked_support(&mut selection, request)?;
+        match PreparedRequest::new(
+            &prompt,
+            &data,
+            STORY_PROMPT_REVISION,
+            options.candidate_count,
+            MAX_STORY_REQUEST_BYTES,
+        ) {
+            Ok(prepared_request) => return Ok((selection, prepared_request)),
+            Err(PreparationError::RequestTooLarge { bytes, limit }) => {
+                drop_lowest_ranked_support(&mut selection, request, bytes, limit)?;
             }
             Err(_) => return Err(StoryError::Invalid("request serialization")),
         }
@@ -122,14 +97,14 @@ pub fn fit_selection_and_build_request<'a>(
 fn drop_lowest_ranked_support(
     selection: &mut StoryVocabularySelection<'_>,
     request: &StoryRequest,
+    bytes: usize,
+    limit: usize,
 ) -> Result<(), StoryError> {
     let index = selection
         .selected
         .iter()
         .rposition(|entry| !request.targets.vocabulary.contains(&entry.word.id))
-        .ok_or(StoryError::Invalid(
-            "targets and grammar exceed the 16384-byte request limit",
-        ))?;
+        .ok_or(StoryError::RequiredMaterialTooLarge { bytes, limit })?;
     selection.selected.remove(index);
     if selection.selected.is_empty() {
         return Err(StoryError::Invalid("no vocabulary fits the request limit"));

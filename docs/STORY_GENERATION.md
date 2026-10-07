@@ -98,14 +98,14 @@ in [`crates/yomibu/src/story/mod.rs`](../crates/yomibu/src/story/mod.rs):
 plan_generation (offline)
   validate inputs/options/selection bounds
   selection::select_vocabulary (once)
-  model_request::fit_selection_and_build_request (final selection + exact bytes)
+  preparation::fit_selection_and_build_request (final selection + exact bytes)
   assessment::StoryAssessmentInputs::new (full original inventory)
   return immutable StoryGenerationPlan
 
 caller initializes dictionary/client after preflight
 
 generate_story (caller drives async I/O)
-  client.generate_story_candidates (one attempt; unchanged bytes)
+  client.generate_candidates (one attempt; unchanged bytes)
   assessment::assess_candidates (every text against full inventory)
   return owned StoryGenerationResult
 ```
@@ -156,9 +156,9 @@ Inventory IDs are at most 128 bytes; written forms 256; up to 32 readings of
 The joined embedding document for each word (including labels/separators) must
 fit 32 KiB; the entire set is checked before provider work. HTTP embedding batches
 also split at the 512 KiB encoded request limit, accounting for JSON escaping.
-The final provider request remains at most 16,384 bytes. Each candidate remains
-nonblank and at most 100 Unicode scalars. The output-token budget scales with
-count. OpenAI Responses uses `gpt-6-luna`, Standard/default tier, reasoning
+Story preparation caps the final encoded OpenAI request at 16,384 bytes.
+Each candidate remains nonblank and at most 100 Unicode scalars. The output-token
+budget scales with count. OpenAI Responses uses `gpt-6-luna`, Standard/default tier, reasoning
 `none`, no tools/streaming/background work, `store: false`, truncation disabled
 and explicit prompt caching without breakpoints. Redirects, system/environment
 proxies and protocol retries are disabled. Connect timeout is 5 seconds; the
