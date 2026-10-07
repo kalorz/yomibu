@@ -28,6 +28,14 @@ pub struct Token {
     pub out_of_vocabulary: bool,
 }
 
+impl Token {
+    pub(crate) fn is_function_word_or_punctuation(&self) -> bool {
+        self.part_of_speech
+            .first()
+            .is_some_and(|pos| ["助詞", "助動詞", "補助記号"].contains(&pos.as_str()))
+    }
+}
+
 /// C-mode whole unit and its A-mode components, without substituting permissions.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct LexicalUnit {

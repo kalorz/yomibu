@@ -2,15 +2,20 @@
 
 mod assessment;
 mod model_request;
+mod observation;
 mod request;
 mod selection;
 
 pub use assessment::{
     PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, StoryCandidates,
-    TargetObservation, assess_candidates,
+    assess_candidates,
 };
 pub use model_request::fit_selection_and_build_request as build_ai_model_request;
 pub use model_request::{AiModelRequest, STORY_PROMPT_REVISION, fit_selection_and_build_request};
+pub use observation::{
+    TargetCoverage, TargetKind, TargetObservation, TargetState, TargetUncertainty,
+    TargetUncertaintyReason, TargetUncertaintyScope,
+};
 pub use request::{PracticeTargets, StoryError, StoryGenerationOptions, StoryRequest};
 pub use selection::{SelectedVocabulary, StoryVocabularySelection, select_vocabulary};
 

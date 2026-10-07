@@ -61,3 +61,50 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         );
     }
 }
+
+#[test]
+fn typed_target_states_preserve_version_one_report_fields_and_spellings() {
+    use serde_json::json;
+    use yomibu::{
+        evaluation::DirectObjectEvidence,
+        story::{
+            TargetCoverage::{Complete, Partial},
+            TargetKind, TargetObservation,
+            TargetState::{Absent, NotRun, Observed, Unassessable},
+            TargetUncertainty, TargetUncertaintyReason, TargetUncertaintyScope,
+        },
+    };
+    for (state, status, completeness) in [
+        (NotRun, "not_run", "not_run"),
+        (Absent, "absent", "complete"),
+        (Unassessable, "unassessable", "partial"),
+        (Observed(Complete), "observed", "complete"),
+        (Observed(Partial), "observed", "partial"),
+    ] {
+        assert_eq!(
+            serde_json::to_value(state).unwrap(),
+            json!({
+                "status":status,"completeness":completeness
+            })
+        );
+    }
+    let observation = TargetObservation {
+        kind: TargetKind::Grammar,
+        id: "topic-or-object".into(),
+        state: Observed(Partial),
+        spans: std::iter::once(3..6).collect(),
+        uncertainties: vec![TargetUncertainty {
+            span: 12..18,
+            scope: TargetUncertaintyScope::TargetOccurrence,
+            reason: TargetUncertaintyReason::DirectObject(DirectObjectEvidence::Unknown),
+            inventory_entries: vec!["eat".into()],
+        }],
+    };
+    assert_eq!(
+        serde_json::to_value(observation).unwrap(),
+        json!({
+            "kind":"grammar","id":"topic-or-object","status":"observed",
+            "completeness":"partial","spans":[{"start":3,"end":6}]
+        })
+    );
+}

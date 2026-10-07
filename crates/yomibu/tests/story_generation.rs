@@ -67,7 +67,7 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
                 results[0].assessment,
                 CandidateAssessment::ExecutionError { .. }
             ));
-            assert_eq!(results[0].targets[0].status, "not_run");
+            assert_eq!(results[0].targets[0].state.status(), "not_run");
             let CandidateAssessment::Completed { evaluation, .. } = &results[1].assessment else {
                 panic!()
             };
@@ -84,12 +84,12 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
                 0..3
             );
         } else if pair[0].starts_with("qzxv") {
-            assert_eq!(results[0].targets[1].status, "observed");
+            assert_eq!(results[0].targets[1].state.status(), "observed");
             assert_eq!(
                 serde_json::to_value(&results[0].targets[1]).unwrap()["completeness"],
                 "partial"
             );
-            assert_eq!(results[0].targets[0].status, "unassessable");
+            assert_eq!(results[0].targets[0].state.status(), "unassessable");
         } else {
             let CandidateAssessment::Completed { evaluation, .. } = &results[0].assessment else {
                 panic!()
@@ -98,11 +98,11 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
                 evaluation.check(CheckKind::Vocabulary).state,
                 CheckState::Completed(CheckOutcome::Pass)
             );
-            assert_eq!(results[0].targets[0].status, "absent");
-            assert_eq!(results[1].targets[0].status, "observed");
+            assert_eq!(results[0].targets[0].state.status(), "absent");
+            assert_eq!(results[1].targets[0].state.status(), "observed");
             assert_eq!(results[1].targets[1].spans.len(), 1);
             assert_eq!(results[1].targets[1].spans[0], 6..9);
-            assert_eq!(results[1].targets[2].status, "observed");
+            assert_eq!(results[1].targets[2].state.status(), "observed");
             assert_eq!(results[0].plan_departures[0].span, 0..3);
         }
     }
@@ -239,13 +239,13 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
             if case.ends_with("object") {
                 let target = &result.targets[1];
                 if case == "explicit_object" {
-                    assert_eq!(target.status, "observed", "{case}");
-                    assert_eq!(target.completeness, "complete", "{case}");
+                    assert_eq!(target.state.status(), "observed", "{case}");
+                    assert_eq!(target.state.completeness(), "complete", "{case}");
                     assert_eq!(target.spans.len(), 1);
                     assert_eq!(target.spans[0], 3..6);
                 } else {
-                    assert_eq!(target.status, "unassessable", "{case}");
-                    assert_eq!(target.completeness, "partial", "{case}");
+                    assert_eq!(target.state.status(), "unassessable", "{case}");
+                    assert_eq!(target.state.completeness(), "partial", "{case}");
                     assert!(target.spans.is_empty(), "{case}");
                 }
             }
@@ -262,7 +262,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
                     evaluation.check(CheckKind::Vocabulary).state,
                     CheckState::Completed(CheckOutcome::Fail)
                 );
-                assert_eq!(result.targets[0].completeness, "partial");
+                assert_eq!(result.targets[0].state.completeness(), "partial");
                 if index == 0 {
                     assert!(result.targets[0].spans.is_empty());
                 } else {
@@ -278,7 +278,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
                 );
             }
             if !case.ends_with("object") {
-                assert_eq!(result.targets[0].status, "unassessable", "{case}");
+                assert_eq!(result.targets[0].state.status(), "unassessable", "{case}");
             }
         }
     }

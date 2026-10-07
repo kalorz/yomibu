@@ -127,9 +127,10 @@ departure, not a vocabulary failure. Unresolved alternatives/competing identitie
 are inconclusive. An observed target survives unrelated uncertainty, with
 `completeness: partial`; unsupported or target-specific evidence remains
 unassessable. Grammar targets report occurrences only in bounded recognized
-shapes. An object construction additionally requires the checker's unambiguous
-direct-object lexical evidence; missing, false or competing evidence leaves its
-grammar observations unassessable. Even a bounded object occurrence does not
+shapes. Object を requires unambiguous direct-object lexical evidence;
+missing, false or competing evidence leaves that rule unassessable.
+Topic and polite-form observations retain their independent evidence.
+Even a bounded object occurrence does not
 resolve the object/predicate combination: the existing safeguard remains
 Inconclusive. These observations do not establish contextual reading/sense, topic
 adherence, naturalness or comprehension, and never trigger a retry.
@@ -140,6 +141,10 @@ controls while retaining original UTF-8 candidate spans and decoded request byte
 A candidate execution error exits 1 **after** writing every result. Completed
 Fail/Inconclusive results exit 0; provider/preflight errors exit 1 without a
 candidate report. CLI parsing errors exit 2.
+
+Library evaluations identify their basis: explicit word uses or full inventory.
+Target observations expose typed states and uncertainty reasons with inventory IDs.
+Version-1 JSON retains its existing fields and spellings.
 
 ## Limits and provider contract
 
