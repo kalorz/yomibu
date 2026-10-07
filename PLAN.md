@@ -5,6 +5,27 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Story algorithm overview — 2026-10-07
+
+The source header of `story/mod.rs` now provides one linked map of the complete
+algorithm: validation, cached selection, exact request construction, full-inventory
+assessment setup, the caller's resource boundary, one provider attempt, per-candidate
+sentence validation/morphology/evaluation/observations, and the owned result.
+It distinguishes provider failure from candidate errors and partial evidence.
+The two entry bodies remain adjacent; their compiled usage example now lives on
+`StoryGenerationPlan` below them. Architecture, specification, usage and crate
+navigation point to this overview. Executable Rust, public APIs and behavior are
+unchanged; no new wrapper or abstraction was introduced.
+
+Verified unchanged executable source, overview source anchors and rendered Rustdoc
+links. `cargo fmt --check`, locked strict Clippy on all targets/features,
+`cargo test --locked --all` (182 Rust tests/doctests; none failed or skipped),
+strict Rustdoc and diff checks passed. The real pinned dictionary was verified;
+all nine Python setup tests passed. No live model calls were made.
+Simplification review kept the detailed walkthrough in the source module and
+linked to it from existing documentation; no additional code changes were justified.
+The PR records external review and merge status.
+
 ## Library navigation by capability — 2026-10-07
 
 Grouped the live story stages under `crates/yomibu/src/story/`. Open `mod.rs`:

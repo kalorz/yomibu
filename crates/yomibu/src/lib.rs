@@ -1,7 +1,8 @@
 //! WaniKani synchronization, shared story generation and bounded supplied-text analysis.
 //!
-//! Start with the adjacent [`story::plan_generation`] and [`story::generate_story`]
-//! functions in `story/mod.rs`. Their concrete stage calls lead to sibling
+//! Start with the linked algorithm overview at the top of `story/mod.rs`, followed
+//! by the adjacent [`story::plan_generation`] and [`story::generate_story`] functions.
+//! Their concrete stage calls lead to sibling
 //! `request.rs`, `selection.rs`, `model_request.rs` and `assessment.rs` files.
 //! Private child modules re-export their public types/functions under `story`;
 //! existing imports stay unchanged. Smaller cohesive modules remain flat.
