@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, ops::Range};
 
 use serde::Serialize;
 
-use super::{StoryError, StoryRequest, StoryVocabularySelection, single_use};
+use super::{StoryError, StoryRequest, StoryVocabularySelection};
 use crate::{
     adapters::sudachi::SudachiAnalyzer,
     analysis::{Sentence, SentenceAnalysis},
@@ -61,7 +61,7 @@ fn project_structural_inputs(
         .vocabulary
         .iter()
         .filter(|word| form_counts.get(&word.written_form) == Some(&1))
-        .filter_map(single_use)
+        .filter_map(evaluation::single_use)
         .collect();
     let bindings = inventory
         .grammar_bindings
@@ -240,7 +240,7 @@ fn observe_targets(
         let mut uncertain = false;
         let mut target_uncertain = false;
         if let (Some(a), Some(word)) = (analysis, word) {
-            let lexical = single_use(word);
+            let lexical = evaluation::single_use(word);
             let competing = inputs
                 .inventory
                 .vocabulary

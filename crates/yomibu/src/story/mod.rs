@@ -42,9 +42,8 @@ use crate::{
         openai::{Client, ProviderError},
         sudachi::SudachiAnalyzer,
     },
-    evaluation::VocabularyEntry,
     generation::CandidateAssessment,
-    inventory::{InventoryWord, LearnerInventory},
+    inventory::LearnerInventory,
     retrieval::{EmbeddingCache, EmbeddingModelIdentity},
 };
 
@@ -125,18 +124,4 @@ impl StoryGenerationResult {
             .iter()
             .any(|a| matches!(a.assessment, CandidateAssessment::ExecutionError { .. }))
     }
-}
-
-/// Only an explicitly represented single use can feed the historical structural
-/// checker. Alternatives/missing evidence remain in the full inventory check.
-pub(crate) fn single_use(word: &InventoryWord) -> Option<VocabularyEntry> {
-    if word.readings.len() != 1 || word.meanings.len() != 1 {
-        return None;
-    }
-    Some(VocabularyEntry {
-        written_form: word.written_form.clone(),
-        reading: word.analyzer_readings().remove(0),
-        sense: word.meanings[0].clone(),
-        direct_object: word.direct_object == Some(true),
-    })
 }
