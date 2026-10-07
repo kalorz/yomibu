@@ -56,6 +56,51 @@ fn status_is_offline_and_uses_a_global_data_directory() {
 }
 
 #[test]
+fn status_uses_the_configured_cache_without_validating_unused_story_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("source.json"),
+        include_bytes!("../../../tests/fixtures/mixed.json"),
+    )
+    .unwrap();
+    fs::write(dir.path().join("config.toml"), "wanikani_cache = 'source.json'\nselect = 40\ncandidates = 0\nmodel = ''\ntopic = '猫'\nrequest = 'unused.json'\ndictionary = 'unused.dic'\ndictionary_dir = 'unused'\nformat = 'invalid-unused'\n").unwrap();
+    let before = fs::read_dir(dir.path()).unwrap().count();
+    let output = cli()
+        .args(["--data-dir", dir.path().to_str().unwrap(), "status"])
+        .env("YOMIBU_SELECT", "日本語\n\u{1b}")
+        .env("YOMIBU_CANDIDATES", "0")
+        .output()
+        .unwrap();
+    assert_eq!(
+        stdout(&output),
+        include_str!("../../../tests/fixtures/mixed-status.txt")
+    );
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), before);
+    fs::write(
+        dir.path().join("config.toml"),
+        "broken TOML '日本語\n\u{1b}",
+    )
+    .unwrap();
+    let output = cli()
+        .args(["--data-dir", dir.path().to_str().unwrap(), "status"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let diagnostic = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        diagnostic.starts_with("error: Invalid configuration at "),
+        "{diagnostic}"
+    );
+    assert!(
+        diagnostic.ends_with("; use supported settings and valid TOML.\n"),
+        "{diagnostic}"
+    );
+    assert!(!diagnostic.contains("broken TOML"));
+    assert!(!diagnostic.contains('\u{1b}'));
+}
+
+#[test]
 fn empty_account_displays_no_reviews_and_no_assignments() {
     let dir = tempfile::tempdir().unwrap();
     cache(

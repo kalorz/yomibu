@@ -55,6 +55,74 @@ fn sentence_mode_has_one_sentence_and_its_own_budget() {
     );
 }
 
+#[test]
+fn invalid_text_models_report_the_model_instead_of_the_candidate_count() {
+    for model in [String::new(), " \n".into(), "x".repeat(257)] {
+        let options = StoryGenerationOptions {
+            model,
+            ..Default::default()
+        };
+        let validation = options.validate().unwrap_err().to_string();
+        let preparation = PreparedRequest::new("prompt", "{}", "test", &options, 16384)
+            .unwrap_err()
+            .to_string();
+        for error in [validation, preparation] {
+            assert!(error.contains("model"), "{error}");
+            assert!(
+                !error.to_ascii_lowercase().contains("candidate count"),
+                "{error}"
+            );
+        }
+    }
+    let options = StoryGenerationOptions {
+        model: "x".repeat(256),
+        ..Default::default()
+    };
+    assert!(options.validate().is_ok());
+    assert!(PreparedRequest::new("prompt", "{}", "test", &options, 16384).is_ok());
+}
+
+#[test]
+fn story_prompt_uses_complete_instructions_for_each_format_and_candidate_count() {
+    use yomibu::{
+        inventory::LearnerInventory,
+        story::{StoryRequest, fit_selection_and_build_request, select_builtin_vocabulary},
+    };
+    let inventory = LearnerInventory::from_manual(
+        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
+    )
+    .unwrap();
+    let request: StoryRequest =
+        serde_json::from_value(json!({"version":1,"targets":{"vocabulary":[],"grammar":[]}}))
+            .unwrap();
+    for (format, sentences) in [
+        (StoryFormat::Sentence, "one sentence"),
+        (StoryFormat::Passage, "3–5 sentences"),
+    ] {
+        for candidate_count in [1, 2] {
+            let selection = select_builtin_vocabulary(&inventory, &request, 2, 7).unwrap();
+            let (_, prepared) = fit_selection_and_build_request(
+                &inventory,
+                &request,
+                selection,
+                StoryGenerationOptions {
+                    format,
+                    candidate_count,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let body: Value = serde_json::from_str(prepared.body_utf8()).unwrap();
+            let prompt = body["input"][0]["content"].as_str().unwrap();
+            let opening = format!(
+                "Candidate count: {candidate_count}. Each candidate must contain {sentences}. Generate short, natural stories in ordinary modern Japanese. Each sentence must be nonblank and at most 100 Unicode scalar values. "
+            );
+            assert!(prompt.starts_with(&opening), "{prompt}");
+            assert_eq!(prepared.prompt_revision(), "story-inventory-v3");
+        }
+    }
+}
+
 #[tokio::test]
 async fn shared_generation_assesses_every_sentence_in_a_passage() {
     use yomibu::{

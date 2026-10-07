@@ -56,6 +56,55 @@ fn a_topic_ranks_matching_words_without_vectors() {
 }
 
 #[test]
+fn japanese_written_forms_match_inside_topics_without_dictionary_or_reading_substrings() {
+    let inventory = inventory();
+    for (topic, expected) in [("猫が寝る", vec!["cat", "sleep"]), ("ねこがねる", vec![])] {
+        let request: StoryRequest = serde_json::from_value(json!({
+            "version":1,"topic":topic,"targets":{"vocabulary":[],"grammar":[]}
+        }))
+        .unwrap();
+        let selection = select_builtin_vocabulary(&inventory, &request, 4, 7).unwrap();
+        let matches: std::collections::BTreeSet<_> = selection
+            .selected
+            .iter()
+            .filter(|entry| entry.score.is_some_and(|score| score > 0.))
+            .map(|entry| entry.word.id.as_str())
+            .collect();
+        assert_eq!(matches, expected.into_iter().collect(), "{topic}");
+        assert!(
+            selection
+                .selected
+                .iter()
+                .take(matches.len())
+                .all(|entry| entry.score.is_some_and(|score| score > 0.))
+        );
+        assert_eq!(selection.selector_revision, "builtin-v2");
+    }
+}
+
+#[test]
+fn zero_overlap_supports_are_local_samples_and_targets_keep_their_reason() {
+    let inventory = inventory();
+    let request: StoryRequest = serde_json::from_value(json!({
+        "version":1,"topic":"cat","targets":{"vocabulary":["dog"],"grammar":[]}
+    }))
+    .unwrap();
+    let selection = select_builtin_vocabulary(&inventory, &request, 4, 7).unwrap();
+    assert_eq!(selection.selected[0].word.id, "dog");
+    assert_eq!(selection.selected[0].reason, "practice_target");
+    for entry in &selection.selected[1..] {
+        assert_eq!(
+            entry.reason,
+            if entry.score == Some(0.) {
+                "local_sample"
+            } else {
+                "topic_overlap"
+            }
+        );
+    }
+}
+
+#[test]
 fn a_story_request_needs_no_topic_and_does_not_invent_one() {
     let request: StoryRequest = serde_json::from_value(json!({
         "version": 1,

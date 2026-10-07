@@ -71,7 +71,6 @@ pub(crate) fn assess_inventory(
             &mut assessment.evaluation.inflection,
             &mut assessment.evaluation.particles,
             &mut assessment.evaluation.nominal,
-            &mut assessment.evaluation.scope,
         ] {
             check.state = super::CheckState::NotRun;
             check.findings.clear();

@@ -39,12 +39,12 @@ pub fn select_builtin_vocabulary<'a>(
     let topic = request
         .topic
         .as_ref()
-        .map(|topic| lexical_terms(topic.text()));
+        .map(|topic| (topic.text(), lexical_terms(topic.text())));
     let mut ranked: Vec<_> = inventory
         .vocabulary
         .iter()
         .map(|word| {
-            let score = topic.as_ref().map(|topic| {
+            let score = topic.as_ref().map(|(text, topic_terms)| {
                 let terms: BTreeSet<_> = std::iter::once(word.written_form.as_str())
                     .chain(
                         word.readings
@@ -54,7 +54,10 @@ pub fn select_builtin_vocabulary<'a>(
                     )
                     .flat_map(lexical_terms)
                     .collect();
-                terms.intersection(topic).count() as f64
+                let overlap = terms.intersection(topic_terms).count() as f64;
+                let written_match =
+                    word.written_form.chars().any(is_japanese) && text.contains(&word.written_form);
+                overlap.max(f64::from(written_match))
             });
             let mut hash = Sha256::new();
             hash.update(seed.to_be_bytes());
@@ -75,13 +78,23 @@ pub fn select_builtin_vocabulary<'a>(
             .map(|(word, score, _)| (word, score))
             .collect(),
         limit,
-        if topic.is_some() {
-            "topic_overlap"
-        } else {
-            "local_sample"
+        |score| {
+            if score.is_some_and(|score| score > 0.) {
+                "topic_overlap"
+            } else {
+                "local_sample"
+            }
         },
-        "builtin-v1",
+        "builtin-v2",
         None,
+    )
+}
+
+fn is_japanese(character: char) -> bool {
+    matches!(character,
+        '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}'
+        | '\u{f900}'..='\u{faff}' | '\u{ff66}'..='\u{ff9d}'
+        | '\u{20000}'..='\u{323af}'
     )
 }
 
@@ -121,7 +134,7 @@ pub fn select_vocabulary<'a>(
         request,
         ranked,
         limit,
-        "topic_similarity",
+        |_| "topic_similarity",
         "inventory-similarity-v1",
         Some(model.clone()),
     )
@@ -131,7 +144,7 @@ fn select_ranked<'a>(
     request: &'a StoryRequest,
     ranked: Vec<(&'a InventoryWord, Option<f64>)>,
     limit: usize,
-    support_reason: &'static str,
+    support_reason: fn(Option<f64>) -> &'static str,
     selector_revision: &'static str,
     embedding_model: Option<EmbeddingModelIdentity>,
 ) -> Result<StoryVocabularySelection<'a>, StoryError> {
@@ -154,7 +167,7 @@ fn select_ranked<'a>(
         if !selected.iter().any(|entry| entry.word.id == word.id) {
             selected.push(SelectedVocabulary {
                 word,
-                reason: support_reason,
+                reason: support_reason(score),
                 score,
             });
         }

@@ -32,6 +32,8 @@ fn success(output: Output) -> String {
 #[test]
 fn offline_import_verify_and_both_loading_policies_agree_through_the_executable() {
     let directory = tempfile::tempdir().unwrap();
+    fs::create_dir(directory.path().join("data")).unwrap();
+    fs::write(directory.path().join("data/config.toml"), "model = ''\nformat = 'unused-invalid'\nselect = 40\ncandidates = 0\ntopic = '猫'\nrequest = 'unused.json'\n").unwrap();
     let root = directory.path().join("managed");
     fs::write(directory.path().join("input.json"), INPUT).unwrap();
     let imported = success(

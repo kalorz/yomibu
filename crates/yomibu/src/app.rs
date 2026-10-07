@@ -12,6 +12,35 @@ use crate::{
 };
 use thiserror::Error;
 
+#[derive(Debug)]
+pub enum Operation {
+    Story,
+    Preview,
+    Retrieval,
+    Analyze(std::path::PathBuf),
+    Import(std::path::PathBuf),
+    Verify,
+    Sync,
+    Status,
+}
+
+impl Operation {
+    fn uses_setting(&self, name: &str) -> bool {
+        use Operation::*;
+        match name {
+            "wanikani_cache" => matches!(self, Story | Preview | Retrieval | Sync | Status),
+            "dictionary" => matches!(self, Story | Analyze(_)),
+            "dictionary_dir" => matches!(self, Story | Analyze(_) | Import(_) | Verify),
+            "model" | "generation_model" | "format" | "candidates" | "seed" => {
+                matches!(self, Story | Preview)
+            }
+            "cache_max_age_seconds" => matches!(self, Story),
+            "enable" | "disable" => matches!(self, Story | Preview),
+            _ => matches!(self, Story | Preview | Retrieval),
+        }
+    }
+}
+
 /// Owns the selected store and optional source. Construction performs no I/O.
 ///
 /// No implicit current learner, environment access, runtime, or background work.

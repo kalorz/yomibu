@@ -4,7 +4,7 @@ use serde_json::json;
 use yomibu::{
     adapters::sudachi::SudachiAnalyzer,
     candidate::GeneratedPassage,
-    evaluation::{CheckKind, CheckState},
+    evaluation::{CheckKind, CheckOutcome, CheckState},
     inventory::LearnerInventory,
     story::{StoryAssessmentInputs, StoryRequest, assess_passages, select_builtin_vocabulary},
 };
@@ -46,9 +46,89 @@ fn passage_checks_full_inventory_sentence_by_sentence_and_leaves_missing_grammar
         CheckKind::Inflection,
         CheckKind::Particles,
         CheckKind::Nominal,
-        CheckKind::Scope,
     ] {
         assert_eq!(evaluation.check(kind).state, CheckState::NotRun);
+    }
+    assert_eq!(
+        evaluation.check(CheckKind::Scope).state,
+        CheckState::Completed(CheckOutcome::Pass)
+    );
+}
+
+#[test]
+fn missing_grammar_preserves_independent_scope_findings_and_vocabulary_failures() {
+    let inventory = LearnerInventory::from_manual(
+        serde_json::from_value(json!({"version":1,"vocabulary":[
+            {"id":"book","written_form":"本","readings":["ほん"],"meanings":["book"],"direct_object":null},
+            {"id":"read","written_form":"読む","readings":["よむ"],"meanings":["read"],"direct_object":true},
+            {"id":"walk","written_form":"歩く","readings":["あるく"],"meanings":["walk"],"direct_object":false}
+        ],"grammar_declarations":[],"grammar_bindings":[]})).unwrap(),
+    ).unwrap();
+    let request: StoryRequest =
+        serde_json::from_value(json!({"version":1,"targets":{"vocabulary":[],"grammar":[]}}))
+            .unwrap();
+    let selection = select_builtin_vocabulary(&inventory, &request, 3, 7).unwrap();
+    let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
+    let analyzer =
+        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+    for (text, span, reason, vocabulary) in [
+        (
+            "本を読みます。",
+            0..18,
+            "object/predicate combination has no multiword-expression assessment",
+            CheckOutcome::Pass,
+        ),
+        (
+            "本を歩きます。",
+            3..6,
+            "route, departure, and other を uses are outside scope",
+            CheckOutcome::Pass,
+        ),
+        (
+            "本が読む。",
+            0..15,
+            "construction/applicability is outside the supported patterns",
+            CheckOutcome::Pass,
+        ),
+        (
+            "鳥を読みます。",
+            0..18,
+            "object/predicate combination has no multiword-expression assessment",
+            CheckOutcome::Fail,
+        ),
+    ] {
+        let passage = GeneratedPassage {
+            text: text.into(),
+            sentence_spans: std::iter::once(0..text.len()).collect(),
+        };
+        let results = assess_passages(&[passage], &inputs, Some(&analyzer));
+        let yomibu::candidate::CandidateAssessment::Completed { evaluation, .. } =
+            &results[0].sentences[0].assessment.assessment
+        else {
+            panic!("{text}")
+        };
+        let scope = evaluation.check(CheckKind::Scope);
+        assert_eq!(
+            scope.state,
+            CheckState::Completed(CheckOutcome::Inconclusive),
+            "{text}"
+        );
+        assert_eq!(scope.findings[0].span, span, "{text}");
+        assert_eq!(scope.findings[0].reason, reason, "{text}");
+        assert_eq!(
+            evaluation.check(CheckKind::Vocabulary).state,
+            CheckState::Completed(vocabulary),
+            "{text}"
+        );
+        assert_eq!(
+            evaluation.outcome(),
+            if vocabulary == CheckOutcome::Fail {
+                CheckState::Completed(CheckOutcome::Fail)
+            } else {
+                CheckState::NotRun
+            },
+            "{text}"
+        );
     }
 }
 

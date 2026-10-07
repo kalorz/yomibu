@@ -44,7 +44,8 @@ Storage uses `--data-dir`, `YOMIBU_DATA_DIR`, or `$HOME/.yomibu`. Optional
 `config.toml` lives there; `--config` or `YOMIBU_CONFIG` selects another file.
 Non-secret settings resolve flags → supported `YOMIBU_` bindings → file → defaults.
 Environment names use the uppercase setting name. File paths are relative to the
-configuration file. Invalid TOML fails without reflecting its contents.
+configuration file. Commands validate only settings they use. Invalid TOML and
+unknown settings fail without reflecting their contents.
 
 ```toml
 model = "gpt-6-luna"
@@ -74,8 +75,9 @@ warnings. It remains offline and never refreshes resources.
 `--topic` is optional and conflicts with `--request PATH`. Advanced request JSON
 uses `topic` plus target IDs. Without a topic, the AI creates a coherent scene
 around locally sampled vocabulary. `--seed` makes selection repeatable.
-With a topic, built-in selection matches lexical terms; enabled cached/available
-embeddings can enhance it. No topic means no query retrieval. Explicit targets
+With a topic, built-in selection matches lexical terms and Japanese written-form
+substrings. Readings still use exact terms. Enabled embeddings can enhance selection.
+No topic means no query retrieval. Explicit targets
 always come first. Preparation may trim supports to fit the request limit;
 it never drops targets. Simple grammar guidance does not infer grammar knowledge.
 
@@ -121,7 +123,7 @@ warnings. Provider/preflight failures exit 1; parsing failures exit 2.
 Reports retain assembled text and sentence byte ranges. Terminal escaping preserves
 decoded JSON strings and original spans. JSON kinds are
 `story_generation_plan_preview` and `experimental_story`; prompt revision is
-`story-inventory-v2`.
+`story-inventory-v3`.
 
 Evaluation JSON includes `basis: full_learner_inventory`. Target `uncertainties`
 include `span`, `scope`, `reason` and `inventory_entries`. Reasons use snake-case

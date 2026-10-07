@@ -357,7 +357,7 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
             body["input"][0]["content"]
                 .as_str()
                 .unwrap()
-                .contains(&format!("exactly {count}"))
+                .contains(&format!("Candidate count: {count}."))
         );
         for returned_count in [count, count - 1, count + 1] {
             let mut texts = vec!["猫は寝ます。"; returned_count];

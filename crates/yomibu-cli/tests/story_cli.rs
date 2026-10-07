@@ -143,7 +143,7 @@ fn preview_falls_back_for_partial_embedding_settings_and_reports_a_safe_warning(
         assert!(stdout.contains("日本語"));
         if json {
             let report: Value = serde_json::from_str(&stdout).unwrap();
-            assert_eq!(report["selection"]["selector_revision"], "builtin-v1");
+            assert_eq!(report["selection"]["selector_revision"], "builtin-v2");
             assert_eq!(report["request"]["topic"], topic);
             assert_eq!(report["warnings"].as_array().unwrap().len(), 1);
         } else {
@@ -151,7 +151,7 @@ fn preview_falls_back_for_partial_embedding_settings_and_reports_a_safe_warning(
                 stdout
                     .starts_with("Experimental story generation plan — no generation performed\n")
             );
-            assert!(stdout.contains("\nSelector revision: builtin-v1\n"));
+            assert!(stdout.contains("\nSelector revision: builtin-v2\n"));
             assert!(stdout.ends_with("Generation requests made: 0\n"));
         }
     }

@@ -17,16 +17,19 @@ async fn offline_preview_and_retrieval_cannot_use_expired_source_content() {
         serde_json::to_vec(&cache).unwrap(),
     )
     .unwrap();
-    let config = Configuration::load(ConfigurationInput {
-        data_dir: Some(dir.path().into()),
-        config: None,
-        home: None,
-        environment: BTreeMap::new(),
-        flags: Settings {
-            embedding_provider: Some(yomibu::app::config::EmbeddingProvider::LexicalBaseline),
-            ..Default::default()
+    let config = Configuration::load(
+        ConfigurationInput {
+            data_dir: Some(dir.path().into()),
+            config: None,
+            home: None,
+            environment: BTreeMap::new(),
+            flags: Settings {
+                embedding_provider: Some(yomibu::app::config::EmbeddingProvider::LexicalBaseline),
+                ..Default::default()
+            },
         },
-    })
+        &yomibu::app::Operation::Story,
+    )
     .unwrap();
     let app = LocalApp::new(config, Credentials::default());
     assert!(matches!(
@@ -51,17 +54,20 @@ async fn offline_preview_uses_manual_inventory_and_explicit_sync_requires_a_key(
         include_bytes!("../../../tests/fixtures/story/inventory.json"),
     )
     .unwrap();
-    let config = Configuration::load(ConfigurationInput {
-        data_dir: Some(dir.path().join("data")),
-        config: None,
-        home: None,
-        environment: BTreeMap::new(),
-        flags: Settings {
-            inventory: Some(inventory),
-            generation_model: Some("chosen".into()),
-            ..Default::default()
+    let config = Configuration::load(
+        ConfigurationInput {
+            data_dir: Some(dir.path().join("data")),
+            config: None,
+            home: None,
+            environment: BTreeMap::new(),
+            flags: Settings {
+                inventory: Some(inventory),
+                generation_model: Some("chosen".into()),
+                ..Default::default()
+            },
         },
-    })
+        &yomibu::app::Operation::Story,
+    )
     .unwrap();
     let app = LocalApp::new(config, Credentials::default());
     let preview = app.preview(std::time::SystemTime::now().into(), 7).unwrap();

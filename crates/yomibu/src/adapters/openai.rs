@@ -21,6 +21,8 @@ const OUTPUT_TOKENS_PER_CANDIDATE: usize = 512;
 const MAX_RESPONSE_BODY_BYTES: usize = 65536;
 #[derive(Debug, thiserror::Error)]
 pub enum PreparationError {
+    #[error("Text model must be nonblank and at most 256 bytes.")]
+    InvalidModel,
     #[error("Candidate count must be positive and fit the output token budget.")]
     InvalidCandidateCount,
     #[error("Cannot serialize the OpenAI request.")]
@@ -49,6 +51,7 @@ impl PreparedRequest {
         options: &StoryGenerationOptions,
         max_request_bytes: usize,
     ) -> Result<Self, PreparationError> {
+        validate_model(&options.model)?;
         let max_output_tokens = output_token_budget(options)?;
         let candidate_count = options.candidate_count;
         let (min_sentences, max_sentences) = options.format.sentence_bounds();
@@ -95,6 +98,13 @@ impl PreparedRequest {
     }
 }
 
+pub(crate) fn validate_model(model: &str) -> Result<(), PreparationError> {
+    if model.trim().is_empty() || model.len() > 256 {
+        return Err(PreparationError::InvalidModel);
+    }
+    Ok(())
+}
+
 pub(crate) fn output_token_budget(
     options: &StoryGenerationOptions,
 ) -> Result<usize, PreparationError> {
@@ -102,11 +112,7 @@ pub(crate) fn output_token_budget(
         .candidate_count
         .checked_mul(OUTPUT_TOKENS_PER_CANDIDATE)
         .and_then(|tokens| tokens.checked_mul(options.format.sentence_bounds().1))
-        .filter(|_| {
-            options.candidate_count > 0
-                && !options.model.trim().is_empty()
-                && options.model.len() <= 256
-        })
+        .filter(|_| options.candidate_count > 0)
         .ok_or(PreparationError::InvalidCandidateCount)
 }
 

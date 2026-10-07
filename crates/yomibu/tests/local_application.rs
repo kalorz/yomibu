@@ -12,13 +12,16 @@ use yomibu::app::{
 };
 
 fn config(dir: &std::path::Path, flags: Settings) -> Configuration {
-    Configuration::load(ConfigurationInput {
-        data_dir: Some(dir.into()),
-        config: None,
-        home: None,
-        environment: BTreeMap::new(),
-        flags,
-    })
+    Configuration::load(
+        ConfigurationInput {
+            data_dir: Some(dir.into()),
+            config: None,
+            home: None,
+            environment: BTreeMap::new(),
+            flags,
+        },
+        &yomibu::app::Operation::Story,
+    )
     .unwrap()
 }
 
@@ -575,7 +578,7 @@ async fn optional_embedding_failure_falls_back_to_builtin_selection_without_host
     let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
         .await
         .unwrap();
-    assert_eq!(report.selection.selector_revision, "builtin-v1");
+    assert_eq!(report.selection.selector_revision, "builtin-v2");
     assert_eq!(report.warnings.len(), 1);
     assert!(
         report.warnings[0]
@@ -624,7 +627,7 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
     let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
         .await
         .unwrap();
-    assert_eq!(report.selection.selector_revision, "builtin-v1");
+    assert_eq!(report.selection.selector_revision, "builtin-v2");
     assert!(report.warnings[0].message.contains("--embedding-provider"));
     assert!(matches!(
         report

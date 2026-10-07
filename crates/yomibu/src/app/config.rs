@@ -1,4 +1,7 @@
-use super::modules::{MODULES, ModuleId};
+use super::{
+    Operation,
+    modules::{MODULES, ModuleId},
+};
 use crate::{
     knowledge::{LearnerKnowledgePolicy, WaniKaniKnowledgeRule},
     story::{StoryFormat, StoryGenerationOptions},
@@ -145,7 +148,7 @@ pub enum ConfigError {
 }
 
 impl Configuration {
-    pub fn load(input: ConfigurationInput) -> Result<Self, ConfigError> {
+    pub fn load(input: ConfigurationInput, operation: &Operation) -> Result<Self, ConfigError> {
         let data_dir = input
             .data_dir
             .or_else(|| input.home.map(|home| home.join(".yomibu")))
@@ -163,7 +166,7 @@ impl Configuration {
                 }
                 std::str::from_utf8(&bytes)
                     .ok()
-                    .and_then(|text| toml::from_str(text).ok())
+                    .and_then(|text| file_settings(text, operation))
                     .ok_or_else(|| ConfigError::Invalid { path: path.clone() })?
             }
             Err(error) if !explicit && error.kind() == std::io::ErrorKind::NotFound => {
@@ -190,24 +193,26 @@ impl Configuration {
                 *value = parent.join(&*value);
             }
         }
-        let env = environment_settings(input.environment)?;
+        let env = environment_settings(input.environment, operation)?;
         let mut enabled: BTreeMap<_, _> = MODULES
             .iter()
             .map(|module| (module.id, module.default_enabled))
             .collect();
-        for source in [&file, &env, &input.flags] {
-            for id in source.enable.iter().chain(&source.disable) {
-                if !id.metadata().controllable {
-                    return Err(ConfigError::InvalidSetting(
-                        "Only sync, embeddings, and assessment can be enabled or disabled.",
-                    ));
+        if operation.uses_setting("enable") {
+            for source in [&file, &env, &input.flags] {
+                for id in source.enable.iter().chain(&source.disable) {
+                    if !id.metadata().controllable {
+                        return Err(ConfigError::InvalidSetting(
+                            "Only sync, embeddings, and assessment can be enabled or disabled.",
+                        ));
+                    }
+                    if source.enable.contains(id) && source.disable.contains(id) {
+                        return Err(ConfigError::ConflictingControl {
+                            module: id.metadata().name,
+                        });
+                    }
+                    enabled.insert(*id, source.enable.contains(id));
                 }
-                if source.enable.contains(id) && source.disable.contains(id) {
-                    return Err(ConfigError::ConflictingControl {
-                        module: id.metadata().name,
-                    });
-                }
-                enabled.insert(*id, source.enable.contains(id));
             }
         }
         macro_rules! setting {
@@ -222,23 +227,26 @@ impl Configuration {
             candidate_count: setting!(candidates).unwrap_or(1),
             format: setting!(format).unwrap_or_default(),
         };
-        generation.validate().map_err(|_| ConfigError::InvalidSetting("Choose a nonblank text model and a positive candidate count that fits the output budget."))?;
+        if operation.uses_setting("model") {
+            generation.validate().map_err(|_| ConfigError::InvalidSetting("Choose a nonblank text model and a positive candidate count that fits the output budget."))?;
+        }
         let select = setting!(select).unwrap_or(12);
-        if !(1..=16).contains(&select) {
+        if operation.uses_setting("select") && !(1..=16).contains(&select) {
             return Err(ConfigError::InvalidSetting(
                 "--select must be between 1 and 16.",
             ));
         }
         let topic = setting!(topic);
         let request = setting!(request);
-        if topic.is_some() && request.is_some() {
+        if operation.uses_setting("topic") && topic.is_some() && request.is_some() {
             return Err(ConfigError::InvalidSetting(
                 "--topic and --request conflict; put the topic in the request file.",
             ));
         }
         let dictionary = setting!(dictionary);
         let dictionary_dir = setting!(dictionary_dir);
-        if dictionary.is_some() && dictionary_dir.is_some() {
+        if operation.uses_setting("dictionary") && dictionary.is_some() && dictionary_dir.is_some()
+        {
             return Err(ConfigError::InvalidSetting(
                 "--dictionary and --dictionary-dir conflict.",
             ));
@@ -283,13 +291,32 @@ impl Configuration {
     }
 }
 
-fn environment_settings(environment: BTreeMap<String, String>) -> Result<Settings, ConfigError> {
+fn file_settings(text: &str, operation: &Operation) -> Option<Settings> {
+    let mut values: toml::Table = toml::from_str(text).ok()?;
+    if values.keys().any(|name| {
+        !ENVIRONMENT_SETTINGS
+            .iter()
+            .any(|env| env.trim_start_matches("YOMIBU_").to_ascii_lowercase() == *name)
+    }) {
+        return None;
+    }
+    values.retain(|name, _| operation.uses_setting(name));
+    values.try_into().ok()
+}
+
+fn environment_settings(
+    environment: BTreeMap<String, String>,
+    operation: &Operation,
+) -> Result<Settings, ConfigError> {
     let mut values = serde_json::Map::new();
     for (name, text) in environment {
         if !ENVIRONMENT_SETTINGS.contains(&name.as_str()) {
             continue;
         }
         let field = name.trim_start_matches("YOMIBU_").to_ascii_lowercase();
+        if !operation.uses_setting(&field) {
+            continue;
+        }
         let value = match field.as_str() {
             "select" | "seed" | "candidates" | "cache_max_age_seconds" | "embedding_dimensions" => {
                 serde_json::Value::from(

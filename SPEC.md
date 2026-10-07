@@ -175,6 +175,7 @@ outcomes; all original text must be accounted for before Scope can Pass.
 Applicability remains unresolved for unrecognized constructions. Supported
 permission failures retain their Fail reason/span beside other uncertainty.
 Keep completed Pass/Fail/Inconclusive, execution errors and NotRun distinct.
+Aggregate precedence is Fail, NotRun, Inconclusive, then Pass.
 
 A transitive-use binding cannot resolve an object/predicate combination. Recognized
 object + を + regular polite verb therefore retains Inconclusive for Particles
@@ -420,9 +421,9 @@ an ordered synchronization interval, and reported percentages within 0–100.
 
 Loading and summarizing both validate the sync data; library callers who construct
 or modify domain structs cannot silently obtain a summary of invalid data.
-Status never creates directories or files or reads config/lock contents. Cache
-errors direct users to a valid backup, another directory, or a compatible Yomibu
-version; missing-cache guidance points to `yomibu sync` and the token environment
+Status reads shared configuration to select its cache. It never writes or reads
+lock contents. Cache errors direct users to a valid backup, another directory,
+or a compatible Yomibu version; missing-cache guidance points to `yomibu sync` and the token environment
 variable.
 
 ### Source boundary

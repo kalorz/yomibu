@@ -10,30 +10,22 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use yomibu::app::{
+    Operation,
     config::{Configuration, ConfigurationInput, ENVIRONMENT_SETTINGS, Settings},
     local::{Credentials, LocalApp, ServiceEndpoints},
 };
-
-enum Action {
-    Story,
-    Preview,
-    Retrieval,
-    Analyze(PathBuf),
-    Import(PathBuf),
-    Verify,
-    Sync,
-    Status,
-}
 
 pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
     let Some(command) = cli.command else {
         return Ok(());
     };
-    let (action, flags) = match command {
-        Command::Story(args) => (Action::Story, args.settings()),
-        Command::PreviewStory(args) => (Action::Preview, args.settings()),
-        Command::PrepareRetrieval(args) => (Action::Retrieval, args.settings()),
-        Command::Analyze { dictionary, input } => (Action::Analyze(input), dictionary.settings()),
+    let (operation, flags) = match command {
+        Command::Story(args) => (Operation::Story, args.settings()),
+        Command::PreviewStory(args) => (Operation::Preview, args.settings()),
+        Command::PrepareRetrieval(args) => (Operation::Retrieval, args.settings()),
+        Command::Analyze { dictionary, input } => {
+            (Operation::Analyze(input), dictionary.settings())
+        }
         Command::Dictionary {
             command:
                 DictionaryCommand::Import {
@@ -41,7 +33,7 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
                     dictionary_dir,
                 },
         } => (
-            Action::Import(bundle),
+            Operation::Import(bundle),
             Settings {
                 dictionary_dir,
                 ..Default::default()
@@ -50,14 +42,14 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
         Command::Dictionary {
             command: DictionaryCommand::Verify { dictionary_dir },
         } => (
-            Action::Verify,
+            Operation::Verify,
             Settings {
                 dictionary_dir,
                 ..Default::default()
             },
         ),
-        Command::Sync => (Action::Sync, Settings::default()),
-        Command::Status => (Action::Status, Settings::default()),
+        Command::Sync => (Operation::Sync, Settings::default()),
+        Command::Status => (Operation::Status, Settings::default()),
     };
     let environment: BTreeMap<_, _> = ENVIRONMENT_SETTINGS
         .iter()
@@ -67,19 +59,22 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
                 .map(|value| ((*name).into(), value))
         })
         .collect();
-    let config = Configuration::load(ConfigurationInput {
-        data_dir: cli
-            .data_dir
-            .or_else(|| std::env::var_os("YOMIBU_DATA_DIR").map(PathBuf::from)),
-        config: cli
-            .config
-            .or_else(|| std::env::var_os("YOMIBU_CONFIG").map(PathBuf::from)),
-        home: std::env::var_os("HOME")
-            .filter(|home| !home.is_empty())
-            .map(PathBuf::from),
-        environment,
-        flags,
-    })?;
+    let config = Configuration::load(
+        ConfigurationInput {
+            data_dir: cli
+                .data_dir
+                .or_else(|| std::env::var_os("YOMIBU_DATA_DIR").map(PathBuf::from)),
+            config: cli
+                .config
+                .or_else(|| std::env::var_os("YOMIBU_CONFIG").map(PathBuf::from)),
+            home: std::env::var_os("HOME")
+                .filter(|home| !home.is_empty())
+                .map(PathBuf::from),
+            environment,
+            flags,
+        },
+        &operation,
+    )?;
     let credentials = Credentials::new(
         cli.wanikani_api_key
             .or_else(|| std::env::var("YOMIBU_WANIKANI_API_KEY").ok()),
@@ -94,8 +89,8 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
         .as_nanos() as u64;
     let mut out = io::stdout().lock();
     let mut err = io::stderr().lock();
-    match action {
-        Action::Story => {
+    match operation {
+        Operation::Story => {
             let mut progress_error = None;
             // Managed roots follow the importer's immutable-generation contract.
             let report = runtime()?.block_on(unsafe {
@@ -117,13 +112,13 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
             }
             output::story::write_run(&mut out, &mut err, &report, cli.json, cli.verbose)?;
         }
-        Action::Preview => output::story::write_preview(
+        Operation::Preview => output::story::write_preview(
             &mut out,
             &mut err,
             &app.preview(clock.into(), seed)?,
             cli.json,
         )?,
-        Action::Retrieval => {
+        Operation::Retrieval => {
             let cache = runtime()?.block_on(app.prepare_retrieval(clock.into()))?;
             if cli.json {
                 output::write_json(&mut out, &cache)?;
@@ -131,7 +126,7 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
                 output::story::write_retrieval(&mut out, &cache)?;
             }
         }
-        Action::Analyze(input) => {
+        Operation::Analyze(input) => {
             // Managed roots follow the importer's immutable-generation contract.
             let report = unsafe { app.analyze(&input) }?;
             if cli.json {
@@ -140,14 +135,14 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
                 output::analysis::write_text(&mut out, &report)?;
             }
         }
-        Action::Import(bundle) => {
+        Operation::Import(bundle) => {
             output::dictionary::write_import(&mut out, &app.import_dictionary(&bundle)?, cli.json)?
         }
-        Action::Verify => {
+        Operation::Verify => {
             app.verify_dictionary()?;
             output::dictionary::write_verified(&mut out, cli.json)?;
         }
-        Action::Sync => {
+        Operation::Sync => {
             let report = runtime()?.block_on(app.sync())?;
             if cli.json {
                 output::write_json(&mut out, &report)?;
@@ -155,7 +150,7 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
                 output::status::write_status(&mut out, &report.summary)?;
             }
         }
-        Action::Status => {
+        Operation::Status => {
             let summary = app.status()?;
             if cli.json {
                 output::write_json(&mut out, &summary)?;

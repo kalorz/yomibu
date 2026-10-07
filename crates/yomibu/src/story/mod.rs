@@ -34,6 +34,9 @@ use crate::{
 
 impl StoryGenerationOptions {
     pub fn validate(&self) -> Result<(), StoryError> {
+        openai::validate_model(&self.model).map_err(|_| {
+            StoryError::Invalid("text model must be nonblank and at most 256 bytes")
+        })?;
         openai::output_token_budget(self).map(|_| ()).map_err(|_| {
             StoryError::Invalid("candidate count must be positive and fit the output token budget")
         })
