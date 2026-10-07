@@ -117,9 +117,12 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
             }
             output::story::write_run(&mut out, &mut err, &report, cli.json, cli.verbose)?;
         }
-        Action::Preview => {
-            output::story::write_preview(&mut out, &app.preview(clock.into(), seed)?, cli.json)?
-        }
+        Action::Preview => output::story::write_preview(
+            &mut out,
+            &mut err,
+            &app.preview(clock.into(), seed)?,
+            cli.json,
+        )?,
         Action::Retrieval => {
             let cache = runtime()?.block_on(app.prepare_retrieval(clock.into()))?;
             if cli.json {

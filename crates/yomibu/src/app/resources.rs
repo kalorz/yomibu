@@ -37,37 +37,7 @@ pub(super) async fn prepare_embeddings(
     let inputs = prepare_embedding_inputs(inventory, request)?;
     let file = EmbeddingCacheFile::new(&config.embedding_cache);
     let previous = file.load()?;
-    let identity = match config.embedding_provider {
-        Some(EmbeddingProvider::LexicalBaseline) => LexicalEmbedder::new().model_identity().clone(),
-        Some(provider) => EmbeddingModelIdentity {
-            provider: match provider {
-                EmbeddingProvider::Local => "local",
-                EmbeddingProvider::Openai => "openai",
-                EmbeddingProvider::LexicalBaseline => "local-baseline",
-            }.into(),
-            model: config.embedding_model.clone().ok_or(
-                ApplicationError::ResourceConfiguration("Supply --embedding-model.")
-            )?,
-            revision: config.embedding_revision.clone().ok_or(
-                ApplicationError::ResourceConfiguration("Supply --embedding-revision with a pinned encoder revision.")
-            )?,
-            dimensions: config.embedding_dimensions.ok_or(
-                ApplicationError::ResourceConfiguration("Supply --embedding-dimensions.")
-            )?,
-            encoding_revision: "plain-v1".into(),
-        },
-        None if config.embedding_model.is_some() || config.embedding_revision.is_some()
-            || config.embedding_dimensions.is_some() => {
-            return Err(ApplicationError::ResourceConfiguration(
-                "Select --embedding-provider when supplying embedding model settings.",
-            ));
-        }
-        None => previous.as_ref().map(|cache| cache.model.clone()).ok_or(
-            ApplicationError::ResourceConfiguration(
-                "Select --embedding-provider and configure its model; the text model does not supply embeddings.",
-            )
-        )?,
-    };
+    let identity = embedding_model(config, previous.as_ref())?;
     let previous = match previous {
         Some(cache) if cache.vectors(&identity, &inputs).is_ok() => return Ok(cache),
         previous => previous,
@@ -119,4 +89,54 @@ pub(super) async fn prepare_embeddings(
     }
     file.save(&cache)?;
     Ok(cache)
+}
+
+pub(super) fn load_cached_embeddings(
+    config: &Configuration,
+) -> Result<EmbeddingCache, ApplicationError> {
+    let cache = EmbeddingCacheFile::new(&config.embedding_cache)
+        .load()?
+        .ok_or(crate::retrieval::EmbeddingError::Missing)?;
+    if cache.model != embedding_model(config, Some(&cache))? {
+        return Err(crate::retrieval::EmbeddingError::Missing.into());
+    }
+    Ok(cache)
+}
+
+fn embedding_model(
+    config: &Configuration,
+    previous: Option<&EmbeddingCache>,
+) -> Result<EmbeddingModelIdentity, ApplicationError> {
+    let identity = match config.embedding_provider {
+        Some(EmbeddingProvider::LexicalBaseline) => LexicalEmbedder::new().model_identity().clone(),
+        Some(provider) => EmbeddingModelIdentity {
+            provider: match provider {
+                EmbeddingProvider::Local => "local",
+                EmbeddingProvider::Openai => "openai",
+                EmbeddingProvider::LexicalBaseline => "local-baseline",
+            }.into(),
+            model: config.embedding_model.clone().ok_or(
+                ApplicationError::ResourceConfiguration("Supply --embedding-model.")
+            )?,
+            revision: config.embedding_revision.clone().ok_or(
+                ApplicationError::ResourceConfiguration("Supply --embedding-revision with a pinned encoder revision.")
+            )?,
+            dimensions: config.embedding_dimensions.ok_or(
+                ApplicationError::ResourceConfiguration("Supply --embedding-dimensions.")
+            )?,
+            encoding_revision: "plain-v1".into(),
+        },
+        None if config.embedding_model.is_some() || config.embedding_revision.is_some()
+            || config.embedding_dimensions.is_some() => {
+            return Err(ApplicationError::ResourceConfiguration(
+                "Select --embedding-provider when supplying embedding model settings.",
+            ));
+        }
+        None => previous.map(|cache| cache.model.clone()).ok_or(
+            ApplicationError::ResourceConfiguration(
+                "Select --embedding-provider and configure its model; the text model does not supply embeddings.",
+            )
+        )?,
+    };
+    Ok(identity)
 }

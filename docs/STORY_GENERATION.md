@@ -66,7 +66,8 @@ Sync and available local assessment default to enabled. Embeddings require
 explicit enablement. Hosted embeddings additionally require
 `--allow-embedding-call`; see [retrieval](RETRIEVAL.md). No dictionary is downloaded.
 Optional failures warn and preserve generated text, using built-in selection when
-retrieval fails. Preview remains offline and never refreshes resources.
+retrieval fails. Preview checks the same embedding settings and reports fallback
+warnings. It remains offline and never refreshes resources.
 
 ## Topic and vocabulary
 
@@ -80,7 +81,7 @@ it never drops targets. Simple grammar guidance does not infer grammar knowledge
 
 ## Cache
 
-A validated WaniKani cache younger than one hour is reused without requests.
+A validated usable WaniKani cache from the last hour is reused without requests.
 Missing/stale data triggers a complete refresh, with freshness rechecked under
 the writer lock. Temporary transport/server/rate-limit failures or writer
 contention may reuse a validated usable cache with a warning. An old cache without

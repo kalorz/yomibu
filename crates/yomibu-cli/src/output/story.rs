@@ -2,7 +2,7 @@ use super::{candidate, write_json};
 use std::io::Write;
 use yomibu::{
     app::{
-        local::{ProgressEvent, StoryPreviewRunReport, StoryRunReport},
+        local::{ProgressEvent, StoryPreviewRunReport, StoryRunReport, Warning},
         modules::ModuleState,
     },
     retrieval::EmbeddingCache,
@@ -26,14 +26,7 @@ pub(crate) fn write_run(
     json: bool,
     verbose: bool,
 ) -> anyhow::Result<()> {
-    for warning in &report.warnings {
-        writeln!(
-            err,
-            "warning: {}: {}",
-            warning.module.metadata().name,
-            warning.message.escape_debug()
-        )?;
-    }
+    write_warnings(err, &report.warnings)?;
     if verbose {
         let states: &mut dyn Write = if json { err } else { out };
         for module in &report.modules {
@@ -69,9 +62,11 @@ pub(crate) fn write_run(
 }
 pub(crate) fn write_preview(
     out: &mut impl Write,
+    err: &mut impl Write,
     report: &StoryPreviewRunReport,
     json: bool,
 ) -> anyhow::Result<()> {
+    write_warnings(err, &report.warnings)?;
     if json {
         write_json(out, report)?;
     } else {
@@ -93,6 +88,17 @@ pub(crate) fn write_preview(
         writeln!(out, "Exact outbound request:")?;
         write_json(out, &report.provider_request)?;
         writeln!(out, "Generation requests made: 0")?;
+    }
+    Ok(())
+}
+fn write_warnings(err: &mut impl Write, warnings: &[Warning]) -> std::io::Result<()> {
+    for warning in warnings {
+        writeln!(
+            err,
+            "warning: {}: {}",
+            warning.module.metadata().name,
+            warning.message.escape_debug()
+        )?;
     }
     Ok(())
 }

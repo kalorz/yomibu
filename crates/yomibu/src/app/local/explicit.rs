@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    adapters::{dictionary, embedding_cache_file::EmbeddingCacheFile},
+    adapters::dictionary,
     analysis::{Sentence, SentenceAnalysis},
     evaluation::{CheckState, Evaluation},
     grammar::GrammarDeclarations,
@@ -14,6 +14,7 @@ pub struct StoryPreviewRunReport {
     pub request: StoryRequest,
     pub selection: SelectionReport,
     pub provider_request: openai::PreparedRequest,
+    pub warnings: Vec<Warning>,
 }
 #[derive(Serialize)]
 pub struct AnalysisRunReport {
@@ -60,21 +61,23 @@ impl LocalApp {
         let inventory = self.derive_inventory(source.as_ref(), manual, now)?;
         let request = self.read_request()?;
         let seed = self.config.seed.unwrap_or(seed);
+        let mut warnings = Vec::new();
         let cache = if self.config.enabled(ModuleId::Embeddings) && request.topic.is_some() {
-            EmbeddingCacheFile::new(&self.config.embedding_cache).load()?
+            match super::super::resources::load_cached_embeddings(&self.config) {
+                Ok(cache) => Some(cache),
+                Err(error) => {
+                    warnings.push(Warning::embedding_fallback(&error));
+                    None
+                }
+            }
         } else {
             None
         };
-        let selection = match &cache {
-            Some(cache) => select_vocabulary(
-                &inventory,
-                &request,
-                cache,
-                &cache.model,
-                self.config.select,
-            )?,
-            None => select_builtin_vocabulary(&inventory, &request, self.config.select, seed)?,
-        };
+        let (selection, retrieval_error) =
+            self.select_for_request(&inventory, &request, cache.as_ref(), seed)?;
+        if let Some(error) = retrieval_error {
+            warnings.push(Warning::embedding_fallback(&error));
+        }
         let (selection, provider_request) = fit_selection_and_build_request(
             &inventory,
             &request,
@@ -87,6 +90,7 @@ impl LocalApp {
             request,
             selection,
             provider_request,
+            warnings,
         })
     }
 

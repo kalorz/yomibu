@@ -7,7 +7,7 @@ use wiremock::{
 };
 use yomibu::app::{
     config::{Configuration, ConfigurationInput, Settings},
-    local::{ApplicationError, Credentials, LocalApp, ServiceEndpoints},
+    local::{ApplicationError, Credentials, LocalApp, ProgressEvent, ServiceEndpoints, Step},
     modules::{ModuleId, ModuleState},
 };
 
@@ -20,6 +20,26 @@ fn config(dir: &std::path::Path, flags: Settings) -> Configuration {
         flags,
     })
     .unwrap()
+}
+
+fn assert_completed_steps(events: &[ProgressEvent]) {
+    let mut running = None;
+    for event in events {
+        match event {
+            ProgressEvent::Started { step } => {
+                assert!(
+                    running.replace(*step).is_none(),
+                    "overlapping steps: {events:?}"
+                );
+            }
+            ProgressEvent::Completed { step, elapsed_ms } => {
+                assert_eq!(running.take(), Some(*step));
+                assert!(elapsed_ms.is_finite() && *elapsed_ms >= 0.);
+            }
+            ProgressEvent::Skipped { .. } => {}
+        }
+    }
+    assert!(running.is_none(), "unfinished step: {events:?}");
 }
 
 #[tokio::test]
@@ -163,21 +183,7 @@ async fn two_keys_generate_once_without_optional_resources_and_the_second_run_us
         ModuleState::Disabled
     ));
     assert!(!events.is_empty());
-    let mut running = None;
-    for event in &events {
-        match event {
-            yomibu::app::local::ProgressEvent::Started { step } => {
-                assert!(running.is_none(), "overlapping steps: {events:?}");
-                running = Some(format!("{step:?}"));
-            }
-            yomibu::app::local::ProgressEvent::Completed { step, elapsed_ms } => {
-                assert_eq!(running.take(), Some(format!("{step:?}")));
-                assert!(elapsed_ms.is_finite() && *elapsed_ms >= 0.);
-            }
-            yomibu::app::local::ProgressEvent::Skipped { .. } => {}
-        }
-    }
-    assert!(running.is_none());
+    assert_completed_steps(&events);
     let cached_report = unsafe { app.story(SystemTime::now().into(), 7, |_| {}) }
         .await
         .unwrap();
@@ -247,6 +253,75 @@ async fn cache_is_fresh_until_the_one_hour_boundary_then_refreshes() {
         .await
         .unwrap();
     assert_eq!(server.received_requests().await.unwrap().len(), 6);
+}
+
+#[tokio::test]
+async fn cache_from_a_future_completion_time_is_refreshed() {
+    let dir = tempfile::tempdir().unwrap();
+    let completed = write_cache(dir.path());
+    let server = MockServer::start().await;
+    mount_source(&server).await;
+    mount_generation(&server, 1).await;
+    let app = LocalApp::new(
+        config(dir.path(), Settings::default()),
+        Credentials::new(Some("wk".into()), Some("ai".into())),
+    )
+    .with_endpoints(endpoints(&server));
+    unsafe { app.story(completed - chrono::Duration::seconds(1), 1, |_| {}) }
+        .await
+        .unwrap();
+    assert_eq!(server.received_requests().await.unwrap().len(), 5);
+}
+
+#[tokio::test]
+async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lock() {
+    use yomibu::adapters::stores::file::cache::{SyncGuard, load};
+    for replaced_by_another_writer in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let completed = write_cache(dir.path());
+        let now = completed + chrono::Duration::hours(2);
+        let mut empty = load(dir.path()).unwrap();
+        for assignment in &mut empty.assignments {
+            assignment.started_at = None;
+            assignment.passed_at = None;
+            assignment.burned_at = None;
+            assignment.srs_stage = 0;
+        }
+        empty.sync_completed_at = now;
+        if !replaced_by_another_writer {
+            SyncGuard::acquire(dir.path())
+                .unwrap()
+                .replace(&empty)
+                .unwrap();
+        }
+        let server = MockServer::start().await;
+        mount_source(&server).await;
+        mount_generation(&server, 1).await;
+        let app = LocalApp::new(
+            config(dir.path(), Settings::default()),
+            Credentials::new(Some("wk".into()), Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        let report = unsafe {
+            app.story(now, 1, |event| {
+                if replaced_by_another_writer
+                    && matches!(event, ProgressEvent::Started { step: Step::Sync })
+                {
+                    SyncGuard::acquire(dir.path())
+                        .unwrap()
+                        .replace(&empty)
+                        .unwrap();
+                }
+            })
+        }
+        .await
+        .unwrap();
+        assert_eq!(
+            report.generated.passages()[0].text,
+            "猫です。寝ます。朝です。"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 5);
+    }
 }
 
 #[tokio::test]
@@ -330,10 +405,22 @@ async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
     )
     .with_endpoints(endpoints(&server));
     let guard = yomibu::adapters::stores::file::cache::SyncGuard::acquire(dir.path()).unwrap();
-    let report = unsafe { app.story(completed + chrono::Duration::hours(2), 1, |_| {}) }
-        .await
-        .unwrap();
+    let mut events = Vec::new();
+    let report = unsafe {
+        app.story(completed + chrono::Duration::hours(2), 1, |event| {
+            events.push(event)
+        })
+    }
+    .await
+    .unwrap();
     assert!(report.warnings[0].message.contains("writer"));
+    assert!(
+        report
+            .timings
+            .iter()
+            .any(|timing| timing.step == Step::Sync)
+    );
+    assert_completed_steps(&events);
     drop(guard);
     let mut cache: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../tests/fixtures/mixed.json")).unwrap();
@@ -548,6 +635,19 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
             .state,
         ModuleState::NotConfigured
     ));
+    let preview = app.preview(SystemTime::now().into(), 1).unwrap();
+    assert_eq!(
+        preview.selection.selector_revision,
+        report.selection.selector_revision
+    );
+    assert_eq!(
+        preview.selection.vocabulary_ids,
+        report.selection.vocabulary_ids
+    );
+    assert_eq!(
+        preview.provider_request.body_utf8().as_bytes(),
+        server.received_requests().await.unwrap()[0].body
+    );
     assert_eq!(
         std::fs::read(dir.path().join("embeddings.json")).unwrap(),
         before

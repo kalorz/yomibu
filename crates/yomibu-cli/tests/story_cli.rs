@@ -106,6 +106,58 @@ fn offline_preview_has_no_implicit_embedding_call_and_preserves_exact_bytes_and_
     ));
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), before);
 }
+
+#[test]
+fn preview_falls_back_for_partial_embedding_settings_and_reports_a_safe_warning() {
+    let dir = setup();
+    let topic = "日本語\nInjected\u{1b}";
+    fs::write(
+        dir.path().join("request.json"),
+        json!({"version":1,"topic":topic,"targets":{"vocabulary":["cat"],"grammar":[]}})
+            .to_string(),
+    )
+    .unwrap();
+    prepare(dir.path());
+    let before = fs::read(dir.path().join("vectors.json")).unwrap();
+    for json in [false, true] {
+        let mut command = cli(dir.path(), "preview-story");
+        command.args([
+            "--enable",
+            "embeddings",
+            "--embedding-model",
+            "another-model",
+        ]);
+        if json {
+            command.arg("--json");
+        }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(0));
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.starts_with("warning: Embeddings:"), "{stderr}");
+        assert!(stderr.contains("--embedding-provider"));
+        assert_eq!(stderr.lines().count(), 1);
+        assert!(!stdout.contains('\u{1b}'));
+        assert!(!stderr.contains('\u{1b}'));
+        assert!(!stdout.contains("\nInjected"));
+        assert!(stdout.contains("日本語"));
+        if json {
+            let report: Value = serde_json::from_str(&stdout).unwrap();
+            assert_eq!(report["selection"]["selector_revision"], "builtin-v1");
+            assert_eq!(report["request"]["topic"], topic);
+            assert_eq!(report["warnings"].as_array().unwrap().len(), 1);
+        } else {
+            assert!(
+                stdout
+                    .starts_with("Experimental story generation plan — no generation performed\n")
+            );
+            assert!(stdout.contains("\nSelector revision: builtin-v1\n"));
+            assert!(stdout.ends_with("Generation requests made: 0\n"));
+        }
+    }
+    assert_eq!(fs::read(dir.path().join("vectors.json")).unwrap(), before);
+    assert!(!dir.path().join("data").exists());
+}
 #[test]
 fn story_invocation_authorizes_generation_and_rejects_the_removed_opt_in_flag() {
     let dir = setup();

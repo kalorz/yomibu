@@ -20,8 +20,8 @@ use crate::{
     domain::WaniKaniSyncData,
     inventory::{InventoryError, LearnerInventory, ManualInventory},
     story::{
-        PracticeTargets, StoryError, StoryRequest, StoryTopic, fit_selection_and_build_request,
-        select_builtin_vocabulary,
+        PracticeTargets, StoryError, StoryRequest, StoryTopic, StoryVocabularySelection,
+        fit_selection_and_build_request, select_builtin_vocabulary,
     },
 };
 pub use explicit::{AnalysisRunReport, StoryPreviewRunReport};
@@ -122,7 +122,7 @@ pub enum ApplicationError {
     Evaluation(#[from] crate::evaluation::EvaluationError),
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Step {
     Inputs,
@@ -149,6 +149,14 @@ pub struct StepTiming {
 pub struct Warning {
     pub module: ModuleId,
     pub message: String,
+}
+impl Warning {
+    fn embedding_fallback(error: &impl std::fmt::Display) -> Self {
+        Self {
+            module: ModuleId::Embeddings,
+            message: format!("{error} Using built-in selection."),
+        }
+    }
 }
 #[derive(Debug, Serialize)]
 pub struct SelectionReport {
@@ -318,31 +326,17 @@ impl LocalApp {
             .optional_embeddings(&inventory, &request, &mut progress)
             .await;
         let started = progress.start(Step::Selection);
-        let selection = match cache.as_ref().map(|cache| {
-            select_vocabulary(
-                &inventory,
-                &request,
-                cache,
-                &cache.model,
-                self.config.select,
-            )
-        }) {
-            Some(Ok(selection)) => selection,
-            Some(Err(error)) => {
-                progress.warn(
-                    ModuleId::Embeddings,
-                    format!("{error} Using built-in selection."),
-                );
-                progress.state(
-                    ModuleId::Embeddings,
-                    ModuleState::Unavailable {
-                        error: error.to_string(),
-                    },
-                );
-                select_builtin_vocabulary(&inventory, &request, self.config.select, seed)?
-            }
-            None => select_builtin_vocabulary(&inventory, &request, self.config.select, seed)?,
-        };
+        let (selection, retrieval_error) =
+            self.select_for_request(&inventory, &request, cache.as_ref(), seed)?;
+        if let Some(error) = retrieval_error {
+            progress.warnings.push(Warning::embedding_fallback(&error));
+            progress.state(
+                ModuleId::Embeddings,
+                ModuleState::Unavailable {
+                    error: error.to_string(),
+                },
+            );
+        }
         let (selection, prepared) = fit_selection_and_build_request(
             &inventory,
             &request,
@@ -415,13 +409,12 @@ impl LocalApp {
             && LearnerInventory::from_wanikani(data, &self.config.knowledge_policy)
                 .is_ok_and(|inventory| !inventory.vocabulary.is_empty())
     }
-    fn fresh(&self, data: &WaniKaniSyncData, now: DateTime<Utc>) -> bool {
-        !access_expired(data, now)
+    fn can_reuse_cache(&self, data: &WaniKaniSyncData, now: DateTime<Utc>) -> bool {
+        self.usable_cache(data, now)
             && now
                 .signed_duration_since(data.sync_completed_at)
                 .to_std()
-                .unwrap_or_default()
-                < self.config.cache_max_age
+                .is_ok_and(|age| age < self.config.cache_max_age)
     }
 
     async fn prepare_source<F: FnMut(ProgressEvent)>(
@@ -430,7 +423,10 @@ impl LocalApp {
         now: DateTime<Utc>,
         progress: &mut RunProgress<F>,
     ) -> Result<Option<WaniKaniSyncData>, ApplicationError> {
-        if previous.as_ref().is_some_and(|data| self.fresh(data, now)) {
+        if previous
+            .as_ref()
+            .is_some_and(|data| self.can_reuse_cache(data, now))
+        {
             progress.state(
                 ModuleId::Sync,
                 if self.config.enabled(ModuleId::Sync) {
@@ -491,12 +487,16 @@ impl LocalApp {
                     },
                 );
                 progress.skip(Step::Sync, "Writer contention");
+                progress.finish(Step::Sync, started);
                 return Ok(previous);
             }
             Err(error) => return Err(error.into()),
         };
         let rechecked = self.read_cache(true)?;
-        if rechecked.as_ref().is_some_and(|data| self.fresh(data, now)) {
+        if rechecked
+            .as_ref()
+            .is_some_and(|data| self.can_reuse_cache(data, now))
+        {
             progress.state(
                 ModuleId::Sync,
                 ModuleState::Skipped {
@@ -586,6 +586,27 @@ impl LocalApp {
         })
     }
 
+    fn select_for_request<'a>(
+        &self,
+        inventory: &'a LearnerInventory,
+        request: &'a StoryRequest,
+        cache: Option<&EmbeddingCache>,
+        seed: u64,
+    ) -> Result<(StoryVocabularySelection<'a>, Option<StoryError>), StoryError> {
+        match cache
+            .map(|cache| {
+                select_vocabulary(inventory, request, cache, &cache.model, self.config.select)
+            })
+            .transpose()
+        {
+            Ok(Some(selection)) => Ok((selection, None)),
+            result => Ok((
+                select_builtin_vocabulary(inventory, request, self.config.select, seed)?,
+                result.err(),
+            )),
+        }
+    }
+
     pub async fn prepare_retrieval(
         &self,
         now: DateTime<Utc>,
@@ -639,10 +660,7 @@ impl LocalApp {
                 Some(cache)
             }
             Err(error) => {
-                progress.warn(
-                    ModuleId::Embeddings,
-                    format!("{error} Using built-in selection."),
-                );
+                progress.warnings.push(Warning::embedding_fallback(&error));
                 progress.state(
                     ModuleId::Embeddings,
                     match error {
