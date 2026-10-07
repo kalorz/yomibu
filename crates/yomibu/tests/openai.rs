@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use wiremock::{
@@ -19,10 +22,9 @@ fn analyzer() -> &'static yomibu::adapters::sudachi::SudachiAnalyzer {
         std::sync::OnceLock::new();
     ANALYZER.get_or_init(|| {
         yomibu::adapters::sudachi::SudachiAnalyzer::load(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../target/a1/current/system_core.dic"),
+            test_dictionary::bundle().join("system_core.dic"),
         )
-        .expect("explicit pinned dictionary required; see A1 setup")
+        .expect("verified test dictionary required")
     })
 }
 
@@ -205,10 +207,6 @@ async fn sends_one_explicit_request_and_preserves_pair_and_provenance() {
     );
     assert_eq!(body["input"][1]["role"], "user");
     assert_eq!(request.body, prepared_request.body_utf8().as_bytes());
-    assert_eq!(
-        prepared_request.body_utf8(),
-        include_str!("../../../tests/fixtures/story/provider-request.json")
-    );
     let data: Value = serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
     assert_eq!(data["kind"], "story_generation_plan");
     assert_eq!(data["brief"], request_input.brief);

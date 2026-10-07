@@ -11,11 +11,8 @@ fn object_uncertainty_preserves_independent_grammar_targets() {
     use DirectObjectEvidence::*;
     use LexicalUncertainty::*;
 
-    let analyzer = SudachiAnalyzer::load(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/a1/current/system_core.dic"),
-    )
-    .unwrap();
+    let analyzer =
+        SudachiAnalyzer::load(crate::test_dictionary::bundle().join("system_core.dic")).unwrap();
     let request: StoryRequest = serde_json::from_value(serde_json::json!({
         "version":1, "brief":"A bounded object sentence",
         "targets":{"vocabulary":[],"grammar":["topic","polite","object","topic-or-object"]}

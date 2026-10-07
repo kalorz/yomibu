@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
+
 use serde_json::{Value, json};
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 use yomibu::{
@@ -54,11 +57,8 @@ async fn shared_workflow_preserves_exact_request_full_inventory_and_partial_resu
         let plan = plan_generation(&inventory, &request, &cache, &cache.model, 2, options).unwrap();
         let bytes = plan.prepared_request().body_utf8().as_bytes().to_vec();
         let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
-        let analyzer = SudachiAnalyzer::load(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../target/a1/current/system_core.dic"),
-        )
-        .unwrap();
+        let analyzer =
+            SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
         let result = generate_story(&plan, &client, &analyzer).await.unwrap();
         assert_eq!(server.received_requests().await.unwrap()[0].body, bytes);
         result
@@ -113,23 +113,6 @@ async fn shared_workflow_preserves_exact_request_full_inventory_and_partial_resu
 #[tokio::test]
 async fn offline_planning_validates_options_targets_cache_and_request_bounds() {
     let (inventory, request, cache) = inputs().await;
-    let plan = plan_generation(
-        &inventory,
-        &request,
-        &cache,
-        &cache.model,
-        2,
-        Default::default(),
-    )
-    .unwrap();
-    assert_eq!(
-        plan.prepared_request().body_utf8(),
-        include_str!("../../../tests/fixtures/story/provider-request.json")
-    );
-    assert_eq!(
-        plan.prepared_request().sha256(),
-        include_str!("../../../tests/fixtures/story/provider-request.sha256").trim()
-    );
     assert!(
         plan_generation(
             &inventory,
@@ -207,11 +190,8 @@ async fn provider_failure_returns_no_result_and_never_retries() {
         Default::default(),
     )
     .unwrap();
-    let analyzer = SudachiAnalyzer::load(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target/a1/current/system_core.dic"),
-    )
-    .unwrap();
+    let analyzer =
+        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(429).set_body_string("secret"))

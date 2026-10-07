@@ -34,6 +34,4 @@ Analyze uses one-based grammar IDs; story input uses string IDs.
 | G1 | Fixed-pair sentence generation; replaced by `generate-story` |
 | G2 | Focused-context experiments; replaced by the current story path |
 
-The A1 name remains in `scripts/setup_a1_dictionary.py`, `target/a1/current`,
-and `tests/fixtures/a1`. Some frozen inputs
-feed active tests. See [history](history/README.md) for evidence and code pins.
+See [history](history/README.md) for frozen evidence and code pins.

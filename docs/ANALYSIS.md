@@ -9,8 +9,8 @@ For normal use, [install a managed dictionary](DICTIONARY.md#install-and-use-off
 To use the developer bundle directly:
 
 ```sh
-python3 scripts/setup_a1_dictionary.py
-cargo run --release --locked -- analyze --dictionary target/a1/current/system_core.dic --input tests/fixtures/analyze/nominal.json
+python3 scripts/setup_test_dictionary.py
+cargo run --release --locked -- analyze --dictionary target/test-resources/sudachi-core/current/system_core.dic --input tests/fixtures/analyze/nominal.json
 ```
 
 Setup is an explicit download. Analysis never downloads. Use `--release` for faster

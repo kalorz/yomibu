@@ -36,9 +36,12 @@ owns the request-byte cap and support trimming. Reports do not rerun assessment.
 The workspace has a library and a CLI, with dependencies from CLI to library.
 Root [Cargo.toml](Cargo.toml), [Cargo.lock](Cargo.lock), and
 [rust-toolchain.toml](rust-toolchain.toml) own build and dependency facts.
-Shared immutable fixtures live in [tests/fixtures](tests/fixtures/).
+Current engineering fixtures live in [tests/fixtures](tests/fixtures/).
+Frozen research inputs live in [history](docs/history/README.md).
 Member `tests/` directories cover library and executable behavior. Adapter fault
 tests use real files or local HTTP servers; memory tests cannot prove durability.
+Both crates include [shared dictionary lookup](tests/support/dictionary.rs) with
+`#[path]`; it is compiled only for tests.
 
 ## Future composition
 

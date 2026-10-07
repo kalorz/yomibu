@@ -196,11 +196,11 @@ from expectations or prior preparation acceptance; those measure different work.
 ## Runtime input and current handoff
 
 The concrete JSON input is illustrated by
-[smoke.json](../../../tests/fixtures/a1/smoke.json); it has no reference labels.
+[smoke.json](a1-fixtures/smoke.json); it has no reference labels.
 The [common binding sheet](A1_BLIND_PACKET_HEADER.md) maps its fields and seven
-rule names to this protocol. The [active visible review draft](../../../tests/fixtures/a1/review-draft-v2.json)
+rule names to this protocol. The [active visible review draft](a1-fixtures/review-draft-v2.json)
 contains original, unfrozen inputs whose reviews are complete; the
-[original draft](../../../tests/fixtures/a1/review-draft.json) is retained for exposure
+[original draft](a1-fixtures/review-draft.json) is retained for exposure
 history. For new cases, send exact inputs with the common sheet and review prompt
 in small batches. Keep part A, C, D, and detailed part E records private.
 The [implementation status](A1_IMPLEMENTATION.md) distinguishes contract tests,

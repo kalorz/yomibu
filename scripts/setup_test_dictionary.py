@@ -16,7 +16,7 @@ ARCHIVE_SHA256 = "b6e835f63440f97474c2da45d80950f73746e632e40bbfc168b4041729135e
 DICTIONARY_SHA256 = "53fa281d11eef3769712fe1c3c892117338f9892bee6daf4dad51daa5281bb6f"
 ARCHIVE_BYTES = 72_276_502
 DICTIONARY_BYTES = 217_466_039
-DESTINATION = Path(__file__).resolve().parent.parent / "target" / "a1"
+DESTINATION = Path(__file__).resolve().parent.parent / "target" / "test-resources" / "sudachi-core"
 PREFIX = "sudachi-dictionary-20260723/"
 FILES = {
     "LEGAL": (6037, "725a8776b38e058b185e905594bc9a2437dbf3787df022fffeefedb9a84e4665"),
@@ -69,7 +69,7 @@ def prepare(archive):
     if archive is None and verified_bundle(current.resolve()):
         print(f"Pinned dictionary already ready: {dictionary}")
         return
-    with tempfile.TemporaryDirectory(prefix=".a1-setup-", dir=DESTINATION) as staging:
+    with tempfile.TemporaryDirectory(prefix=".sudachi-setup-", dir=DESTINATION) as staging:
         staging = Path(staging)
         contents = staging / "bundle"
         contents.mkdir()
@@ -100,7 +100,7 @@ def prepare(archive):
             raise ValueError("Extracted bundle failed verification")
         # Setup never edits or removes completed bundles; readers may still use them.
         sync_directory(contents)
-        bundle_path = DESTINATION / (".bundle-" + staging.name[len(".a1-setup-"):])
+        bundle_path = DESTINATION / (".bundle-" + staging.name[len(".sudachi-setup-"):])
         contents.rename(bundle_path)
         sync_directory(DESTINATION)
         pointer = staging / "current"
@@ -122,7 +122,7 @@ def main():
     try:
         prepare(arguments.archive)
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
-        parser.exit(1, f"A1 dictionary setup failed: {error}\n")
+        parser.exit(1, f"Sudachi dictionary setup failed: {error}\n")
 
 
 if __name__ == "__main__":

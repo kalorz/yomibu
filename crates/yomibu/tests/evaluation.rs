@@ -1,4 +1,7 @@
-use std::{path::Path, sync::OnceLock};
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
+
+use std::sync::OnceLock;
 
 use yomibu::{
     adapters::sudachi::SudachiAnalyzer,
@@ -13,10 +16,8 @@ use yomibu::{
 fn analyzer() -> &'static SudachiAnalyzer {
     static ANALYZER: OnceLock<SudachiAnalyzer> = OnceLock::new();
     ANALYZER.get_or_init(|| {
-        SudachiAnalyzer::load(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current/system_core.dic"),
-        )
-        .expect("install the pinned Core dictionary using the documented A1 setup")
+        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic"))
+            .expect("install the pinned Core dictionary using scripts/setup_test_dictionary.py")
     })
 }
 
@@ -30,7 +31,7 @@ fn word(written_form: &str, reading: &str, sense: &str) -> VocabularyEntry {
 }
 
 #[test]
-fn bindings_can_be_validated_before_analysis_without_changing_error_precedence() {
+fn bindings_can_be_validated_without_analysis_and_reject_invalid_permissions() {
     use yomibu::evaluation::EvaluationError;
     let grammar = GrammarDeclarations::from_descriptions(["description"]).unwrap();
     let mut bindings = EvaluationBindings::default();
@@ -48,37 +49,6 @@ fn bindings_can_be_validated_before_analysis_without_changing_error_precedence()
         bindings.validate(&grammar),
         Err(EvaluationError::BlankVocabulary)
     ));
-    let mut analysis = analyzer()
-        .analyze(Sentence::new("猫です。").unwrap())
-        .unwrap();
-    analysis.units.clear();
-    assert!(matches!(
-        evaluate(&analysis, &grammar, &bindings),
-        Err(EvaluationError::InvalidAnalysis)
-    ));
-}
-
-#[derive(serde::Deserialize)]
-struct VisibleCase {
-    id: String,
-    sentence: String,
-    grammar: Vec<String>,
-    bindings: EvaluationBindings,
-}
-
-fn visible_case(id: &str) -> VisibleCase {
-    #[derive(serde::Deserialize)]
-    struct Packet {
-        cases: Vec<VisibleCase>,
-    }
-    serde_json::from_str::<Packet>(include_str!(
-        "../../../tests/fixtures/a1/review-draft-v2.json"
-    ))
-    .unwrap()
-    .cases
-    .into_iter()
-    .find(|case| case.id == id)
-    .expect("case must exist in the frozen visible packet")
 }
 
 #[test]
@@ -175,6 +145,7 @@ fn vocabulary_keeps_unknown_tokens_and_competing_uses_inconclusive() {
 
 #[test]
 fn malformed_analysis_and_blank_permissions_are_execution_errors() {
+    use yomibu::evaluation::EvaluationError;
     let grammar = GrammarDeclarations::from_descriptions(Vec::<String>::new()).unwrap();
     let mut analysis = analyzer()
         .analyze(Sentence::new("東京都").unwrap())
@@ -193,7 +164,17 @@ fn malformed_analysis_and_blank_permissions_are_execution_errors() {
     analysis.units[0].components[0].span = 1..3;
     assert!(evaluate(&analysis, &grammar, &EvaluationBindings::default()).is_err());
     analysis.units.clear();
-    assert!(evaluate(&analysis, &grammar, &EvaluationBindings::default()).is_err());
+    assert!(matches!(
+        evaluate(
+            &analysis,
+            &grammar,
+            &EvaluationBindings {
+                vocabulary: vec![word("猫", " ", "cat")],
+                ..Default::default()
+            }
+        ),
+        Err(EvaluationError::InvalidAnalysis)
+    ));
 }
 
 #[test]
@@ -365,12 +346,13 @@ fn a_single_nominal_topic_is_checked_separately_from_its_predicate() {
 }
 
 #[test]
-fn object_wo_checks_permissions_without_claiming_compositional_support() {
+fn object_sentence_remains_inconclusive_when_word_and_grammar_permissions_pass() {
     let grammar =
         GrammarDeclarations::from_descriptions(["topic", "object", "polite verb"]).unwrap();
     let mut read = word("読む", "ヨム", "read written material");
     read.direct_object = true;
-    for text in ["本を読みます。", "猫は本を読みます。"] {
+    for (text, combination_span) in [("本を読みます。", 0..18), ("猫は本を読みます。", 6..24)]
+    {
         let analysis = analyzer().analyze(Sentence::new(text).unwrap()).unwrap();
         let mut bindings = EvaluationBindings {
             vocabulary: vec![
@@ -410,9 +392,26 @@ fn object_wo_checks_permissions_without_claiming_compositional_support() {
             "{report:?} {analysis:?}"
         );
         for kind in [CheckKind::Particles, CheckKind::Scope] {
+            let check = report.check(kind);
+            assert_eq!(
+                check.state,
+                CheckState::Completed(CheckOutcome::Inconclusive)
+            );
+            assert_eq!(check.findings.len(), 1);
+            assert_eq!(check.findings[0].span, combination_span);
+            assert_eq!(
+                check.findings[0].reason,
+                "object/predicate combination has no multiword-expression assessment"
+            );
+        }
+        for kind in [
+            CheckKind::Vocabulary,
+            CheckKind::Inflection,
+            CheckKind::Nominal,
+        ] {
             assert_eq!(
                 report.check(kind).state,
-                CheckState::Completed(CheckOutcome::Inconclusive)
+                CheckState::Completed(CheckOutcome::Pass)
             );
         }
         bindings.vocabulary[2].direct_object = false;
@@ -446,23 +445,45 @@ fn object_wo_checks_permissions_without_claiming_compositional_support() {
 }
 
 #[test]
-fn object_transitivity_does_not_resolve_visible_multiword_uses() {
-    for (id, text) in [
-        ("9a9f3acbee", "手を貸します。"),
-        ("4edc1c61c7", "油を売ります。"),
-        ("0d61be162d", "目を通します。"),
+fn object_transitivity_does_not_resolve_multiword_uses() {
+    let grammar = GrammarDeclarations::from_descriptions(["object", "polite verb"]).unwrap();
+    for (text, noun, mut verb) in [
+        (
+            "手を貸します。",
+            word("手", "テ", "hand"),
+            word("貸す", "カス", "lend"),
+        ),
+        (
+            "油を売ります。",
+            word("油", "アブラ", "oil"),
+            word("売る", "ウル", "sell"),
+        ),
+        (
+            "目を通します。",
+            word("目", "メ", "eye"),
+            word("通す", "トオス", "pass something through"),
+        ),
     ] {
-        let case = visible_case(id);
-        assert_eq!(case.sentence, text);
-        let grammar = GrammarDeclarations::from_descriptions(case.grammar).unwrap();
-        let analysis = analyzer()
-            .analyze(Sentence::new(&case.sentence).unwrap())
-            .unwrap();
-        let report = evaluate(&analysis, &grammar, &case.bindings).unwrap();
+        verb.direct_object = true;
+        let bindings = EvaluationBindings {
+            vocabulary: vec![noun, verb],
+            grammar: vec![
+                GrammarBinding {
+                    declaration_id: 1,
+                    rule: GrammarRule::ObjectWo,
+                },
+                GrammarBinding {
+                    declaration_id: 2,
+                    rule: GrammarRule::PoliteNonPast,
+                },
+            ],
+        };
+        let analysis = analyzer().analyze(Sentence::new(text).unwrap()).unwrap();
+        let report = evaluate(&analysis, &grammar, &bindings).unwrap();
         assert_eq!(
             report.outcome(),
             CheckState::Completed(CheckOutcome::Inconclusive),
-            "{id}: {report:?}"
+            "{text}: {report:?}"
         );
         for kind in [CheckKind::Particles, CheckKind::Scope] {
             let check = report.check(kind);
@@ -492,16 +513,53 @@ fn object_transitivity_does_not_resolve_visible_multiword_uses() {
 
 #[test]
 fn object_uncertainty_preserves_permission_failures_and_original_spans() {
-    for (id, kind, failure_span, combination_span) in [
-        ("81d78d6bc2", CheckKind::Particles, 6..9, 0..21),
-        ("c81dc42489", CheckKind::Particles, 3..6, 6..27),
+    let grammar = GrammarDeclarations::from_descriptions(["supplied permissions"]).unwrap();
+    for (text, vocabulary, rules, kind, failure_span, combination_span) in [
+        (
+            "新聞を読みます。",
+            vec![
+                word("新聞", "シンブン", "newspaper"),
+                word("読む", "ヨム", "read written material"),
+            ],
+            vec![GrammarRule::PoliteNonPast],
+            CheckKind::Particles,
+            6..9,
+            0..21,
+        ),
+        (
+            "犬は牛乳を飲みます。",
+            vec![
+                word("犬", "イヌ", "dog"),
+                word("牛乳", "ギュウニュウ", "cow's milk"),
+                word("飲む", "ノム", "drink"),
+            ],
+            vec![GrammarRule::ObjectWo, GrammarRule::PoliteNonPast],
+            CheckKind::Particles,
+            3..6,
+            6..27,
+        ),
+        (
+            "手を貸します。",
+            vec![word("手", "テ", "hand"), word("貸す", "カス", "lend")],
+            vec![GrammarRule::ObjectWo],
+            CheckKind::Inflection,
+            12..18,
+            0..18,
+        ),
     ] {
-        let case = visible_case(id);
-        let grammar = GrammarDeclarations::from_descriptions(case.grammar).unwrap();
-        let analysis = analyzer()
-            .analyze(Sentence::new(&case.sentence).unwrap())
-            .unwrap();
-        let report = evaluate(&analysis, &grammar, &case.bindings).unwrap();
+        let mut bindings = EvaluationBindings {
+            vocabulary,
+            grammar: rules
+                .into_iter()
+                .map(|rule| GrammarBinding {
+                    declaration_id: 1,
+                    rule,
+                })
+                .collect(),
+        };
+        bindings.vocabulary.last_mut().unwrap().direct_object = true;
+        let analysis = analyzer().analyze(Sentence::new(text).unwrap()).unwrap();
+        let report = evaluate(&analysis, &grammar, &bindings).unwrap();
         assert_eq!(report.outcome(), CheckState::Completed(CheckOutcome::Fail));
         let check = report.check(kind);
         assert_eq!(check.state, CheckState::Completed(CheckOutcome::Fail));
@@ -516,33 +574,16 @@ fn object_uncertainty_preserves_permission_failures_and_original_spans() {
             CheckState::Completed(CheckOutcome::Inconclusive)
         );
         assert_eq!(scope.findings[0].span, combination_span);
-        assert_eq!(check.findings[1], scope.findings[0]);
+        assert_eq!(
+            report.check(CheckKind::Particles).findings.last().unwrap(),
+            &scope.findings[0]
+        );
     }
-
-    let mut case = visible_case("9a9f3acbee");
-    let grammar = GrammarDeclarations::from_descriptions(case.grammar).unwrap();
-    let analysis = analyzer()
-        .analyze(Sentence::new(&case.sentence).unwrap())
-        .unwrap();
-    case.bindings
-        .grammar
-        .retain(|binding| binding.rule != GrammarRule::PoliteNonPast);
-    let report = evaluate(&analysis, &grammar, &case.bindings).unwrap();
-    assert_eq!(report.outcome(), CheckState::Completed(CheckOutcome::Fail));
-    assert_eq!(
-        report.check(CheckKind::Inflection).state,
-        CheckState::Completed(CheckOutcome::Fail)
-    );
-    assert_eq!(report.check(CheckKind::Inflection).findings[0].span, 12..18);
-    assert_eq!(
-        report.check(CheckKind::Scope).state,
-        CheckState::Completed(CheckOutcome::Inconclusive)
-    );
 }
 
 #[test]
 fn unsupported_text_leaves_grammar_applicability_unresolved_instead_of_unchecked_passes() {
-    let grammar = GrammarDeclarations::from_descriptions(["all A1 forms"]).unwrap();
+    let grammar = GrammarDeclarations::from_descriptions(["all supported forms"]).unwrap();
     let bindings = EvaluationBindings {
         vocabulary: vec![
             word("猫", "ネコ", "cat"),

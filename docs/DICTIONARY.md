@@ -12,12 +12,12 @@ From a repository checkout, explicitly obtain the pinned publisher bundle with
 the existing developer/CI installer. It verifies the downloaded archive, dictionary
 and both notices. An existing pinned ZIP can be supplied with `--archive PATH`.
 The installer verifies complete bundles before reuse or atomic publication through
-`target/a1/current`. Earlier bundles survive; failure after publication can report
-uncertain directory durability.
+`target/test-resources/sudachi-core/current`. Earlier bundles survive; failure
+after publication can report uncertain directory durability.
 
 ```sh
-python3 scripts/setup_a1_dictionary.py
-cargo run --release --locked -- dictionary import --bundle target/a1/current
+python3 scripts/setup_test_dictionary.py
+cargo run --release --locked -- dictionary import --bundle target/test-resources/sudachi-core/current
 cargo run --release --locked --offline -- analyze --input tests/fixtures/analyze/nominal.json
 cargo run --release --locked --offline -- dictionary verify
 ```
@@ -104,7 +104,7 @@ analyzer upgrade, dictionary pruning or hash bypass is introduced.
 ## Pinned artifacts
 
 The compiled verifier in [the Sudachi adapter](../crates/yomibu/src/adapters/sudachi.rs)
-and the [developer installer](../scripts/setup_a1_dictionary.py) enforce these pins:
+and the [developer installer](../scripts/setup_test_dictionary.py) enforce these pins:
 
 | Item | Pin |
 | --- | --- |

@@ -1,9 +1,69 @@
-use serde_json::json;
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use yomibu::{
+    adapters::embeddings::LexicalEmbedder,
     inventory::{LearnerInventory, ManualInventory},
+    ports::Embedder,
     retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
-    story::{StoryError, StoryRequest, fit_selection_and_build_request, select_vocabulary},
+    story::{
+        StoryError, StoryRequest, fit_selection_and_build_request, plan_generation,
+        select_vocabulary,
+    },
 };
+
+#[tokio::test]
+async fn current_story_request_matches_the_reviewed_prompt_and_payload_snapshot() {
+    let inventory = LearnerInventory::from_manual(
+        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
+    )
+    .unwrap();
+    let request =
+        serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
+    let encoder = LexicalEmbedder::new();
+    let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
+    let cache = EmbeddingCache::from_vectors(
+        encoder.model_identity().clone(),
+        &inputs,
+        encoder.embed(&inputs).await.unwrap(),
+    )
+    .unwrap();
+    let plan = plan_generation(
+        &inventory,
+        &request,
+        &cache,
+        &cache.model,
+        2,
+        Default::default(),
+    )
+    .unwrap();
+    let prepared = plan.prepared_request();
+    let body = prepared.body_utf8();
+    let snapshot = include_str!("../../../tests/fixtures/story/provider-request.json");
+    assert!(
+        body == snapshot,
+        "Current request differs from tests/fixtures/story/provider-request.json at byte {}.\nExpected:\n{}\nActual:\n{}",
+        body.bytes()
+            .zip(snapshot.bytes())
+            .position(|(actual, expected)| actual != expected)
+            .unwrap_or(body.len().min(snapshot.len())),
+        request_for_review(snapshot),
+        request_for_review(body),
+    );
+    assert_eq!(
+        prepared.sha256(),
+        format!("{:x}", Sha256::digest(body.as_bytes()))
+    );
+}
+
+fn request_for_review(body: &str) -> String {
+    let mut payload: Value = serde_json::from_str(body).unwrap();
+    for input in payload["input"].as_array_mut().unwrap() {
+        if input["role"] == "user" {
+            input["content"] = serde_json::from_str(input["content"].as_str().unwrap()).unwrap();
+        }
+    }
+    serde_json::to_string_pretty(&payload).unwrap()
+}
 fn inventory() -> LearnerInventory {
     LearnerInventory::from_manual(serde_json::from_value::<ManualInventory>(json!({"version":1,
         "vocabulary":[

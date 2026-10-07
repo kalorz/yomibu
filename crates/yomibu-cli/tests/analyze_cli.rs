@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -18,14 +21,14 @@ const UNTRUSTED: &str =
     "犬\u{1b}[31m\r\n\t\u{007f}\u{009b}31m\u{2028}\u{2029}\u{202e}\u{e0001}\\\"";
 
 fn dictionary() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current/system_core.dic")
+    test_dictionary::bundle().join("system_core.dic")
 }
 
 fn analyzer() -> &'static SudachiAnalyzer {
     static ANALYZER: OnceLock<SudachiAnalyzer> = OnceLock::new();
     ANALYZER.get_or_init(|| {
         SudachiAnalyzer::load(dictionary())
-            .expect("install the pinned dictionary using scripts/setup_a1_dictionary.py")
+            .expect("install the pinned dictionary using scripts/setup_test_dictionary.py")
     })
 }
 

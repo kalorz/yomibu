@@ -101,7 +101,7 @@ pub struct Check {
     pub coverage: &'static str,
 }
 
-/// These require evidence outside A1's morphological and bounded structural checks.
+/// These require evidence outside the morphological and bounded structural checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum UnassessedAspect {
     Naturalness,

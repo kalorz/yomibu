@@ -23,3 +23,7 @@ pub mod reports;
 pub mod retrieval;
 pub mod story;
 pub mod summary;
+
+#[cfg(test)]
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;

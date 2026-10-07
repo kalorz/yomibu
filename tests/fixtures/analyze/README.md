@@ -11,4 +11,5 @@ linguistic ground truth or additions to the frozen A1 benchmark.
   transitive-use binding because the object/predicate combination is unassessed.
 
 The JSON uses the ordinary command contract; reuse metadata belongs here and is
-not required in a user's input. The separate `a1/` research packets are unchanged.
+not required in a user's input. The separate
+[research packets](../../../docs/history/analysis/a1-fixtures/README.md) are archived.

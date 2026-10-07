@@ -1,4 +1,5 @@
-use std::path::Path;
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
 
 use yomibu::{
     adapters::sudachi::{DictionaryError, SudachiAnalyzer},
@@ -33,10 +34,8 @@ fn missing_and_unpinned_dictionaries_are_execution_errors() {
 
 #[test]
 fn real_core_dictionary_preserves_whole_compounds_components_and_original_byte_spans() {
-    let analyzer = SudachiAnalyzer::load(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current/system_core.dic"),
-    )
-    .expect("install the pinned Core dictionary using the documented A1 setup");
+    let analyzer = SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic"))
+        .expect("install the pinned Core dictionary using scripts/setup_test_dictionary.py");
     let sentence = Sentence::new("東京都。猫").unwrap();
     let analysis = analyzer.analyze(sentence).unwrap();
     assert_eq!(analysis.sentence.text(), "東京都。猫");
@@ -63,11 +62,9 @@ fn real_core_dictionary_preserves_whole_compounds_components_and_original_byte_s
 
 #[test]
 fn configuration_ignores_ambient_files() {
-    if std::env::var_os("YOMIBU_A1_AMBIENT_PROBE").is_some() {
-        let analyzer = SudachiAnalyzer::load(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current/system_core.dic"),
-        )
-        .unwrap();
+    if std::env::var_os("YOMIBU_SUDACHI_AMBIENT_PROBE").is_some() {
+        let analyzer =
+            SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
         let analysis = analyzer
             .analyze(Sentence::new("猫です。").unwrap())
             .unwrap();
@@ -95,7 +92,7 @@ fn configuration_ignores_ambient_files() {
             "--nocapture",
         ])
         .current_dir(directory.path())
-        .env("YOMIBU_A1_AMBIENT_PROBE", "1")
+        .env("YOMIBU_SUDACHI_AMBIENT_PROBE", "1")
         .output()
         .unwrap();
     assert!(
