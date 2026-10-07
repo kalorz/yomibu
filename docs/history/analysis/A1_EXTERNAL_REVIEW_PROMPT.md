@@ -43,9 +43,9 @@ snapshot; the [second packet](A1_SECOND_REVIEW_PACKET.md),
 
 For future newly authored cases, use the block below and the
 [common binding sheet](A1_BLIND_PACKET_HEADER.md) with their exact case JSON.
-The [active draft](../tests/fixtures/a1/review-draft-v2.json) contains 32 unchanged
+The [active draft](../../../tests/fixtures/a1/review-draft-v2.json) contains 32 unchanged
 reviewed cases and four reviewed replacements. The
-[original draft](../tests/fixtures/a1/review-draft.json) is preserved. Record
+[original draft](../../../tests/fixtures/a1/review-draft.json) is preserved. Record
 completed IDs so no batch is repeated. Do not
 send the fixture README, implementation notes, private first-pass ledger, or
 analyzer output. The draft itself contains no answers or partition labels.

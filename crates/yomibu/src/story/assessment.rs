@@ -8,8 +8,8 @@ use super::{StoryError, StoryRequest, StoryVocabularySelection};
 use crate::{
     adapters::sudachi::SudachiAnalyzer,
     analysis::{Sentence, SentenceAnalysis},
+    candidate::{CandidateAssessment, CandidateError, GenerationProvenance},
     evaluation::{self, EvaluationBindings, GrammarBinding, GrammarRule},
-    generation::{CandidateAssessment, CandidateError, GenerationProvenance},
     grammar::GrammarDeclarations,
     inventory::LearnerInventory,
 };
@@ -141,7 +141,7 @@ impl StoryCandidates {
     pub fn texts(&self) -> &[String] {
         &self.texts
     }
-    pub fn provenance(&self) -> &crate::generation::GenerationProvenance {
+    pub fn provenance(&self) -> &crate::candidate::GenerationProvenance {
         &self.provenance
     }
 }

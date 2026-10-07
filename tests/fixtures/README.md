@@ -25,7 +25,7 @@ inside individual tests.
 
 The retired preparation grammar sample is archived under
 [`docs/history/commands/grammar.json`](../../docs/history/commands/grammar.json);
-see [COMMAND HISTORY](../../docs/COMMAND_HISTORY.md). It is not a current test input.
+see [COMMAND HISTORY](../../docs/history/commands/COMMAND_HISTORY.md). It is not a current test input.
 
 ## API fixtures (1b)
 

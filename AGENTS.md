@@ -1,15 +1,19 @@
 # Repository engineering rules
 
-- Read `SPEC.md` for authoritative decisions, `ARCHITECTURE.md` for composition
-  and code/repository boundaries, and `PLAN.md` for milestones. Keep them aligned
-  with accepted changes; future milestones are not implicit scope.
+- Use the [task map](ARCHITECTURE.md#current-module-map) to find code and tests.
+  Read those before changing behavior, then the relevant [SPEC](SPEC.md) section.
+  Use [README](README.md) for setup, [PLAN](PLAN.md) for open work, and history only
+  when a task needs earlier evidence. Do not load every document by default.
+  Future designs are not implementation scope.
 - Make routine reversible implementation decisions autonomously. Ask about
   consequential product choices or difficult-to-reverse changes.
 - Preserve the CLI/library separation and explicit data flow. Prefer concrete
-  types, small public APIs, and Rust idioms over Ruby service-object patterns.
+  types, small public APIs, and idiomatic Rust.
 - Follow the design vocabulary in `SPEC.md`; use `InMemory...` for memory-backed
   adapters and keep source progress distinct from derived learner knowledge.
   Future vocabulary is not a requirement to create placeholder types or traits.
+- Preserve frozen research packets, fixture bytes, code pins and scoring conclusions.
+  Repair links when moving documentation.
 - Use stable Rust, the repository toolchain pin once initialized, and cargo fmt.
   Add dependencies, traits, or other abstractions only for demonstrated needs.
 - Use enums, newtypes, `Option`, and typed `Result` boundaries where they improve
@@ -51,9 +55,45 @@
   before project initialization.
 - Do not add placeholders or infrastructure for deferred features. Preserve source
   learner state rather than freezing a pedagogical definition of "known".
-- Comments explain intent, invariants, and non-obvious choices. After meaningful
-  work, provide concise "Rust notes for a Ruby developer" about choices that
-  materially influenced the implementation; keep lessons out of source comments.
+
+## Code before prose
+
+- Before explaining code, improve its name, control flow or data model. Use domain
+  names and visible inputs, outputs and side effects. Avoid generic context objects.
+- Keep the main use case readable as explicit steps. Extract a helper when it
+  names a real operation; do not fragment the flow into one-line wrappers.
+- Describe observable behavior in test names and assertions, including failures.
+  Add a focused example for unclear behavior; reuse existing coverage where sufficient.
+- Comments explain reasons or obligations code/tests cannot express. Delete comments
+  that paraphrase code. Keep public API contracts and unsafe safety requirements.
+- Do not add language lessons, Ruby comparisons or implementation recaps.
+
+## Documentation: short, simple English
+
+- Default to no documentation change. Update only affected text when usage, a
+  contract, setup, or a key design decision changes. Do not restate the whole guide.
+- Use common words, active verbs and short sentences. Prefer one idea per sentence.
+  Explain necessary technical terms. Avoid jargon, repeated caveats and long tables.
+- Default budget: at most 200 new prose words across Markdown, comments and Rustdoc
+  combined for a routine change. Routine refactors should add no explanatory prose.
+  New guides should stay under 400 words. Exceed this only for user-requested detail
+  or essential contract information that cannot fit after removing repetition.
+  Keep required limits, errors and safety conditions. Do not pack text onto long lines.
+- Give each fact one home. Link to it instead of copying it into README, SPEC,
+  ARCHITECTURE and PLAN. Do not touch every document after every change.
+- Keep docs as working reference: intent, hard constraints, reasons for decisions,
+  and open questions. Code, tests and manifests supply implementation facts; verify
+  them there instead of maintaining prose copies. Do not catalog speculative APIs.
+- Group reference by task. Prefer short constraint bullets and links to code/tests.
+  For a decision worth retaining, write the choice and its reason in one or two
+  sentences beside the relevant constraint. No new document is needed by default.
+- README is a quick start. SPEC holds contracts. ARCHITECTURE maps code and key
+  boundaries. PLAN lists current status and next work; it is not a work log.
+- Put routine test results and delivery notes in the PR or chat, usually within
+  five bullets. Do not add milestone essays, per-step TDD logs, benchmark narratives,
+  or dated history files unless requested. Preserve real research evidence separately.
+- Before finishing, remove repetition and temporary status notes. Check whether
+  the doc change can be smaller. Do not add documentation to prove work happened.
 
 ## Strict TDD for behavioral changes
 
@@ -65,9 +105,8 @@
 - REFACTOR: explicitly review production and test code for simplification,
   duplication, naming, modelling, ownership/borrowing, and idiomatic Rust.
   Refactor where worthwhile, then rerun tests.
-- The refactor phase must not be skipped. If no code change is warranted,
-  explicitly record that the refactor review was performed and no change was
-  justified.
+- The refactor phase must not be skipped. Report its result briefly in the PR
+  or chat; do not add a repository work log.
 - Bug fixes start with a regression test that reproduces the bug.
 - Do not write production behavior ahead of its failing test.
 - Non-behavioral scaffolding such as Cargo/toolchain configuration, CI,

@@ -52,7 +52,7 @@ pub struct StoryReport<'a> {
     pub kind: &'static str,
     pub notice: &'static str,
     pub plan: StoryPreviewReport<'a>,
-    pub generation: &'a crate::generation::GenerationProvenance,
+    pub generation: &'a crate::candidate::GenerationProvenance,
     pub candidates: Vec<StoryCandidateReport<'a>>,
 }
 impl<'a> StoryReport<'a> {

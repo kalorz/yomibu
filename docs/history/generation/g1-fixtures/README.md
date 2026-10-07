@@ -1,7 +1,7 @@
 # G1 synthetic fixtures
 
 Archived engineering evidence for the retired implementation; see
-[generation history](../../../GENERATION_HISTORY.md).
+[generation history](../GENERATION_HISTORY.md).
 
 The `dog-cat.json` and `topic-verbs.json` permissions were written for G1 on
 2026-10-04 and are dedicated to the public domain under CC0-1.0. They contain no

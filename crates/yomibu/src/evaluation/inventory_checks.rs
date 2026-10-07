@@ -1,6 +1,6 @@
 //! Full-inventory lexical checks and conservative single-use projection.
 
-use super::structure::{evaluate, reading_matches};
+use super::structural_checks::{evaluate, reading_matches};
 use super::{
     CheckOutcome, Evaluation, EvaluationBindings, EvaluationError, VocabularyEntry, combine,
     passed, problem,

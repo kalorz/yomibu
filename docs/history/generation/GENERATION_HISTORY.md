@@ -3,8 +3,8 @@
 G1 and G2 were engineering steps toward the current story path. Their production
 entry points, CLI composition, authored situation selector and focused observations
 are retired as of 2026-10-06. Start at
-[`story::plan_generation` and `story::generate_story`](../crates/yomibu/src/story/mod.rs) for current execution;
-[story usage](STORY_GENERATION.md) describes its library stages and contracts.
+[`story::plan_generation` and `story::generate_story`](../../../crates/yomibu/src/story/mod.rs) for current execution;
+[story usage](../../STORY_GENERATION.md) describes its library stages and contracts.
 
 ## What the experiments established
 
@@ -45,16 +45,16 @@ judgments and 11/12 exact negative-span matches did not outweigh three unsupport
 challenge Pass results. Its later object-combination safeguard deliberately keeps
 those constructions unresolved, including ordinary object sentences. Retirement
 does not revise the frozen evidence or rerun private holdouts. See
-[A1 evidence](A1_IMPLEMENTATION.md) and [the safeguard](A1_FOLLOWUP.md).
+[A1 evidence](../analysis/A1_IMPLEMENTATION.md) and [the safeguard](../analysis/A1_FOLLOWUP.md).
 
 ## Reproducibility without compiled legacy code
 
 Original public synthetic inputs, exact outbound requests, SHA-256 fixtures and
 comparison manifests are archived byte-for-byte outside the active test tree:
 
-- [G1 fixtures](history/generation/g1-fixtures/README.md)
-- [G2 fixtures](history/generation/g2-fixtures/README.md)
-- [G2 comparison inputs and requests](history/generation/g2-fixtures/comparison/README.md)
+- [G1 fixtures](g1-fixtures/README.md)
+- [G2 fixtures](g2-fixtures/README.md)
+- [G2 comparison inputs and requests](g2-fixtures/comparison/README.md)
 
 Code remains reproducible through Git history, rather than an unused Rust module:
 

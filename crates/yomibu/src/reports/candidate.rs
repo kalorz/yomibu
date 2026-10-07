@@ -2,8 +2,8 @@
 use crate::{
     adapters::sudachi::AnalysisError,
     analysis::{SentenceAnalysis, SentenceError},
+    candidate::{CandidateAssessment, CandidateError},
     evaluation::{CheckKind, CheckState, Evaluation, EvaluationError},
-    generation::{CandidateAssessment, CandidateError},
 };
 use serde::Serialize;
 

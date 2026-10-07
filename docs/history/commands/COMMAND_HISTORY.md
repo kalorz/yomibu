@@ -19,7 +19,7 @@ source-inspection slices, independent of current story generation.
 The last complete implementation is pinned at
 [`4df4e0c2bf76cd88938488a7ea8f12a48eec89b8`](https://github.com/kalorz/yomibu/tree/4df4e0c2bf76cd88938488a7ea8f12a48eec89b8).
 The synthetic grammar input is archived byte-for-byte at
-[`history/commands/grammar.json`](history/commands/grammar.json).
+[`history/commands/grammar.json`](grammar.json).
 Use the pinned checkout for historical commands/examples. No historical accuracy or
 exercise-acceptance claim is added. The original contract below is historical.
 

@@ -73,7 +73,7 @@ the frozen evaluation or supply unseen evidence.
 On native macOS/arm64, formatting, strict locked all-targets/all-features Clippy,
 and locked full tests passed using offline dependencies: 124 test entries and one
 rustdoc, zero failures or ignored tests. Tests used the real local dictionary and
-local HTTP mocks. [PLAN.md](../PLAN.md) records the exact commands and limits.
+local HTTP mocks. [PLAN.md](../IMPLEMENTATION.md) records the exact commands and limits.
 Final diff/refactor review and whitespace checks passed; no further code change
 was justified. Historical evaluation, frozen public inputs/review packets and
 dependency/analyzer pins match the checkpoint bytes. No hosted or Linux run is

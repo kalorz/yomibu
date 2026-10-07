@@ -10,7 +10,7 @@ Passing request snapshots and mocked responses establish engineering contracts o
 The user's task explicitly requires approval before these paid OpenAI calls.
 Credentials and usable network access are also prerequisites; never print a key.
 
-The [manifest](history/generation/g2-fixtures/comparison/manifest.json) fixes the code,
+The [manifest](g2-fixtures/comparison/manifest.json) fixes the code,
 inputs, exact request files, byte lengths, SHA-256 hashes and execution order:
 
 - Baseline: `818dda5e6897e4d8ab729ed9198e5070d16af50b`, merged PR #9 with

@@ -172,13 +172,13 @@ establish an accepted exercise or justify a new go decision.
 
 ## Reference history and current evaluation
 
-The [active review draft, revision 2](../tests/fixtures/a1/review-draft-v2.json) contains 24 development
+The [active review draft, revision 2](../../../tests/fixtures/a1/review-draft-v2.json) contains 24 development
 and 12 challenge cases, original and explicitly reusable. It has now been frozen
 and evaluated after the full reported reference gate was met. The implementer's provisional
 initial judgments/alternatives are stored separately outside Git and preserved
 unchanged alongside later per-claim adjudications. The author has seen contract
 tests and overlapping text: the draft is exposed development material.
-The [original draft](../tests/fixtures/a1/review-draft.json) remains byte-identical;
+The [original draft](../../../tests/fixtures/a1/review-draft.json) remains byte-identical;
 revision 2 replaces two entire development families after source clarification.
 
 No held-out set was authored here, and its private case/review files have not

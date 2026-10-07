@@ -13,4 +13,4 @@ versions; selected tuples, complete grammar, response schema and provider settin
 are identical. Full local inputs include permitted but unselected words.
 
 Status: **not run**. Snapshots record what the binaries send, not model obedience.
-See [the recipe and report dimensions](../../../../G2_COMPARISON.md).
+See [the recipe and report dimensions](../../G2_COMPARISON.md).

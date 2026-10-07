@@ -299,6 +299,27 @@ fn invalid_input_errors_include_the_cause_without_evaluation() {
 }
 
 #[test]
+fn sentence_length_error_states_the_limit_without_a_milestone_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut input: Value = serde_json::from_str(NOMINAL).unwrap();
+    input["sentence"] = json!("犬".repeat(101));
+    fs::write(dir.path().join("input.json"), input.to_string()).unwrap();
+    for json in [false, true] {
+        let mut command = cli(dir.path());
+        if json {
+            command.arg("--json");
+        }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let error = assert_error(output, "101 Unicode characters");
+        assert_eq!(
+            error,
+            "error: Sentence input: Sentence has 101 Unicode characters; limit is 100.\n"
+        );
+    }
+}
+
+#[test]
 fn input_reads_are_bounded_at_64_kib() {
     rejects_input(vec![b' '; 65_537], "exceeds 64 KiB");
     let mut input: Value = serde_json::from_str(NOMINAL).unwrap();
