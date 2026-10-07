@@ -61,7 +61,8 @@ makes the overall result Fail.
 
 Text lists checks, reasons, and UTF-8 byte ranges in the original sentence.
 The start of a range is included; the end is excluded.
-`--json` includes exact input, analysis/provenance, outcome, and evaluation.
+`--json` includes exact input, analysis/provenance, outcome, and evaluation with
+`basis: explicit_word_uses`.
 Pass, Fail, and Inconclusive all exit zero. Input/execution errors exit nonzero,
 write stderr, and publish no evaluation. Untrusted terminal text is escaped.
 JSON version 1 retains decoded strings and original spans; presentation escaping

@@ -119,6 +119,7 @@ fn json_matches_direct_library_evaluation_without_credentials_or_writes() {
     let report: Value =
         serde_json::from_str(&stdout(cli(dir.path()).arg("--json").output().unwrap())).unwrap();
     assert_library_agreement(&input, &report);
+    assert_eq!(report["evaluation"]["basis"], "explicit_word_uses");
     assert_eq!(report["outcome"], json!({"Completed": "Pass"}));
     assert_eq!(report["analysis"]["sentence"], "犬です。");
     assert_eq!(

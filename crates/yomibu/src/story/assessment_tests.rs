@@ -150,11 +150,9 @@ fn object_uncertainty_preserves_independent_grammar_targets() {
             panic!()
         };
         assert_eq!(evaluation.basis, EvaluationBasis::FullLearnerInventory);
-        assert!(
-            serde_json::to_value(&evaluation)
-                .unwrap()
-                .get("basis")
-                .is_none()
+        assert_eq!(
+            serde_json::to_value(&evaluation).unwrap()["basis"],
+            "full_learner_inventory"
         );
         if case == "missing_verb" {
             assert_eq!(

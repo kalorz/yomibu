@@ -7,6 +7,11 @@
   Future designs are not implementation scope.
 - Make routine reversible implementation decisions autonomously. Ask about
   consequential product choices or difficult-to-reverse changes.
+- Backward compatibility is not a requirement for this single-developer project
+  unless the user explicitly instructs otherwise. Change APIs, CLI, JSON and
+  storage formats as needed for a cleaner design. Do not add aliases, migrations,
+  version switches or fallback paths solely for compatibility, or ask for
+  permission solely because a change breaks compatibility.
 - Preserve the CLI/library separation and explicit data flow. Prefer concrete
   types, small public APIs, and idiomatic Rust.
 - Follow the design vocabulary in `SPEC.md`; use `InMemory...` for memory-backed
@@ -109,8 +114,8 @@
   Look for unnecessary types, layers, wrappers, duplicated or stored derived
   state, ownership machinery, and excessive test setup. Simplify worthwhile
   cases autonomously; do not wait for a user prompt. Prefer fewer concepts and
-  clear data flow over fewer lines. Preserve behavior, public contracts and
-  meaningful regression coverage, then rerun affected checks.
+  clear data flow over fewer lines. Preserve intended behavior and meaningful
+  regression coverage, then rerun affected checks.
 - The refactor phase must not be skipped. Report its result briefly in the PR
   or chat; do not add a repository work log.
 - Bug fixes start with a regression test that reproduces the bug.

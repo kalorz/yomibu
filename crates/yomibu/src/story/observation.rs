@@ -62,13 +62,15 @@ impl Serialize for TargetState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TargetUncertaintyScope {
     TargetOccurrence,
     SentenceCoverage,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "code", content = "detail", rename_all = "snake_case")]
 pub enum TargetUncertaintyReason {
     Lexical(LexicalUncertainty),
     UnsupportedMorphology,
@@ -78,7 +80,7 @@ pub enum TargetUncertaintyReason {
     DirectObject(DirectObjectEvidence),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct TargetUncertainty {
     pub span: Range<usize>,
     pub scope: TargetUncertaintyScope,
@@ -93,8 +95,6 @@ pub struct TargetObservation {
     #[serde(flatten)]
     pub state: TargetState,
     pub spans: Vec<Range<usize>>,
-    /// Library evidence; version-1 reports retain their existing fields.
-    #[serde(skip)]
     pub uncertainties: Vec<TargetUncertainty>,
 }
 
