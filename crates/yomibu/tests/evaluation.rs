@@ -5,9 +5,9 @@ use yomibu::{
     analysis::Sentence,
     evaluation::{
         CheckKind, CheckOutcome, CheckState, EvaluationBasis, EvaluationBindings, GrammarBinding,
-        GrammarRule, UnassessedAspect, VocabularyEntry, evaluate,
+        UnassessedAspect, VocabularyEntry, evaluate,
     },
-    grammar::GrammarDeclarations,
+    grammar::{GrammarDeclarations, GrammarRule},
 };
 
 fn analyzer() -> &'static SudachiAnalyzer {
@@ -96,11 +96,9 @@ fn vocabulary_checks_whole_identity_without_promoting_components_or_dictionary_g
         .unwrap();
     let report = evaluate(&analysis, &grammar, &bindings).unwrap();
     assert_eq!(report.basis, EvaluationBasis::ExplicitWordUses);
-    assert!(
-        serde_json::to_value(&report)
-            .unwrap()
-            .get("basis")
-            .is_none()
+    assert_eq!(
+        serde_json::to_value(&report).unwrap()["basis"],
+        "explicit_word_uses"
     );
     assert_eq!(
         report.check(CheckKind::Vocabulary).state,

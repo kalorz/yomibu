@@ -5,8 +5,6 @@ mod lexical;
 mod morphology;
 mod structural_checks;
 
-/// Compatibility import; `grammar` owns the rule definitions.
-pub use crate::grammar::GrammarRule;
 pub(crate) use lexical::LexicalStatus;
 pub use lexical::{DirectObjectEvidence, EvaluationBasis, LexicalUncertainty};
 pub(crate) use morphology::supports_target_morphology;
@@ -17,7 +15,7 @@ use std::ops::Range;
 
 use serde::{Deserialize, Serialize};
 
-use crate::grammar::GrammarDeclarations;
+use crate::grammar::{GrammarDeclarations, GrammarRule};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -117,8 +115,6 @@ pub const REPORT_NOTICE: &str = "Bounded analysis only; these sentences are not 
 pub struct Evaluation {
     pub notice: &'static str,
     pub unassessed: [UnassessedAspect; 3],
-    /// Library provenance; omitted to preserve the version-1 report schema.
-    #[serde(skip)]
     pub basis: EvaluationBasis,
     vocabulary: Check,
     inflection: Check,

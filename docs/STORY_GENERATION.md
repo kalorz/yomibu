@@ -142,9 +142,9 @@ A candidate execution error exits 1 **after** writing every result. Completed
 Fail/Inconclusive results exit 0; provider/preflight errors exit 1 without a
 candidate report. CLI parsing errors exit 2.
 
-Library evaluations identify their basis: explicit word uses or full inventory.
-Target observations expose typed states and uncertainty reasons with inventory IDs.
-Version-1 JSON retains its existing fields and spellings.
+Evaluation JSON includes `basis: full_learner_inventory`. Target `uncertainties`
+include `span`, `scope`, `reason` and `inventory_entries`. Reasons use snake-case
+`code` values and `detail` for nested evidence.
 
 ## Limits and provider contract
 

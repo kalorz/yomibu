@@ -63,10 +63,10 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
 }
 
 #[test]
-fn typed_target_states_preserve_version_one_report_fields_and_spellings() {
+fn target_reports_include_state_and_structured_uncertainty() {
     use serde_json::json;
     use yomibu::{
-        evaluation::DirectObjectEvidence,
+        evaluation::{DirectObjectEvidence, LexicalUncertainty},
         story::{
             TargetCoverage::{Complete, Partial},
             TargetKind, TargetObservation,
@@ -88,7 +88,7 @@ fn typed_target_states_preserve_version_one_report_fields_and_spellings() {
             })
         );
     }
-    let observation = TargetObservation {
+    let mut observation = TargetObservation {
         kind: TargetKind::Grammar,
         id: "topic-or-object".into(),
         state: Observed(Partial),
@@ -101,10 +101,39 @@ fn typed_target_states_preserve_version_one_report_fields_and_spellings() {
         }],
     };
     assert_eq!(
-        serde_json::to_value(observation).unwrap(),
+        serde_json::to_value(&observation).unwrap(),
         json!({
             "kind":"grammar","id":"topic-or-object","status":"observed",
-            "completeness":"partial","spans":[{"start":3,"end":6}]
+            "completeness":"partial","spans":[{"start":3,"end":6}],
+            "uncertainties":[{
+                "span":{"start":12,"end":18},"scope":"target_occurrence",
+                "reason":{"code":"direct_object","detail":{"code":"unknown"}},
+                "inventory_entries":["eat"]
+            }]
         })
     );
+    for (reason, expected) in [
+        (
+            TargetUncertaintyReason::DirectObject(DirectObjectEvidence::Unresolved(
+                LexicalUncertainty::CompetingIdentities,
+            )),
+            json!({"code":"direct_object","detail":{
+                "code":"unresolved","detail":"competing_identities"
+            }}),
+        ),
+        (
+            TargetUncertaintyReason::Lexical(LexicalUncertainty::ReadingMismatch),
+            json!({"code":"lexical","detail":"reading_mismatch"}),
+        ),
+        (
+            TargetUncertaintyReason::UnsupportedConstruction,
+            json!({"code":"unsupported_construction"}),
+        ),
+    ] {
+        observation.uncertainties[0].reason = reason;
+        observation.uncertainties[0].scope = TargetUncertaintyScope::SentenceCoverage;
+        let json = serde_json::to_value(&observation).unwrap();
+        assert_eq!(json["uncertainties"][0]["reason"], expected);
+        assert_eq!(json["uncertainties"][0]["scope"], "sentence_coverage");
+    }
 }

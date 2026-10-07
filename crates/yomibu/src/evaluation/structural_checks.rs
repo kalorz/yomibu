@@ -3,15 +3,15 @@
 use std::ops::Range;
 
 use super::{
-    Check, CheckOutcome, Evaluation, EvaluationBindings, EvaluationError, GrammarRule,
-    REPORT_NOTICE, UnassessedAspect, combine,
+    Check, CheckOutcome, Evaluation, EvaluationBindings, EvaluationError, REPORT_NOTICE,
+    UnassessedAspect, combine,
     lexical::{DirectObjectEvidence, LexicalEvidence, LexicalPermissions, check_vocabulary},
     morphology::regular_stem,
     passed, problem,
 };
 use crate::{
     analysis::{SentenceAnalysis, Token},
-    grammar::GrammarDeclarations,
+    grammar::{GrammarDeclarations, GrammarRule},
     inventory::LearnerInventory,
 };
 

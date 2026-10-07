@@ -6,6 +6,7 @@ use yomibu::{
     generation::CandidateAssessment,
     inventory::{LearnerInventory, ManualInventory},
     ports::Embedder,
+    reports::story::StoryReport,
     retrieval::{EmbeddingCache, prepare_embedding_inputs},
     story::{StoryRequest, generate_story, plan_generation},
 };
@@ -57,6 +58,11 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
         Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair}).to_string()}]}]}))).expect(1).mount(&server).await;
         let result = generate_story(&plan, &client, &analyzer).await.unwrap();
         let results = result.assessments();
+        let report = serde_json::to_value(StoryReport::new(&request, &plan, &result)).unwrap();
+        assert_eq!(
+            report["candidates"][1]["assessment"]["evaluation"]["basis"],
+            "full_learner_inventory"
+        );
         assert_eq!(result.candidates().texts(), &pair);
         assert_eq!(
             server.received_requests().await.unwrap()[0].body,
@@ -68,6 +74,10 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
                 CandidateAssessment::ExecutionError { .. }
             ));
             assert_eq!(results[0].targets[0].state.status(), "not_run");
+            assert_eq!(
+                report["candidates"][0]["targets"][0]["uncertainties"],
+                json!([])
+            );
             let CandidateAssessment::Completed { evaluation, .. } = &results[1].assessment else {
                 panic!()
             };
@@ -84,6 +94,14 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
                 0..3
             );
         } else if pair[0].starts_with("qzxv") {
+            let uncertainty = &report["candidates"][0]["targets"][1]["uncertainties"][0];
+            assert_eq!(uncertainty["scope"], "sentence_coverage");
+            assert_eq!(uncertainty["span"], json!({"start":0,"end":4}));
+            assert_eq!(uncertainty["inventory_entries"], json!([]));
+            assert_eq!(
+                uncertainty["reason"],
+                json!({"code":"lexical","detail":"out_of_dictionary"})
+            );
             assert_eq!(results[0].targets[1].state.status(), "observed");
             assert_eq!(
                 serde_json::to_value(&results[0].targets[1]).unwrap()["completeness"],
@@ -166,7 +184,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
                 .grammar_bindings
                 .push(yomibu::inventory::InventoryGrammarBinding {
                     declaration_id: "object".into(),
-                    rule: yomibu::evaluation::GrammarRule::ObjectWo,
+                    rule: yomibu::grammar::GrammarRule::ObjectWo,
                 });
         }
         if case == "intransitive_object" {
@@ -195,7 +213,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
             inventory.vocabulary.push(alternative);
             inventory
                 .grammar_bindings
-                .retain(|b| b.rule != yomibu::evaluation::GrammarRule::ObjectWo);
+                .retain(|b| b.rule != yomibu::grammar::GrammarRule::ObjectWo);
         }
         let mut request = request;
         if case.ends_with("object") {

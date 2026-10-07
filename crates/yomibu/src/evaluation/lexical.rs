@@ -5,8 +5,10 @@ use crate::{
     analysis::{SentenceAnalysis, Token},
     inventory::{InventoryWord, LearnerInventory, analyzer_reading},
 };
+use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum EvaluationBasis {
     ExplicitWordUses,
     FullLearnerInventory,
@@ -23,7 +25,8 @@ impl EvaluationBasis {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LexicalUncertainty {
     Whitespace,
     OutOfDictionary,
@@ -36,7 +39,8 @@ pub enum LexicalUncertainty {
     ReadingMismatch,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "code", content = "detail", rename_all = "snake_case")]
 pub enum DirectObjectEvidence {
     Confirmed,
     NotAsserted,
