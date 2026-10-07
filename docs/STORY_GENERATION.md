@@ -138,23 +138,31 @@ never refreshes a missing/stale cache. It fails with `prepare-retrieval` guidanc
 ## Follow the execution
 
 Start at the adjacent library functions `plan_generation` and `generate_story`
-in [`crates/yomibu/src/story.rs`](../crates/yomibu/src/story.rs):
+in [`crates/yomibu/src/story/mod.rs`](../crates/yomibu/src/story/mod.rs):
 
 ```text
 plan_generation (offline)
   validate inputs/options/selection bounds
-  select_vocabulary (once)
-  build_ai_model_request (final selection + exact bytes)
-  StoryAssessmentInputs::new (full original inventory)
+  selection::select_vocabulary (once)
+  model_request::build_ai_model_request (final selection + exact bytes)
+  assessment::StoryAssessmentInputs::new (full original inventory)
   return immutable StoryGenerationPlan
 
 caller initializes dictionary/client after preflight
 
 generate_story (caller drives async I/O)
   client.generate_story_candidates (one attempt; unchanged bytes)
-  assess_candidates (every text against full inventory)
+  assessment::assess_candidates (every text against full inventory)
   return owned StoryGenerationResult
 ```
+
+The stage names point to sibling files: `request.rs` contains input validation,
+`selection.rs` contains ranking, `model_request.rs` contains prompt/request bounds,
+and `assessment.rs` contains candidate assessment and target observations.
+The child modules are private; direct library imports stay `yomibu::story::…`.
+For assessment rules, continue to `evaluation/structure.rs` for supported
+constructions and safeguards, or `evaluation/inventory.rs` for full-inventory
+membership and single-use evidence. Evaluation does not call story orchestration.
 
 The CLI's `commands::story::generate` in `crates/yomibu-cli/src/commands/story.rs`
 loads input files and embeddings,

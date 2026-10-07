@@ -1,19 +1,12 @@
 //! WaniKani synchronization, shared story generation and bounded supplied-text analysis.
 //!
-//! [`knowledge::LearnerKnowledgePolicy`] derives eligibility from preserved
-//! WaniKani evidence without grammar input, I/O or persistence. Historical manual
-//! preview and source-inspection commands are retired; see `docs/COMMAND_HISTORY.md`.
+//! Start with the adjacent [`story::plan_generation`] and [`story::generate_story`]
+//! functions in `story/mod.rs`. Their concrete stage calls lead to sibling
+//! `request.rs`, `selection.rs`, `model_request.rs` and `assessment.rs` files.
+//! Private child modules re-export their public types/functions under `story`;
+//! existing imports stay unchanged. Smaller cohesive modules remain flat.
 //!
-//! [`adapters::sudachi::SudachiAnalyzer`] explicitly loads a checksum-pinned
-//! dictionary for offline C/A morphology with original UTF-8 spans.
-//! [`evaluation::evaluate`] applies bounded synthetic word/grammar permissions,
-//! preserving [`grammar::GrammarDeclarations`] without interpreting their text.
-//! Completed judgments, uncertainty, execution errors, and checks not run remain
-//! distinct. A1 does not establish accepted exercises, naturalness, idioms, or
-//! contextual reading/sense correctness. Historical A1 evidence is in
-//! `docs/A1_IMPLEMENTATION.md`; its research runner is retired.
-//!
-//! Current story generation starts with [`inventory::LearnerInventory`] from
+//! Story generation starts with [`inventory::LearnerInventory`] from
 //! manual data or a WaniKani projection, then [`story::StoryRequest`] supplies
 //! a brief and vocabulary/grammar targets. [`story::plan_generation`] validates
 //! inputs, selects vocabulary once and freezes the exact request and full-inventory
@@ -23,6 +16,22 @@
 //! analyzer and async executor; the library starts no runtime or environment lookup.
 //! [`story::StoryGenerationOptions`] sets candidate count separately from story intent.
 //! See `docs/STORY_GENERATION.md` for usage and `docs/GENERATION_HISTORY.md` for history.
+//!
+//! [`knowledge::LearnerKnowledgePolicy`] derives eligibility from preserved
+//! WaniKani evidence without grammar input, I/O or persistence. Historical manual
+//! preview and source-inspection commands are retired; see `docs/COMMAND_HISTORY.md`.
+//!
+//! [`adapters::sudachi::SudachiAnalyzer`] explicitly loads a checksum-pinned
+//! dictionary for offline C/A morphology with original UTF-8 spans.
+//! `evaluation/mod.rs` holds result types and check outcomes; `structure.rs` owns
+//! supported constructions and safeguards, and `inventory.rs` owns full-inventory
+//! checks and single-use evidence. Evaluation has no dependency on story.
+//! [`evaluation::evaluate`] applies bounded synthetic word/grammar permissions,
+//! preserving [`grammar::GrammarDeclarations`] without interpreting their text.
+//! Completed judgments, uncertainty, execution errors, and checks not run remain
+//! distinct. A1 does not establish accepted exercises, naturalness, idioms, or
+//! contextual reading/sense correctness. Historical A1 evidence is in
+//! `docs/A1_IMPLEMENTATION.md`; its research runner is retired.
 //!
 //! [`App`] coordinates explicit synchronization and offline status for a single
 //! account-scoped store. Supply a file or in-memory store and, for synchronization,

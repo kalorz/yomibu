@@ -1,172 +1,15 @@
-//! Explicit synthetic constraints for the bounded A1 investigation.
-//! A passed check never establishes exercise acceptance or linguistic mastery.
+//! Supported constructions, morphology and the historical object safeguard.
 
 use std::ops::Range;
 
-use serde::{Deserialize, Serialize};
-
+use super::{
+    Check, CheckOutcome, CheckState, Evaluation, EvaluationBindings, EvaluationError, Finding,
+    GrammarRule, REPORT_NOTICE, UnassessedAspect, VocabularyEntry, combine, passed, problem,
+};
 use crate::{
     analysis::{SentenceAnalysis, Token},
     grammar::GrammarDeclarations,
 };
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct VocabularyEntry {
-    pub written_form: String,
-    /// Dictionary-style katakana reading; no implicit normalization.
-    pub reading: String,
-    pub sense: String,
-    /// Explicit synthetic evidence for this lexical use; never inferred from を.
-    /// Does not assess an object/predicate combination or resolve multiword uses.
-    pub direct_object: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GrammarRule {
-    NominalDesu,
-    TopicWa,
-    ObjectWo,
-    PoliteNonPast,
-    PolitePast,
-    PoliteNegativeNonPast,
-    PoliteNegativePast,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct GrammarBinding {
-    /// One-based ID in the supplied declarations; descriptions are never parsed.
-    pub declaration_id: usize,
-    pub rule: GrammarRule,
-}
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EvaluationBindings {
-    pub vocabulary: Vec<VocabularyEntry>,
-    pub grammar: Vec<GrammarBinding>,
-}
-
-impl EvaluationBindings {
-    /// Validate explicit permissions without analysis or interpreting descriptions.
-    pub fn validate(&self, grammar: &GrammarDeclarations) -> Result<(), EvaluationError> {
-        if self.vocabulary.iter().any(|word| {
-            [&word.written_form, &word.reading, &word.sense]
-                .iter()
-                .any(|s| s.trim().is_empty())
-        }) {
-            return Err(EvaluationError::BlankVocabulary);
-        }
-        if self.grammar.iter().any(|binding| {
-            !grammar
-                .entries()
-                .iter()
-                .any(|entry| entry.id == binding.declaration_id)
-        }) {
-            return Err(EvaluationError::MissingDeclaration);
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum CheckOutcome {
-    Pass,
-    Fail,
-    Inconclusive,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum CheckState {
-    Completed(CheckOutcome),
-    NotRun,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum CheckKind {
-    Vocabulary,
-    Inflection,
-    Particles,
-    Nominal,
-    Scope,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize)]
-pub struct Finding {
-    pub span: Range<usize>,
-    pub reason: &'static str,
-}
-
-#[derive(Debug, PartialEq, Eq, Serialize)]
-pub struct Check {
-    pub state: CheckState,
-    pub findings: Vec<Finding>,
-    pub coverage: &'static str,
-}
-
-/// These require evidence outside A1's morphological and bounded structural checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub enum UnassessedAspect {
-    Naturalness,
-    MultiwordExpressions,
-    ContextualReadingAndSense,
-}
-
-pub const REPORT_NOTICE: &str = "Bounded analysis only; these sentences are not accepted exercises. Pass does not establish linguistic validity or mastery.";
-
-#[derive(Debug, PartialEq, Eq, Serialize)]
-pub struct Evaluation {
-    pub notice: &'static str,
-    pub unassessed: [UnassessedAspect; 3],
-    vocabulary: Check,
-    inflection: Check,
-    particles: Check,
-    nominal: Check,
-    scope: Check,
-}
-
-impl Evaluation {
-    pub fn check(&self, kind: CheckKind) -> &Check {
-        match kind {
-            CheckKind::Vocabulary => &self.vocabulary,
-            CheckKind::Scope => &self.scope,
-            CheckKind::Inflection => &self.inflection,
-            CheckKind::Particles => &self.particles,
-            CheckKind::Nominal => &self.nominal,
-        }
-    }
-
-    pub fn outcome(&self) -> CheckState {
-        use CheckOutcome::*;
-        let states = [
-            self.vocabulary.state,
-            self.inflection.state,
-            self.particles.state,
-            self.nominal.state,
-            self.scope.state,
-        ];
-        if states.contains(&CheckState::NotRun) {
-            return CheckState::NotRun;
-        }
-        for outcome in [Fail, Inconclusive] {
-            if states.contains(&CheckState::Completed(outcome)) {
-                return CheckState::Completed(outcome);
-            }
-        }
-        CheckState::Completed(Pass)
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum EvaluationError {
-    #[error("Vocabulary permissions must contain a nonblank form, reading, and sense.")]
-    BlankVocabulary,
-    #[error("A grammar binding refers to a declaration ID that does not exist.")]
-    MissingDeclaration,
-    #[error("Analysis must completely cover the original text with valid whole/component spans.")]
-    InvalidAnalysis,
-}
 
 /// Check explicit synthetic permissions and the complete bounded construction.
 ///
@@ -429,36 +272,6 @@ fn godan_stem(base: &str) -> Option<String> {
     Some(format!("{}{replacement}", &base[..index]))
 }
 
-fn passed(coverage: &'static str) -> Check {
-    Check {
-        state: CheckState::Completed(CheckOutcome::Pass),
-        findings: Vec::new(),
-        coverage,
-    }
-}
-
-fn problem(outcome: CheckOutcome, span: Range<usize>, reason: &'static str) -> Check {
-    Check {
-        state: CheckState::Completed(outcome),
-        findings: vec![Finding { span, reason }],
-        coverage: "see findings",
-    }
-}
-
-fn combine(mut first: Check, second: Check) -> Check {
-    let states = [first.state, second.state];
-    first.state = if states.contains(&CheckState::Completed(CheckOutcome::Fail)) {
-        CheckState::Completed(CheckOutcome::Fail)
-    } else if states.contains(&CheckState::Completed(CheckOutcome::Inconclusive)) {
-        CheckState::Completed(CheckOutcome::Inconclusive)
-    } else {
-        CheckState::Completed(CheckOutcome::Pass)
-    };
-    first.findings.extend(second.findings);
-    first.coverage = "all scoped particle occurrences checked";
-    first
-}
-
 fn permission(bindings: &EvaluationBindings, rule: GrammarRule, span: Range<usize>) -> Check {
     if bindings.grammar.iter().any(|binding| binding.rule == rule) {
         passed("recognized form has an explicit grammar binding")
@@ -516,61 +329,6 @@ fn valid_token(token: &Token, text: &str) -> bool {
         && text.get(token.span.clone()).is_some()
         && token.part_of_speech.len() == 6
         && !token.dictionary_form.is_empty()
-}
-
-/// Reuse the frozen structural checks while checking lexical availability against
-/// the complete source-independent inventory. No reading/sense pairs are invented.
-pub(crate) fn evaluate_inventory(
-    analysis: &SentenceAnalysis<'_>,
-    grammar: &GrammarDeclarations,
-    structural_bindings: &EvaluationBindings,
-    inventory: &crate::inventory::LearnerInventory,
-) -> Result<Evaluation, EvaluationError> {
-    let mut result = evaluate(analysis, grammar, structural_bindings)?;
-    let mut vocabulary = passed("full learner inventory; contextual reading/sense unassessed");
-    for unit in &analysis.units {
-        let t = &unit.token;
-        if !t.out_of_vocabulary
-            && ["助詞", "助動詞", "補助記号"].contains(&t.part_of_speech[0].as_str())
-        {
-            continue;
-        }
-        let entries: Vec<_> = inventory
-            .vocabulary
-            .iter()
-            .filter(|w| w.written_form == t.dictionary_form)
-            .collect();
-        let uncertainty = if t.out_of_vocabulary || t.part_of_speech[0] == "空白" {
-            Some("lexical identity is unresolved")
-        } else if entries.is_empty() {
-            vocabulary = combine(
-                vocabulary,
-                problem(
-                    CheckOutcome::Fail,
-                    t.span.clone(),
-                    "whole word is outside the learner inventory",
-                ),
-            );
-            continue;
-        } else if entries.len() != 1 {
-            Some("competing inventory identities are unresolved")
-        } else if crate::story::single_use(entries[0])
-            .is_none_or(|w| !reading_matches(&w, t, analysis.sentence.text()))
-        {
-            Some("reading or meaning alternatives are unresolved")
-        } else {
-            None
-        };
-        if let Some(reason) = uncertainty {
-            vocabulary = combine(
-                vocabulary,
-                problem(CheckOutcome::Inconclusive, t.span.clone(), reason),
-            );
-        }
-    }
-    vocabulary.coverage = "full learner inventory; contextual reading/sense unassessed";
-    result.vocabulary = vocabulary;
-    Ok(result)
 }
 
 /// Positive rule occurrences only within the same bounded recognized shapes.

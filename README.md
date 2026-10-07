@@ -4,7 +4,7 @@ Yomibu is an unofficial WaniKani tool for personalized Japanese reading practice
 starting with a Rust CLI. Milestone 1 is complete through 1d: resilient full
 synchronization, offline inspection of learner observations, and macOS/Linux CI.
 The library composes sync/status through `App` with file or in-memory storage.
-Manual candidate preview, offline learner-context preparation, and a bounded
+Offline story-request preview, explicit retrieval preparation, and a bounded
 offline `analyze` command are available. The story path produces explicitly
 requested experimental sentence candidates with local checks, manual/WaniKani
 inventories, a topic brief, multiple targets and cached retrieval with offline
@@ -12,8 +12,9 @@ request preview; validated reading exercises remain deferred.
 
 Offline preparation implementation and real-learner acceptance are complete as
 of 2026-10-03; eligibility is not mastery and linguistic validity is unassessed.
-A1 now has a bounded offline analyzer and synthetic evaluation example. Its
-engineering tests are separate from reference review and held-out accuracy.
+A1's bounded analyzer and structural checks are reused by story assessment; its
+research runner is retired. Engineering tests are separate from reference review
+and held-out accuracy.
 The investigation and private scoring are complete: held-out targets passed,
 but three unsupported challenge Pass results make the frozen implementation a **no-go**
 for the next stage. Model judgments remain provisional. See the
@@ -301,8 +302,12 @@ future work; [ARCHITECTURE.md](ARCHITECTURE.md) records their intended compositi
 
 The repository is a Cargo workspace. `crates/yomibu` contains the reusable
 library; `crates/yomibu-cli` contains the executable named `yomibu`. Start at
-[`plan_generation` and `generate_story`](crates/yomibu/src/story.rs) for the shared
-story sequence. The CLI calls these functions and owns files, credentials,
+[`plan_generation` and `generate_story`](crates/yomibu/src/story/mod.rs) for the shared
+story sequence. Their stage calls point to sibling `request.rs`, `selection.rs`,
+`model_request.rs` and `assessment.rs` files. Evaluation groups result types,
+supported constructions and full-inventory checks under `evaluation/`; smaller
+modules stay flat. Public library imports remain unchanged.
+The CLI calls these functions and owns files, credentials,
 runtime, terminal rendering and exit status; other callers reuse the same sequence
 and structured `reports` projections. CLI `main.rs` handles parsing and exit status,
 `args.rs` defines flags, `commands/` configures concrete resources, and `output/`
