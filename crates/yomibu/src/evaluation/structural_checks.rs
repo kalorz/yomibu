@@ -27,7 +27,7 @@ pub(crate) struct RecognizedConstruction {
 }
 
 pub(crate) struct ObjectConstruction {
-    pub lexical_unit: usize,
+    pub verb_unit: usize,
     pub particle: Range<usize>,
     pub combination: Range<usize>,
 }
@@ -116,8 +116,7 @@ fn assess_permissions(
             }
         }
         if let Some(object) = &construction.object {
-            if lexical[object.lexical_unit].direct_object_evidence()
-                == DirectObjectEvidence::Confirmed
+            if lexical[object.verb_unit].direct_object_evidence() == DirectObjectEvidence::Confirmed
             {
                 evaluation.particles = combine(
                     evaluation.particles,
@@ -217,7 +216,7 @@ fn recognize_construction(analysis: &SentenceAnalysis<'_>) -> Option<RecognizedC
     let object = object.map(|(noun, wo)| {
         rules.push((GrammarRule::ObjectWo, wo.span.clone()));
         ObjectConstruction {
-            lexical_unit: tokens.len() - predicate.len(),
+            verb_unit: tokens.len() - predicate.len(),
             particle: wo.span.clone(),
             combination: noun.span.start..span.end,
         }

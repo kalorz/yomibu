@@ -312,12 +312,12 @@ fn observe_grammar_targets(
             {
                 if *rule == crate::grammar::GrammarRule::ObjectWo
                     && let Some(object) = &construction.object
-                    && assessed.lexical[object.lexical_unit].direct_object_evidence()
+                    && assessed.lexical[object.verb_unit].direct_object_evidence()
                         != DirectObjectEvidence::Confirmed
                 {
-                    let evidence = &assessed.lexical[object.lexical_unit];
+                    let evidence = &assessed.lexical[object.verb_unit];
                     uncertainties.push(TargetUncertainty {
-                        span: analysis.units[object.lexical_unit].token.span.clone(),
+                        span: analysis.units[object.verb_unit].token.span.clone(),
                         scope: TargetUncertaintyScope::TargetOccurrence,
                         reason: TargetUncertaintyReason::DirectObject(
                             evidence.direct_object_evidence(),
