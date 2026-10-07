@@ -18,7 +18,8 @@ proof that the provider keeps weights immutable.
 Flat cosine ranking uses f64 accumulation and stable ID ties. Every explicit
 vocabulary target is retained, irrespective of similarity. No vector database,
 plugin registry, server launcher or new dependency is introduced. Only explicit
-retrieval preparation performs I/O; library selection/preparation are synchronous.
+retrieval preparation performs I/O. Selection and input preparation are synchronous;
+encoding through `prepare_cache` is async and driven by the caller's executor.
 
 Library `retrieval::prepare_cache` groups at most 32 missing inputs; the HTTP adapter further splits groups by actual
 encoded JSON size, including escapes and model metadata, to keep each request

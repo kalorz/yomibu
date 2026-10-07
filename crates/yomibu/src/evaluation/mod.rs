@@ -1,16 +1,12 @@
 //! Bounded structural and full-inventory evaluation.
 //! A passed check never establishes exercise acceptance or linguistic mastery.
-//!
-//! Result types and check outcomes live here. `structure.rs` owns the supported
-//! constructions and safeguards; `inventory.rs` checks the complete inventory
-//! and projects its single-use evidence for the structural checker.
 
-mod inventory;
-mod structure;
+mod inventory_checks;
+mod structural_checks;
 
-pub(crate) use inventory::{evaluate_inventory, single_use};
-pub use structure::evaluate;
-pub(crate) use structure::{observed_grammar, reading_matches, regular_stem};
+pub(crate) use inventory_checks::{evaluate_inventory, single_use};
+pub use structural_checks::evaluate;
+pub(crate) use structural_checks::{observed_grammar, reading_matches, regular_stem};
 
 use std::ops::Range;
 

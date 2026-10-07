@@ -1,7 +1,7 @@
 //! Terminal rendering of shared candidate report data.
 use std::io::Write;
 use yomibu::{
-    generation::GenerationProvenance,
+    candidate::GenerationProvenance,
     reports::candidate::{AssessmentReport, CandidateReport},
 };
 pub(crate) fn write_provenance(

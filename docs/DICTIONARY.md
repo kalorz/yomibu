@@ -11,6 +11,9 @@ plugins or network resources.
 From a repository checkout, explicitly obtain the pinned publisher bundle with
 the existing developer/CI installer. It verifies the downloaded archive, dictionary
 and both notices. An existing pinned ZIP can be supplied with `--archive PATH`.
+The installer verifies complete bundles before reuse or atomic publication through
+`target/a1/current`. Earlier bundles survive; failure after publication can report
+uncertain directory durability.
 
 ```sh
 python3 scripts/setup_a1_dictionary.py
@@ -28,7 +31,8 @@ source path or a source receipt instead of verifying copied bytes.
 The default root is `$HOME/.yomibu/dictionaries`. Use `--dictionary-dir PATH` on
 import, verify and dictionary-backed commands to select another root. Missing or
 empty HOME requires that explicit option. `--data-dir` remains learner storage
-and does not select a dictionary. Help/version and preview commands do not open
+and does not select a dictionary. `--dictionary-dir` conflicts with `--dictionary`.
+Help/version and preview commands do not open
 an installation. Generation retains explicit model opt-in and existing preflight;
 import/verify/analyze make no provider call.
 
@@ -69,7 +73,7 @@ complete generations; loading ignores them. Tests exercise interruption and OS
 fault boundaries, not power loss.
 
 Existing analyzers retain their mapped generation after publication. New analyzers
-select the new one. There is no automatic cleanup/prune command in this milestone;
+select the new one. There is no automatic cleanup/prune command;
 retaining generations intentionally consumes additional disk space.
 
 ## File-stability contract
@@ -97,15 +101,35 @@ CI's real-adapter tests use this fully verified policy, as did the retired A1
 runner and recorded reproducibility experiments. No timestamp hash cache,
 analyzer upgrade, dictionary pruning or hash bypass is introduced.
 
-## Provenance and Rust API
+## Pinned artifacts
+
+The compiled verifier in [the Sudachi adapter](../crates/yomibu/src/adapters/sudachi.rs)
+and the [developer installer](../scripts/setup_a1_dictionary.py) enforce these pins:
+
+| Item | Pin |
+| --- | --- |
+| Sudachi.rs | v0.6.11, Git `90fd6068c80c2fc3b63e0dbab0e341475bad4d8f` |
+| Dictionary | SudachiDict Core 20260723 V0 |
+| Publisher ZIP | 72,276,502 bytes; SHA-256 `b6e835f63440f97474c2da45d80950f73746e632e40bbfc168b4041729135e1f` |
+| Extracted dictionary | 217,466,039 bytes; SHA-256 `53fa281d11eef3769712fe1c3c892117338f9892bee6daf4dad51daa5281bb6f` |
+| LEGAL | 6,037 bytes; SHA-256 `725a8776b38e058b185e905594bc9a2437dbf3787df022fffeefedb9a84e4665` |
+| LICENSE-2.0.txt | 11,358 bytes; SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
+| Embedded configuration | [sudachi.json](../crates/yomibu/src/adapters/sudachi.json); SHA-256 `45cde6f1eba960c32475e267dfa422e51b1f215e3fa142162079d711eff77e4c` |
+
+These are reproducibility pins, not publisher signatures. Setup retains both
+publisher notices, including the dictionary's embedded-content notices. The
+[historical artifact record](history/analysis/A1_IMPLEMENTATION.md#verified-dependency-and-configuration-pins)
+preserves how the hashes and compatibility were checked. Neither the pins nor
+the analyzer/configuration may change without a deliberate reproducibility review.
+
+## Provenance and library use
 
 All reports preserve the exact analyzer, dictionary and embedded configuration
-pins documented in [A1 implementation](A1_IMPLEMENTATION.md). Managed reports add
+pins above. Managed reports add
 `analysis.provenance.dictionary_loading` with generation, `memory_mapped` storage,
 `full_sha256_at_installation` verification, startup checks and the file-stability
 requirement. `dictionary_sha256` identifies the expected pin; it is not a claimed
-startup hash. Owned JSON retains its prior serialized shape. Linguistic judgments
-and A1's frozen no-go evidence are unaffected.
+startup hash. Owned JSON omits these managed-loading fields.
 
 Library calls use `adapters::dictionary::{import_bundle, verify,
 ManagedInstallation::open}` with explicit paths. Environment/output handling stays
@@ -116,17 +140,5 @@ or truncation for the analyzer's lifetime. A receipt alone cannot establish thes
 obligations. Both paths use the embedded-character-definition constructor and
 share the existing `analyze` and `evaluate` operations.
 
-Reuse one analyzer per command/session. Server threads can already share one
-owned analyzer; mapping can also benefit a server and lets separate processes
-share/reclaim file-backed pages. Policy is determined by source trust, not process
-lifetime. Peak memory depends on workloads and touched pages; full hashing of a
-mapping touches the entire dictionary.
-
-Rust notes for a Ruby developer: the analyzer owns either a `Vec<u8>` snapshot
-or the mapping through the same upstream storage enum. Borrowed shared references
-reuse it without copying the dictionary. RAII releases the writer lock, and typed
-errors distinguish failed publication from uncertain durability. `unsafe` marks
-a filesystem promise the borrow checker cannot prove. Direct dependencies on
-already-locked `memmap2 0.9.11` and `libc 0.2.189` provide mapping the checked handle,
-effective-user ownership and no-follow/nonblocking opens; no package versions or
-features changed.
+Reuse an analyzer per command/session. Choose loading policy by source trust.
+Mapping lets processes share file-backed pages; full hashing touches the entire dictionary.

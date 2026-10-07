@@ -9,7 +9,7 @@ use reqwest::{
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::generation::{GenerationProvenance, TokenUsage};
+use crate::candidate::{GenerationProvenance, TokenUsage};
 
 const BASE_URL: &str = "https://api.openai.com/v1/";
 const MODEL: &str = "gpt-6-luna";

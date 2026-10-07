@@ -2,7 +2,7 @@ use serde_json::json;
 use yomibu::{
     inventory::{LearnerInventory, ManualInventory},
     retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
-    story::{StoryRequest, select_vocabulary},
+    story::{StoryError, StoryRequest, build_ai_model_request, select_vocabulary},
 };
 fn inventory() -> LearnerInventory {
     LearnerInventory::from_manual(serde_json::from_value::<ManualInventory>(json!({"version":1,
@@ -181,4 +181,67 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
             .is_err()
         );
     }
+}
+
+#[test]
+fn request_budget_drops_lowest_ranked_supports_and_keeps_targets_and_grammar() {
+    let mut inventory = inventory();
+    for word in &mut inventory.vocabulary {
+        word.meanings = vec!["x".repeat(1024); 5];
+    }
+    inventory.grammar_declarations[0].description = "g".repeat(1024);
+    let request = request();
+    let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
+    let cache = EmbeddingCache::from_vectors(model(), &inputs, vec![vec![1., 0.]; 4]).unwrap();
+    let selection = select_vocabulary(&inventory, &request, &cache, &model(), 3).unwrap();
+    assert_eq!(selection.selected.len(), 3);
+
+    let (selection, ai_request) =
+        build_ai_model_request(&inventory, &request, selection, Default::default()).unwrap();
+
+    assert_eq!(
+        selection
+            .selected
+            .iter()
+            .map(|entry| entry.word.id.as_str())
+            .collect::<Vec<_>>(),
+        ["cat", "meet"]
+    );
+    assert!(ai_request.body_utf8().len() <= 16384);
+    let body: serde_json::Value = serde_json::from_str(ai_request.body_utf8()).unwrap();
+    let data: serde_json::Value =
+        serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        data["targets"],
+        serde_json::to_value(&request.targets).unwrap()
+    );
+    assert_eq!(
+        data["grammar_declarations"],
+        serde_json::to_value(&inventory.grammar_declarations).unwrap()
+    );
+    assert_eq!(
+        data["grammar_bindings"],
+        serde_json::to_value(&inventory.grammar_bindings).unwrap()
+    );
+    assert_eq!(inventory.vocabulary.len(), 3);
+}
+
+#[test]
+fn request_budget_rejects_targets_that_cannot_fit() {
+    let mut inventory = inventory();
+    for word in &mut inventory.vocabulary {
+        word.meanings = vec!["x".repeat(1024); 12];
+    }
+    let mut request = request();
+    request.targets.vocabulary = vec!["cat".into(), "station".into()];
+    let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
+    let cache = EmbeddingCache::from_vectors(model(), &inputs, vec![vec![1., 0.]; 4]).unwrap();
+    let selection = select_vocabulary(&inventory, &request, &cache, &model(), 2).unwrap();
+
+    assert!(matches!(
+        build_ai_model_request(&inventory, &request, selection, Default::default()),
+        Err(StoryError::Invalid(
+            "targets and grammar exceed the 16384-byte request limit"
+        ))
+    ));
 }

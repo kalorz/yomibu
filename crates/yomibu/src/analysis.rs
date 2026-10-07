@@ -12,7 +12,7 @@ pub struct Sentence<'a>(Cow<'a, str>);
 pub enum SentenceError {
     #[error("Sentence must not be blank.")]
     Blank,
-    #[error("Sentence has {characters} Unicode characters; A1 permits at most 100.")]
+    #[error("Sentence has {characters} Unicode characters; limit is 100.")]
     TooLong { characters: usize },
 }
 

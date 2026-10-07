@@ -1,4 +1,4 @@
-//! Candidate execution results and provider metadata shared by story assessment/reporting.
+//! Candidate assessments, execution errors and provider metadata.
 use crate::{
     adapters::sudachi::AnalysisError,
     analysis::{SentenceAnalysis, SentenceError},

@@ -18,22 +18,22 @@ balance. The original file and reviewed packets remain unchanged; exclusions,
 old/new mappings and initial proposals stay outside Git. The active draft retains
 24 supported provisional core outcomes and 12 challenge references after the
 four replacement reviews were reconciled. The
-[four-case packet](../../../docs/A1_FOUR_CASE_REVIEW_PACKET.md) remains unchanged
+[four-case packet](../../../docs/history/analysis/A1_FOUR_CASE_REVIEW_PACKET.md) remains unchanged
 as the reviewed snapshot; it does not need another review.
 Both draft versions remain exclusion material for private holdout authoring.
 Detailed reviews and adjudications stay outside Git. The reference gate/freeze
 preceded the visible run; the implementation was frozen before held-out input
 release. Preserve these exact inputs and the superseded version. Do not count
 the visible results as held-out acceptance; the
-[evaluation status](../../../docs/A1_EVALUATION_STATUS.md) records a failed
+[evaluation status](../../../docs/history/analysis/A1_EVALUATION_STATUS.md) records a failed
 challenge safeguard and the completed single held-out run and private scoring.
 No further run or review is pending for that investigation; do not rerun the
 scored holdout or revise its historical results.
 
 The draft has opaque IDs, a fixed shuffled order, and no answers, analyzer tokens,
 category, partition, or performance claims. Give the reviewer the
-[manual prompt](../../../docs/A1_EXTERNAL_REVIEW_PROMPT.md), the
-[common binding sheet](../../../docs/A1_BLIND_PACKET_HEADER.md), and at most six
+[manual prompt](../../../docs/history/analysis/A1_EXTERNAL_REVIEW_PROMPT.md), the
+[common binding sheet](../../../docs/history/analysis/A1_BLIND_PACKET_HEADER.md), and at most six
 cases at a time, preserving their exact JSON. The packet is original synthetic
 material, not a redacted or modified learner export. Free-form descriptions,
 identifiers, permission sets, and sentences were authored for this investigation.

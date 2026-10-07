@@ -1,4 +1,4 @@
-//! Supported constructions, morphology and the historical object safeguard.
+//! Supported constructions, morphology and object/predicate uncertainty.
 
 use std::ops::Range;
 

@@ -40,12 +40,12 @@ impl AiModelRequest {
     }
 }
 
-/// Build the exact outbound payload, returning the final plan after any optional
+/// Build the exact outbound payload, returning the final selection after any optional
 /// supports were removed to fit the byte limit. Explicit targets are never removed.
-pub fn build_ai_model_request<'a>(
+pub fn fit_selection_and_build_request<'a>(
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
-    mut plan: StoryVocabularySelection<'a>,
+    mut selection: StoryVocabularySelection<'a>,
     options: StoryGenerationOptions,
 ) -> Result<(StoryVocabularySelection<'a>, AiModelRequest), StoryError> {
     request.validate(inventory)?;
@@ -55,9 +55,9 @@ pub fn build_ai_model_request<'a>(
         options.candidate_count
     );
     let mut ids = BTreeSet::new();
-    if plan.selected.is_empty()
-        || plan.selected.len() > 16
-        || plan.selected.iter().any(|s| {
+    if selection.selected.is_empty()
+        || selection.selected.len() > 16
+        || selection.selected.iter().any(|s| {
             !inventory.vocabulary.iter().any(|w| std::ptr::eq(w, s.word)) || !ids.insert(&s.word.id)
         })
         || request
@@ -65,15 +65,15 @@ pub fn build_ai_model_request<'a>(
             .vocabulary
             .iter()
             .any(|id| !ids.contains(id))
-        || plan.vocabulary_targets != request.targets.vocabulary
-        || plan.grammar_targets != request.targets.grammar
+        || selection.vocabulary_targets != request.targets.vocabulary
+        || selection.grammar_targets != request.targets.grammar
     {
         return Err(StoryError::Invalid(
             "plan does not match inventory and targets",
         ));
     }
     loop {
-        let selected: Vec<_> = plan
+        let selected: Vec<_> = selection
             .selected
             .iter()
             .map(|s| {
@@ -100,7 +100,7 @@ pub fn build_ai_model_request<'a>(
             Ok(body) => {
                 let sha256 = format!("{:x}", Sha256::digest(body.as_bytes()));
                 return Ok((
-                    plan,
+                    selection,
                     AiModelRequest {
                         options,
                         body,
@@ -109,23 +109,27 @@ pub fn build_ai_model_request<'a>(
                 ));
             }
             Err(ProviderError::RequestTooLarge) => {
-                // Explicit targets and grammar are never discarded to fit the budget.
-                if let Some(index) = plan
-                    .selected
-                    .iter()
-                    .rposition(|s| !request.targets.vocabulary.contains(&s.word.id))
-                {
-                    plan.selected.remove(index);
-                } else {
-                    return Err(StoryError::Invalid(
-                        "targets and grammar exceed the 16384-byte request limit",
-                    ));
-                }
-                if plan.selected.is_empty() {
-                    return Err(StoryError::Invalid("no vocabulary fits the request limit"));
-                }
+                drop_lowest_ranked_support(&mut selection, request)?;
             }
             Err(_) => return Err(StoryError::Invalid("request serialization")),
         }
     }
+}
+
+fn drop_lowest_ranked_support(
+    selection: &mut StoryVocabularySelection<'_>,
+    request: &StoryRequest,
+) -> Result<(), StoryError> {
+    let index = selection
+        .selected
+        .iter()
+        .rposition(|entry| !request.targets.vocabulary.contains(&entry.word.id))
+        .ok_or(StoryError::Invalid(
+            "targets and grammar exceed the 16384-byte request limit",
+        ))?;
+    selection.selected.remove(index);
+    if selection.selected.is_empty() {
+        return Err(StoryError::Invalid("no vocabulary fits the request limit"));
+    }
+    Ok(())
 }
