@@ -60,13 +60,28 @@ async fn real_assessment_preserves_both_texts_and_independent_errors_and_finding
         Mock::given(method("POST"))
             .respond_with(
                 ResponseTemplate::new(200)
-                    .set_body_json(response(&json!({"candidates":pair}).to_string())),
+                    .set_body_json(response(&json!({"candidates":pair.iter().map(|sentence| json!({"sentences":[sentence]})).collect::<Vec<_>>()}).to_string())),
             )
             .expect(1)
             .mount(&server)
             .await;
-        let generated = client.generate_candidates(&prepared_request).await.unwrap();
-        assert_eq!(generated.texts(), &pair);
+        let generated = client.generate_candidates(&prepared_request).await;
+        if pair.iter().any(|text| Sentence::new(text).is_err()) {
+            assert!(matches!(
+                generated,
+                Err(yomibu::adapters::openai::ProviderError::InvalidResponse)
+            ));
+            continue;
+        }
+        let generated = generated.unwrap();
+        assert_eq!(
+            generated
+                .passages()
+                .iter()
+                .map(|passage| passage.text.as_str())
+                .collect::<Vec<_>>(),
+            &pair
+        );
         let assessments = assess_candidates(&generated, &inputs, analyzer());
         for (text, assessment) in pair.iter().zip(assessments) {
             match Sentence::new(text) {
@@ -82,24 +97,19 @@ async fn real_assessment_preserves_both_texts_and_independent_errors_and_finding
                         panic!("expected completed assessment");
                     };
                     assert_eq!(analysis, direct_analysis);
-                    for kind in [
-                        CheckKind::Vocabulary,
-                        CheckKind::Inflection,
-                        CheckKind::Particles,
-                        CheckKind::Nominal,
-                        CheckKind::Scope,
-                    ] {
-                        assert_eq!(
-                            evaluation.check(kind).state,
-                            direct_evaluation.check(kind).state
-                        );
-                    }
+                    assert_eq!(
+                        evaluation.check(CheckKind::Vocabulary).state,
+                        direct_evaluation.check(CheckKind::Vocabulary).state
+                    );
                     if text == "犬です。" {
                         assert_eq!(
                             evaluation.check(CheckKind::Vocabulary).state,
                             CheckState::Completed(CheckOutcome::Fail)
                         );
-                        assert_eq!(evaluation.check(CheckKind::Nominal).findings[0].span, 3..9);
+                        assert_eq!(
+                            evaluation.check(CheckKind::Nominal).state,
+                            CheckState::NotRun
+                        );
                     }
                 }
                 Err(expected) => {
@@ -144,7 +154,7 @@ fn prepare<'a>(
         EmbeddingCache::from_vectors(model.clone(), &inputs, vec![vec![1., 0.]; inputs.len()])
             .unwrap();
     let plan = select_vocabulary(inventory, request, &cache, &model, 2).unwrap();
-    fit_selection_and_build_request(inventory, request, plan, Default::default()).unwrap()
+    fit_selection_and_build_request(inventory, request, plan, sentence_options(2)).unwrap()
 }
 
 fn response(payload: &str) -> Value {
@@ -166,7 +176,9 @@ async fn sends_one_explicit_request_and_preserves_pair_and_provenance() {
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("x-request-id", "req_synthetic")
-                .set_body_json(response(r#"{"candidates":["犬です。","猫です。"]}"#)),
+                .set_body_json(response(
+                    r#"{"candidates":[{"sentences":["犬です。"]},{"sentences":["猫です。"]}]}"#,
+                )),
         )
         .expect(1)
         .mount(&server)
@@ -176,7 +188,14 @@ async fn sends_one_explicit_request_and_preserves_pair_and_provenance() {
     let (inventory, request_input) = input();
     let (_, prepared_request) = prepare(&inventory, &request_input);
     let result = client.generate_candidates(&prepared_request).await.unwrap();
-    assert_eq!(result.texts(), &["犬です。", "猫です。"]);
+    assert_eq!(
+        result
+            .passages()
+            .iter()
+            .map(|passage| passage.text.as_str())
+            .collect::<Vec<_>>(),
+        &["犬です。", "猫です。"]
+    );
     let requests = server.received_requests().await.unwrap();
     assert_eq!(requests.len(), 1);
     let request = &requests[0];
@@ -209,13 +228,16 @@ async fn sends_one_explicit_request_and_preserves_pair_and_provenance() {
     assert_eq!(request.body, prepared_request.body_utf8().as_bytes());
     let data: Value = serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
     assert_eq!(data["kind"], "story_generation_plan");
-    assert_eq!(data["brief"], request_input.brief);
+    assert_eq!(
+        data["topic"],
+        serde_json::to_value(&request_input.topic).unwrap()
+    );
     assert_eq!(
         body["text"]["format"],
         json!({
-            "type":"json_schema", "name":"sentence_candidates", "strict":true,
+            "type":"json_schema", "name":"story_candidates", "strict":true,
             "schema":{"type":"object","properties":{"candidates":{"type":"array",
-                "minItems":2,"maxItems":2,"items":{"type":"string","minLength":1,"maxLength":100}}},
+                "minItems":2,"maxItems":2,"items":{"type":"object","properties":{"sentences":{"type":"array","minItems":1,"maxItems":1,"items":{"type":"string","minLength":1,"maxLength":100}}},"required":["sentences"],"additionalProperties":false}}},
                 "required":["candidates"],"additionalProperties":false}
         })
     );
@@ -284,7 +306,8 @@ async fn rejects_whole_response_failures_without_salvage_or_retries() {
     .map(|payload| response(payload).to_string().into_bytes())
     .collect();
     failures.extend([vec![0xff], b"{\"id\":\"synthetic-secret".to_vec()]);
-    let good = response(r#"{"candidates":["犬です。","猫です。"]}"#);
+    let good =
+        response(r#"{"candidates":[{"sentences":["犬です。"]},{"sentences":["猫です。"]}]}"#);
     for field in ["id", "model", "status", "output"] {
         let mut value = good.clone();
         value.as_object_mut().unwrap().remove(field);
@@ -346,7 +369,8 @@ async fn permits_optional_metadata_and_reasoning_but_bounds_response_bytes() {
     let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
     let (inventory, request) = input();
     let (_, prepared_request) = prepare(&inventory, &request);
-    let mut envelope = response(r#"{"candidates":["犬です。","猫です。"]}"#);
+    let mut envelope =
+        response(r#"{"candidates":[{"sentences":["犬です。"]},{"sentences":["猫です。"]}]}"#);
     envelope.as_object_mut().unwrap().remove("usage");
     envelope.as_object_mut().unwrap().remove("service_tier");
     envelope["output"]
@@ -406,5 +430,13 @@ async fn redirects_and_http_errors_never_retry_or_forward_credentials() {
         );
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         assert!(destination.received_requests().await.unwrap().is_empty());
+    }
+}
+
+fn sentence_options(candidate_count: usize) -> yomibu::story::StoryGenerationOptions {
+    yomibu::story::StoryGenerationOptions {
+        candidate_count,
+        format: yomibu::story::StoryFormat::Sentence,
+        ..Default::default()
     }
 }

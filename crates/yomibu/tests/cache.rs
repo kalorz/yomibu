@@ -277,7 +277,7 @@ fn locked_writer_round_trips_and_fully_replaces_sync_data_privately() {
         &dir,
         &root.path().join("private"),
         &dir.join("wanikani.json"),
-        &dir.join("wanikani.lock"),
+        &dir.join("wanikani.json.lock"),
     ] {
         assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o077, 0);
     }
@@ -293,7 +293,7 @@ fn locked_writer_round_trips_and_fully_replaces_sync_data_privately() {
         .map(|e| e.unwrap().file_name())
         .collect();
     files.sort();
-    assert_eq!(files, ["wanikani.json", "wanikani.lock"]);
+    assert_eq!(files, ["wanikani.json", "wanikani.json.lock"]);
 }
 
 #[test]

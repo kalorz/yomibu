@@ -31,8 +31,8 @@ fn status_is_offline_and_uses_a_global_data_directory() {
         dir.path(),
         include_str!("../../../tests/fixtures/mixed.json"),
     );
-    fs::write(dir.path().join("config.toml"), "this is not TOML").unwrap();
-    fs::write(dir.path().join("wanikani.lock"), "existing lock").unwrap();
+    fs::write(dir.path().join("config.toml"), "model = 'unused'").unwrap();
+    fs::write(dir.path().join("wanikani.json.lock"), "existing lock").unwrap();
     let before = fs::read(dir.path().join("wanikani.json")).unwrap();
     for args in [
         vec!["--data-dir", dir.path().to_str().unwrap(), "status"],
@@ -46,12 +46,12 @@ fn status_is_offline_and_uses_a_global_data_directory() {
     }
     assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
     assert_eq!(
-        fs::read_to_string(dir.path().join("wanikani.lock")).unwrap(),
+        fs::read_to_string(dir.path().join("wanikani.json.lock")).unwrap(),
         "existing lock"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("config.toml")).unwrap(),
-        "this is not TOML"
+        "model = 'unused'"
     );
 }
 
@@ -148,7 +148,7 @@ fn sync_requires_an_environment_token_before_creating_files() {
         let dir = root.path().join("data");
         let mut command = cli();
         if let Some(token) = token {
-            command.env("WANIKANI_API_TOKEN", token);
+            command.env("YOMIBU_WANIKANI_API_KEY", token);
         }
         let output = command
             .arg("sync")
@@ -158,7 +158,7 @@ fn sync_requires_an_environment_token_before_creating_files() {
             .unwrap();
         assert!(!output.status.success());
         let error = String::from_utf8(output.stderr).unwrap();
-        assert!(error.contains("WANIKANI_API_TOKEN"), "{error}");
+        assert!(error.contains("YOMIBU_WANIKANI_API_KEY"), "{error}");
         assert!(!dir.exists());
     }
 }
@@ -178,7 +178,7 @@ fn missing_cache_guidance_points_to_sync_and_status_ignores_invalid_tokens() {
         include_str!("../../../tests/fixtures/empty.json"),
     );
     let output = cli()
-        .env("WANIKANI_API_TOKEN", "invalid\nsynthetic-token")
+        .env("YOMIBU_WANIKANI_API_KEY", "invalid\nsynthetic-token")
         .args(["status", "--data-dir"])
         .arg(dir.path())
         .output()
@@ -198,7 +198,7 @@ fn another_process_cannot_sync_while_status_reads_the_locked_cache() {
     let before = fs::read(dir.path().join("wanikani.json")).unwrap();
     let token = "synthetic-contending-credential";
     let output = cli()
-        .env("WANIKANI_API_TOKEN", token)
+        .env("YOMIBU_WANIKANI_API_KEY", token)
         .args(["sync", "--data-dir"])
         .arg(dir.path())
         .output()

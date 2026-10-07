@@ -27,6 +27,19 @@ pub(crate) fn escape_argument_error(mut error: clap::Error) -> clap::Error {
 }
 
 pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
+    if let Some(yomibu::app::local::ApplicationError::Setup { issues }) = error.downcast_ref() {
+        let mut message = String::from("Missing required setup:\n");
+        for issue in issues {
+            let module = issue.module.metadata();
+            message.push_str(&format!(
+                "  {}: {}\n    {}\n",
+                module.name,
+                module.settings.join(" or "),
+                module.guidance
+            ));
+        }
+        return anyhow!("{}", message.trim_end());
+    }
     anyhow!("{}", format!("{error:#}").escape_debug())
 }
 

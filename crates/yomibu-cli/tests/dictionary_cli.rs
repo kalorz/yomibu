@@ -12,7 +12,10 @@ const INPUT: &str = include_str!("../../../tests/fixtures/analyze/nominal.json")
 
 fn cli(directory: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
-    command.env_clear().current_dir(directory);
+    command
+        .env_clear()
+        .current_dir(directory)
+        .env("YOMIBU_DATA_DIR", directory.join("data"));
     command
 }
 
@@ -52,6 +55,31 @@ fn offline_import_verify_and_both_loading_policies_agree_through_the_executable(
             .unwrap(),
     );
     assert!(verified.contains("Full pinned verification passed"));
+    let imported_json: Value = serde_json::from_str(&success(
+        cli(directory.path())
+            .args(["dictionary", "import", "--json", "--bundle"])
+            .arg(test_dictionary::bundle())
+            .arg("--dictionary-dir")
+            .arg(&root)
+            .output()
+            .unwrap(),
+    ))
+    .unwrap();
+    assert!(
+        imported_json["generation"]
+            .as_str()
+            .unwrap()
+            .starts_with("core-")
+    );
+    let verified_json: Value = serde_json::from_str(&success(
+        cli(directory.path())
+            .args(["dictionary", "verify", "--json", "--dictionary-dir"])
+            .arg(&root)
+            .output()
+            .unwrap(),
+    ))
+    .unwrap();
+    assert_eq!(verified_json["verified"], true);
     let pointer = fs::read(root.join("current")).unwrap();
     let mapped = success(
         cli(directory.path())
@@ -112,10 +140,10 @@ fn offline_import_verify_and_both_loading_policies_agree_through_the_executable(
 }
 
 #[test]
-fn managed_home_default_is_offline_and_external_selection_requires_no_home() {
+fn managed_data_directory_default_and_external_selection_remain_offline() {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join("input.json"), INPUT).unwrap();
-    let root = directory.path().join(".yomibu/dictionaries");
+    let root = directory.path().join("data/dictionaries");
     success(
         cli(directory.path())
             .env("HOME", directory.path())
@@ -124,9 +152,9 @@ fn managed_home_default_is_offline_and_external_selection_requires_no_home() {
             .output()
             .unwrap(),
     );
-    for name in ["config.toml", "wanikani.json", "wanikani.lock"] {
+    for name in ["wanikani.json", "wanikani.json.lock"] {
         fs::write(
-            directory.path().join(".yomibu").join(name),
+            directory.path().join("data").join(name),
             b"poisoned unused learner/config file",
         )
         .unwrap();
@@ -140,14 +168,7 @@ fn managed_home_default_is_offline_and_external_selection_requires_no_home() {
             .env("HOME", directory.path())
             .env("OPENAI_API_KEY", "unused\nsecret")
             .env("HTTPS_PROXY", "http://127.0.0.1:1")
-            .args([
-                "analyze",
-                "--input",
-                "input.json",
-                "--data-dir",
-                "unused",
-                "--json",
-            ])
+            .args(["analyze", "--input", "input.json", "--json"])
             .output()
             .unwrap(),
     );
@@ -165,7 +186,13 @@ fn managed_home_default_is_offline_and_external_selection_requires_no_home() {
             .unwrap(),
     );
     let missing = cli(directory.path())
-        .args(["analyze", "--input", "input.json"])
+        .args([
+            "analyze",
+            "--input",
+            "input.json",
+            "--dictionary-dir",
+            "nonexistent",
+        ])
         .output()
         .unwrap();
     assert_eq!(missing.status.code(), Some(1));
@@ -173,7 +200,7 @@ fn managed_home_default_is_offline_and_external_selection_requires_no_home() {
     assert!(
         String::from_utf8(missing.stderr)
             .unwrap()
-            .contains("HOME is unavailable; specify --dictionary-dir PATH")
+            .contains("dictionary import --bundle PATH")
     );
 }
 

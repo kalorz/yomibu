@@ -1,148 +1,187 @@
-//! Command-line inputs only; execution lives in commands.
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
+use yomibu::{
+    app::{
+        config::{EmbeddingProvider, KnowledgePolicy, Settings},
+        modules::ModuleId,
+    },
+    story::StoryFormat,
+};
 
 #[derive(Parser)]
 #[command(
     name = "yomibu",
-    version,
     bin_name = "yomibu",
-    about = "Generate experimental stories, preview requests, prepare retrieval, analyze text, or sync/inspect WaniKani (unofficial tool)"
+    version,
+    about = "Create experimental Japanese readings from familiar vocabulary"
 )]
 pub(crate) struct Cli {
-    /// Sync/status directory containing wanikani.json (default: $HOME/.yomibu; ignored by analyze/story commands).
+    /// Local storage (default: $HOME/.yomibu).
     #[arg(long, global = true, value_name = "PATH")]
-    pub(crate) data_dir: Option<PathBuf>,
+    pub data_dir: Option<PathBuf>,
+    /// Configuration file (default: <data-dir>/config.toml).
+    #[arg(long, global = true, value_name = "PATH")]
+    pub config: Option<PathBuf>,
+    /// WaniKani read-only key; env: YOMIBU_WANIKANI_API_KEY. No write permissions needed.
+    #[arg(long, global = true, value_name = "KEY")]
+    pub wanikani_api_key: Option<String>,
+    /// OpenAI key; env: YOMIBU_OPENAI_API_KEY. Requires api.responses.write and selected model access.
+    #[arg(long, global = true, value_name = "KEY")]
+    pub openai_api_key: Option<String>,
+    /// Emit a single structured JSON report.
+    #[arg(long, global = true)]
+    pub json: bool,
+    /// Print module states, progress, and timings (stderr with --json).
+    #[arg(long, global = true)]
+    pub verbose: bool,
     #[command(subcommand)]
-    pub(crate) command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
-    /// Import or fully verify an app-managed dictionary; no implicit downloads.
+    /// Generate a passage of 3–5 short sentences with one AI request.
+    Story(StoryArgs),
+    /// Show an exact generation request offline without calling an AI model.
+    PreviewStory(StoryArgs),
+    /// Explicitly prepare and cache vocabulary/topic embeddings.
+    PrepareRetrieval(StoryArgs),
+    /// Run bounded offline checks on one supplied sentence.
+    Analyze {
+        #[command(flatten)]
+        dictionary: DictionaryArgs,
+        #[arg(long, value_name = "PATH")]
+        input: PathBuf,
+    },
+    /// Import or fully verify a pinned dictionary offline.
     Dictionary {
         #[command(subcommand)]
         command: DictionaryCommand,
     },
-    /// Preview a topic-based story generation plan offline using cached embeddings.
-    PreviewStory {
-        #[command(flatten)]
-        story: StoryArgs,
-        /// Number of candidates to request in one provider call.
-        #[arg(long, default_value = "2")]
-        candidates: std::num::NonZeroUsize,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Explicitly prepare/cache lexical and brief embeddings; no generation.
-    PrepareRetrieval {
-        #[command(flatten)]
-        story: StoryArgs,
-        #[command(flatten)]
-        embedding: EmbeddingArgs,
-    },
-    /// Generate experimental sentences from either learner inventory source.
-    GenerateStory {
-        #[arg(long, required = true)]
-        allow_model_call: bool,
-        #[command(flatten)]
-        story: StoryArgs,
-        #[command(flatten)]
-        embedding: EmbeddingArgs,
-        #[command(flatten)]
-        dictionary: DictionaryArgs,
-        /// Number of candidates to request in one provider call.
-        #[arg(long, default_value = "2")]
-        candidates: std::num::NonZeroUsize,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Run bounded offline checks on one manually supplied sentence.
-    Analyze {
-        #[command(flatten)]
-        dictionary: DictionaryArgs,
-        /// Version-1 JSON sentence, grammar declarations, and explicit bindings.
-        #[arg(long, value_name = "PATH")]
-        input: PathBuf,
-        /// Emit structured analysis, original UTF-8 spans, and evaluation results.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Refresh the complete cache using WANIKANI_API_TOKEN.
+    /// Explicitly refresh the complete WaniKani cache.
     Sync,
-    /// Show cached observations without accessing the network.
+    /// Show cached source observations without network access.
     Status,
 }
 
-#[derive(Args)]
+#[derive(Args, Default)]
 pub(crate) struct StoryArgs {
-    /// Manual inventory; may supplement an explicitly selected WaniKani cache.
-    #[arg(long, value_name = "PATH", required_unless_present = "wanikani_cache")]
-    pub(crate) inventory: Option<PathBuf>,
+    /// Optional scene or subject. Otherwise create a scene around familiar words.
+    #[arg(long, conflicts_with = "request")]
+    topic: Option<String>,
+    /// Advanced story request JSON with optional topic and explicit targets.
     #[arg(long, value_name = "PATH")]
-    pub(crate) wanikani_cache: Option<PathBuf>,
-    #[arg(long, value_enum, default_value = "lesson-started")]
-    pub(crate) knowledge_policy: KnowledgePolicy,
+    request: Option<PathBuf>,
+    /// Shared text-model fallback; env: YOMIBU_MODEL.
+    #[arg(long)]
+    model: Option<String>,
+    /// Override the model for generation; env: YOMIBU_GENERATION_MODEL.
+    #[arg(long)]
+    generation_model: Option<String>,
+    /// Output format: passage (default) or sentence.
+    #[arg(long)]
+    format: Option<StoryFormat>,
+    /// Number of alternatives in the single generation request (default: 1).
+    #[arg(long)]
+    candidates: Option<std::num::NonZeroUsize>,
+    /// Enable an optional module; repeat for multiple modules.
+    #[arg(long, value_name = "MODULE")]
+    enable: Vec<ModuleId>,
+    /// Disable an optional module; repeat for multiple modules.
+    #[arg(long, value_name = "MODULE")]
+    disable: Vec<ModuleId>,
+    /// Manual inventory, optionally supplementing an explicit WaniKani cache.
     #[arg(long, value_name = "PATH")]
-    pub(crate) request: PathBuf,
+    inventory: Option<PathBuf>,
     #[arg(long, value_name = "PATH")]
-    pub(crate) embedding_cache: PathBuf,
-    /// Maximum selected vocabulary, including every explicit target (1..=16).
-    #[arg(long,default_value_t=12,value_parser=clap::value_parser!(u8).range(1..=16))]
-    pub(crate) select: u8,
-}
-#[derive(Clone, Copy, ValueEnum)]
-pub(crate) enum KnowledgePolicy {
-    LessonStarted,
-    RecordedPass,
-}
-#[derive(Clone, Copy, ValueEnum)]
-pub(crate) enum EmbeddingProvider {
-    LexicalBaseline,
-    Local,
-    Openai,
-}
-#[derive(Args)]
-pub(crate) struct EmbeddingArgs {
-    /// Explicit encoder; lexical-baseline is a comparison baseline, not semantic AI.
-    #[arg(long, value_enum)]
-    pub(crate) embedding_provider: Option<EmbeddingProvider>,
+    wanikani_cache: Option<PathBuf>,
+    /// WaniKani eligibility: lesson-started (default) or recorded-pass.
     #[arg(long)]
-    pub(crate) embedding_model: Option<String>,
+    knowledge_policy: Option<KnowledgePolicy>,
+    /// Selected words including targets (1..=16; default: 12).
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=16))]
+    select: Option<u8>,
+    /// Repeatable vocabulary sampling seed.
     #[arg(long)]
-    pub(crate) embedding_revision: Option<String>,
-    #[arg(long,value_parser=clap::value_parser!(u16).range(1..=4096))]
-    pub(crate) embedding_dimensions: Option<u16>,
-    /// Numeric loopback OpenAI-compatible endpoint, only for the local encoder.
-    #[arg(long, default_value = "http://127.0.0.1:11434/v1/")]
-    pub(crate) embedding_endpoint: String,
-    /// Permit hosted embedding requests sending lexical text and the story brief.
+    seed: Option<u64>,
+    #[command(flatten)]
+    dictionary: DictionaryArgs,
+    #[arg(long, value_name = "PATH")]
+    embedding_cache: Option<PathBuf>,
+    /// Encoder: lexical-baseline, local, or openai. Does not enable embeddings.
     #[arg(long)]
-    pub(crate) allow_embedding_call: bool,
+    embedding_provider: Option<EmbeddingProvider>,
+    #[arg(long)]
+    embedding_model: Option<String>,
+    #[arg(long)]
+    embedding_revision: Option<String>,
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=4096))]
+    embedding_dimensions: Option<u16>,
+    /// Numeric loopback OpenAI-compatible endpoint for a local encoder.
+    #[arg(long)]
+    embedding_endpoint: Option<String>,
+    /// Authorize hosted embedding calls sending vocabulary and topic text.
+    #[arg(long)]
+    allow_embedding_call: bool,
 }
 
-#[derive(Args)]
+impl StoryArgs {
+    pub fn settings(self) -> Settings {
+        Settings {
+            topic: self.topic,
+            request: self.request,
+            model: self.model,
+            generation_model: self.generation_model,
+            format: self.format,
+            candidates: self.candidates.map(std::num::NonZeroUsize::get),
+            enable: self.enable,
+            disable: self.disable,
+            inventory: self.inventory,
+            wanikani_cache: self.wanikani_cache,
+            knowledge_policy: self.knowledge_policy,
+            select: self.select.map(usize::from),
+            seed: self.seed,
+            dictionary: self.dictionary.dictionary,
+            dictionary_dir: self.dictionary.dictionary_dir,
+            embedding_cache: self.embedding_cache,
+            embedding_provider: self.embedding_provider,
+            embedding_model: self.embedding_model,
+            embedding_revision: self.embedding_revision,
+            embedding_dimensions: self.embedding_dimensions.map(usize::from),
+            embedding_endpoint: self.embedding_endpoint,
+            allow_embedding_call: self.allow_embedding_call.then_some(true),
+            ..Default::default()
+        }
+    }
+}
+#[derive(Args, Default)]
 pub(crate) struct DictionaryArgs {
-    /// External pinned dictionary: full SHA-256 verification and owned bytes.
+    /// External pinned dictionary; fully verified and held in owned memory.
     #[arg(long, value_name = "PATH", conflicts_with = "dictionary_dir")]
-    pub(crate) dictionary: Option<PathBuf>,
-    /// Managed installation (default: $HOME/.yomibu/dictionaries); published files must remain unchanged.
+    pub dictionary: Option<PathBuf>,
+    /// Managed dictionary root (default: <data-dir>/dictionaries); files must remain unchanged.
     #[arg(long, value_name = "PATH")]
-    pub(crate) dictionary_dir: Option<PathBuf>,
+    pub dictionary_dir: Option<PathBuf>,
 }
-
+impl DictionaryArgs {
+    pub fn settings(self) -> Settings {
+        Settings {
+            dictionary: self.dictionary,
+            dictionary_dir: self.dictionary_dir,
+            ..Default::default()
+        }
+    }
+}
 #[derive(Subcommand)]
 pub(crate) enum DictionaryCommand {
-    /// Copy and fully verify a dictionary and its publisher notices entirely offline.
+    /// Copy and fully verify a bundle and publisher notices offline.
     Import {
-        /// Directory containing system_core.dic, LEGAL and LICENSE-2.0.txt.
         #[arg(long, value_name = "PATH")]
         bundle: PathBuf,
-        /// Managed installation root (default: $HOME/.yomibu/dictionaries).
         #[arg(long, value_name = "PATH")]
         dictionary_dir: Option<PathBuf>,
     },
-    /// Fully verify the current dictionary and both notices without changing files.
+    /// Fully verify the installed dictionary and publisher notices offline.
     Verify {
         #[arg(long, value_name = "PATH")]
         dictionary_dir: Option<PathBuf>,

@@ -24,9 +24,9 @@ pub enum Error {
     ConflictingDuplicate { collection: &'static str, id: u64 },
     #[error("Unsafe or repeated pagination URL for WaniKani {endpoint}.")]
     Pagination { endpoint: &'static str },
-    #[error("Invalid HTTP client configuration or WANIKANI_API_TOKEN.")]
+    #[error("Invalid HTTP client configuration or YOMIBU_WANIKANI_API_KEY.")]
     Configuration,
-    #[error("Authentication failed; check WANIKANI_API_TOKEN and its read permissions.")]
+    #[error("Authentication failed; check YOMIBU_WANIKANI_API_KEY and its read permissions.")]
     Authentication,
     #[error("HTTP {status} from WaniKani {endpoint}.")]
     Http { endpoint: &'static str, status: u16 },

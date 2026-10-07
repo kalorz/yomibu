@@ -41,6 +41,8 @@ impl<'a> StoryPreviewReport<'a> {
 }
 #[derive(Serialize)]
 pub struct StoryCandidateReport<'a> {
+    pub passage_index: usize,
+    pub sentence_span: &'a std::ops::Range<usize>,
     #[serde(flatten)]
     pub candidate: candidate::CandidateReport<'a>,
     pub targets: &'a [TargetObservation],
@@ -68,18 +70,30 @@ impl<'a> StoryReport<'a> {
             notice: candidate::NOTICE,
             plan: StoryPreviewReport::new(request, plan),
             generation: generated.provenance(),
-            candidates: result
-                .assessments()
+            candidates: generated
+                .passages()
                 .iter()
                 .enumerate()
-                .map(|(i, assessment)| StoryCandidateReport {
-                    candidate: candidate::CandidateReport::new(
-                        i + 1,
-                        &generated.texts()[i],
-                        &assessment.assessment,
-                    ),
-                    targets: &assessment.targets,
-                    plan_departures: &assessment.plan_departures,
+                .flat_map(|(index, passage)| {
+                    passage
+                        .sentence_spans
+                        .iter()
+                        .map(move |span| (index + 1, span, &passage.text[span.clone()]))
+                })
+                .zip(result.assessments())
+                .enumerate()
+                .map(|(i, ((passage_index, sentence_span, text), assessment))| {
+                    StoryCandidateReport {
+                        passage_index,
+                        sentence_span,
+                        candidate: candidate::CandidateReport::new(
+                            i + 1,
+                            text,
+                            &assessment.assessment,
+                        ),
+                        targets: &assessment.targets,
+                        plan_departures: &assessment.plan_departures,
+                    }
                 })
                 .collect(),
         }

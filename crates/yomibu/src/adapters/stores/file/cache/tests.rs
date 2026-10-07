@@ -12,12 +12,49 @@ fn seeded_cache() -> (tempfile::TempDir, WaniKaniSyncData) {
     (dir, next)
 }
 
+#[test]
+fn oversized_source_caches_are_rejected_without_modifying_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("wanikani.json");
+    let file = fs::File::create(&path).unwrap();
+    let size = 64 * 1024 * 1024 + 1;
+    file.set_len(size).unwrap();
+    assert!(load(dir.path()).unwrap_err().to_string().contains("64 MiB"));
+    assert_eq!(file.metadata().unwrap().len(), size);
+}
+
+#[test]
+fn an_oversized_replacement_preserves_the_readable_source_cache() {
+    let (dir, mut next) = seeded_cache();
+    let before = fs::read(dir.path().join("wanikani.json")).unwrap();
+    next.learner.username = "x".repeat(64 * 1024 * 1024);
+    let guard = SyncGuard::acquire(dir.path()).unwrap();
+    let error = guard.replace(&next).unwrap_err();
+    assert!(error.to_string().contains("64 MiB"));
+    assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+}
+
+#[test]
+fn a_custom_cache_named_lock_retains_its_writer_lock_after_replacement() {
+    let (dir, next) = seeded_cache();
+    let path = dir.path().join("knowledge.lock");
+    fs::rename(dir.path().join("wanikani.json"), &path).unwrap();
+    let writer = SyncGuard::acquire_path(&path).unwrap();
+    writer.replace(&next).unwrap();
+    assert!(matches!(
+        SyncGuard::acquire_path(&path),
+        Err(WriteError::Locked)
+    ));
+    assert_eq!(load_path(&path).unwrap(), next);
+}
+
 fn staging_file(dir: &Path) -> PathBuf {
     fs::read_dir(dir)
         .unwrap()
         .map(|e| e.unwrap().path())
         .find(|p| {
-            !["wanikani.json", "wanikani.lock"]
+            !["wanikani.json", "wanikani.json.lock"]
                 .iter()
                 .any(|name| p.file_name().unwrap() == *name)
         })
@@ -193,7 +230,7 @@ fn killed_writer_releases_lock_and_leaves_a_complete_old_or_new_cache() {
         let old_bytes = fs::read(&path).unwrap();
         let mut opened_before_replacement = fs::File::open(&path).unwrap();
         let mut child = WriterChild::at(dir.path(), step);
-        let lock_inode = fs::metadata(dir.path().join("wanikani.lock"))
+        let lock_inode = fs::metadata(dir.path().join("wanikani.json.lock"))
             .unwrap()
             .ino();
         assert!(matches!(
@@ -230,7 +267,7 @@ fn killed_writer_releases_lock_and_leaves_a_complete_old_or_new_cache() {
         assert_eq!(still_old, old_bytes);
         let guard = SyncGuard::acquire(dir.path()).unwrap();
         assert_eq!(
-            fs::metadata(dir.path().join("wanikani.lock"))
+            fs::metadata(dir.path().join("wanikani.json.lock"))
                 .unwrap()
                 .ino(),
             lock_inode

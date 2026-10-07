@@ -7,15 +7,20 @@ mod request;
 mod selection;
 
 pub use assessment::{
-    PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, assess_candidates,
+    PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, StoryPassageAssessment,
+    assess_candidates, assess_passages,
 };
 pub use observation::{
     TargetCoverage, TargetKind, TargetObservation, TargetState, TargetUncertainty,
     TargetUncertaintyReason, TargetUncertaintyScope,
 };
 pub use preparation::{STORY_PROMPT_REVISION, fit_selection_and_build_request};
-pub use request::{PracticeTargets, StoryError, StoryGenerationOptions, StoryRequest};
-pub use selection::{SelectedVocabulary, StoryVocabularySelection, select_vocabulary};
+pub use request::{
+    PracticeTargets, StoryError, StoryFormat, StoryGenerationOptions, StoryRequest, StoryTopic,
+};
+pub use selection::{
+    SelectedVocabulary, StoryVocabularySelection, select_builtin_vocabulary, select_vocabulary,
+};
 
 use crate::{
     adapters::{
@@ -29,13 +34,9 @@ use crate::{
 
 impl StoryGenerationOptions {
     pub fn validate(&self) -> Result<(), StoryError> {
-        openai::output_token_budget(self.candidate_count)
-            .map(|_| ())
-            .map_err(|_| {
-                StoryError::Invalid(
-                    "candidate count must be positive and fit the output token budget",
-                )
-            })
+        openai::output_token_budget(self).map(|_| ()).map_err(|_| {
+            StoryError::Invalid("candidate count must be positive and fit the output token budget")
+        })
     }
 }
 
@@ -98,7 +99,7 @@ pub async fn generate_story(
 /// let analyzer = SudachiAnalyzer::load(dictionary)?;
 /// let client = Client::new(api_key)?;
 /// let result = generate_story(&plan, &client, &analyzer).await?;
-/// assert_eq!(result.candidates().texts().len(), result.assessments().len());
+/// assert_eq!(result.candidates().passages().iter().map(|p| p.sentence_spans.len()).sum::<usize>(), result.assessments().len());
 /// # Ok(())
 /// # }
 /// ```
@@ -116,9 +117,7 @@ impl<'a> StoryGenerationPlan<'a> {
         &self.prepared_request
     }
     pub fn generation_options(&self) -> StoryGenerationOptions {
-        StoryGenerationOptions {
-            candidate_count: self.prepared_request.candidate_count(),
-        }
+        self.prepared_request.options().clone()
     }
 }
 

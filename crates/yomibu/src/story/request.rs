@@ -12,7 +12,26 @@ use crate::{
 pub(super) const MAX_SELECTED_VOCABULARY_ENTRIES: usize = 16;
 const MAX_VOCABULARY_TARGET_IDS: usize = 16;
 const MAX_GRAMMAR_TARGET_IDS: usize = 16;
-const MAX_STORY_BRIEF_BYTES: usize = 2048;
+const MAX_STORY_TOPIC_BYTES: usize = 2048;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct StoryTopic(String);
+
+impl StoryTopic {
+    pub fn new(text: String) -> Result<Self, StoryError> {
+        if text.trim().is_empty() || text.len() > MAX_STORY_TOPIC_BYTES {
+            return Err(StoryError::Invalid(
+                "topic must be nonblank and at most 2048 bytes",
+            ));
+        }
+        Ok(Self(text))
+    }
+
+    pub fn text(&self) -> &str {
+        &self.0
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,18 +43,41 @@ pub struct PracticeTargets {
 #[serde(deny_unknown_fields)]
 pub struct StoryRequest {
     pub version: u32,
-    pub brief: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<StoryTopic>,
     pub targets: PracticeTargets,
 }
-/// Execution choices, separate from the requested story's brief and targets.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// Execution choices, separate from the requested story's topic and targets.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StoryFormat {
+    Sentence,
+    #[default]
+    Passage,
+}
+impl StoryFormat {
+    pub fn sentence_bounds(self) -> (usize, usize) {
+        match self {
+            Self::Sentence => (1, 1),
+            Self::Passage => (3, 5),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StoryGenerationOptions {
     pub candidate_count: usize,
+    pub format: StoryFormat,
+    pub model: String,
 }
 impl Default for StoryGenerationOptions {
     fn default() -> Self {
-        Self { candidate_count: 2 }
+        Self {
+            candidate_count: 1,
+            format: StoryFormat::Passage,
+            model: "gpt-6-luna".into(),
+        }
     }
 }
 #[derive(Debug, thiserror::Error)]
@@ -61,16 +103,21 @@ impl StoryRequest {
         }
         Ok(())
     }
-    pub fn validate(&self, inventory: &LearnerInventory) -> Result<(), StoryError> {
-        inventory.validate()?;
+    pub fn validate_shape(&self) -> Result<(), StoryError> {
         if self.version != 1
-            || self.brief.trim().is_empty()
-            || self.brief.len() > MAX_STORY_BRIEF_BYTES
+            || self.topic.as_ref().is_some_and(|topic| {
+                topic.text().trim().is_empty() || topic.text().len() > MAX_STORY_TOPIC_BYTES
+            })
             || self.targets.vocabulary.len() > MAX_VOCABULARY_TARGET_IDS
             || self.targets.grammar.len() > MAX_GRAMMAR_TARGET_IDS
         {
-            return Err(StoryError::Invalid("version, brief or target limits"));
+            return Err(StoryError::Invalid("version, topic or target limits"));
         }
+        Ok(())
+    }
+    pub fn validate(&self, inventory: &LearnerInventory) -> Result<(), StoryError> {
+        inventory.validate()?;
+        self.validate_shape()?;
         let mut seen = BTreeSet::new();
         for id in &self.targets.vocabulary {
             if !seen.insert(id) || !inventory.vocabulary.iter().any(|w| &w.id == id) {

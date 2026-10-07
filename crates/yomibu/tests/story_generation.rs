@@ -24,7 +24,7 @@ fn inventory() -> LearnerInventory {
 #[tokio::test]
 async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_full_inventory() {
     let inventory = inventory();
-    let request:StoryRequest=serde_json::from_value(json!({"version":1,"brief":"A cat sleeping","targets":{"vocabulary":["cat","sleep"],"grammar":["polite"]}})).unwrap();
+    let request:StoryRequest=serde_json::from_value(json!({"version":1,"topic":"A cat sleeping","targets":{"vocabulary":["cat","sleep"],"grammar":["polite"]}})).unwrap();
     let encoder = LexicalEmbedder::new();
     let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
     let cache = EmbeddingCache::from_vectors(
@@ -39,7 +39,7 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
         &cache,
         encoder.model_identity(),
         2,
-        Default::default(),
+        sentence_options(2),
     )
     .unwrap();
     let prepared_request = plan.prepared_request();
@@ -55,15 +55,28 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
         ["qzxvは寝ます。", "猫は寝ます。"],
     ] {
         server.reset().await;
-        Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair}).to_string()}]}]}))).expect(1).mount(&server).await;
-        let result = generate_story(&plan, &client, &analyzer).await.unwrap();
+        Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair.iter().map(|sentence| json!({"sentences":[sentence]})).collect::<Vec<_>>()}).to_string()}]}]}))).expect(1).mount(&server).await;
+        let result = generate_story(&plan, &client, &analyzer).await;
+        if pair[0].trim().is_empty() {
+            assert!(result.is_err());
+            continue;
+        }
+        let result = result.unwrap();
         let results = result.assessments();
         let report = serde_json::to_value(StoryReport::new(&request, &plan, &result)).unwrap();
         assert_eq!(
             report["candidates"][1]["assessment"]["evaluation"]["basis"],
             "full_learner_inventory"
         );
-        assert_eq!(result.candidates().texts(), &pair);
+        assert_eq!(
+            result
+                .candidates()
+                .passages()
+                .iter()
+                .map(|passage| passage.text.as_str())
+                .collect::<Vec<_>>(),
+            &pair
+        );
         assert_eq!(
             server.received_requests().await.unwrap()[0].body,
             prepared_request.body_utf8().as_bytes()
@@ -202,7 +215,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
             other.direct_object = Some(false);
             inventory.vocabulary.push(other);
         }
-        let request:StoryRequest=serde_json::from_value(json!({"version":1,"brief":"A cat resting","targets":{"vocabulary":["sleep"],"grammar":[]}})).unwrap();
+        let request:StoryRequest=serde_json::from_value(json!({"version":1,"topic":"A cat resting","targets":{"vocabulary":["sleep"],"grammar":[]}})).unwrap();
         if case == "competing_object" {
             let mut alternative = inventory.vocabulary[2].clone();
             alternative.id = "another-use".into();
@@ -230,7 +243,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
             &cache,
             encoder.model_identity(),
             2,
-            Default::default(),
+            sentence_options(2),
         )
         .unwrap();
         let pair = if case == "compound_component" {
@@ -247,7 +260,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
             ["猫は寝ます。", "qzxvは寝ます。"]
         };
         server.reset().await;
-        Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair}).to_string()}]}]}))).mount(&server).await;
+        Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair.iter().map(|sentence| json!({"sentences":[sentence]})).collect::<Vec<_>>()}).to_string()}]}]}))).mount(&server).await;
         let result = generate_story(&plan, &client, &analyzer).await.unwrap();
         let results = result.assessments();
         for (index, result) in results.iter().enumerate() {
@@ -308,7 +321,7 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
     let server = MockServer::start().await;
     let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
     for count in [1, 3, 8, 9] {
-        let request: StoryRequest = serde_json::from_value(json!({"version":1,"brief":"A cat sleeping","targets":{"vocabulary":["cat","sleep"],"grammar":[]}})).unwrap();
+        let request: StoryRequest = serde_json::from_value(json!({"version":1,"topic":"A cat sleeping","targets":{"vocabulary":["cat","sleep"],"grammar":[]}})).unwrap();
         let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
         let cache = EmbeddingCache::from_vectors(
             encoder.model_identity().clone(),
@@ -324,6 +337,8 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
             2,
             yomibu::story::StoryGenerationOptions {
                 candidate_count: count,
+                format: yomibu::story::StoryFormat::Sentence,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -350,13 +365,13 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
                 texts[1] = " \n";
             }
             server.reset().await;
-            Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":texts}).to_string()}]}]}))).expect(1).mount(&server).await;
+            Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":texts.iter().map(|sentence| json!({"sentences":[sentence]})).collect::<Vec<_>>()}).to_string()}]}]}))).expect(1).mount(&server).await;
             let result = generate_story(&plan, &client, &analyzer).await;
             assert_eq!(
                 server.received_requests().await.unwrap()[0].body,
                 prepared_request.body_utf8().as_bytes()
             );
-            if returned_count != count {
+            if returned_count != count || texts.iter().any(|text| text.trim().is_empty()) {
                 assert!(
                     result.is_err(),
                     "requested {count}, returned {returned_count}"
@@ -364,18 +379,31 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
                 continue;
             }
             let result = result.unwrap();
-            assert_eq!(result.candidates().texts(), texts.as_slice());
+            assert_eq!(
+                result
+                    .candidates()
+                    .passages()
+                    .iter()
+                    .map(|passage| passage.text.as_str())
+                    .collect::<Vec<_>>(),
+                texts.as_slice()
+            );
             let assessments = result.assessments();
             assert_eq!(assessments.len(), count);
-            for (i, assessment) in assessments.iter().enumerate() {
-                assert_eq!(
-                    matches!(
-                        assessment.assessment,
-                        CandidateAssessment::ExecutionError { .. }
-                    ),
-                    i == 1
-                );
+            for assessment in assessments {
+                assert!(!matches!(
+                    assessment.assessment,
+                    CandidateAssessment::ExecutionError { .. }
+                ));
             }
         }
+    }
+}
+
+fn sentence_options(candidate_count: usize) -> yomibu::story::StoryGenerationOptions {
+    yomibu::story::StoryGenerationOptions {
+        candidate_count,
+        format: yomibu::story::StoryFormat::Sentence,
+        ..Default::default()
     }
 }

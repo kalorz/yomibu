@@ -1,9 +1,9 @@
 //! Terminal presentation of shared analysis report data.
 use super::{state_label, write_checks};
 use std::io::Write;
-use yomibu::reports::analysis::AnalysisReport;
+use yomibu::app::local::AnalysisRunReport;
 
-pub(crate) fn write_text(out: &mut impl Write, report: &AnalysisReport<'_>) -> std::io::Result<()> {
+pub(crate) fn write_text(out: &mut impl Write, report: &AnalysisRunReport) -> std::io::Result<()> {
     writeln!(out, "{}", report.evaluation.notice)?;
     writeln!(out, "Overall: {} (completed)", state_label(report.outcome))?;
     let original = report.analysis.sentence.text();

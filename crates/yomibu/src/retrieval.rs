@@ -187,10 +187,12 @@ pub fn prepare_embedding_inputs(
             ),
         })
         .collect();
-    inputs.push(EmbeddingInput {
-        purpose: EmbeddingPurpose::Query,
-        text: request.brief.clone(),
-    });
+    if let Some(topic) = &request.topic {
+        inputs.push(EmbeddingInput {
+            purpose: EmbeddingPurpose::Query,
+            text: topic.text().to_owned(),
+        });
+    }
     validate_embedding_input_sizes(&inputs)?;
     Ok(inputs)
 }

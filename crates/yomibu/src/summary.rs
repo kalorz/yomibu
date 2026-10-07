@@ -2,9 +2,10 @@
 
 use crate::domain::{SubjectKind, ValidationError, WaniKaniSyncData};
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct Summary {
     pub username: String,
     pub level: u32,
@@ -18,9 +19,29 @@ pub struct Summary {
     pub hidden_subjects: usize,
     pub unavailable_content: usize,
     /// Assignment counts by source SRS system and raw stage; None means content is excluded.
+    #[serde(serialize_with = "serialize_srs_stages")]
     pub srs_stages: BTreeMap<Option<u64>, BTreeMap<u32, usize>>,
     pub reading_accuracy: Accuracy,
     pub meaning_accuracy: Accuracy,
+}
+
+fn serialize_srs_stages<S: serde::Serializer>(
+    groups: &BTreeMap<Option<u64>, BTreeMap<u32, usize>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct Group<'a> {
+        srs_system_id: Option<u64>,
+        stages: &'a BTreeMap<u32, usize>,
+    }
+    groups
+        .iter()
+        .map(|(&srs_system_id, stages)| Group {
+            srs_system_id,
+            stages,
+        })
+        .collect::<Vec<_>>()
+        .serialize(serializer)
 }
 
 impl WaniKaniSyncData {
@@ -90,7 +111,7 @@ impl WaniKaniSyncData {
 }
 
 /// Exact aggregate counts; a missing percentage means no answers were recorded.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Accuracy {
     correct: u128,
     total: u128,

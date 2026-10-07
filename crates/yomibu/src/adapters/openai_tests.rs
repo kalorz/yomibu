@@ -96,7 +96,7 @@ async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
     let request = prepared_request();
     let envelope = json!({"id":"resp_synthetic","model":"reported","status":"completed","output":[
         {"type":"message","role":"assistant","status":"completed","content":[
-            {"type":"output_text","text":"{\"candidates\":[\"犬です。\",\"猫です。\"]}"}]}]})
+            {"type":"output_text","text":json!({"candidates":[{"sentences":["犬です。"]},{"sentences":["猫です。"]}]}).to_string()}]}]})
     .to_string();
     for chunked in [false, true] {
         for size in [65536, 65537] {
@@ -137,7 +137,14 @@ async fn body_bound_applies_to_chunked_and_close_delimited_responses() {
 }
 
 fn prepared_request() -> PreparedRequest {
-    PreparedRequest::new("prompt", "data", "adapter-test-v1", 2, 16384).unwrap()
+    PreparedRequest::new(
+        "prompt",
+        "data",
+        "adapter-test-v1",
+        &sentence_options(2),
+        16384,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -145,7 +152,14 @@ fn preparation_uses_caller_budget_for_escaped_utf8_and_keeps_request_identity() 
     use sha2::{Digest, Sha256};
 
     let data = "\u{001b}\"\\\n猫".repeat(2000);
-    let request = PreparedRequest::new("prompt", &data, "test-prompt-v1", 3, usize::MAX).unwrap();
+    let request = PreparedRequest::new(
+        "prompt",
+        &data,
+        "test-prompt-v1",
+        &sentence_options(3),
+        usize::MAX,
+    )
+    .unwrap();
     let bytes = request.body_utf8().len();
     assert!(bytes > 16384);
     assert_eq!(request.candidate_count(), 3);
@@ -158,11 +172,18 @@ fn preparation_uses_caller_budget_for_escaped_utf8_and_keeps_request_identity() 
     assert_eq!(body["input"][1]["content"], data);
     assert_eq!(body["max_output_tokens"], 1536);
 
-    let exact = PreparedRequest::new("prompt", &data, "test-prompt-v1", 3, bytes).unwrap();
+    let exact = PreparedRequest::new(
+        "prompt",
+        &data,
+        "test-prompt-v1",
+        &sentence_options(3),
+        bytes,
+    )
+    .unwrap();
     assert_eq!(exact.body_utf8(), request.body_utf8());
     assert_eq!(exact.sha256(), request.sha256());
     assert!(matches!(
-        PreparedRequest::new("prompt", &data, "test-prompt-v1", 3, bytes - 1),
+        PreparedRequest::new("prompt", &data, "test-prompt-v1", &sentence_options(3), bytes - 1),
         Err(PreparationError::RequestTooLarge { bytes: actual, limit })
             if actual == bytes && limit == bytes - 1
     ));
@@ -170,20 +191,35 @@ fn preparation_uses_caller_budget_for_escaped_utf8_and_keeps_request_identity() 
 
 #[test]
 fn encoded_request_byte_limit_is_exact() {
-    let short = PreparedRequest::new("prompt", "x", "test-v1", 2, 16384).unwrap();
+    let short =
+        PreparedRequest::new("prompt", "x", "test-v1", &sentence_options(2), 16384).unwrap();
     let data = "x".repeat(1 + 16384 - short.body_utf8().len());
     assert_eq!(
-        PreparedRequest::new("prompt", &data, "test-v1", 2, 16384)
+        PreparedRequest::new("prompt", &data, "test-v1", &sentence_options(2), 16384)
             .unwrap()
             .body_utf8()
             .len(),
         16384
     );
     assert!(matches!(
-        PreparedRequest::new("prompt", &(data + "x"), "test-v1", 2, 16384),
+        PreparedRequest::new(
+            "prompt",
+            &(data + "x"),
+            "test-v1",
+            &sentence_options(2),
+            16384
+        ),
         Err(PreparationError::RequestTooLarge {
             bytes: 16385,
             limit: 16384
         })
     ));
+}
+
+fn sentence_options(candidate_count: usize) -> StoryGenerationOptions {
+    StoryGenerationOptions {
+        candidate_count,
+        format: crate::story::StoryFormat::Sentence,
+        ..Default::default()
+    }
 }

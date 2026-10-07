@@ -12,11 +12,11 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     analysis::MAX_SENTENCE_UNICODE_SCALARS,
-    candidate::{GeneratedCandidates, GenerationProvenance, TokenUsage},
+    candidate::{GeneratedCandidates, GeneratedPassage, GenerationProvenance, TokenUsage},
+    story::StoryGenerationOptions,
 };
 
 const BASE_URL: &str = "https://api.openai.com/v1/";
-const MODEL: &str = "gpt-6-luna";
 const OUTPUT_TOKENS_PER_CANDIDATE: usize = 512;
 const MAX_RESPONSE_BODY_BYTES: usize = 65536;
 #[derive(Debug, thiserror::Error)]
@@ -32,10 +32,11 @@ pub enum PreparationError {
 }
 
 /// Immutable OpenAI Responses bytes and the identity used to execute them.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct PreparedRequest {
-    candidate_count: usize,
+    options: StoryGenerationOptions,
     prompt_revision: &'static str,
+    #[serde(rename = "body_utf8")]
     body: String,
     sha256: String,
 }
@@ -45,19 +46,21 @@ impl PreparedRequest {
         prompt: &str,
         data: &str,
         prompt_revision: &'static str,
-        candidate_count: usize,
+        options: &StoryGenerationOptions,
         max_request_bytes: usize,
     ) -> Result<Self, PreparationError> {
-        let max_output_tokens = output_token_budget(candidate_count)?;
+        let max_output_tokens = output_token_budget(options)?;
+        let candidate_count = options.candidate_count;
+        let (min_sentences, max_sentences) = options.format.sentence_bounds();
         let body = serde_json::to_string(&json!({
-            "model":MODEL, "service_tier":"default", "reasoning":{"effort":"none"},
+            "model":options.model, "service_tier":"default", "reasoning":{"effort":"none"},
             "max_output_tokens":max_output_tokens, "store":false, "background":false, "stream":false,
             "truncation":"disabled", "tools":[], "tool_choice":"none",
             "prompt_cache_options":{"mode":"explicit"},
             "input":[{"role":"developer","content":prompt},{"role":"user","content":data}],
-            "text":{"format":{"type":"json_schema","name":"sentence_candidates","strict":true,
+            "text":{"format":{"type":"json_schema","name":"story_candidates","strict":true,
                 "schema":{"type":"object","properties":{"candidates":{"type":"array",
-                    "minItems":candidate_count,"maxItems":candidate_count,"items":{"type":"string","minLength":1,"maxLength":MAX_SENTENCE_UNICODE_SCALARS}}},
+                    "minItems":candidate_count,"maxItems":candidate_count,"items":{"type":"object", "properties":{"sentences":{"type":"array","minItems":min_sentences,"maxItems":max_sentences,"items":{"type":"string","minLength":1,"maxLength":MAX_SENTENCE_UNICODE_SCALARS}}},"required":["sentences"],"additionalProperties":false}}},
                     "required":["candidates"],"additionalProperties":false}}}
         }))
         .map_err(|_| PreparationError::Serialization)?;
@@ -69,14 +72,17 @@ impl PreparedRequest {
         }
         let sha256 = format!("{:x}", Sha256::digest(body.as_bytes()));
         Ok(Self {
-            candidate_count,
+            options: options.clone(),
             prompt_revision,
             body,
             sha256,
         })
     }
     pub fn candidate_count(&self) -> usize {
-        self.candidate_count
+        self.options.candidate_count
+    }
+    pub fn options(&self) -> &StoryGenerationOptions {
+        &self.options
     }
     pub fn prompt_revision(&self) -> &'static str {
         self.prompt_revision
@@ -89,10 +95,18 @@ impl PreparedRequest {
     }
 }
 
-pub(crate) fn output_token_budget(candidate_count: usize) -> Result<usize, PreparationError> {
-    candidate_count
+pub(crate) fn output_token_budget(
+    options: &StoryGenerationOptions,
+) -> Result<usize, PreparationError> {
+    options
+        .candidate_count
         .checked_mul(OUTPUT_TOKENS_PER_CANDIDATE)
-        .filter(|_| candidate_count > 0)
+        .and_then(|tokens| tokens.checked_mul(options.format.sentence_bounds().1))
+        .filter(|_| {
+            options.candidate_count > 0
+                && !options.model.trim().is_empty()
+                && options.model.len() <= 256
+        })
         .ok_or(PreparationError::InvalidCandidateCount)
 }
 
@@ -275,11 +289,37 @@ impl Client {
         if candidates.candidates.len() != request.candidate_count() {
             return Err(ProviderError::InvalidResponse);
         }
+        let (min, max) = request.options.format.sentence_bounds();
+        let passages = candidates
+            .candidates
+            .into_iter()
+            .map(|candidate| {
+                if !(min..=max).contains(&candidate.sentences.len()) {
+                    return Err(ProviderError::InvalidResponse);
+                }
+                let mut text = String::new();
+                let mut sentence_spans = Vec::new();
+                for sentence in candidate.sentences {
+                    if sentence.trim().is_empty()
+                        || sentence.chars().count() > MAX_SENTENCE_UNICODE_SCALARS
+                    {
+                        return Err(ProviderError::InvalidResponse);
+                    }
+                    let start = text.len();
+                    text.push_str(&sentence);
+                    sentence_spans.push(start..text.len());
+                }
+                Ok(GeneratedPassage {
+                    text,
+                    sentence_spans,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(GeneratedCandidates {
-            texts: candidates.candidates,
+            passages,
             provenance: GenerationProvenance {
                 provider: "OpenAI",
-                requested_model: MODEL,
+                requested_model: request.options.model.clone(),
                 returned_model: envelope.model,
                 requested_tier: "default",
                 returned_tier: envelope.service_tier,
@@ -342,7 +382,13 @@ enum Content {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Payload {
-    candidates: Vec<String>,
+    candidates: Vec<PassagePayload>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PassagePayload {
+    sentences: Vec<String>,
 }
 
 #[cfg(test)]

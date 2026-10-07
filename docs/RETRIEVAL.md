@@ -17,8 +17,7 @@ proof that the provider keeps weights immutable.
 
 Flat cosine ranking uses f64 accumulation and stable ID ties. Every explicit
 vocabulary target is retained, irrespective of similarity. No vector database,
-plugin registry, server launcher or new dependency is introduced. Only explicit
-retrieval preparation performs I/O. Selection and input preparation are synchronous;
+plugin registry, server launcher or new dependency is introduced. Explicit preparation and enabled story embeddings can prepare missing vectors. Selection and input preparation are synchronous;
 encoding through `prepare_cache` is async and driven by the caller's executor.
 
 Library `retrieval::prepare_cache` groups at most 32 missing inputs; the HTTP adapter further splits groups by actual
@@ -43,7 +42,7 @@ or credentials. Missing vectors never cause an implicit hosted request.
 ## Reproducible small probe
 
 The public synthetic [cases](../tests/fixtures/story/retrieval-cases.json) have
-10 vocabulary documents and six briefs, with labeled relevant IDs and no forced
+10 vocabulary documents and six topics, with labeled relevant IDs and no forced
 targets. Run the same inputs for each backend, independently of generation:
 
 ```sh
@@ -64,7 +63,7 @@ python3 scripts/compare_story_retrieval.py target/debug/yomibu \
 
 The script fails if the requested encoder is unavailable; it never substitutes
 another one. It uses a fresh temporary cache per run, reusing documents between
-briefs. Reported preparation times include CLI startup/cache reads and writes;
+topics. Reported preparation times include CLI startup/cache reads and writes;
 the first case prepares documents and query, later cases prepare only queries.
 They are exploratory timings, not controlled embedding-only latency measurements.
 
@@ -102,5 +101,4 @@ encoder and drives async I/O; the library resolves no credentials or runtime.
 malformed data; `save` validates before creating temporary files and publishes one
 complete cache. It distinguishes errors before
 replacement from uncertain directory durability afterwards. Both enforce the
-existing 128 MiB readable-cache limit. Paths and encoder configuration are chosen
-by the CLI or another caller.
+existing 128 MiB readable-cache limit. The application chooses paths and encoder configuration from supplied settings.

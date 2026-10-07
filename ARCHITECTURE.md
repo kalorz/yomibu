@@ -7,7 +7,8 @@ intent and constraints; [PLAN](PLAN.md) lists open work.
 
 | Task | Start here | Tests |
 | --- | --- | --- |
-| CLI flags, resources, output | [CLI source](crates/yomibu-cli/src/) | [Executable tests](crates/yomibu-cli/tests/) |
+| CLI arguments and output | [CLI source](crates/yomibu-cli/src/) | [Executable tests](crates/yomibu-cli/tests/) |
+| First-run configuration, resources and workflow | [Application modules](crates/yomibu/src/app/) | [Configuration](crates/yomibu/tests/configuration.rs), [first run](crates/yomibu/tests/local_application.rs), [passages](crates/yomibu/tests/passage_generation.rs) |
 | Sync and offline status | [app.rs](crates/yomibu/src/app.rs), [WaniKani adapter](crates/yomibu/src/adapters/sources/wanikani/), [file store](crates/yomibu/src/adapters/stores/file/) | [App](crates/yomibu/tests/app.rs), [summaries](crates/yomibu/tests/summary.rs); adapter fault tests live beside their source |
 | Allowed learner material | [knowledge.rs](crates/yomibu/src/knowledge.rs) → [inventory.rs](crates/yomibu/src/inventory.rs) | [Knowledge](crates/yomibu/tests/knowledge.rs), [inventory](crates/yomibu/tests/inventory.rs) |
 | Sentence analysis and checks | [Sudachi adapter](crates/yomibu/src/adapters/sudachi.rs), [evaluation](crates/yomibu/src/evaluation/) | [Sudachi](crates/yomibu/tests/sudachi.rs), [evaluation](crates/yomibu/tests/evaluation.rs) |
@@ -20,8 +21,9 @@ intent and constraints; [PLAN](PLAN.md) lists open work.
 
 ## Execution and ownership
 
-The CLI owns environment lookup, credentials, resource selection, runtimes, output,
-and exit status. Library callers supply these explicitly. Constructors do no I/O.
+The CLI parses arguments, supplies environment values, drives the runtime, and
+renders results. The application resolves configuration, prepares resources,
+applies cache/capability policies, and emits progress. Constructors do no I/O.
 Pure calculations and file operations are synchronous; network calls use the caller's
 executor. Current sync file operations run on that caller's thread.
 

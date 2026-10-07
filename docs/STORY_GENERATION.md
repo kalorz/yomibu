@@ -1,13 +1,9 @@
 # Shared story generation
 
-The current experimental path accepts either manual material or an explicit
-WaniKani cache. Source conversion ends at `LearnerInventory`; both sources use
-the same request, selection, generation and assessment code. Sync, status and
-supplied-text analysis are separate use cases. See the
-[module map](../ARCHITECTURE.md#current-module-map) for source navigation and the
-[glossary](GLOSSARY.md) for terms.
-
-"Story" includes scenes and dialogues. Current generation produces single sentences.
+`story` creates a passage of 3–5 short sentences with one generation attempt.
+Use `--format sentence` for one sentence. No topic, dictionary, or embeddings are
+required. These readings remain experimental; verification, acceptance and repair
+have not run. See the [module map](../ARCHITECTURE.md#current-module-map).
 
 ## Inputs and meaning
 
@@ -16,7 +12,7 @@ Use the complete [inventory](../tests/fixtures/story/inventory.json) and
 
 - The inventory contains all allowed material. WaniKani eligibility uses explicit
   `lesson-started` or `recorded-pass` policy; eligibility does not prove mastery.
-- The request contains a free-form `brief` and vocabulary/grammar target IDs.
+- The request contains an optional `topic` and vocabulary/grammar target IDs.
   Targets must exist in the inventory and grant no new permissions. Empty lists are valid.
 - Selection is the vocabulary sent in the prompt. Assessment uses the full inventory.
   The provider receives no whole account, progress history or unselected vocabulary.
@@ -36,91 +32,71 @@ A single reading and meaning still does not establish contextual correctness.
 The original source cache is unchanged and remains the evidence record; the
 projection retains source subject IDs and exclusions.
 
-## Commands
+## Configuration and optional work
 
-From the repository root, explicitly prepare an offline **lexical baseline**:
+Supply `YOMIBU_WANIKANI_API_KEY` and `YOMIBU_OPENAI_API_KEY`, or the corresponding
+`--wanikani-api-key` and `--openai-api-key` flags. Flags win. Credentials are never
+saved or included in reports. WaniKani needs [read access without write permissions](https://docs.api.wanikani.com/20170710/#authentication).
+OpenAI needs [response creation and selected-model access](https://developers.openai.com/api/docs/guides/terraform/service-accounts#assign-least-privilege-permissions).
+A usable cached/manual inventory removes the WaniKani-key requirement.
 
-```sh
-cargo run --locked -- prepare-retrieval \
-  --inventory tests/fixtures/story/inventory.json \
-  --request tests/fixtures/story/request.json \
-  --embedding-cache /tmp/yomibu-vectors.json \
-  --embedding-provider lexical-baseline
+Storage uses `--data-dir`, `YOMIBU_DATA_DIR`, or `$HOME/.yomibu`. Optional
+`config.toml` lives there; `--config` or `YOMIBU_CONFIG` selects another file.
+Non-secret settings resolve flags → supported `YOMIBU_` bindings → file → defaults.
+Environment names use the uppercase setting name. File paths are relative to the
+configuration file. Invalid TOML fails without reflecting its contents.
 
-cargo run --locked -- preview-story \
-  --inventory tests/fixtures/story/inventory.json \
-  --request tests/fixtures/story/request.json \
-  --embedding-cache /tmp/yomibu-vectors.json --json
+```toml
+model = "gpt-6-luna"
+# generation_model overrides the shared text fallback after source resolution.
+disable = ["assessment"]
+# inventory = "inventory.json"
 ```
 
-The baseline is token overlap in hashed vectors, **not a semantic model**. It is
-never an automatic fallback. See [retrieval evidence](RETRIEVAL.md).
+`--model` supplies a text fallback; `--generation-model` overrides it.
+Embedding provider/model/revision/dimensions are separate. Configuring them does
+not enable embeddings. Partial settings require a provider; they never override
+an unrelated cached model. Repeat `--enable MODULE` / `--disable MODULE` for `sync`,
+`embeddings`, and `assessment`. Saved `enable`/`disable` lists work the same way;
+environment lists use commas. CLI controls win; conflicting controls fail.
+Disabled modules perform no initialization or I/O. Explicit resource commands
+still require their resources.
 
-Replace `--inventory PATH` with `--wanikani-cache PATH` to read a saved schema-1
-WaniKani cache, optionally adding `--inventory PATH` for manual material/grammar.
-`--knowledge-policy recorded-pass` changes eligibility. Story commands ignore
-`--data-dir`; paths are explicit and no implicit sync occurs.
+Sync and available local assessment default to enabled. Embeddings require
+explicit enablement. Hosted embeddings additionally require
+`--allow-embedding-call`; see [retrieval](RETRIEVAL.md). No dictionary is downloaded.
+Optional failures warn and preserve generated text, using built-in selection when
+retrieval fails. Preview remains offline and never refreshes resources.
 
-Preview and generation accept `--candidates N` (positive integer, default 2).
-This belongs to execution options, not the story-request JSON. The effective
-options appear separately as `generation_options` in the preview/report. There
-is no fixed count ceiling. The output-token budget is `512 × N`, checked for
-arithmetic overflow before embedding/dictionary/credential work. Provider limits
-and the 64 KiB response cap still apply; large requests can fail.
-There is no automatic splitting, clamping or retry.
+## Topic and vocabulary
 
-Generation uses the preview flags plus `--allow-model-call`. It needs
-`OPENAI_API_KEY` in the process environment and a
-[dictionary](DICTIONARY.md#install-and-use-offline); `.env` is not loaded.
-It requests all candidates in one provider attempt, with no retry,
-repair, acceptance or automatic target selection.
+`--topic` is optional and conflicts with `--request PATH`. Advanced request JSON
+uses `topic` plus target IDs. Without a topic, the AI creates a coherent scene
+around locally sampled vocabulary. `--seed` makes selection repeatable.
+With a topic, built-in selection matches lexical terms; enabled cached/available
+embeddings can enhance it. No topic means no query retrieval. Explicit targets
+always come first. Preparation may trim supports to fit the request limit;
+it never drops targets. Simple grammar guidance does not infer grammar knowledge.
 
-Generation can prepare missing vectors when explicitly given embedding backend
-flags. Prefer the separate `prepare-retrieval` command when reviewing data
-transmission. Local HTTP embeddings require `--embedding-provider local`, a
-numeric loopback `--embedding-endpoint` ending in `/v1/`, and explicit model,
-revision and dimensions. Hosted embeddings require `--embedding-provider openai`,
-those identity fields, `OPENAI_API_KEY`, and **`--allow-embedding-call`** separately
-from generation opt-in. Hosted embeddings transmit lexical documents for the
-full eligible inventory and the brief, not source learner IDs/history. Cached
-vectors avoid repeated document calls; a changed brief needs its own query vector.
+## Cache
 
-Preview only reads files, validates, ranks cached vectors, prepares bytes and
-renders. It constructs no dictionary, credential, HTTP client or runtime, and
-never refreshes a missing/stale cache. It fails with `prepare-retrieval` guidance.
-
-## Follow the execution
-
-Start at the adjacent library functions `plan_generation` and `generate_story`
-in [`crates/yomibu/src/story/mod.rs`](../crates/yomibu/src/story/mod.rs):
-
-```text
-plan_generation (offline)
-  validate inputs/options/selection bounds
-  selection::select_vocabulary (once)
-  preparation::fit_selection_and_build_request (final selection + exact bytes)
-  assessment::StoryAssessmentInputs::new (full original inventory)
-  return immutable StoryGenerationPlan
-
-caller initializes dictionary/client after preflight
-
-generate_story (caller drives async I/O)
-  client.generate_candidates (one attempt; unchanged bytes)
-  assessment::assess_candidates (every text against full inventory)
-  return owned StoryGenerationResult
-```
-
-Selection ranks cached cosine similarity, with explicit vocabulary targets first
-in request order and ID-based ties for supports. Targets are never dropped to
-fit the request budget; lowest-ranked supports may be removed during request
-preparation. There is no second selection after generation. The final plan and
-exact request bytes/hash are included in preview and generation reports.
+A validated WaniKani cache younger than one hour is reused without requests.
+Missing/stale data triggers a complete refresh, with freshness rechecked under
+the writer lock. Temporary transport/server/rate-limit failures or writer
+contention may reuse a validated usable cache with a warning. An old cache without
+a key also warns. Disabled sync requires usable cached/manual knowledge.
+Authentication, account mismatch, corruption, invalid data, expired content access,
+and persistence failures remain errors. Preview and retrieval also reject expired
+content. `cache_max_age_seconds` can change the product default. `status` stays offline; `sync` always refreshes.
+WaniKani [recommends caching](https://docs.api.wanikani.com/20170710/#caching);
+conditional/incremental requests remain deferred.
 
 ## Assessment and output
 
-The plan binds selection, exact request bytes/hash/options and full-inventory inputs.
+The workflow binds selection, exact request bytes/hash/options and full-inventory inputs.
 The result owns original candidates, provenance, assessments and candidate errors;
-it remains usable after inputs/resources are dropped. Every candidate is attempted.
+it remains usable after inputs/resources are dropped. Available assessment
+checks every sentence.
 Completed Fail/Inconclusive judgments, execution errors and NotRun stay distinct.
 Vocabulary outside the selected plan but inside the full inventory is a plan
 departure, not a vocabulary failure. Unresolved alternatives/competing identities
@@ -135,12 +111,16 @@ resolve the object/predicate combination: the existing safeguard remains
 Inconclusive. These observations do not establish contextual reading/sense, topic
 adherence, naturalness or comprehension, and never trigger a retry.
 
-JSON kinds are `story_generation_plan_preview` and `experimental_story_candidates`,
-version 1. Prompt revision: `story-inventory-v1`. Text/JSON escape terminal
-controls while retaining original UTF-8 candidate spans and decoded request bytes.
-A candidate execution error exits 1 **after** writing every result. Completed
-Fail/Inconclusive results exit 0; provider/preflight errors exit 1 without a
-candidate report. CLI parsing errors exit 2.
+Normal stdout contains the passage; warnings use stderr. `--verbose` adds module
+states, progress and monotonic step timings to stdout. `--json --verbose` sends
+progress to stderr and writes one JSON report, including states and timings.
+Missing/disabled assessment returns `NotRun`; missing grammar knowledge leaves
+grammar-dependent checks unassessed. Optional assessment errors exit zero with
+warnings. Provider/preflight failures exit 1; parsing failures exit 2.
+Reports retain assembled text and sentence byte ranges. Terminal escaping preserves
+decoded JSON strings and original spans. JSON kinds are
+`story_generation_plan_preview` and `experimental_story`; prompt revision is
+`story-inventory-v2`.
 
 Evaluation JSON includes `basis: full_learner_inventory`. Target `uncertainties`
 include `span`, `scope`, `reason` and `inventory_entries`. Reasons use snake-case
@@ -150,15 +130,18 @@ include `span`, `scope`, `reason` and `inventory_entries`. Reasons use snake-cas
 
 Limits: manual input 4 MiB; WaniKani cache 64 MiB; request file 64 KiB; embedding
 cache 128 MiB; 10,000 vocabulary entries; 128 grammar descriptions; 512 bindings;
-16 vocabulary and 16 grammar targets; selection 1–16 entries; brief 2,048 bytes.
+16 vocabulary and 16 grammar targets; selection 1–16 entries; topic 2,048 bytes.
 Inventory IDs are at most 128 bytes; written forms 256; up to 32 readings of
 256 bytes and 32 meanings of 1,024 bytes; grammar descriptions 1,024 bytes.
 The joined embedding document for each word (including labels/separators) must
 fit 32 KiB; the entire set is checked before provider work. HTTP embedding batches
 also split at the 512 KiB encoded request limit, accounting for JSON escaping.
 Story preparation caps the final encoded OpenAI request at 16,384 bytes.
-Each candidate remains nonblank and at most 100 Unicode scalars. The output-token
-budget scales with count. OpenAI Responses uses `gpt-6-luna`, Standard/default tier, reasoning
+Each sentence remains nonblank and at most 100 Unicode scalars. Strict sentence
+arrays contain one sentence or 3–5 per passage. The output-token budget is
+`512 × maximum sentences × candidates`, checked for overflow. `--candidates`
+defaults to 1; no automatic splitting, clamping or retry occurs.
+OpenAI Responses uses the resolved model (`gpt-6-luna` by default), Standard/default tier, reasoning
 `none`, no tools/streaming/background work, `store: false`, truncation disabled
 and explicit prompt caching without breakpoints. Redirects, system/environment
 proxies and protocol retries are disabled. Connect timeout is 5 seconds; the

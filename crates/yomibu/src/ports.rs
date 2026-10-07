@@ -26,7 +26,8 @@ impl<Source: LearningSource + ?Sized> LearningSource for &mut Source {
 }
 
 /// What a successful replacement promises about the new version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Persistence {
     /// Retained only while the in-memory store has live handles.
     Volatile,

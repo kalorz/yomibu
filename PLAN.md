@@ -6,7 +6,7 @@ As of 2026-10-07. Use [README](README.md) for commands,
 ## Current status
 
 Sync/status, learner inventories, dictionary management, offline analysis,
-retrieval, story preview, and experimental sentence generation are implemented.
+retrieval, story preview, and first-run passage generation are implemented.
 Generation makes one requested provider attempt. It does not produce validated
 exercises or assess naturalness, meaning in context, or comprehension.
 

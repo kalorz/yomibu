@@ -1,5 +1,10 @@
 //! Explicit synchronization and offline status for one account-scoped store.
 
+pub mod config;
+pub mod local;
+pub mod modules;
+mod resources;
+
 use crate::{
     domain::ValidationError,
     ports::{LearningSource, LearningStore, Persistence, SourceSyncWriter},
@@ -68,7 +73,7 @@ impl<Store: LearningStore, Source: LearningSource> App<Store, Source> {
 }
 
 /// A successful, complete publication; retention depends on the selected store.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Serialize)]
 pub struct SyncReport {
     pub summary: Summary,
     pub persistence: Persistence,

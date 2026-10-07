@@ -20,6 +20,7 @@ pub struct CandidateReport<'a> {
 #[derive(Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum AssessmentReport<'a> {
+    NotRun,
     Completed {
         outcome: CheckState,
         evaluation: &'a Evaluation,
@@ -41,6 +42,7 @@ pub struct UnrunCheck {
 impl<'a> CandidateReport<'a> {
     pub fn new(index: usize, text: &'a str, assessment: &'a CandidateAssessment<'a>) -> Self {
         let (analysis, assessment) = match assessment {
+            CandidateAssessment::NotRun => (None, AssessmentReport::NotRun),
             CandidateAssessment::Completed {
                 analysis,
                 evaluation,
