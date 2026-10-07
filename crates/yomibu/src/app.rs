@@ -29,7 +29,6 @@ impl Operation {
         use Operation::*;
         match name {
             "wanikani_cache" => matches!(self, Story | Preview | Retrieval | Sync | Status),
-            "dictionary" => matches!(self, Story | Analyze(_)),
             "dictionary_dir" => matches!(self, Story | Analyze(_) | Import(_) | Verify),
             "model" | "generation_model" | "format" | "candidates" | "seed" => {
                 matches!(self, Story | Preview)

@@ -1,4 +1,4 @@
-// Managed dictionaries are absent or owned snapshots in these isolated tests.
+// Dictionaries are absent or incomplete in these isolated tests; none is mapped.
 use serde_json::json;
 use std::{collections::BTreeMap, time::SystemTime};
 use wiremock::{
@@ -458,6 +458,11 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
     .unwrap();
     let server = MockServer::start().await;
     mount_generation(&server, 2).await;
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(dir.path().join("managed"))
+        .unwrap();
     for assessment in [true, false] {
         let flags = Settings {
             inventory: Some(inventory.clone()),
@@ -469,7 +474,7 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
             } else {
                 vec![ModuleId::Assessment]
             },
-            dictionary: Some(dir.path().join("missing.dic")),
+            dictionary_dir: Some(dir.path().join("managed")),
             ..Default::default()
         };
         let app = LocalApp::new(

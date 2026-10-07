@@ -4,6 +4,7 @@ mod test_dictionary;
 use std::sync::OnceLock;
 
 use yomibu::{
+    adapters::dictionary::ManagedInstallation,
     adapters::sudachi::SudachiAnalyzer,
     analysis::Sentence,
     evaluation::{
@@ -16,8 +17,12 @@ use yomibu::{
 fn analyzer() -> &'static SudachiAnalyzer {
     static ANALYZER: OnceLock<SudachiAnalyzer> = OnceLock::new();
     ANALYZER.get_or_init(|| {
-        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic"))
-            .expect("install the pinned Core dictionary using scripts/setup_test_dictionary.py")
+        unsafe {
+            SudachiAnalyzer::load(
+                ManagedInstallation::open(test_dictionary::installation()).unwrap(),
+            )
+        }
+        .unwrap()
     })
 }
 

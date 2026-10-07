@@ -43,6 +43,14 @@ impl Fixture {
             .unwrap()
             .generation
     }
+
+    fn verify_generation(&self, generation: &str) {
+        let bundle = self.root.join("bundles").join(generation);
+        for pin in &self.files {
+            let mut file = File::open(bundle.join(&pin.name)).unwrap();
+            verify_file(&mut file, pin).unwrap();
+        }
+    }
 }
 
 #[test]
@@ -66,13 +74,7 @@ fn failed_copy_sync_and_publication_preserve_the_previous_complete_generation() 
         });
         assert!(result.is_err());
         assert_eq!(fs::read(fixture.root.join("current")).unwrap(), pointer);
-        for pin in &fixture.files {
-            verify_file(
-                &fixture.root.join("bundles").join(&old).join(&pin.name),
-                pin,
-            )
-            .unwrap();
-        }
+        fixture.verify_generation(&old);
         assert_ne!(fixture.import(), old);
     }
 }
@@ -115,17 +117,7 @@ fn final_sync_failure_reports_uncertain_durability_with_a_complete_new_generatio
     let new = fixture.current();
     assert_ne!(new, old);
     for generation in [old, new] {
-        for pin in &fixture.files {
-            verify_file(
-                &fixture
-                    .root
-                    .join("bundles")
-                    .join(&generation)
-                    .join(&pin.name),
-                pin,
-            )
-            .unwrap();
-        }
+        fixture.verify_generation(&generation);
     }
 }
 
@@ -167,25 +159,14 @@ fn candidate() -> (tempfile::TempDir, PathBuf, PathBuf) {
     )
     .unwrap();
     fs::set_permissions(root.join("current"), fs::Permissions::from_mode(0o600)).unwrap();
-    fs::write(
-        bundle.join("installation.json"),
-        serde_json::to_vec(&Receipt {
-            version: 1,
-            dictionary_version: DICTIONARY_VERSION.into(),
-            files: pins(),
-        })
-        .unwrap(),
-    )
-    .unwrap();
     let mut header = [0; 272];
     header[..8].copy_from_slice(&0xce9f011a92394434_u64.to_le_bytes());
     header[16..24].copy_from_slice(b"20260723");
     let mut file = File::create(bundle.join("system_core.dic")).unwrap();
     file.set_len(DICTIONARY_BYTES).unwrap();
     file.write_all(&header).unwrap();
-    for name in ["system_core.dic", "installation.json"] {
-        fs::set_permissions(bundle.join(name), fs::Permissions::from_mode(0o400)).unwrap();
-    }
+    file.set_permissions(fs::Permissions::from_mode(0o400))
+        .unwrap();
     for pin in pins()
         .into_iter()
         .filter(|pin| pin.name != "system_core.dic")
@@ -195,6 +176,22 @@ fn candidate() -> (tempfile::TempDir, PathBuf, PathBuf) {
         file.set_permissions(fs::Permissions::from_mode(0o400))
             .unwrap();
     }
+    fs::write(
+        bundle.join("installation.json"),
+        serde_json::to_vec(&Receipt {
+            version: RECEIPT_VERSION,
+            dictionary_version: DICTIONARY_VERSION.into(),
+            files: pins(),
+            dictionary_fingerprint: FileFingerprint::from(&file.metadata().unwrap()),
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    fs::set_permissions(
+        bundle.join("installation.json"),
+        fs::Permissions::from_mode(0o400),
+    )
+    .unwrap();
     (directory, root, bundle)
 }
 
@@ -222,8 +219,17 @@ fn incorrect_header_format_or_release_description_is_rejected_at_startup() {
             fs::Permissions::from_mode(0o400),
         )
         .unwrap();
+        let receipt_path = bundle.join("installation.json");
+        let mut receipt: Receipt = read_manifest_file(&receipt_path, true).unwrap();
+        receipt.dictionary_fingerprint = FileFingerprint::from(&file.metadata().unwrap());
+        fs::set_permissions(&receipt_path, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        fs::set_permissions(&receipt_path, fs::Permissions::from_mode(0o400)).unwrap();
         assert!(
-            ManagedInstallation::open(&root).is_err(),
+            matches!(
+                ManagedInstallation::open(&root),
+                Err(InstallationError::Invalid)
+            ),
             "startup accepted a wrong header"
         );
     }
@@ -344,11 +350,8 @@ fn malformed_unsupported_and_oversized_installation_records_are_rejected() {
         fs::Permissions::from_mode(0o600),
     )
     .unwrap();
-    let mut receipt = Receipt {
-        version: 1,
-        dictionary_version: DICTIONARY_VERSION.into(),
-        files: pins(),
-    };
+    let mut receipt: Receipt =
+        read_manifest_file(&bundle.join("installation.json"), false).unwrap();
     receipt.files[0].sha256 = "wrong pin".into();
     fs::write(
         bundle.join("installation.json"),
@@ -430,17 +433,7 @@ fn process_interruption_preserves_complete_generations_and_releases_writer_lock(
         let visible = fixture.current();
         assert_eq!(visible == old, step != ImportStep::SyncRoot);
         for generation in [old, visible] {
-            for pin in &fixture.files {
-                verify_file(
-                    &fixture
-                        .root
-                        .join("bundles")
-                        .join(&generation)
-                        .join(&pin.name),
-                    pin,
-                )
-                .unwrap();
-            }
+            fixture.verify_generation(&generation);
         }
         fixture.import();
     }

@@ -96,7 +96,7 @@ impl LocalApp {
 
     /// # Safety
     /// Selected managed dictionaries must satisfy
-    /// [`SudachiAnalyzer::load_managed`](crate::adapters::sudachi::SudachiAnalyzer::load_managed)
+    /// [`SudachiAnalyzer::load`](crate::adapters::sudachi::SudachiAnalyzer::load)
     /// until this call returns.
     pub unsafe fn analyze(&self, path: &Path) -> Result<AnalysisRunReport, ApplicationError> {
         let input: AnalysisInput = read_json(path, "analysis input", 65536)?;

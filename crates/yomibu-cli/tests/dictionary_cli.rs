@@ -30,7 +30,28 @@ fn success(output: Output) -> String {
 }
 
 #[test]
-fn offline_import_verify_and_both_loading_policies_agree_through_the_executable() {
+fn help_exposes_only_managed_dictionary_selection_without_accessing_resources() {
+    let directory = tempfile::tempdir().unwrap();
+    for command in ["analyze", "story"] {
+        let help = success(
+            cli(directory.path())
+                .args([command, "--help"])
+                .output()
+                .unwrap(),
+        );
+        assert!(help.contains("--dictionary-dir <PATH>"), "{help}");
+        assert!(
+            !help
+                .lines()
+                .any(|line| line.trim_start().starts_with("--dictionary ")),
+            "help still exposes arbitrary dictionary files: {help}"
+        );
+    }
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn offline_import_verify_and_analysis_report_the_selected_generation() {
     let directory = tempfile::tempdir().unwrap();
     fs::create_dir(directory.path().join("data")).unwrap();
     fs::write(directory.path().join("data/config.toml"), "model = ''\nformat = 'unused-invalid'\nselect = 40\ncandidates = 0\ntopic = '猫'\nrequest = 'unused.json'\n").unwrap();
@@ -91,24 +112,11 @@ fn offline_import_verify_and_both_loading_policies_agree_through_the_executable(
             .output()
             .unwrap(),
     );
-    let mut mapped: Value = serde_json::from_str(&mapped).unwrap();
+    let mapped: Value = serde_json::from_str(&mapped).unwrap();
     assert_eq!(
-        mapped["analysis"]["provenance"]["dictionary_loading"]["storage"],
-        "memory_mapped"
+        mapped["analysis"]["provenance"]["dictionary_loading"]["generation"],
+        imported_json["generation"]
     );
-    mapped["analysis"]["provenance"]
-        .as_object_mut()
-        .unwrap()
-        .remove("dictionary_loading");
-    let external = success(
-        cli(directory.path())
-            .args(["analyze", "--input", "input.json", "--dictionary"])
-            .arg(test_dictionary::bundle().join("system_core.dic"))
-            .arg("--json")
-            .output()
-            .unwrap(),
-    );
-    assert_eq!(mapped, serde_json::from_str::<Value>(&external).unwrap());
     let text = success(
         cli(directory.path())
             .args(["analyze", "--input", "input.json", "--dictionary-dir"])
@@ -119,7 +127,7 @@ fn offline_import_verify_and_both_loading_policies_agree_through_the_executable(
     assert!(text.contains("Sentence: \"犬です。\""));
     assert!(
         text.contains(
-            "full SHA-256 verified at installation; startup checks records, size and header"
+            "full SHA-256 verified at installation; startup checks records, file metadata and header"
         ),
         "{text}"
     );
@@ -142,7 +150,7 @@ fn offline_import_verify_and_both_loading_policies_agree_through_the_executable(
 }
 
 #[test]
-fn managed_data_directory_default_and_external_selection_remain_offline() {
+fn managed_data_directory_default_and_explicit_selection_remain_offline() {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join("input.json"), INPUT).unwrap();
     let root = directory.path().join("data/dictionaries");
@@ -182,8 +190,8 @@ fn managed_data_directory_default_and_external_selection_remain_offline() {
     assert_eq!(fs::read(root.join("current")).unwrap(), pointer);
     success(
         cli(directory.path())
-            .args(["analyze", "--input", "input.json", "--dictionary"])
-            .arg(test_dictionary::bundle().join("system_core.dic"))
+            .args(["analyze", "--input", "input.json", "--dictionary-dir"])
+            .arg(test_dictionary::installation())
             .output()
             .unwrap(),
     );
@@ -207,32 +215,10 @@ fn managed_data_directory_default_and_external_selection_remain_offline() {
 }
 
 #[test]
-fn selection_conflicts_missing_installations_and_help_have_safe_useful_layout() {
+fn missing_installations_and_help_have_safe_useful_layout() {
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join("input.json"), INPUT).unwrap();
     let hostile = "猫\u{1b}[31m\n\r\u{202e}";
-    let conflict = cli(directory.path())
-        .args([
-            "analyze",
-            "--input",
-            "input.json",
-            "--dictionary",
-            hostile,
-            "--dictionary-dir",
-            "managed",
-        ])
-        .output()
-        .unwrap();
-    assert_eq!(conflict.status.code(), Some(2));
-    assert!(conflict.stdout.is_empty());
-    let diagnostic = String::from_utf8(conflict.stderr).unwrap();
-    assert!(
-        diagnostic.contains("\n\nUsage: yomibu analyze"),
-        "{diagnostic:?}"
-    );
-    for character in ['\u{1b}', '\r', '\u{202e}'] {
-        assert!(!diagnostic.contains(character));
-    }
     let missing = cli(directory.path())
         .args([
             "analyze",
@@ -247,6 +233,11 @@ fn selection_conflicts_missing_installations_and_help_have_safe_useful_layout() 
     assert!(missing.stdout.is_empty());
     let diagnostic = String::from_utf8(missing.stderr).unwrap();
     assert!(diagnostic.contains("dictionary import"), "{diagnostic}");
+    assert!(diagnostic.starts_with("error: "), "{diagnostic:?}");
+    assert_eq!(diagnostic.lines().count(), 1, "{diagnostic:?}");
+    for character in ['\u{1b}', '\r', '\u{202e}'] {
+        assert!(!diagnostic.contains(character));
+    }
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
     for command in [
         vec!["analyze", "--help"],

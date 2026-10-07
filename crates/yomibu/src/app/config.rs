@@ -22,7 +22,6 @@ pub const ENVIRONMENT_SETTINGS: &[&str] = &[
     "YOMIBU_FORMAT",
     "YOMIBU_CANDIDATES",
     "YOMIBU_CACHE_MAX_AGE_SECONDS",
-    "YOMIBU_DICTIONARY",
     "YOMIBU_DICTIONARY_DIR",
     "YOMIBU_EMBEDDING_CACHE",
     "YOMIBU_EMBEDDING_PROVIDER",
@@ -86,7 +85,6 @@ pub struct Settings {
     pub format: Option<StoryFormat>,
     pub candidates: Option<usize>,
     pub cache_max_age_seconds: Option<u64>,
-    pub dictionary: Option<PathBuf>,
     pub dictionary_dir: Option<PathBuf>,
     pub embedding_cache: Option<PathBuf>,
     pub embedding_provider: Option<EmbeddingProvider>,
@@ -119,7 +117,6 @@ pub struct Configuration {
     pub seed: Option<u64>,
     pub generation: StoryGenerationOptions,
     pub cache_max_age: Duration,
-    pub dictionary: Option<PathBuf>,
     pub dictionary_dir: PathBuf,
     pub embedding_cache: PathBuf,
     pub embedding_provider: Option<EmbeddingProvider>,
@@ -182,7 +179,6 @@ impl Configuration {
             &mut file.inventory,
             &mut file.wanikani_cache,
             &mut file.request,
-            &mut file.dictionary,
             &mut file.dictionary_dir,
             &mut file.embedding_cache,
         ]
@@ -243,14 +239,7 @@ impl Configuration {
                 "--topic and --request conflict; put the topic in the request file.",
             ));
         }
-        let dictionary = setting!(dictionary);
         let dictionary_dir = setting!(dictionary_dir);
-        if operation.uses_setting("dictionary") && dictionary.is_some() && dictionary_dir.is_some()
-        {
-            return Err(ConfigError::InvalidSetting(
-                "--dictionary and --dictionary-dir conflict.",
-            ));
-        }
         Ok(Self {
             inventory: setting!(inventory),
             wanikani_cache: setting!(wanikani_cache),
@@ -267,7 +256,6 @@ impl Configuration {
             seed: setting!(seed),
             generation,
             cache_max_age: Duration::from_secs(setting!(cache_max_age_seconds).unwrap_or(3600)),
-            dictionary,
             dictionary_dir: dictionary_dir.unwrap_or_else(|| data_dir.join("dictionaries")),
             embedding_cache: setting!(embedding_cache)
                 .unwrap_or_else(|| data_dir.join("embeddings.json")),

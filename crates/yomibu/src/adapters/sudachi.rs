@@ -1,7 +1,5 @@
 //! Pinned Sudachi/Core adapter with explicit loading and no ambient configuration.
 
-use std::{fs::File, io::Read, path::Path};
-
 use sha2::{Digest, Sha256};
 use sudachi::{
     analysis::{Mode, Tokenize, morpheme::Morpheme, stateless_tokenizer::StatelessTokenizer},
@@ -14,7 +12,7 @@ use sudachi::{
 
 use super::dictionary::ManagedInstallation;
 use crate::analysis::{
-    AnalysisProvenance, LexicalUnit, ManagedDictionaryProvenance, Sentence, SentenceAnalysis, Token,
+    AnalysisProvenance, DictionaryProvenance, LexicalUnit, Sentence, SentenceAnalysis, Token,
 };
 
 pub const ANALYZER_REVISION: &str = "90fd6068c80c2fc3b63e0dbab0e341475bad4d8f";
@@ -26,10 +24,8 @@ const CONFIGURATION: &[u8] = include_bytes!("sudachi.json");
 
 #[derive(Debug, thiserror::Error)]
 pub enum DictionaryError {
-    #[error("Cannot read the explicitly selected dictionary: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Dictionary does not match the pinned SudachiDict Core 20260723 V0 bytes/checksum.")]
-    Mismatch,
+    #[error("Cannot map the selected dictionary generation: {0}")]
+    Mapping(#[from] std::io::Error),
     #[error("Cannot construct the pinned analyzer configuration: {0}")]
     Configuration(#[from] sudachi::config::ConfigError),
     #[error("Cannot initialize the pinned analyzer: {0}")]
@@ -47,67 +43,32 @@ pub enum AnalysisError {
 /// Keeps one dictionary's storage alive; shared references support repeated calls.
 pub struct SudachiAnalyzer {
     dictionary: JapaneseDictionary,
-    managed: Option<ManagedDictionaryProvenance>,
+    generation: String,
 }
 
 impl SudachiAnalyzer {
-    /// Read only the supplied dictionary. No configuration files, plugins,
-    /// environment variables, user dictionaries, or network resources are loaded.
-    /// The roughly 217 MB dictionary stays owned in memory to prevent file-change
-    /// races between checksum verification and the dependency's dictionary access.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, DictionaryError> {
-        let file = File::open(path)?;
-        if file.metadata()?.len() != DICTIONARY_BYTES {
-            return Err(DictionaryError::Mismatch);
-        }
-        let mut bytes = Vec::new();
-        file.take(DICTIONARY_BYTES + 1).read_to_end(&mut bytes)?;
-        if bytes.len() as u64 != DICTIONARY_BYTES
-            || format!("{:x}", Sha256::digest(&bytes)) != DICTIONARY_SHA256
-        {
-            return Err(DictionaryError::Mismatch);
-        }
-        Self::from_storage(Storage::Owned(bytes), None)
-    }
-
     /// Map the handle checked by `ManagedInstallation::open`, retaining embedded
-    /// configuration and character definitions. No full hash is done here.
+    /// configuration and character definitions. No full hash or ambient resource
+    /// access is done here.
     ///
     /// # Safety
     /// The caller must ensure this generation was fully verified by Yomibu's
     /// importer and that its dictionary bytes remain unchanged for this analyzer's
     /// entire lifetime. No process may write or truncate the mapped file. Receipts,
     /// metadata, read-only permissions and advisory locks cannot prove this.
-    /// Use `load` for arbitrary files or when this contract cannot be maintained.
-    pub unsafe fn load_managed(installation: ManagedInstallation) -> Result<Self, DictionaryError> {
+    pub unsafe fn load(installation: ManagedInstallation) -> Result<Self, DictionaryError> {
         // The caller supplies the file-stability guarantee. Mapping this same
         // checked handle avoids reopening a path between startup checks and use.
         let mapping = unsafe { memmap2::Mmap::map(&installation.dictionary) }?;
-        Self::from_storage(
-            Storage::File(mapping),
-            Some(ManagedDictionaryProvenance {
-                generation: installation.generation,
-                storage: "memory_mapped",
-                verification: "full_sha256_at_installation",
-                startup_checks: "installation_records_size_and_header",
-                file_stability: "requires_unchanged_managed_files_for_analyzer_lifetime",
-            }),
-        )
-    }
-
-    fn from_storage(
-        storage: Storage,
-        managed: Option<ManagedDictionaryProvenance>,
-    ) -> Result<Self, DictionaryError> {
         let config = ConfigBuilder::from_bytes(CONFIGURATION)?.build();
         let dictionary = JapaneseDictionary::from_cfg_storage_with_embedded_chardef(
             &config,
-            SudachiDicData::new(storage),
+            SudachiDicData::new(Storage::File(mapping)),
         )
         .map_err(Box::new)?;
         Ok(Self {
             dictionary,
-            managed,
+            generation: installation.generation,
         })
     }
 
@@ -143,7 +104,12 @@ impl SudachiAnalyzer {
                 dictionary_version: DICTIONARY_VERSION,
                 dictionary_sha256: DICTIONARY_SHA256,
                 configuration_sha256: format!("{:x}", Sha256::digest(CONFIGURATION)),
-                dictionary_loading: self.managed.clone(),
+                dictionary_loading: DictionaryProvenance {
+                    generation: self.generation.clone(),
+                    verification: "full_sha256_at_installation",
+                    startup_checks: "installation_records_metadata_and_header",
+                    file_stability: "requires_unchanged_managed_files_for_analyzer_lifetime",
+                },
             },
         })
     }

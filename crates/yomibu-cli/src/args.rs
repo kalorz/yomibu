@@ -141,7 +141,6 @@ impl StoryArgs {
             knowledge_policy: self.knowledge_policy,
             select: self.select.map(usize::from),
             seed: self.seed,
-            dictionary: self.dictionary.dictionary,
             dictionary_dir: self.dictionary.dictionary_dir,
             embedding_cache: self.embedding_cache,
             embedding_provider: self.embedding_provider,
@@ -156,9 +155,6 @@ impl StoryArgs {
 }
 #[derive(Args, Default)]
 pub(crate) struct DictionaryArgs {
-    /// External pinned dictionary; fully verified and held in owned memory.
-    #[arg(long, value_name = "PATH", conflicts_with = "dictionary_dir")]
-    pub dictionary: Option<PathBuf>,
     /// Managed dictionary root (default: <data-dir>/dictionaries); files must remain unchanged.
     #[arg(long, value_name = "PATH")]
     pub dictionary_dir: Option<PathBuf>,
@@ -166,7 +162,6 @@ pub(crate) struct DictionaryArgs {
 impl DictionaryArgs {
     pub fn settings(self) -> Settings {
         Settings {
-            dictionary: self.dictionary,
             dictionary_dir: self.dictionary_dir,
             ..Default::default()
         }

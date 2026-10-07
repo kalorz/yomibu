@@ -1,10 +1,7 @@
 # Managed Sudachi dictionaries
 
-Yomibu supports two explicit policies with the same analyzer/configuration and
-tokenization/evaluation code. Normal commands use an app-managed mapped dictionary;
-`--dictionary PATH` always fully verifies the selected file and keeps owned bytes.
-Neither policy loads ambient analyzer configuration, user dictionaries, dynamic
-plugins or network resources.
+Yomibu maps verified, app-managed dictionary generations. It loads no ambient
+analyzer configuration, user dictionaries, dynamic plugins or network resources.
 
 ## Install and use offline
 
@@ -30,9 +27,8 @@ source path or a source receipt instead of verifying copied bytes.
 
 The default root is `<data-dir>/dictionaries`. Use `--dictionary-dir PATH` on
 import, verify and dictionary-backed commands to select another root.
-`--dictionary-dir` conflicts with `--dictionary`. Help/version and preview do not
-open an installation. Story assessment is optional; import/verify/analyze require
-their resources and make no provider call.
+Help/version and preview do not open an installation. Story assessment is
+optional; import/verify/analyze require their resources and make no provider call.
 
 ```text
 dictionaries/
@@ -43,7 +39,7 @@ dictionaries/
       system_core.dic
       LEGAL
       LICENSE-2.0.txt
-      installation.json         # installation verification record
+      installation.json         # version-2 verification record and fingerprint
 ```
 
 Roots and generation directories must be private and owned by the effective OS
@@ -78,10 +74,22 @@ retaining generations intentionally consumes additional disk space.
 
 Full verification happens during import or explicit `dictionary verify`.
 Managed startup checks bounded supported records, exact compiled pins, file
-ownership/type/permissions, dictionary/notice sizes and the 272-byte dictionary
-header. The system-format value is `0xce9f011a92394434`; description is `20260723`.
-These are format/release checks, not a partial hash or exact verification of
-current contents. The checked dictionary handle is the handle that gets mapped.
+ownership/type/permissions, notice sizes, the dictionary fingerprint and its
+272-byte header. The system-format value is `0xce9f011a92394434`; description is
+`20260723`. The checked dictionary handle is the handle that gets mapped.
+
+Import records device/inode, exact size and nanosecond mtime/ctime after verification,
+permission changes and file synchronization. Publication moves the containing
+directory. Startup compares metadata from the opened handle before parsing or
+mapping. Ordinary writes, replacement, truncation and permission changes are
+rejected; a harmless touch can also be rejected. Reading does not invalidate the
+record: atime is excluded.
+
+Run `dictionary verify` to check actual bytes after a metadata mismatch. It remains
+read-only and does not refresh the fingerprint. Reimport publishes a new generation
+to restore startup eligibility. Older installation records also require reimport.
+Metadata equality proves neither exact bytes nor authenticity or immutability,
+and does not close the race before later mapped access.
 
 The contract requires the verified generation's dictionary bytes to remain
 unchanged for the entire analyzer lifetime. Yomibu's installation/update protocol
@@ -90,14 +98,6 @@ are unsupported. A same-user or privileged writer can defeat permissions, alter
 receipts and write a mapped file. Linux/macOS locks are advisory; locks, metadata
 and read-only modes cannot prove immutability. Such writes can cause invalid
 analysis, process faults or unsafe behavior in mmap-backed parsing.
-
-This does not preserve the owned snapshot's protection against arbitrary external
-writes. Use `--dictionary PATH` where file stability cannot be maintained. That
-option remains strict even for paths inside the managed root: full length/SHA-256
-verification precedes Sudachi initialization, and verified bytes are retained.
-CI's real-adapter tests use this fully verified policy, as did the retired A1
-runner and recorded reproducibility experiments. No timestamp hash cache,
-analyzer upgrade, dictionary pruning or hash bypass is introduced.
 
 ## Pinned artifacts
 
@@ -123,20 +123,18 @@ the analyzer/configuration may change without a deliberate reproducibility revie
 ## Provenance and library use
 
 All reports preserve the exact analyzer, dictionary and embedded configuration
-pins above. Managed reports add
-`analysis.provenance.dictionary_loading` with generation, `memory_mapped` storage,
+pins above. Reports include
+`analysis.provenance.dictionary_loading` with generation,
 `full_sha256_at_installation` verification, startup checks and the file-stability
 requirement. `dictionary_sha256` identifies the expected pin; it is not a claimed
-startup hash. Owned JSON omits these managed-loading fields.
+startup hash.
 
 Library calls use `adapters::dictionary::{import_bundle, verify,
 ManagedInstallation::open}` with explicit paths. Environment/output handling stays
-in the executable. `SudachiAnalyzer::load` remains safe for arbitrary external
-files. `unsafe SudachiAnalyzer::load_managed` consumes the checked installation
+in the executable. `unsafe SudachiAnalyzer::load` consumes the checked installation
 handle: callers must ensure actual full installation verification and no writes
 or truncation for the analyzer's lifetime. A receipt alone cannot establish these
-obligations. Both paths use the embedded-character-definition constructor and
-share the existing `analyze` and `evaluate` operations.
+obligations. Analysis uses embedded character definitions.
 
-Reuse an analyzer per command/session. Choose loading policy by source trust.
-Mapping lets processes share file-backed pages; full hashing touches the entire dictionary.
+Reuse an analyzer per command/session. Mapping lets processes share file-backed pages;
+full hashing touches the entire dictionary.

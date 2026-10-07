@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    adapters::dictionary::ManagedInstallation,
     evaluation::{CheckKind, CheckOutcome, CheckState, EvaluationBasis},
     grammar::GrammarRule::{ObjectWo, TopicWa},
     inventory::{InventoryGrammar, InventoryGrammarBinding},
@@ -11,8 +12,12 @@ fn object_uncertainty_preserves_independent_grammar_targets() {
     use DirectObjectEvidence::*;
     use LexicalUncertainty::*;
 
-    let analyzer =
-        SudachiAnalyzer::load(crate::test_dictionary::bundle().join("system_core.dic")).unwrap();
+    let analyzer = unsafe {
+        SudachiAnalyzer::load(
+            ManagedInstallation::open(crate::test_dictionary::installation()).unwrap(),
+        )
+    }
+    .unwrap();
     let request: StoryRequest = serde_json::from_value(serde_json::json!({
         "version":1, "topic":"A bounded object sentence",
         "targets":{"vocabulary":[],"grammar":["topic","polite","object","topic-or-object"]}

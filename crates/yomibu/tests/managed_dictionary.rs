@@ -4,12 +4,112 @@ mod test_dictionary;
 use std::fs;
 
 use yomibu::adapters::dictionary::{ManagedInstallation, import_bundle, verify};
-use yomibu::{
-    adapters::sudachi::SudachiAnalyzer,
-    analysis::Sentence,
-    evaluation::{EvaluationBindings, evaluate},
-    grammar::GrammarDeclarations,
-};
+use yomibu::{adapters::sudachi::SudachiAnalyzer, analysis::Sentence};
+
+#[test]
+fn changed_dictionary_metadata_is_rejected_before_mapping() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("managed");
+    let generation = import_bundle(&root, &test_dictionary::bundle()).unwrap();
+    for _ in 0..2 {
+        drop(ManagedInstallation::open(&root).unwrap());
+    }
+    let path = root
+        .join("bundles")
+        .join(generation)
+        .join("system_core.dic");
+    fs::File::open(path)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))
+        .unwrap();
+    let error = ManagedInstallation::open(&root)
+        .err()
+        .expect("startup accepted changed dictionary metadata");
+    assert!(error.to_string().contains("metadata changed"), "{error}");
+    assert!(error.to_string().contains("dictionary verify"), "{error}");
+    assert!(error.to_string().contains("reimport"), "{error}");
+}
+
+#[test]
+fn verification_after_a_touch_checks_bytes_without_refreshing_installation_evidence() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("managed");
+    let generation = import_bundle(&root, &test_dictionary::bundle()).unwrap();
+    let bundle = root.join("bundles").join(generation);
+    let receipt = fs::read(bundle.join("installation.json")).unwrap();
+    let selection = fs::read(root.join("current")).unwrap();
+    fs::File::open(bundle.join("system_core.dic"))
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))
+        .unwrap();
+
+    verify(&root).unwrap();
+
+    assert_eq!(fs::read(bundle.join("installation.json")).unwrap(), receipt);
+    assert_eq!(fs::read(root.join("current")).unwrap(), selection);
+    assert!(matches!(
+        ManagedInstallation::open(&root),
+        Err(yomibu::adapters::dictionary::InstallationError::Changed)
+    ));
+}
+
+#[test]
+fn replacements_truncation_and_permission_round_trips_are_rejected_before_mapping() {
+    use std::os::unix::fs::PermissionsExt;
+    for change in [
+        "replacement",
+        "truncation",
+        "permissions",
+        "subsecond_touch",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("managed");
+        let generation = import_bundle(&root, &test_dictionary::bundle()).unwrap();
+        drop(ManagedInstallation::open(&root).unwrap());
+        let path = root
+            .join("bundles")
+            .join(generation)
+            .join("system_core.dic");
+        match change {
+            "replacement" => {
+                let replacement = directory.path().join("replacement.dic");
+                fs::copy(&path, &replacement).unwrap();
+                fs::rename(replacement, &path).unwrap();
+            }
+            "subsecond_touch" => {
+                let file = fs::File::open(&path).unwrap();
+                let modified = file.metadata().unwrap().modified().unwrap();
+                file.set_times(
+                    fs::FileTimes::new()
+                        .set_modified(modified + std::time::Duration::from_nanos(1)),
+                )
+                .unwrap();
+            }
+            _ => {
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+                if change == "truncation" {
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open(&path)
+                        .unwrap()
+                        .set_len(8)
+                        .unwrap();
+                }
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
+            }
+        }
+        assert!(
+            matches!(
+                ManagedInstallation::open(&root),
+                Err(yomibu::adapters::dictionary::InstallationError::Changed)
+            ),
+            "startup accepted {change}"
+        );
+        if change != "truncation" {
+            verify(&root).unwrap();
+        }
+    }
+}
 
 #[test]
 fn import_verifies_and_copies_a_complete_pinned_bundle() {
@@ -36,8 +136,7 @@ fn import_verifies_and_copies_a_complete_pinned_bundle() {
         serde_json::from_slice(&fs::read(root.join("current")).unwrap()).unwrap();
     assert_eq!(current["generation"], generation);
     // No live mapping exists here. Simulate an unsupported same-length external
-    // edit to prove explicit verification and arbitrary-path loading still hash
-    // the complete file rather than trusting installation records or metadata.
+    // edit to prove explicit verification still hashes the complete file.
     drop(installation);
     let path = published.join("system_core.dic");
     use std::{
@@ -49,10 +148,13 @@ fn import_verifies_and_copies_a_complete_pinned_bundle() {
     file.seek(SeekFrom::End(-1)).unwrap();
     file.write_all(b"x").unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
-    assert!(verify(&root).is_err());
     assert!(matches!(
-        SudachiAnalyzer::load(&path),
-        Err(yomibu::adapters::sudachi::DictionaryError::Mismatch)
+        verify(&root),
+        Err(yomibu::adapters::dictionary::InstallationError::Mismatch(name)) if name == "system_core.dic"
+    ));
+    assert!(matches!(
+        ManagedInstallation::open(&root),
+        Err(yomibu::adapters::dictionary::InstallationError::Changed)
     ));
 }
 
@@ -66,95 +168,31 @@ fn an_arbitrary_bundle_is_not_a_managed_installation() {
 }
 
 #[test]
-fn mapped_and_owned_analysis_and_evaluation_agree_and_old_readers_survive_reimport() {
+fn old_readers_keep_their_generation_after_reimport() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("managed");
     let old = import_bundle(&root, &test_dictionary::bundle()).unwrap();
-    let installation = ManagedInstallation::open(&root).unwrap();
-    // This test owns the private root and only publishes new generations. It
-    // never modifies or truncates the verified generation used by this mapping.
-    let mapped = unsafe { SudachiAnalyzer::load_managed(installation) }.unwrap();
-    let owned = SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
-    let input: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/fixtures/analyze/nominal.json")).unwrap();
-    let grammar = GrammarDeclarations::from_descriptions(["です — manual familiarity"]).unwrap();
-    let bindings: EvaluationBindings = serde_json::from_value(input["bindings"].clone()).unwrap();
-    for text in [
-        "犬です。",
-        "東京都。猫",
-        "犬でした。",
-        "猫は水を飲みます。",
-        "未知xyz",
-        "猫\n犬",
-    ] {
-        let sentence = Sentence::new(text).unwrap();
-        let a = mapped.analyze(sentence.clone()).unwrap();
-        let b = owned.analyze(sentence).unwrap();
-        assert_eq!(a.sentence, b.sentence);
-        assert_eq!(a.units, b.units);
-        assert_eq!(
-            a.provenance.analyzer_revision,
-            b.provenance.analyzer_revision
-        );
-        assert_eq!(
-            a.provenance.dictionary_sha256,
-            b.provenance.dictionary_sha256
-        );
-        assert_eq!(
-            a.provenance.configuration_sha256,
-            b.provenance.configuration_sha256
-        );
-        assert_eq!(
-            serde_json::to_value(evaluate(&a, &grammar, &bindings).unwrap()).unwrap(),
-            serde_json::to_value(evaluate(&b, &grammar, &bindings).unwrap()).unwrap()
-        );
-        let provenance = serde_json::to_value(&a.provenance).unwrap();
-        assert_eq!(provenance["dictionary_loading"]["generation"], old);
-        assert_eq!(
-            provenance["dictionary_loading"]["verification"],
-            "full_sha256_at_installation"
-        );
-        assert_eq!(
-            provenance["dictionary_loading"]["startup_checks"],
-            "installation_records_size_and_header"
-        );
-        assert!(
-            serde_json::to_value(&b.provenance)
-                .unwrap()
-                .get("dictionary_loading")
-                .is_none()
-        );
-    }
+    // Only the importer writes here, publishing new generations without touching
+    // the verified files used by either mapping.
+    let analyzer =
+        unsafe { SudachiAnalyzer::load(ManagedInstallation::open(&root).unwrap()) }.unwrap();
+    let sentence = Sentence::new("東京都。猫").unwrap();
+    let before = analyzer.analyze(sentence.clone()).unwrap();
+    assert_eq!(before.provenance.dictionary_loading.generation, old);
+
     let new = import_bundle(&root, &test_dictionary::bundle()).unwrap();
     assert_ne!(new, old);
     let current =
-        unsafe { SudachiAnalyzer::load_managed(ManagedInstallation::open(&root).unwrap()) }
-            .unwrap();
-    let sentence = Sentence::new("犬です。").unwrap();
-    let old_analysis = mapped.analyze(sentence.clone()).unwrap();
+        unsafe { SudachiAnalyzer::load(ManagedInstallation::open(&root).unwrap()) }.unwrap();
+    let old_analysis = analyzer.analyze(sentence.clone()).unwrap();
     let new_analysis = current.analyze(sentence).unwrap();
+    assert_eq!(before, old_analysis);
     assert_eq!(old_analysis.units, new_analysis.units);
-    assert_eq!(
-        serde_json::to_value(new_analysis).unwrap()["provenance"]["dictionary_loading"]["generation"],
-        new
-    );
+    assert_eq!(new_analysis.provenance.dictionary_loading.generation, new);
     assert!(
         root.join("bundles")
             .join(old)
             .join("system_core.dic")
             .is_file()
     );
-}
-
-#[test]
-fn owned_loading_keeps_its_verified_snapshot_after_external_file_changes() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("external.dic");
-    fs::copy(test_dictionary::bundle().join("system_core.dic"), &path).unwrap();
-    let analyzer = SudachiAnalyzer::load(&path).unwrap();
-    let sentence = Sentence::new("東京都。猫").unwrap();
-    let before = analyzer.analyze(sentence.clone()).unwrap();
-    fs::write(&path, b"externally truncated").unwrap();
-    assert_eq!(before, analyzer.analyze(sentence).unwrap());
-    assert!(SudachiAnalyzer::load(&path).is_err());
 }

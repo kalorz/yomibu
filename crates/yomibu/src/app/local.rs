@@ -244,7 +244,7 @@ impl LocalApp {
 
     /// # Safety
     /// Selected managed dictionaries must satisfy
-    /// [`SudachiAnalyzer::load_managed`](crate::adapters::sudachi::SudachiAnalyzer::load_managed)
+    /// [`SudachiAnalyzer::load`](crate::adapters::sudachi::SudachiAnalyzer::load)
     /// for this future's duration.
     pub async unsafe fn story(
         &self,
@@ -685,7 +685,7 @@ impl LocalApp {
             progress.skip(Step::Assessment, "Assessment disabled");
             return assess_passages(generated.passages(), inputs, None);
         }
-        if self.config.dictionary.is_none() && !self.config.dictionary_dir.exists() {
+        if !self.config.dictionary_dir.exists() {
             progress.skip(Step::Assessment, "No dictionary configured");
             return assess_passages(generated.passages(), inputs, None);
         }

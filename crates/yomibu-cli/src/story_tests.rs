@@ -214,11 +214,16 @@ async fn generated_controls_are_escaped_and_optional_failure_warns_without_losin
             include_bytes!("../../../tests/fixtures/story/inventory.json"),
         )
         .unwrap();
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(dir.path().join("incomplete"))
+            .unwrap();
         let mut flags = vec![
             "--inventory",
             "inventory.json",
-            "--dictionary",
-            "missing.dic",
+            "--dictionary-dir",
+            "incomplete",
         ];
         if json_output {
             flags.push("--json");
@@ -253,14 +258,14 @@ async fn sentence_assessment_with_a_real_dictionary_reports_available_evidence_a
         include_bytes!("../../../tests/fixtures/story/inventory.json"),
     )
     .unwrap();
-    let dictionary = crate::test_dictionary::bundle().join("system_core.dic");
+    let dictionary = crate::test_dictionary::installation();
     let output = child(
         &server,
         dir.path(),
         &[
             "--inventory",
             "inventory.json",
-            "--dictionary",
+            "--dictionary-dir",
             dictionary.to_str().unwrap(),
             "--format",
             "sentence",

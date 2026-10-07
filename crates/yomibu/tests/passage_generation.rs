@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 mod test_dictionary;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 use yomibu::{
+    adapters::dictionary::ManagedInstallation,
     adapters::openai::{Client, PreparedRequest},
     story::{StoryFormat, StoryGenerationOptions},
 };
@@ -158,8 +159,10 @@ async fn shared_generation_assesses_every_sentence_in_a_passage() {
     let server = MockServer::start().await;
     Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"synthetic", "model":"returned", "status":"completed", "output":[{"type":"message", "role":"assistant", "status":"completed", "content":[{"type":"output_text", "text":json!({"candidates":[{"sentences":["猫は寝ます。","猫です。","猫は寝ます。"]}]}).to_string()}]}]}))).expect(1).mount(&server).await;
     let client = Client::with_base_url("synthetic", &format!("{}/", server.uri())).unwrap();
-    let analyzer =
-        SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+    let analyzer = unsafe {
+        SudachiAnalyzer::load(ManagedInstallation::open(test_dictionary::installation()).unwrap())
+    }
+    .unwrap();
     let result = generate_story(&plan, &client, &analyzer).await.unwrap();
     assert_eq!(result.assessments().len(), 3);
     assert!(!result.has_execution_errors());

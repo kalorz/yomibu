@@ -67,7 +67,7 @@ pub static MODULES: &[ModuleMetadata] = &[
         id: ModuleId::Assessment,
         name: "Sudachi assessment",
         purpose: "Check available vocabulary evidence",
-        settings: &["--dictionary", "--dictionary-dir"],
+        settings: &["--dictionary-dir"],
         guidance: "Import a dictionary with yomibu dictionary import. No dictionary is downloaded automatically.",
         controllable: true,
         default_enabled: true,

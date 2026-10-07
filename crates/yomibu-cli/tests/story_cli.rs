@@ -197,7 +197,7 @@ fn malformed_and_oversized_inputs_fail_before_dictionary_or_credentials() {
     for input in ["{".to_owned(), " ".repeat(4_194_305)] {
         fs::write(dir.path().join("inventory.json"), input).unwrap();
         let o = cli(dir.path(), "story")
-            .args(["--dictionary", "missing.dic"])
+            .args(["--dictionary-dir", "missing"])
             .output()
             .unwrap();
         assert_eq!(o.status.code(), Some(1));
@@ -270,8 +270,8 @@ fn impossible_selection_fails_before_embedding_work() {
     let out = cli(dir.path(), "story")
         .args(["--openai-api-key", "unused"])
         .args([
-            "--dictionary",
-            "missing.dic",
+            "--dictionary-dir",
+            "missing",
             "--embedding-provider",
             "lexical-baseline",
         ])
@@ -364,8 +364,8 @@ fn invalid_candidate_count_fails_before_any_embedding_or_dictionary_work() {
             .args([
                 "--candidates",
                 &count,
-                "--dictionary",
-                "missing.dic",
+                "--dictionary-dir",
+                "missing",
                 "--embedding-provider",
                 "lexical-baseline",
             ])
@@ -450,11 +450,11 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
     prepare(dir.path());
     fs::write(dir.path().join(".env"), "OPENAI_API_KEY=synthetic-unused").unwrap();
     let before = fs::read_dir(dir.path()).unwrap().count();
-    let dictionary = test_dictionary::bundle().join("system_core.dic");
+    let dictionary = test_dictionary::installation();
     for key in [None, Some("synthetic-secret\nInjected")] {
         let mut command = cli(dir.path(), "story");
         command
-            .args(["--dictionary"])
+            .args(["--dictionary-dir"])
             .arg(&dictionary)
             .args(["--data-dir", "ignored"]);
         if let Some(key) = key {

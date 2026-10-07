@@ -63,7 +63,7 @@ fn status_uses_the_configured_cache_without_validating_unused_story_settings() {
         include_bytes!("../../../tests/fixtures/mixed.json"),
     )
     .unwrap();
-    fs::write(dir.path().join("config.toml"), "wanikani_cache = 'source.json'\nselect = 40\ncandidates = 0\nmodel = ''\ntopic = '猫'\nrequest = 'unused.json'\ndictionary = 'unused.dic'\ndictionary_dir = 'unused'\nformat = 'invalid-unused'\n").unwrap();
+    fs::write(dir.path().join("config.toml"), "wanikani_cache = 'source.json'\nselect = 40\ncandidates = 0\nmodel = ''\ntopic = '猫'\nrequest = 'unused.json'\ndictionary_dir = 'unused'\nformat = 'invalid-unused'\n").unwrap();
     let before = fs::read_dir(dir.path()).unwrap().count();
     let output = cli()
         .args(["--data-dir", dir.path().to_str().unwrap(), "status"])

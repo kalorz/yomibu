@@ -145,7 +145,7 @@ with original UTF-8 byte spans. Familiar components/kanji cannot authorize a who
 word. Other grammar, multiword expressions and contextual reading/sense expose
 limitations; there is no general Japanese validator.
 
-Dictionary pins, configuration, developer setup and loading policies have one
+Dictionary pins, configuration, developer setup and loading rules have one
 home: [dictionary contracts](docs/DICTIONARY.md). No ambient configuration, fallback
 tokenizer or runtime download is allowed.
 
@@ -214,7 +214,6 @@ auto-sync; the story guide defines cache and first-run policies.
 [Dictionary contracts](docs/DICTIONARY.md) own installation, verification, update
 and loading rules. Managed mapping requires verified bytes to remain unchanged
 for the analyzer's lifetime. A receipt or read-only mode cannot prove that condition.
-Use fully verified owned loading when file stability cannot be maintained.
 
 ## Design vocabulary and composition
 

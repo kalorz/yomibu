@@ -2,7 +2,7 @@
 fn typed_downstream_error_reports_keep_available_analysis_without_completed_judgments() {
     use yomibu::{
         adapters::sudachi::AnalysisError,
-        analysis::{AnalysisProvenance, Sentence, SentenceAnalysis},
+        analysis::{AnalysisProvenance, DictionaryProvenance, Sentence, SentenceAnalysis},
         candidate::{CandidateAssessment, CandidateError},
         evaluation::EvaluationError,
     };
@@ -14,7 +14,12 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
             dictionary_version: "synthetic-boundary-test",
             dictionary_sha256: "synthetic-boundary-test",
             configuration_sha256: "synthetic-boundary-test".into(),
-            dictionary_loading: None,
+            dictionary_loading: DictionaryProvenance {
+                generation: "synthetic-boundary-test".into(),
+                verification: "synthetic-boundary-test",
+                startup_checks: "synthetic-boundary-test",
+                file_stability: "synthetic-boundary-test",
+            },
         },
     };
     // These are report-boundary cases, not claims about causing real Sudachi failures.

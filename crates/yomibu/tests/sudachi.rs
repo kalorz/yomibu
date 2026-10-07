@@ -2,40 +2,15 @@
 mod test_dictionary;
 
 use yomibu::{
-    adapters::sudachi::{DictionaryError, SudachiAnalyzer},
+    adapters::dictionary::ManagedInstallation, adapters::sudachi::SudachiAnalyzer,
     analysis::Sentence,
 };
 
 #[test]
-fn missing_and_unpinned_dictionaries_are_execution_errors() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("system.dic");
-    assert!(matches!(
-        SudachiAnalyzer::load(&path),
-        Err(DictionaryError::Io(_))
-    ));
-    std::fs::write(&path, b"not the pinned dictionary").unwrap();
-    assert!(matches!(
-        SudachiAnalyzer::load(&path),
-        Err(DictionaryError::Mismatch)
-    ));
-    // A plausible length must not bypass the exact-byte checksum pin.
-    std::fs::OpenOptions::new()
-        .write(true)
-        .open(&path)
-        .unwrap()
-        .set_len(217_466_039)
-        .unwrap();
-    assert!(matches!(
-        SudachiAnalyzer::load(&path),
-        Err(DictionaryError::Mismatch)
-    ));
-}
-
-#[test]
 fn real_core_dictionary_preserves_whole_compounds_components_and_original_byte_spans() {
-    let analyzer = SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic"))
-        .expect("install the pinned Core dictionary using scripts/setup_test_dictionary.py");
+    let installation = ManagedInstallation::open(test_dictionary::installation()).unwrap();
+    // The shared fixture is imported once and remains unchanged throughout tests.
+    let analyzer = unsafe { SudachiAnalyzer::load(installation) }.unwrap();
     let sentence = Sentence::new("東京都。猫").unwrap();
     let analysis = analyzer.analyze(sentence).unwrap();
     assert_eq!(analysis.sentence.text(), "東京都。猫");
@@ -58,13 +33,28 @@ fn real_core_dictionary_preserves_whole_compounds_components_and_original_byte_s
         analysis.provenance.analyzer_revision,
         "90fd6068c80c2fc3b63e0dbab0e341475bad4d8f"
     );
+    let provenance = serde_json::to_value(&analysis.provenance).unwrap();
+    assert_eq!(
+        provenance["dictionary_loading"]["verification"],
+        "full_sha256_at_installation"
+    );
+    assert!(
+        provenance["dictionary_loading"]["generation"]
+            .as_str()
+            .unwrap()
+            .starts_with("core-20260723-v0-")
+    );
 }
 
 #[test]
 fn configuration_ignores_ambient_files() {
     if std::env::var_os("YOMIBU_SUDACHI_AMBIENT_PROBE").is_some() {
-        let analyzer =
-            SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
+        let analyzer = unsafe {
+            SudachiAnalyzer::load(
+                ManagedInstallation::open(test_dictionary::installation()).unwrap(),
+            )
+        }
+        .unwrap();
         let analysis = analyzer
             .analyze(Sentence::new("猫です。").unwrap())
             .unwrap();

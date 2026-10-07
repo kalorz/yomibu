@@ -5,12 +5,10 @@ It does not prove naturalness, meaning in context, or exercise acceptance.
 
 ## Run the fixtures
 
-For normal use, [install a managed dictionary](DICTIONARY.md#install-and-use-offline).
-To use the developer bundle directly:
+First [install a managed dictionary](DICTIONARY.md#install-and-use-offline).
 
 ```sh
-python3 scripts/setup_test_dictionary.py
-cargo run --release --locked -- analyze --dictionary target/test-resources/sudachi-core/current/system_core.dic --input tests/fixtures/analyze/nominal.json
+cargo run --release --locked -- analyze --input tests/fixtures/analyze/nominal.json
 ```
 
 Setup is an explicit download. Analysis never downloads. Use `--release` for faster
@@ -77,5 +75,5 @@ breaks and indentation while escaping supplied values; help/usage names `yomibu`
 
 Compose `SudachiAnalyzer`, `Sentence`, and `evaluation::evaluate` directly.
 See [SPEC](../SPEC.md#bounded-analysis-and-evaluation) for the full contract,
-[dictionary policies](DICTIONARY.md), and [fixtures](../tests/fixtures/analyze/README.md).
+[dictionary contracts](DICTIONARY.md), and [fixtures](../tests/fixtures/analyze/README.md).
 The analyzer remains active despite A1's [historical no-go](history/README.md#analysis-investigation).

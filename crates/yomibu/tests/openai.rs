@@ -8,6 +8,7 @@ use wiremock::{
     matchers::{method, path},
 };
 use yomibu::{
+    adapters::dictionary::ManagedInstallation,
     adapters::openai::{Client, PreparedRequest},
     inventory::LearnerInventory,
     retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
@@ -21,9 +22,11 @@ fn analyzer() -> &'static yomibu::adapters::sudachi::SudachiAnalyzer {
     static ANALYZER: std::sync::OnceLock<yomibu::adapters::sudachi::SudachiAnalyzer> =
         std::sync::OnceLock::new();
     ANALYZER.get_or_init(|| {
-        yomibu::adapters::sudachi::SudachiAnalyzer::load(
-            test_dictionary::bundle().join("system_core.dic"),
-        )
+        unsafe {
+            yomibu::adapters::sudachi::SudachiAnalyzer::load(
+                ManagedInstallation::open(test_dictionary::installation()).unwrap(),
+            )
+        }
         .expect("verified test dictionary required")
     })
 }
