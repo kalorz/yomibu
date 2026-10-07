@@ -250,7 +250,7 @@ A1 introduced the synchronous analysis/evaluation reused by current story genera
   `adapters/sudachi.json` as embedded configuration. No ambient config, user/dynamic
   plugins, normalization, fallback tokenizer, or implicit download. Owned bytes
   avoid checksum/mmap file races; real adapter tests remain mandatory.
-- `evaluation.rs` validates input structure and applies exact synthetic vocabulary
+- `evaluation/structure.rs` validates input structure and applies exact synthetic vocabulary
   tuples plus seven explicit grammar bindings. It preserves arbitrary declaration
   content and IDs. Five checks report Pass/Fail/Inconclusive; typed input/execution
   errors remain outside those judgments, and NotRun is a distinct state.
@@ -363,7 +363,7 @@ from pre-publication failure. See [dictionary safety](docs/DICTIONARY.md).
 
 ## Shared story composition
 
-Open `crates/yomibu/src/story.rs::plan_generation` and the adjacent `generate_story`
+Open `crates/yomibu/src/story/mod.rs::plan_generation` and the adjacent `generate_story`
 for the shared sequence. The CLI dispatches to `commands::story::generate`, separate
 from offline `commands::story::preview` and explicit `commands::retrieval::prepare`. Source differences end at
 `load_inventory`; an API supplies the same inventory/request/cache and resources.
@@ -388,8 +388,13 @@ manual input / WaniKani cache + policy (+ optional manual supplement)
 ```
 
 `inventory.rs` validates the common data and projects the existing source policy.
-The source cache stays untouched. `story.rs` keeps the request, selection,
-prepared bytes and assessment stages adjacent. `retrieval.rs` owns encoding,
+The source cache stays untouched. `story/mod.rs` keeps the two entry functions
+and their plan/result types together. Its concrete stage calls lead directly to
+`request.rs` (intent/options and validation), `selection.rs` (ranking),
+`model_request.rs` (bounded exact bytes) and `assessment.rs` (full-inventory
+assessment and target observations). These implementation modules are private;
+ordinary re-exports preserve the public `yomibu::story` imports without wrappers.
+`retrieval.rs` owns encoding,
 identity/cache validation, bounded cache preparation and cosine similarity; `ports::Embedder` is the only new
 port, implemented by explicit lexical-baseline and local/hosted HTTP adapters.
 The HTTP embedding adapter splits each input group by its actual serialized size;
@@ -427,9 +432,12 @@ remove lowest-ranked non-target supports to fit the unchanged byte limit, then
 freezes the exact body. Provider transport and settings live in
 `adapters/openai.rs`. The `story-inventory-v1` format replaced historical request
 formats; this cleanup leaves current bytes/hash unchanged. `generate_story_candidates`
-returns `ProviderError` directly, with no generation-error wrapper. `evaluation.rs` reuses the
-bounded structural checks, adds a conservative full-inventory lexical check and
-bounded grammar observations; it does not reinterpret source alternatives as
+returns `ProviderError` directly, with no generation-error wrapper.
+`evaluation/mod.rs` owns result types and check outcomes; `structure.rs` owns
+bounded structural checks and grammar observations; `inventory.rs` owns the
+conservative full-inventory lexical check and single-use evidence projection.
+Story assessment calls evaluation; evaluation does not depend on story.
+It does not reinterpret source alternatives as
 verified reading/sense pairs. The grammar observer and structural checker share
 the same direct-object evidence predicate, while the historical object-combination
 safeguard remains intact.
@@ -448,7 +456,7 @@ See [STORY GENERATION](docs/STORY_GENERATION.md) for contracts and [RETRIEVAL](d
 for backend configuration, cache boundaries and the incomplete dense comparison.
 G1/G2 implementations, context selector and focused observation APIs are removed.
 `generation.rs` contains only live assessment/error and provider metadata types;
-target morphology support stays beside its caller in `story.rs`. Historical
+target morphology support stays beside its caller in `story/assessment.rs`. Historical
 fixtures live under `docs/history/generation/`, with reproducible code pins and
 conclusions in [GENERATION HISTORY](docs/GENERATION_HISTORY.md). A1's no-go and
 frozen records remain unchanged.
@@ -575,7 +583,12 @@ crates/
     src/
       lib.rs                 public entry points
       inventory.rs           common manual/WaniKani inventory and validation
-      story.rs               shared planning/execution and adjacent concrete stages
+      story/
+        mod.rs               plan_generation/generate_story and plan/result types
+        request.rs           story intent, options and input validation
+        selection.rs         cached vocabulary ranking and selection
+        model_request.rs     prompt, request bounds and exact outbound bytes
+        assessment.rs        candidate assessment and target observations
       retrieval.rs           embedding inputs/cache and cosine ranking
       generation.rs          candidate assessment/errors and provider metadata
       reports/               serializable story/candidate/analysis projections
@@ -585,7 +598,10 @@ crates/
       grammar.rs             manual familiarity declarations
       knowledge.rs           source eligibility policy
       analysis.rs            original C/A morphological evidence
-      evaluation.rs          bounded checks and executable bindings
+      evaluation/
+        mod.rs               result types, executable bindings and check outcomes
+        structure.rs         supported constructions, morphology and safeguards
+        inventory.rs         full-inventory checks and single-use projection
       ports.rs               source/storage/embedding capabilities
       adapters/
         mod.rs
@@ -632,13 +648,12 @@ SPEC.md                      product contracts
 PLAN.md                      delivery and verification evidence
 ```
 
-As working functionality arrives, split `domain.rs` into `domain/learner.rs`,
-`materials.rs`, `progress.rs`, and `exercise.rs`; add `knowledge/` and
-`generation/` when the implemented scope outgrows the concrete story module.
-Group future model adapters in `adapters/models/`, prompt adapters in
-`adapters/prompts/`, and corpus adapters in `adapters/examples/`. WaniKani stays
-under `adapters/sources/wanikani`; Bunpro joins that category when implemented.
-Create files for cohesive responsibilities, not one file for each field/type.
+Group files by implemented capability when that improves navigation; smaller
+cohesive modules remain flat. There is no global `steps/` directory or broad
+`domain/` hierarchy to traverse before finding the story workflow. New folders
+and modules need concrete responsibilities, rather than one file per field/type
+or scaffolding for future features. WaniKani stays under
+`adapters/sources/wanikani`; other source adapters join that category when implemented.
 
 Keep code in one public GitHub repository. The workspace contains the existing
 library and CLI only; `yomibu-api` will join it when HTTP behavior is implemented.

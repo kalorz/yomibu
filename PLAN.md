@@ -5,6 +5,41 @@ tracks delivery order and acceptance criteria; it does not authorize future
 milestones merely by listing them. `ARCHITECTURE.md` records responsibilities,
 composition, and file/package/repository boundaries.
 
+## Library navigation by capability — 2026-10-07
+
+Grouped the live story stages under `crates/yomibu/src/story/`. Open `mod.rs`:
+the adjacent `plan_generation` and `generate_story` functions show validation,
+selection, exact request preparation, full-inventory assessment setup, provider
+execution, assessment and result in order. Stage calls point directly to sibling
+`request.rs`, `selection.rs`, `model_request.rs` and `assessment.rs`. Private child
+modules use ordinary public re-exports, preserving existing `yomibu::story` imports.
+
+Grouped evaluation result types/check outcomes in `evaluation/mod.rs`, supported
+constructions/morphology/grammar observations in `structure.rs`, and full-inventory
+lexical checks in `inventory.rs`. Moved the shared single-use projection from story
+into evaluation, removing evaluation's dependency on story orchestration. Existing
+public evaluation imports remain unchanged. Smaller cohesive modules stay flat;
+there is no global steps/domain hierarchy, new wrapper, dependency or API skeleton.
+CLI, retrieval, analysis, sync/status, fixtures, historical pins and lockfile are
+unchanged. Current navigation/usage documentation and crate Rustdoc are aligned.
+
+This is a behavior-preserving move verified with existing tests, not a new feature.
+Focused story/provider tests passed after the first move; evaluation/story tests
+passed after the dependency correction. Reviewed moved logic against the previous
+checkout, including execution order, validation, prompt/request bytes, assessments,
+outcomes and safeguards. Full verification: `cargo fmt --check`, locked strict
+Clippy on all targets/features, `cargo test --locked --all` (182 Rust tests/doctests,
+none failed or skipped), `git diff --check` and strict Rustdoc passed. All nine
+Python dictionary-setup tests passed, setup verified the real pinned dictionary,
+and the documented offline lexical retrieval/story-preview demonstrations passed.
+No live model calls were made.
+
+Explicit simplification review covered navigation, duplication, ownership, naming
+and public API size. Kept concrete stage calls in the entry functions and local
+helpers beside their callers; only `into_owned` gained parent-module visibility
+for result assembly. No additional abstractions or ownership changes were justified.
+Review and merge status is recorded by the PR rather than a future claim here.
+
 ## Thin CLI review follow-up — 2026-10-06
 
 Greptile initially scored PR #19 3/5 and raised two valid public-boundary findings.

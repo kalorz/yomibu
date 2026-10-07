@@ -366,7 +366,12 @@ brief/targets, not execution choices.
 `StoryVocabularySelection` records the prompt subset: every vocabulary target,
 then supports ranked by brief similarity, with ID-based ties. The canonical library
 entry pair is `story::plan_generation` followed by `story::generate_story`, adjacent
-in `story.rs`. Offline planning validates inputs/options/selection bounds, selects
+in `story/mod.rs`. Private `request`, `selection`, `model_request` and `assessment`
+modules hold the concrete stages; re-exports preserve existing `yomibu::story`
+imports. Evaluation groups shared result types, bounded structural checks and
+full-inventory checks under `evaluation/`, without a dependency on story.
+This organization introduces no Rust API or wire-format change.
+Offline planning validates inputs/options/selection bounds, selects
 once, prepares bounded request bytes and projects full-inventory assessment inputs.
 It returns an immutable `StoryGenerationPlan` containing the final selection,
 `AiModelRequest` and `StoryAssessmentInputs`. The outgoing request owns only
