@@ -363,8 +363,11 @@ from pre-publication failure. See [dictionary safety](docs/DICTIONARY.md).
 
 ## Shared story composition
 
-Open `crates/yomibu/src/story/mod.rs::plan_generation` and the adjacent `generate_story`
-for the shared sequence. The CLI dispatches to `commands::story::generate`, separate
+Start at the execution map at the top of `crates/yomibu/src/story/mod.rs`.
+It links the complete algorithm, including the per-candidate assessment stages
+and the caller's resource-initialization boundary. The adjacent `plan_generation`
+and `generate_story` bodies follow it; the usage example lives with the plan type.
+The CLI dispatches to `commands::story::generate`, separate
 from offline `commands::story::preview` and explicit `commands::retrieval::prepare`. Source differences end at
 `load_inventory`; an API supplies the same inventory/request/cache and resources.
 

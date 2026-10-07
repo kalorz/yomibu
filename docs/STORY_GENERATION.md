@@ -137,8 +137,12 @@ never refreshes a missing/stale cache. It fails with `prepare-retrieval` guidanc
 
 ## Follow the execution
 
-Start at the adjacent library functions `plan_generation` and `generate_story`
-in [`crates/yomibu/src/story/mod.rs`](../crates/yomibu/src/story/mod.rs):
+Start at the linked execution map at the top of
+[`crates/yomibu/src/story/mod.rs`](../crates/yomibu/src/story/mod.rs). It shows both
+phases, the caller's resource boundary and the sentence-validation, morphology,
+inventory/grammar and observation stages inside candidate assessment, including
+their failure paths. The adjacent `plan_generation` and `generate_story` bodies
+follow the map:
 
 ```text
 plan_generation (offline)

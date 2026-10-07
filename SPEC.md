@@ -368,7 +368,9 @@ then supports ranked by brief similarity, with ID-based ties. The canonical libr
 entry pair is `story::plan_generation` followed by `story::generate_story`, adjacent
 in `story/mod.rs`. Private `request`, `selection`, `model_request` and `assessment`
 modules hold the concrete stages; re-exports preserve existing `yomibu::story`
-imports. Evaluation groups shared result types, bounded structural checks and
+imports. The source module begins with a linked execution map covering both phases,
+per-candidate checks, failure paths and the caller's resource boundary.
+Evaluation groups shared result types, bounded structural checks and
 full-inventory checks under `evaluation/`, without a dependency on story.
 This organization introduces no Rust API or wire-format change.
 Offline planning validates inputs/options/selection bounds, selects
