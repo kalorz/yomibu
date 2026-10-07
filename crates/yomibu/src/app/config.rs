@@ -118,6 +118,7 @@ pub struct Configuration {
     pub generation: StoryGenerationOptions,
     pub cache_max_age: Duration,
     pub dictionary_dir: PathBuf,
+    pub(crate) dictionary_dir_explicit: bool,
     pub embedding_cache: PathBuf,
     pub embedding_provider: Option<EmbeddingProvider>,
     pub embedding_model: Option<String>,
@@ -256,6 +257,7 @@ impl Configuration {
             seed: setting!(seed),
             generation,
             cache_max_age: Duration::from_secs(setting!(cache_max_age_seconds).unwrap_or(3600)),
+            dictionary_dir_explicit: dictionary_dir.is_some(),
             dictionary_dir: dictionary_dir.unwrap_or_else(|| data_dir.join("dictionaries")),
             embedding_cache: setting!(embedding_cache)
                 .unwrap_or_else(|| data_dir.join("embeddings.json")),

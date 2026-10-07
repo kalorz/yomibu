@@ -1,16 +1,35 @@
 #[path = "../../../tests/support/dictionary.rs"]
 mod test_dictionary;
 
-use yomibu::{
-    adapters::dictionary::ManagedInstallation, adapters::sudachi::SudachiAnalyzer,
-    analysis::Sentence,
-};
+use yomibu::analysis::Sentence;
+
+#[test]
+fn stale_fixture_records_explain_how_to_repeat_setup() {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(root.join("bundles"))
+        .unwrap();
+    let current = root.join("current");
+    std::fs::write(
+        &current,
+        r#"{"version":99,"generation":"core-20260723-v0-stale"}"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let panic = std::panic::catch_unwind(|| test_dictionary::open_installation(root))
+        .err()
+        .expect("unsupported fixture should fail");
+    let message = panic.downcast_ref::<String>().unwrap();
+    assert!(message.contains("dictionary import"), "{message}");
+    assert!(message.contains("README.md"), "{message}");
+}
 
 #[test]
 fn real_core_dictionary_preserves_whole_compounds_components_and_original_byte_spans() {
-    let installation = ManagedInstallation::open(test_dictionary::installation()).unwrap();
-    // The shared fixture is imported once and remains unchanged throughout tests.
-    let analyzer = unsafe { SudachiAnalyzer::load(installation) }.unwrap();
+    let analyzer = test_dictionary::load_analyzer();
     let sentence = Sentence::new("東京都。猫").unwrap();
     let analysis = analyzer.analyze(sentence).unwrap();
     assert_eq!(analysis.sentence.text(), "東京都。猫");
@@ -49,12 +68,7 @@ fn real_core_dictionary_preserves_whole_compounds_components_and_original_byte_s
 #[test]
 fn configuration_ignores_ambient_files() {
     if std::env::var_os("YOMIBU_SUDACHI_AMBIENT_PROBE").is_some() {
-        let analyzer = unsafe {
-            SudachiAnalyzer::load(
-                ManagedInstallation::open(test_dictionary::installation()).unwrap(),
-            )
-        }
-        .unwrap();
+        let analyzer = test_dictionary::load_analyzer();
         let analysis = analyzer
             .analyze(Sentence::new("猫です。").unwrap())
             .unwrap();

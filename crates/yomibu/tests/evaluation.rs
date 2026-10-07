@@ -1,11 +1,9 @@
 #[path = "../../../tests/support/dictionary.rs"]
 mod test_dictionary;
 
-use std::sync::OnceLock;
+use test_dictionary::analyzer;
 
 use yomibu::{
-    adapters::dictionary::ManagedInstallation,
-    adapters::sudachi::SudachiAnalyzer,
     analysis::Sentence,
     evaluation::{
         CheckKind, CheckOutcome, CheckState, EvaluationBasis, EvaluationBindings, GrammarBinding,
@@ -13,18 +11,6 @@ use yomibu::{
     },
     grammar::{GrammarDeclarations, GrammarRule},
 };
-
-fn analyzer() -> &'static SudachiAnalyzer {
-    static ANALYZER: OnceLock<SudachiAnalyzer> = OnceLock::new();
-    ANALYZER.get_or_init(|| {
-        unsafe {
-            SudachiAnalyzer::load(
-                ManagedInstallation::open(test_dictionary::installation()).unwrap(),
-            )
-        }
-        .unwrap()
-    })
-}
 
 fn word(written_form: &str, reading: &str, sense: &str) -> VocabularyEntry {
     VocabularyEntry {

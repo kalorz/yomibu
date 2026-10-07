@@ -1,6 +1,8 @@
 #[path = "../../../tests/support/dictionary.rs"]
 mod test_dictionary;
 
+use test_dictionary::analyzer;
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use wiremock::{
@@ -8,7 +10,6 @@ use wiremock::{
     matchers::{method, path},
 };
 use yomibu::{
-    adapters::dictionary::ManagedInstallation,
     adapters::openai::{Client, PreparedRequest},
     inventory::LearnerInventory,
     retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
@@ -17,19 +18,6 @@ use yomibu::{
         fit_selection_and_build_request, select_vocabulary,
     },
 };
-
-fn analyzer() -> &'static yomibu::adapters::sudachi::SudachiAnalyzer {
-    static ANALYZER: std::sync::OnceLock<yomibu::adapters::sudachi::SudachiAnalyzer> =
-        std::sync::OnceLock::new();
-    ANALYZER.get_or_init(|| {
-        unsafe {
-            yomibu::adapters::sudachi::SudachiAnalyzer::load(
-                ManagedInstallation::open(test_dictionary::installation()).unwrap(),
-            )
-        }
-        .expect("verified test dictionary required")
-    })
-}
 
 #[tokio::test]
 async fn real_assessment_preserves_both_texts_and_independent_errors_and_findings() {

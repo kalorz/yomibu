@@ -1,5 +1,6 @@
 //! Terminal display of dictionary loading provenance.
 use std::io::Write;
+use yomibu::adapters::dictionary::Verification;
 use yomibu::analysis::AnalysisProvenance;
 
 pub(crate) fn write_import(
@@ -22,14 +23,39 @@ pub(crate) fn write_import(
     Ok(())
 }
 
-pub(crate) fn write_verified(out: &mut impl Write, json: bool) -> anyhow::Result<()> {
+pub(crate) fn write_verified(
+    out: &mut impl Write,
+    verification: &Verification,
+    json: bool,
+) -> anyhow::Result<()> {
     if json {
-        return super::write_json(out, &serde_json::json!({"verified": true}));
+        return super::write_json(
+            out,
+            &serde_json::json!({
+                "verified": true,
+                "metadata_matches_installation": verification.metadata_matches_installation,
+            }),
+        );
     }
     writeln!(
         out,
         "Full pinned verification passed for the dictionary and both publisher notices."
     )?;
+    if verification.metadata_matches_installation {
+        writeln!(
+            out,
+            "Recorded dictionary metadata matches installation evidence."
+        )?;
+    } else {
+        writeln!(
+            out,
+            "Dictionary metadata changed since installation; startup will reject this generation."
+        )?;
+        writeln!(
+            out,
+            "Reimport with yomibu dictionary import --bundle PATH --dictionary-dir PATH."
+        )?;
+    }
     Ok(())
 }
 

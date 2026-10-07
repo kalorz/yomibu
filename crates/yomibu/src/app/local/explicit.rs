@@ -126,7 +126,7 @@ impl LocalApp {
             bundle,
         )?)
     }
-    pub fn verify_dictionary(&self) -> Result<(), ApplicationError> {
+    pub fn verify_dictionary(&self) -> Result<dictionary::Verification, ApplicationError> {
         Ok(dictionary::verify(&self.config.dictionary_dir)?)
     }
 }

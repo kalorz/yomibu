@@ -98,10 +98,12 @@ pub enum InstallationError {
         "Cannot access dictionary installation; use yomibu dictionary import --bundle PATH: {0}"
     )]
     Io(#[from] io::Error),
-    #[error(
-        "Invalid dictionary installation manifest; reimport with yomibu dictionary import --bundle PATH: {0}"
-    )]
+    #[error("Dictionary installation record error: {0}")]
     Manifest(#[from] serde_json::Error),
+    #[error(
+        "Unsafe dictionary storage at {path}; check ownership, private permissions and links, or import into a new --dictionary-dir PATH."
+    )]
+    UnsafeStorage { path: PathBuf },
     #[error(
         "Invalid or unsafe dictionary installation; reimport with yomibu dictionary import --bundle PATH."
     )]
@@ -222,7 +224,7 @@ fn private_directory(path: &Path) -> Result<(), InstallationError> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
         .open(path)?;
     if !owned_private(&directory.metadata()?) {
-        return Err(InstallationError::Invalid);
+        return Err(InstallationError::UnsafeStorage { path: path.into() });
     }
     Ok(())
 }
@@ -267,9 +269,15 @@ fn verify_file(file: &mut File, pin: &Artifact) -> Result<(), InstallationError>
     Ok(())
 }
 
+/// Full byte verification results; metadata equality does not establish file stability.
+#[derive(Debug)]
+pub struct Verification {
+    pub metadata_matches_installation: bool,
+}
+
 /// Fully verify the selected dictionary and both notices; never repair implicitly.
-pub fn verify(root: impl AsRef<Path>) -> Result<(), InstallationError> {
-    let (mut installation, _) = ManagedInstallation::select(root.as_ref())?;
+pub fn verify(root: impl AsRef<Path>) -> Result<Verification, InstallationError> {
+    let (mut installation, fingerprint) = ManagedInstallation::select(root.as_ref())?;
     for pin in pins() {
         if pin.name == "system_core.dic" {
             verify_file(&mut installation.dictionary, &pin)?;
@@ -278,7 +286,10 @@ pub fn verify(root: impl AsRef<Path>) -> Result<(), InstallationError> {
             verify_file(&mut notice, &pin)?;
         }
     }
-    Ok(())
+    Ok(Verification {
+        metadata_matches_installation: FileFingerprint::from(&installation.dictionary.metadata()?)
+            == fingerprint,
+    })
 }
 
 /// Copy and fully verify a publisher bundle before publishing a new generation.
@@ -339,7 +350,9 @@ fn import_with(
         .open(root.join("installation.lock"))?;
     let metadata = lock.metadata()?;
     if !metadata.is_file() || !owned_private(&metadata) || metadata.nlink() != 1 {
-        return Err(InstallationError::Invalid);
+        return Err(InstallationError::UnsafeStorage {
+            path: root.join("installation.lock"),
+        });
     }
     match lock.try_lock() {
         Ok(()) => {}

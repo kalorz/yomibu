@@ -81,13 +81,20 @@ fixture under ignored `target/test-resources/managed-dictionary`. Ordinary tests
 reuse it without importing or hashing. Keep its generations unchanged during tests.
 Tests use local servers and synthetic data; no account or model key is needed.
 
+Prepare the dictionary once:
+
 ```sh
-python3 -B -m unittest discover -s scripts -p 'test_setup_test_dictionary.py' -v
 python3 scripts/setup_test_dictionary.py
 cargo run --locked --profile test -- dictionary import \
   --bundle target/test-resources/sudachi-core/current \
   --data-dir target/test-resources/setup \
   --dictionary-dir target/test-resources/managed-dictionary
+```
+
+Repeat these checks:
+
+```sh
+python3 -B -m unittest discover -s scripts -p 'test_setup_test_dictionary.py' -v
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all

@@ -685,7 +685,10 @@ impl LocalApp {
             progress.skip(Step::Assessment, "Assessment disabled");
             return assess_passages(generated.passages(), inputs, None);
         }
-        if !self.config.dictionary_dir.exists() {
+        if !self.config.dictionary_dir_explicit
+            && std::fs::symlink_metadata(&self.config.dictionary_dir)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        {
             progress.skip(Step::Assessment, "No dictionary configured");
             return assess_passages(generated.passages(), inputs, None);
         }

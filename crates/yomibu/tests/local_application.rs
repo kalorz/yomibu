@@ -448,6 +448,83 @@ async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
 }
 
 #[tokio::test]
+async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment() {
+    let server = MockServer::start().await;
+    mount_generation(&server, 5).await;
+    for source in ["flag", "environment", "file", "default", "broken_default"] {
+        let dir = tempfile::tempdir().unwrap();
+        let inventory = dir.path().join("inventory.json");
+        std::fs::write(
+            &inventory,
+            include_bytes!("../../../tests/fixtures/story/inventory.json"),
+        )
+        .unwrap();
+        let missing = dir.path().join("missing");
+        let mut input = ConfigurationInput {
+            data_dir: Some(dir.path().into()),
+            flags: Settings {
+                inventory: Some(inventory),
+                ..Default::default()
+            },
+            config: None,
+            home: None,
+            environment: BTreeMap::new(),
+        };
+        match source {
+            "flag" => input.flags.dictionary_dir = Some(missing),
+            "environment" => {
+                input.environment.insert(
+                    "YOMIBU_DICTIONARY_DIR".into(),
+                    missing.to_str().unwrap().into(),
+                );
+            }
+            "file" => {
+                let file = dir.path().join("config.toml");
+                std::fs::write(&file, "dictionary_dir = 'missing'\n").unwrap();
+                input.config = Some(file);
+            }
+            "broken_default" => {
+                std::os::unix::fs::symlink(&missing, dir.path().join("dictionaries")).unwrap();
+            }
+            _ => {}
+        }
+        let app = LocalApp::new(
+            Configuration::load(input, &yomibu::app::Operation::Story).unwrap(),
+            Credentials::new(None, Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+            .await
+            .unwrap();
+        assert_eq!(
+            report.generated.passages()[0].text,
+            "猫です。寝ます。朝です。"
+        );
+        assert_eq!(
+            report.warnings.len(),
+            usize::from(source != "default"),
+            "{source}"
+        );
+        let state = &report
+            .modules
+            .iter()
+            .find(|module| module.metadata.id == ModuleId::Assessment)
+            .unwrap()
+            .state;
+        if source == "default" {
+            assert!(matches!(state, ModuleState::NotConfigured));
+        } else {
+            assert!(matches!(state, ModuleState::Unavailable { .. }));
+            assert!(report.warnings[0].message.contains("dictionary import"));
+        }
+        assert!(matches!(
+            report.assessments[0].sentences[0].assessment.assessment,
+            yomibu::candidate::CandidateAssessment::NotRun
+        ));
+    }
+}
+
+#[tokio::test]
 async fn optional_resources_enhance_when_available_and_failures_preserve_generation() {
     let dir = tempfile::tempdir().unwrap();
     let inventory = dir.path().join("inventory.json");
@@ -458,11 +535,6 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
     .unwrap();
     let server = MockServer::start().await;
     mount_generation(&server, 2).await;
-    use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(dir.path().join("managed"))
-        .unwrap();
     for assessment in [true, false] {
         let flags = Settings {
             inventory: Some(inventory.clone()),

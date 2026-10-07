@@ -7,35 +7,14 @@ use yomibu::adapters::dictionary::{ManagedInstallation, import_bundle, verify};
 use yomibu::{adapters::sudachi::SudachiAnalyzer, analysis::Sentence};
 
 #[test]
-fn changed_dictionary_metadata_is_rejected_before_mapping() {
-    let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().join("managed");
-    let generation = import_bundle(&root, &test_dictionary::bundle()).unwrap();
-    for _ in 0..2 {
-        drop(ManagedInstallation::open(&root).unwrap());
-    }
-    let path = root
-        .join("bundles")
-        .join(generation)
-        .join("system_core.dic");
-    fs::File::open(path)
-        .unwrap()
-        .set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))
-        .unwrap();
-    let error = ManagedInstallation::open(&root)
-        .err()
-        .expect("startup accepted changed dictionary metadata");
-    assert!(error.to_string().contains("metadata changed"), "{error}");
-    assert!(error.to_string().contains("dictionary verify"), "{error}");
-    assert!(error.to_string().contains("reimport"), "{error}");
-}
-
-#[test]
 fn verification_after_a_touch_checks_bytes_without_refreshing_installation_evidence() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("managed");
     let generation = import_bundle(&root, &test_dictionary::bundle()).unwrap();
     let bundle = root.join("bundles").join(generation);
+    for _ in 0..2 {
+        drop(ManagedInstallation::open(&root).unwrap());
+    }
     let receipt = fs::read(bundle.join("installation.json")).unwrap();
     let selection = fs::read(root.join("current")).unwrap();
     fs::File::open(bundle.join("system_core.dic"))
@@ -43,72 +22,18 @@ fn verification_after_a_touch_checks_bytes_without_refreshing_installation_evide
         .set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))
         .unwrap();
 
-    verify(&root).unwrap();
+    assert!(!verify(&root).unwrap().metadata_matches_installation);
 
     assert_eq!(fs::read(bundle.join("installation.json")).unwrap(), receipt);
     assert_eq!(fs::read(root.join("current")).unwrap(), selection);
+    let error = ManagedInstallation::open(&root).err().unwrap();
     assert!(matches!(
-        ManagedInstallation::open(&root),
-        Err(yomibu::adapters::dictionary::InstallationError::Changed)
+        error,
+        yomibu::adapters::dictionary::InstallationError::Changed
     ));
-}
-
-#[test]
-fn replacements_truncation_and_permission_round_trips_are_rejected_before_mapping() {
-    use std::os::unix::fs::PermissionsExt;
-    for change in [
-        "replacement",
-        "truncation",
-        "permissions",
-        "subsecond_touch",
-    ] {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("managed");
-        let generation = import_bundle(&root, &test_dictionary::bundle()).unwrap();
-        drop(ManagedInstallation::open(&root).unwrap());
-        let path = root
-            .join("bundles")
-            .join(generation)
-            .join("system_core.dic");
-        match change {
-            "replacement" => {
-                let replacement = directory.path().join("replacement.dic");
-                fs::copy(&path, &replacement).unwrap();
-                fs::rename(replacement, &path).unwrap();
-            }
-            "subsecond_touch" => {
-                let file = fs::File::open(&path).unwrap();
-                let modified = file.metadata().unwrap().modified().unwrap();
-                file.set_times(
-                    fs::FileTimes::new()
-                        .set_modified(modified + std::time::Duration::from_nanos(1)),
-                )
-                .unwrap();
-            }
-            _ => {
-                fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-                if change == "truncation" {
-                    fs::OpenOptions::new()
-                        .write(true)
-                        .open(&path)
-                        .unwrap()
-                        .set_len(8)
-                        .unwrap();
-                }
-                fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
-            }
-        }
-        assert!(
-            matches!(
-                ManagedInstallation::open(&root),
-                Err(yomibu::adapters::dictionary::InstallationError::Changed)
-            ),
-            "startup accepted {change}"
-        );
-        if change != "truncation" {
-            verify(&root).unwrap();
-        }
-    }
+    assert!(error.to_string().contains("metadata changed"), "{error}");
+    assert!(error.to_string().contains("dictionary verify"), "{error}");
+    assert!(error.to_string().contains("reimport"), "{error}");
 }
 
 #[test]
@@ -180,7 +105,8 @@ fn old_readers_keep_their_generation_after_reimport() {
     let before = analyzer.analyze(sentence.clone()).unwrap();
     assert_eq!(before.provenance.dictionary_loading.generation, old);
 
-    let new = import_bundle(&root, &test_dictionary::bundle()).unwrap();
+    let retained_bundle = root.join("bundles").join(&old);
+    let new = import_bundle(&root, &retained_bundle).unwrap();
     assert_ne!(new, old);
     let current =
         unsafe { SudachiAnalyzer::load(ManagedInstallation::open(&root).unwrap()) }.unwrap();

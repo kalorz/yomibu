@@ -30,6 +30,45 @@ fn success(output: Output) -> String {
 }
 
 #[test]
+fn unsafe_import_storage_has_actionable_escaped_diagnostics() {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("猫\nInjected\u{1b}[31m");
+    fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+    fs::write(root.join("current"), b"previous selection").unwrap();
+    let lock = root.join("installation.lock");
+    fs::write(&lock, b"").unwrap();
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o640)).unwrap();
+    let output = cli(directory.path())
+        .args([
+            "dictionary",
+            "import",
+            "--bundle",
+            "unused",
+            "--dictionary-dir",
+        ])
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        error.starts_with("error: Unsafe dictionary storage at "),
+        "{error}"
+    );
+    assert_eq!(error.lines().count(), 1, "{error}");
+    assert!(error.contains("猫\\nInjected\\u{1b}[31m"), "{error}");
+    assert!(!error.contains('\u{1b}'));
+    assert!(error.contains("installation.lock"), "{error}");
+    assert!(error.contains("new --dictionary-dir"), "{error}");
+    assert_eq!(
+        fs::read(root.join("current")).unwrap(),
+        b"previous selection"
+    );
+}
+
+#[test]
 fn help_exposes_only_managed_dictionary_selection_without_accessing_resources() {
     let directory = tempfile::tempdir().unwrap();
     for command in ["analyze", "story"] {
@@ -103,6 +142,7 @@ fn offline_import_verify_and_analysis_report_the_selected_generation() {
     ))
     .unwrap();
     assert_eq!(verified_json["verified"], true);
+    assert_eq!(verified_json["metadata_matches_installation"], true);
     let pointer = fs::read(root.join("current")).unwrap();
     let mapped = success(
         cli(directory.path())
@@ -133,6 +173,49 @@ fn offline_import_verify_and_analysis_report_the_selected_generation() {
     );
     assert!(text.contains("requires unchanged managed files"));
     assert_eq!(fs::read(root.join("current")).unwrap(), pointer);
+    let bundle = root
+        .join("bundles")
+        .join(imported_json["generation"].as_str().unwrap());
+    let receipt = fs::read(bundle.join("installation.json")).unwrap();
+    fs::File::open(bundle.join("system_core.dic"))
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(std::time::SystemTime::UNIX_EPOCH))
+        .unwrap();
+    let verified_json: Value = serde_json::from_str(&success(
+        cli(directory.path())
+            .args(["dictionary", "verify", "--json", "--dictionary-dir"])
+            .arg(&root)
+            .output()
+            .unwrap(),
+    ))
+    .unwrap();
+    assert_eq!(verified_json["verified"], true);
+    assert_eq!(verified_json["metadata_matches_installation"], false);
+    let verified = success(
+        cli(directory.path())
+            .args(["dictionary", "verify", "--dictionary-dir"])
+            .arg(&root)
+            .output()
+            .unwrap(),
+    );
+    assert!(verified.starts_with("Full pinned verification passed"));
+    assert!(verified.contains("startup will reject this generation"));
+    assert!(verified.contains("dictionary import --bundle PATH --dictionary-dir PATH"));
+    assert_eq!(verified.lines().count(), 3, "{verified}");
+    assert_eq!(fs::read(bundle.join("installation.json")).unwrap(), receipt);
+    assert_eq!(fs::read(root.join("current")).unwrap(), pointer);
+    let rejected = cli(directory.path())
+        .args(["analyze", "--input", "input.json", "--dictionary-dir"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(rejected.stdout.is_empty());
+    assert!(
+        String::from_utf8(rejected.stderr)
+            .unwrap()
+            .contains("metadata changed")
+    );
     let failed = cli(directory.path())
         .args([
             "dictionary",

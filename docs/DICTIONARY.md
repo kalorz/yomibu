@@ -86,8 +86,13 @@ rejected; a harmless touch can also be rejected. Reading does not invalidate the
 record: atime is excluded.
 
 Run `dictionary verify` to check actual bytes after a metadata mismatch. It remains
-read-only and does not refresh the fingerprint. Reimport publishes a new generation
-to restore startup eligibility. Older installation records also require reimport.
+read-only and does not refresh the fingerprint. It exits zero for matching pinned
+bytes and reports whether metadata matches the installation record.
+Reimport publishes a new generation to restore startup eligibility.
+Older installation records also require reimport.
+Copying or restoring an installation, or remounting its filesystem, can change
+the fingerprint. Reimport with `--bundle` pointing to the retained generation
+under `bundles/`; the original publisher archive is unnecessary.
 Metadata equality proves neither exact bytes nor authenticity or immutability,
 and does not close the race before later mapped access.
 

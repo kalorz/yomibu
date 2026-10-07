@@ -139,8 +139,8 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
             output::dictionary::write_import(&mut out, &app.import_dictionary(&bundle)?, cli.json)?
         }
         Operation::Verify => {
-            app.verify_dictionary()?;
-            output::dictionary::write_verified(&mut out, cli.json)?;
+            let verification = app.verify_dictionary()?;
+            output::dictionary::write_verified(&mut out, &verification, cli.json)?;
         }
         Operation::Sync => {
             let report = runtime()?.block_on(app.sync())?;

@@ -1,16 +1,16 @@
 #[path = "../../../tests/support/dictionary.rs"]
 mod test_dictionary;
 
+use test_dictionary::analyzer;
+
 use std::{
     fs,
     path::Path,
     process::{Command, Output},
-    sync::OnceLock,
 };
 
 use serde_json::{Value, json};
 use yomibu::{
-    adapters::{dictionary::ManagedInstallation, sudachi::SudachiAnalyzer},
     analysis::Sentence,
     evaluation::{CheckKind, EvaluationBindings, evaluate},
     grammar::GrammarDeclarations,
@@ -19,18 +19,6 @@ use yomibu::{
 const NOMINAL: &str = include_str!("../../../tests/fixtures/analyze/nominal.json");
 const UNTRUSTED: &str =
     "犬\u{1b}[31m\r\n\t\u{007f}\u{009b}31m\u{2028}\u{2029}\u{202e}\u{e0001}\\\"";
-
-fn analyzer() -> &'static SudachiAnalyzer {
-    static ANALYZER: OnceLock<SudachiAnalyzer> = OnceLock::new();
-    ANALYZER.get_or_init(|| {
-        unsafe {
-            SudachiAnalyzer::load(
-                ManagedInstallation::open(test_dictionary::installation()).unwrap(),
-            )
-        }
-        .unwrap()
-    })
-}
 
 fn cli(dir: &Path) -> Command {
     cli_with_installation(dir, &test_dictionary::installation())
