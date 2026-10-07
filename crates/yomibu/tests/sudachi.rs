@@ -8,6 +8,7 @@ fn stale_fixture_records_explain_how_to_repeat_setup() {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
+    std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::DirBuilder::new()
         .mode(0o700)
         .create(root.join("bundles"))
