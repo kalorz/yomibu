@@ -1,5 +1,5 @@
 //! Select/configure an encoder and invoke shared retrieval preparation.
-use super::input::{load_inventory, read_json, read_key};
+use super::input::{MAX_STORY_REQUEST_FILE_BYTES, load_inventory, read_json, read_key};
 use crate::args::{EmbeddingArgs, EmbeddingProvider, StoryArgs};
 use anyhow::{Context, Result, bail};
 use std::io::Write;
@@ -23,7 +23,8 @@ pub(crate) fn prepare(
     out: &mut impl Write,
 ) -> Result<()> {
     let inventory = load_inventory(args)?;
-    let request: StoryRequest = read_json(&args.request, "Story request", 65536)?;
+    let request: StoryRequest =
+        read_json(&args.request, "Story request", MAX_STORY_REQUEST_FILE_BYTES)?;
     request.validate_selection_limit(usize::from(args.select))?;
     let inputs = prepare_embedding_inputs(&inventory, &request)?;
     let previous = EmbeddingCacheFile::new(&args.embedding_cache).load()?;

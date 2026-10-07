@@ -4,7 +4,10 @@ use std::collections::BTreeSet;
 
 use sha2::{Digest, Sha256};
 
-use super::{StoryError, StoryGenerationOptions, StoryRequest, StoryVocabularySelection};
+use super::{
+    StoryError, StoryGenerationOptions, StoryRequest, StoryVocabularySelection,
+    request::MAX_SELECTED_VOCABULARY_ENTRIES,
+};
 use crate::{
     adapters::openai::{ProviderError, prepare_candidate_body},
     inventory::LearnerInventory,
@@ -56,7 +59,7 @@ pub fn fit_selection_and_build_request<'a>(
     );
     let mut ids = BTreeSet::new();
     if selection.selected.is_empty()
-        || selection.selected.len() > 16
+        || selection.selected.len() > MAX_SELECTED_VOCABULARY_ENTRIES
         || selection.selected.iter().any(|s| {
             !inventory.vocabulary.iter().any(|w| std::ptr::eq(w, s.word)) || !ids.insert(&s.word.id)
         })

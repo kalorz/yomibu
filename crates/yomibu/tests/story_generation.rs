@@ -109,7 +109,7 @@ async fn common_generation_sends_finalized_bytes_and_assesses_all_targets_and_fu
 }
 
 #[tokio::test]
-async fn source_alternatives_competing_identities_and_object_combinations_stay_uncertain() {
+async fn target_observations_preserve_lexical_and_object_evidence_limits() {
     let analyzer = SudachiAnalyzer::load(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/a1/current/system_core.dic"),
@@ -128,8 +128,14 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
         "unsupported_morphology",
         "malformed_object",
         "competing_object",
+        "compound_component",
     ] {
         let mut inventory = inventory();
+        if case == "compound_component" {
+            inventory.vocabulary[2].written_form = "東京".into();
+            inventory.vocabulary[2].readings = vec!["とうきょう".into()];
+            inventory.vocabulary[2].meanings = vec!["Tokyo".into()];
+        }
         if case == "unsupported_morphology" {
             inventory.vocabulary[2].written_form = "高い".into();
             inventory.vocabulary[2].readings = vec!["たかい".into()];
@@ -212,7 +218,9 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
             Default::default(),
         )
         .unwrap();
-        let pair = if case == "intransitive_object" {
+        let pair = if case == "compound_component" {
+            ["東京都です。", "東京は東京都です。"]
+        } else if case == "intransitive_object" {
             ["猫を歩きます。", "猫を歩きます。"]
         } else if case == "malformed_object" {
             ["猫を猫です。", "猫を猫です。"]
@@ -227,7 +235,7 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
         Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"test","model":"test","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":json!({"candidates":pair}).to_string()}]}]}))).mount(&server).await;
         let result = generate_story(&plan, &client, &analyzer).await.unwrap();
         let results = result.assessments();
-        for result in results {
+        for (index, result) in results.iter().enumerate() {
             if case.ends_with("object") {
                 let target = &result.targets[1];
                 if case == "explicit_object" {
@@ -249,7 +257,20 @@ async fn source_alternatives_competing_identities_and_object_combinations_stay_u
             } else {
                 CheckKind::Vocabulary
             };
-            if case != "unsupported_morphology" {
+            if case == "compound_component" {
+                assert_eq!(
+                    evaluation.check(CheckKind::Vocabulary).state,
+                    CheckState::Completed(CheckOutcome::Fail)
+                );
+                assert_eq!(result.targets[0].completeness, "partial");
+                if index == 0 {
+                    assert!(result.targets[0].spans.is_empty());
+                } else {
+                    assert_eq!(result.targets[0].spans.len(), 1);
+                    assert_eq!(result.targets[0].spans[0], 0..6);
+                }
+                assert!(result.plan_departures.is_empty());
+            } else if case != "unsupported_morphology" {
                 assert_eq!(
                     evaluation.check(kind).state,
                     CheckState::Completed(CheckOutcome::Inconclusive),

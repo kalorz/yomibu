@@ -5,9 +5,15 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    adapters::openai::OUTPUT_TOKENS_PER_CANDIDATE,
     inventory::{InventoryError, LearnerInventory},
     retrieval::EmbeddingError,
 };
+
+pub(super) const MAX_SELECTED_VOCABULARY_ENTRIES: usize = 16;
+const MAX_VOCABULARY_TARGET_IDS: usize = 16;
+const MAX_GRAMMAR_TARGET_IDS: usize = 16;
+const MAX_STORY_BRIEF_BYTES: usize = 2048;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,7 +41,12 @@ impl Default for StoryGenerationOptions {
 }
 impl StoryGenerationOptions {
     pub fn validate(&self) -> Result<(), StoryError> {
-        if self.candidate_count == 0 || self.candidate_count.checked_mul(512).is_none() {
+        if self.candidate_count == 0
+            || self
+                .candidate_count
+                .checked_mul(OUTPUT_TOKENS_PER_CANDIDATE)
+                .is_none()
+        {
             return Err(StoryError::Invalid(
                 "candidate count must be positive and fit the output token budget",
             ));
@@ -55,7 +66,10 @@ pub enum StoryError {
 }
 impl StoryRequest {
     pub fn validate_selection_limit(&self, limit: usize) -> Result<(), StoryError> {
-        if limit == 0 || limit > 16 || self.targets.vocabulary.len() > limit {
+        if limit == 0
+            || limit > MAX_SELECTED_VOCABULARY_ENTRIES
+            || self.targets.vocabulary.len() > limit
+        {
             return Err(StoryError::Invalid(
                 "selection limit must include all targets and be at most 16",
             ));
@@ -66,9 +80,9 @@ impl StoryRequest {
         inventory.validate()?;
         if self.version != 1
             || self.brief.trim().is_empty()
-            || self.brief.len() > 2048
-            || self.targets.vocabulary.len() > 16
-            || self.targets.grammar.len() > 16
+            || self.brief.len() > MAX_STORY_BRIEF_BYTES
+            || self.targets.vocabulary.len() > MAX_VOCABULARY_TARGET_IDS
+            || self.targets.grammar.len() > MAX_GRAMMAR_TARGET_IDS
         {
             return Err(StoryError::Invalid("version, brief or target limits"));
         }

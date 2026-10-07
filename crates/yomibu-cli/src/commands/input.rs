@@ -8,6 +8,8 @@ use yomibu::{
     knowledge::{LearnerKnowledgePolicy, WaniKaniKnowledgeRule},
 };
 
+pub(super) const MAX_STORY_REQUEST_FILE_BYTES: usize = 65536;
+
 pub(super) fn load_inventory(args: &StoryArgs) -> Result<LearnerInventory> {
     let manual = args
         .inventory

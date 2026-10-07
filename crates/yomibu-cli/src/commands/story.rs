@@ -1,6 +1,6 @@
 //! Configure files, dictionary, credentials and I/O runtime around shared story generation.
 use super::{
-    input::{load_inventory, read_json, read_key},
+    input::{MAX_STORY_REQUEST_FILE_BYTES, load_inventory, read_json, read_key},
     retrieval,
 };
 use crate::{
@@ -53,7 +53,8 @@ fn load_generation_inputs(
 ) -> Result<(LearnerInventory, StoryRequest)> {
     options.validate()?;
     let inventory = load_inventory(args)?;
-    let request: StoryRequest = read_json(&args.request, "Story request", 65536)?;
+    let request: StoryRequest =
+        read_json(&args.request, "Story request", MAX_STORY_REQUEST_FILE_BYTES)?;
     request.validate_selection_limit(usize::from(args.select))?;
     request.validate(&inventory)?;
     Ok((inventory, request))
@@ -88,7 +89,8 @@ pub(crate) fn preview(
 ) -> Result<()> {
     options.validate()?;
     let inventory = load_inventory(args)?;
-    let request: StoryRequest = read_json(&args.request, "Story request", 65536)?;
+    let request: StoryRequest =
+        read_json(&args.request, "Story request", MAX_STORY_REQUEST_FILE_BYTES)?;
     request.validate(&inventory)?;
     let cache = EmbeddingCacheFile::new(&args.embedding_cache)
         .load()?
