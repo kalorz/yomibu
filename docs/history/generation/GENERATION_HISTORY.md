@@ -38,7 +38,7 @@ No live model calls were made for retirement and no accepted exercise is claimed
 
 The unused A1 packet runner is also retired; its useful protections now run through
 shared story, evaluation and analyzer tests. Historical packet inputs and records
-remain under `tests/fixtures/a1` and these docs.
+remain in [analysis history](../analysis/a1-fixtures/README.md) and these docs.
 
 A1's frozen historical **no-go** remains: 24/24 held-out outcomes, 120/120 check
 judgments and 11/12 exact negative-span matches did not outweigh three unsupported

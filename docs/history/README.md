@@ -24,7 +24,7 @@ safeguard remain active. The later code does not revise that score.
 
 - [Implementation and pins](analysis/A1_IMPLEMENTATION.md), [evaluation](analysis/A1_EVALUATION_STATUS.md), [follow-up](analysis/A1_FOLLOWUP.md).
 - [Reference protocol](analysis/A1_REFERENCE_PROTOCOL.md), [packet format](analysis/A1_REVIEW_PACKET.md), [bindings](analysis/A1_BLIND_PACKET_HEADER.md), [scope](analysis/A1_SCOPE_CLARIFICATION.md).
-- [Review and custody packets](analysis/), [synthetic inputs](../../tests/fixtures/a1/README.md).
+- [Review and custody packets](analysis/), [synthetic inputs](analysis/a1-fixtures/README.md).
 
 ## Retired commands and generation experiments
 

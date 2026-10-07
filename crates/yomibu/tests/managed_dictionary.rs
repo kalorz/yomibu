@@ -1,4 +1,7 @@
-use std::{fs, path::Path};
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
+
+use std::fs;
 
 use yomibu::adapters::dictionary::{ManagedInstallation, import_bundle, verify};
 use yomibu::{
@@ -8,19 +11,15 @@ use yomibu::{
     grammar::GrammarDeclarations,
 };
 
-fn source_bundle() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current")
-}
-
 #[test]
 fn import_verifies_and_copies_a_complete_pinned_bundle() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("managed");
-    let generation = import_bundle(&root, &source_bundle()).unwrap();
+    let generation = import_bundle(&root, &test_dictionary::bundle()).unwrap();
     let published = root.join("bundles").join(&generation);
     assert_ne!(
         published.canonicalize().unwrap(),
-        source_bundle().canonicalize().unwrap()
+        test_dictionary::bundle().canonicalize().unwrap()
     );
     for name in [
         "system_core.dic",
@@ -59,7 +58,7 @@ fn import_verifies_and_copies_a_complete_pinned_bundle() {
 
 #[test]
 fn an_arbitrary_bundle_is_not_a_managed_installation() {
-    assert!(ManagedInstallation::open(source_bundle()).is_err());
+    assert!(ManagedInstallation::open(test_dictionary::bundle()).is_err());
     let directory = tempfile::tempdir().unwrap();
     fs::write(directory.path().join("system_core.dic"), b"external").unwrap();
     assert!(ManagedInstallation::open(directory.path()).is_err());
@@ -70,12 +69,12 @@ fn an_arbitrary_bundle_is_not_a_managed_installation() {
 fn mapped_and_owned_analysis_and_evaluation_agree_and_old_readers_survive_reimport() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("managed");
-    let old = import_bundle(&root, &source_bundle()).unwrap();
+    let old = import_bundle(&root, &test_dictionary::bundle()).unwrap();
     let installation = ManagedInstallation::open(&root).unwrap();
     // This test owns the private root and only publishes new generations. It
     // never modifies or truncates the verified generation used by this mapping.
     let mapped = unsafe { SudachiAnalyzer::load_managed(installation) }.unwrap();
-    let owned = SudachiAnalyzer::load(source_bundle().join("system_core.dic")).unwrap();
+    let owned = SudachiAnalyzer::load(test_dictionary::bundle().join("system_core.dic")).unwrap();
     let input: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/analyze/nominal.json")).unwrap();
     let grammar = GrammarDeclarations::from_descriptions(["です — manual familiarity"]).unwrap();
@@ -126,7 +125,7 @@ fn mapped_and_owned_analysis_and_evaluation_agree_and_old_readers_survive_reimpo
                 .is_none()
         );
     }
-    let new = import_bundle(&root, &source_bundle()).unwrap();
+    let new = import_bundle(&root, &test_dictionary::bundle()).unwrap();
     assert_ne!(new, old);
     let current =
         unsafe { SudachiAnalyzer::load_managed(ManagedInstallation::open(&root).unwrap()) }
@@ -151,7 +150,7 @@ fn mapped_and_owned_analysis_and_evaluation_agree_and_old_readers_survive_reimpo
 fn owned_loading_keeps_its_verified_snapshot_after_external_file_changes() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("external.dic");
-    fs::copy(source_bundle().join("system_core.dic"), &path).unwrap();
+    fs::copy(test_dictionary::bundle().join("system_core.dic"), &path).unwrap();
     let analyzer = SudachiAnalyzer::load(&path).unwrap();
     let sentence = Sentence::new("東京都。猫").unwrap();
     let before = analyzer.analyze(sentence.clone()).unwrap();

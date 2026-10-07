@@ -72,8 +72,7 @@ async fn child_with_count(
         serde_json::to_vec(&cache).unwrap(),
     )
     .unwrap();
-    let dictionary =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current/system_core.dic");
+    let dictionary = crate::test_dictionary::bundle().join("system_core.dic");
     let mut args: Vec<String> = vec![
         "untrusted\n\u{1b}executable".into(),
         "generate-story".into(),
@@ -233,11 +232,7 @@ async fn executable_keeps_original_texts_partial_results_spans_and_safe_output()
 async fn managed_story_uses_same_request_and_real_assessment() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("managed");
-    yomibu::adapters::dictionary::import_bundle(
-        &root,
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current"),
-    )
-    .unwrap();
+    yomibu::adapters::dictionary::import_bundle(&root, &crate::test_dictionary::bundle()).unwrap();
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .respond_with(

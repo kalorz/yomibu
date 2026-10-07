@@ -18,8 +18,8 @@ not another review of the visible cases. Save the custodian's files somewhere
 private and durable; temporary handoff files are not the long-term record.
 
 Supply that conversation the reference protocol, common binding sheet, runtime
-packet format, and both the [original development/challenge draft](../../../tests/fixtures/a1/review-draft.json)
-and [active revision 2](../../../tests/fixtures/a1/review-draft-v2.json) as exclusion references.
+packet format, and both the [original development/challenge draft](a1-fixtures/review-draft.json)
+and [active revision 2](a1-fixtures/review-draft-v2.json) as exclusion references.
 The custodian may inspect public A1 contract tests for additional exposed families.
 When using a combined handoff file, its exposure inventory substitutes for
 opening those tests: it must include public test literals and generated-form

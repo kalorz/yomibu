@@ -71,12 +71,13 @@ cargo test --locked -p yomibu --test knowledge --test inventory
 ```
 
 The full suite needs Python 3.8+ and the pinned dictionary. Setup downloads about
-72 MB and extracts about 217 MB into ignored `target/a1/current`. Tests use local
-servers and synthetic data; no account or model key is needed.
+72 MB and extracts about 217 MB into ignored
+`target/test-resources/sudachi-core/current`. Tests use local servers and synthetic
+data; no account or model key is needed.
 
 ```sh
-python3 -B -m unittest discover -s scripts -p 'test_setup_a1_dictionary.py' -v
-python3 scripts/setup_a1_dictionary.py
+python3 -B -m unittest discover -s scripts -p 'test_setup_test_dictionary.py' -v
+python3 scripts/setup_test_dictionary.py
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all

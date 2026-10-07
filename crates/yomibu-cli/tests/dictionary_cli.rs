@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
+
 use serde_json::Value;
 use std::{
     fs,
@@ -11,10 +14,6 @@ fn cli(directory: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
     command.env_clear().current_dir(directory);
     command
-}
-
-fn source() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current")
 }
 
 fn success(output: Output) -> String {
@@ -35,7 +34,7 @@ fn offline_import_verify_and_both_loading_policies_agree_through_the_executable(
     let imported = success(
         cli(directory.path())
             .args(["dictionary", "import", "--bundle"])
-            .arg(source())
+            .arg(test_dictionary::bundle())
             .arg("--dictionary-dir")
             .arg(&root)
             .output()
@@ -74,7 +73,7 @@ fn offline_import_verify_and_both_loading_policies_agree_through_the_executable(
     let external = success(
         cli(directory.path())
             .args(["analyze", "--input", "input.json", "--dictionary"])
-            .arg(source().join("system_core.dic"))
+            .arg(test_dictionary::bundle().join("system_core.dic"))
             .arg("--json")
             .output()
             .unwrap(),
@@ -121,7 +120,7 @@ fn managed_home_default_is_offline_and_external_selection_requires_no_home() {
         cli(directory.path())
             .env("HOME", directory.path())
             .args(["dictionary", "import", "--bundle"])
-            .arg(source())
+            .arg(test_dictionary::bundle())
             .output()
             .unwrap(),
     );
@@ -161,7 +160,7 @@ fn managed_home_default_is_offline_and_external_selection_requires_no_home() {
     success(
         cli(directory.path())
             .args(["analyze", "--input", "input.json", "--dictionary"])
-            .arg(source().join("system_core.dic"))
+            .arg(test_dictionary::bundle().join("system_core.dic"))
             .output()
             .unwrap(),
     );

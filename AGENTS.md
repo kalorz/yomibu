@@ -17,8 +17,9 @@
 - Follow the design vocabulary in `SPEC.md`; use `InMemory...` for memory-backed
   adapters and keep source progress distinct from derived learner knowledge.
   Future vocabulary is not a requirement to create placeholder types or traits.
-- Preserve frozen research packets, fixture bytes, code pins and scoring conclusions.
-  Repair links when moving documentation.
+- Preserve historical research packets, their fixture bytes, code pins and scoring
+  conclusions. Current code and engineering fixtures may change with the current
+  contract. Keep research inputs in history; repair links when moving them.
 - Use stable Rust, the repository toolchain pin once initialized, and cargo fmt.
   Add dependencies, traits, or other abstractions only for demonstrated needs.
 - Use enums, newtypes, `Option`, and typed `Result` boundaries where they improve

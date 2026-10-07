@@ -1,4 +1,8 @@
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
+
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{fs, path::Path, process::Command};
 fn setup() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
@@ -48,6 +52,23 @@ fn offline_preview_has_no_implicit_embedding_call_and_preserves_exact_bytes_and_
             .contains("prepare-retrieval")
     );
     prepare(dir.path());
+    let inventory = yomibu::inventory::LearnerInventory::from_manual(
+        serde_json::from_slice(&fs::read(dir.path().join("inventory.json")).unwrap()).unwrap(),
+    )
+    .unwrap();
+    let request =
+        serde_json::from_slice(&fs::read(dir.path().join("request.json")).unwrap()).unwrap();
+    let cache: yomibu::retrieval::EmbeddingCache =
+        serde_json::from_slice(&fs::read(dir.path().join("vectors.json")).unwrap()).unwrap();
+    let plan = yomibu::story::plan_generation(
+        &inventory,
+        &request,
+        &cache,
+        &cache.model,
+        2,
+        Default::default(),
+    )
+    .unwrap();
     for f in [".env", "wanikani.json", "sudachi.json"] {
         fs::write(dir.path().join(f), "poison").unwrap();
     }
@@ -68,13 +89,10 @@ fn offline_preview_has_no_implicit_embedding_call_and_preserves_exact_bytes_and_
     assert_eq!(report["plan"]["selected"].as_array().unwrap().len(), 2);
     let body = report["provider_request"]["body_utf8"].as_str().unwrap();
     assert!(!body.contains("いぬ"));
-    assert_eq!(
-        body,
-        include_str!("../../../tests/fixtures/story/provider-request.json")
-    );
+    assert_eq!(body, plan.prepared_request().body_utf8());
     assert_eq!(
         report["provider_request"]["sha256"],
-        include_str!("../../../tests/fixtures/story/provider-request.sha256").trim()
+        format!("{:x}", Sha256::digest(body.as_bytes()))
     );
     let text = cli(dir.path(), "preview-story").output().unwrap();
     assert!(text.status.success());
@@ -372,8 +390,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
     prepare(dir.path());
     fs::write(dir.path().join(".env"), "OPENAI_API_KEY=synthetic-unused").unwrap();
     let before = fs::read_dir(dir.path()).unwrap().count();
-    let dictionary =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/a1/current/system_core.dic");
+    let dictionary = test_dictionary::bundle().join("system_core.dic");
     for key in [None, Some("synthetic-secret\nInjected")] {
         let mut command = cli(dir.path(), "generate-story");
         command

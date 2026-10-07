@@ -15,7 +15,7 @@ import zipfile
 class DictionarySetupTests(unittest.TestCase):
     def setUp(self):
         spec = importlib.util.spec_from_file_location(
-            "setup_a1_dictionary", Path(__file__).with_name("setup_a1_dictionary.py")
+            "setup_test_dictionary", Path(__file__).with_name("setup_test_dictionary.py")
         )
         self.setup = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.setup)
@@ -54,6 +54,15 @@ class DictionarySetupTests(unittest.TestCase):
     def installed_files(self):
         bundle = (self.destination / "current").resolve()
         return {name: (bundle / name).read_bytes() for name in self.files}
+
+    def test_cli_failure_names_the_dictionary_setup_and_preserves_the_error(self):
+        with mock.patch("sys.argv", ["setup", "--archive", str(self.root / "missing.zip")]):
+            with contextlib.redirect_stderr(io.StringIO()) as output:
+                with self.assertRaises(SystemExit) as failure:
+                    self.setup.main()
+        self.assertEqual(failure.exception.code, 1)
+        self.assertTrue(output.getvalue().startswith("Sudachi dictionary setup failed: "))
+        self.assertIn("missing.zip", output.getvalue())
 
     def test_damaged_notice_is_repaired_instead_of_reported_ready(self):
         self.prepare(self.archive)
