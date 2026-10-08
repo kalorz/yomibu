@@ -81,3 +81,53 @@ async fn offline_preview_uses_manual_inventory_and_explicit_sync_requires_a_key(
     ));
     assert!(!dir.path().join("data").exists());
 }
+
+#[tokio::test]
+async fn story_checks_request_before_inventory_but_offline_operations_check_inventory_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let inventory = dir.path().join("inventory.json");
+    let request = dir.path().join("request.json");
+    std::fs::write(&inventory, "{").unwrap();
+    std::fs::write(&request, "{").unwrap();
+    let data = dir.path().join("data");
+    let config = Configuration::load(
+        ConfigurationInput {
+            data_dir: Some(data.clone()),
+            config: None,
+            home: None,
+            environment: BTreeMap::new(),
+            flags: Settings {
+                inventory: Some(inventory),
+                request: Some(request),
+                ..Default::default()
+            },
+        },
+        &yomibu::app::Operation::Story,
+    )
+    .unwrap();
+    let app = LocalApp::new(config, Credentials::default());
+    let now = std::time::SystemTime::now().into();
+    // SAFETY: Invalid inputs stop the workflow before dictionary loading.
+    assert!(matches!(
+        unsafe { app.story(now, 1, |_| {}) }.await,
+        Err(ApplicationError::InvalidJson {
+            kind: "story request",
+            ..
+        })
+    ));
+    assert!(matches!(
+        app.preview(now, 1),
+        Err(ApplicationError::InvalidJson {
+            kind: "manual inventory",
+            ..
+        })
+    ));
+    assert!(matches!(
+        app.prepare_retrieval(now).await,
+        Err(ApplicationError::InvalidJson {
+            kind: "manual inventory",
+            ..
+        })
+    ));
+    assert!(!data.exists());
+}

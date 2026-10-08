@@ -735,6 +735,82 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
 }
 
 #[tokio::test]
+async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentials() {
+    use yomibu::{
+        adapters::embedding_cache_file::EmbeddingCacheFile,
+        app::config::EmbeddingProvider,
+        inventory::LearnerInventory,
+        retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
+        story::StoryRequest,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let inventory_path = dir.path().join("inventory.json");
+    let inventory_bytes = include_bytes!("../../../tests/fixtures/story/inventory.json");
+    std::fs::write(&inventory_path, inventory_bytes).unwrap();
+    let inventory =
+        LearnerInventory::from_manual(serde_json::from_slice(inventory_bytes).unwrap()).unwrap();
+    let request_path = dir.path().join("request.json");
+    let request_bytes = include_bytes!("../../../tests/fixtures/story/request.json");
+    std::fs::write(&request_path, request_bytes).unwrap();
+    let request: StoryRequest = serde_json::from_slice(request_bytes).unwrap();
+    let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
+    let cache = EmbeddingCache::from_vectors(
+        EmbeddingModelIdentity {
+            provider: "openai".into(),
+            model: "synthetic-model".into(),
+            revision: "pinned".into(),
+            dimensions: 2,
+            encoding_revision: "plain-v1".into(),
+        },
+        &inputs,
+        vec![vec![1., 0.]; inputs.len()],
+    )
+    .unwrap();
+    let cache_path = dir.path().join("embeddings.json");
+    EmbeddingCacheFile::new(&cache_path).save(&cache).unwrap();
+    let before = std::fs::read(&cache_path).unwrap();
+    let app = LocalApp::new(
+        config(
+            dir.path(),
+            Settings {
+                inventory: Some(inventory_path),
+                request: Some(request_path.clone()),
+                embedding_provider: Some(EmbeddingProvider::Openai),
+                embedding_model: Some(cache.model.model.clone()),
+                embedding_revision: Some(cache.model.revision.clone()),
+                embedding_dimensions: Some(2),
+                enable: vec![ModuleId::Embeddings],
+                ..Default::default()
+            },
+        ),
+        Credentials::default(),
+    );
+    let now = SystemTime::now().into();
+    let reused = app.prepare_retrieval(now).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(reused).unwrap(),
+        serde_json::to_value(&cache).unwrap()
+    );
+    let preview = app.preview(now, 7).unwrap();
+    assert_eq!(preview.selection.embedding_model, Some(cache.model));
+    assert!(preview.warnings.is_empty());
+
+    let mut changed: serde_json::Value = serde_json::from_slice(request_bytes).unwrap();
+    changed["topic"] = json!("An uncached topic");
+    std::fs::write(request_path, serde_json::to_vec(&changed).unwrap()).unwrap();
+    assert!(matches!(
+        app.prepare_retrieval(now).await,
+        Err(ApplicationError::ResourceConfiguration(
+            "Hosted embeddings require --allow-embedding-call."
+        ))
+    ));
+    let preview = app.preview(now, 7).unwrap();
+    assert_eq!(preview.selection.selector_revision, "builtin-v2");
+    assert_eq!(preview.warnings.len(), 1);
+    assert_eq!(std::fs::read(cache_path).unwrap(), before);
+}
+
+#[tokio::test]
 async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_prevents_writes() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("knowledge.json");

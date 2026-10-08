@@ -1,36 +1,47 @@
-use super::*;
+use super::{ApplicationError, LocalApp, SetupIssue};
+use crate::app::{
+    SyncReport, assessment, embeddings, inputs,
+    modules::ModuleId,
+    reporting::{AnalysisRunReport, SelectionReport, StoryPreviewRunReport, Warning},
+    source,
+};
 use crate::{
-    adapters::dictionary,
-    analysis::{Sentence, SentenceAnalysis},
-    evaluation::{CheckState, Evaluation},
+    adapters::{dictionary, sources::wanikani, stores::file::cache},
+    analysis::Sentence,
     grammar::GrammarDeclarations,
     reports::analysis::AnalysisInput,
+    retrieval::EmbeddingCache,
+    story::fit_selection_and_build_request,
     summary::Summary,
 };
-
-#[derive(Debug, Serialize)]
-pub struct StoryPreviewRunReport {
-    pub kind: &'static str,
-    pub request: StoryRequest,
-    pub selection: SelectionReport,
-    pub provider_request: openai::PreparedRequest,
-    pub warnings: Vec<Warning>,
-}
-#[derive(Serialize)]
-pub struct AnalysisRunReport {
-    pub version: u32,
-    pub input: AnalysisInput,
-    pub analysis: SentenceAnalysis<'static>,
-    pub outcome: CheckState,
-    pub evaluation: Evaluation,
-}
+use chrono::{DateTime, Utc};
+use std::path::Path;
 
 impl LocalApp {
-    pub fn status(&self) -> Result<Summary, ApplicationError> {
-        Ok(cache::load_path(&self.cache_path())?.summarize()?)
+    pub async fn prepare_retrieval(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<EmbeddingCache, ApplicationError> {
+        let manual = inputs::read_manual(self.config.inventory.as_deref())?;
+        let source = source::read_cache(&self.config, manual.is_none())?;
+        let inventory =
+            inputs::prepare_inventory(&self.config.knowledge_policy, source.as_ref(), manual, now)?;
+        let request = inputs::read_request(&self.config)?;
+        request.validate_selection_limit(self.config.select)?;
+        embeddings::prepare_embeddings(
+            &self.config,
+            self.credentials.openai.as_deref(),
+            &inventory,
+            &request,
+        )
+        .await
     }
 
-    pub async fn sync(&self) -> Result<super::super::SyncReport, ApplicationError> {
+    pub fn status(&self) -> Result<Summary, ApplicationError> {
+        Ok(cache::load_path(&source::cache_path(&self.config))?.summarize()?)
+    }
+
+    pub async fn sync(&self) -> Result<SyncReport, ApplicationError> {
         let key = self
             .credentials
             .wanikani
@@ -41,11 +52,11 @@ impl LocalApp {
                 }],
             })?;
         let mut source = wanikani::Client::with_base_url(key, &self.endpoints.wanikani)?;
-        let writer = cache::SyncGuard::acquire_path(&self.cache_path())?;
+        let writer = cache::SyncGuard::acquire_path(&source::cache_path(&self.config))?;
         let data = source.fetch().await?;
         let summary = data.summarize()?;
         writer.replace(&data)?;
-        Ok(super::super::SyncReport {
+        Ok(SyncReport {
             summary,
             persistence: crate::ports::Persistence::Durable,
         })
@@ -56,25 +67,21 @@ impl LocalApp {
         now: DateTime<Utc>,
         seed: u64,
     ) -> Result<StoryPreviewRunReport, ApplicationError> {
-        let manual = self.read_manual()?;
-        let source = self.read_cache(manual.is_none())?;
-        let inventory = self.derive_inventory(source.as_ref(), manual, now)?;
-        let request = self.read_request()?;
+        let manual = inputs::read_manual(self.config.inventory.as_deref())?;
+        let source = source::read_cache(&self.config, manual.is_none())?;
+        let inventory =
+            inputs::prepare_inventory(&self.config.knowledge_policy, source.as_ref(), manual, now)?;
+        let request = inputs::read_request(&self.config)?;
         let seed = self.config.seed.unwrap_or(seed);
         let mut warnings = Vec::new();
-        let cache = if self.config.enabled(ModuleId::Embeddings) && request.topic.is_some() {
-            match super::super::resources::load_cached_embeddings(&self.config) {
-                Ok(cache) => Some(cache),
-                Err(error) => {
-                    warnings.push(Warning::embedding_fallback(&error));
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        let (selection, retrieval_error) =
-            self.select_for_request(&inventory, &request, cache.as_ref(), seed)?;
+        let cache = embeddings::load_optional(&self.config, &request, &mut warnings);
+        let (selection, retrieval_error) = embeddings::select_for_request(
+            &inventory,
+            &request,
+            cache.as_ref(),
+            self.config.select,
+            seed,
+        )?;
         if let Some(error) = retrieval_error {
             warnings.push(Warning::embedding_fallback(&error));
         }
@@ -99,7 +106,7 @@ impl LocalApp {
     /// [`SudachiAnalyzer::load`](crate::adapters::sudachi::SudachiAnalyzer::load)
     /// until this call returns.
     pub unsafe fn analyze(&self, path: &Path) -> Result<AnalysisRunReport, ApplicationError> {
-        let input: AnalysisInput = read_json(path, "analysis input", 65536)?;
+        let input: AnalysisInput = inputs::read_json(path, "analysis input", 65536)?;
         if input.version != 1 {
             return Err(ApplicationError::InputVersion {
                 version: input.version,
@@ -108,7 +115,7 @@ impl LocalApp {
         let sentence = Sentence::new(&input.sentence)?;
         let grammar =
             GrammarDeclarations::from_descriptions(input.grammar.iter().map(String::as_str))?;
-        let analyzer = unsafe { super::super::resources::load_analyzer(&self.config) }?;
+        let analyzer = unsafe { assessment::load_analyzer(&self.config) }?;
         let analysis = analyzer.analyze(sentence)?;
         let evaluation = crate::evaluation::evaluate(&analysis, &grammar, &input.bindings)?;
         Ok(AnalysisRunReport {

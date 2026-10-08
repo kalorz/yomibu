@@ -1,9 +1,13 @@
 //! Explicit synchronization and offline status for one account-scoped store.
 
+mod assessment;
 pub mod config;
+mod embeddings;
+mod inputs;
 pub mod local;
 pub mod modules;
-mod resources;
+mod reporting;
+mod source;
 
 use crate::{
     domain::ValidationError,

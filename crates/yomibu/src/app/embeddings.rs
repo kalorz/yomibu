@@ -1,27 +1,22 @@
 use super::{
     config::{Configuration, EmbeddingProvider},
     local::ApplicationError,
+    modules::{ModuleId, ModuleState},
+    reporting::{ProgressEvent, RunProgress, Step, Warning},
 };
 use crate::{
     adapters::{
-        dictionary::ManagedInstallation,
         embedding_cache_file::EmbeddingCacheFile,
         embeddings::{HttpEmbedder, LexicalEmbedder},
-        sudachi::SudachiAnalyzer,
     },
     inventory::LearnerInventory,
     ports::Embedder,
     retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_cache, prepare_embedding_inputs},
-    story::StoryRequest,
+    story::{
+        StoryError, StoryRequest, StoryVocabularySelection, select_builtin_vocabulary,
+        select_vocabulary,
+    },
 };
-
-pub(super) unsafe fn load_analyzer(
-    config: &Configuration,
-) -> Result<SudachiAnalyzer, ApplicationError> {
-    let installation = ManagedInstallation::open(&config.dictionary_dir)?;
-    // The caller guarantees verified, unchanged files for the analyzer's lifetime.
-    Ok(unsafe { SudachiAnalyzer::load(installation) }?)
-}
 
 pub(super) async fn prepare_embeddings(
     config: &Configuration,
@@ -86,9 +81,7 @@ pub(super) async fn prepare_embeddings(
     Ok(cache)
 }
 
-pub(super) fn load_cached_embeddings(
-    config: &Configuration,
-) -> Result<EmbeddingCache, ApplicationError> {
+fn load_cached_embeddings(config: &Configuration) -> Result<EmbeddingCache, ApplicationError> {
     let cache = EmbeddingCacheFile::new(&config.embedding_cache)
         .load()?
         .ok_or(crate::retrieval::EmbeddingError::Missing)?;
@@ -134,4 +127,85 @@ fn embedding_model(
         )?,
     };
     Ok(identity)
+}
+
+pub(super) async fn prepare_optional<F: FnMut(ProgressEvent)>(
+    config: &Configuration,
+    key: Option<&str>,
+    inventory: &LearnerInventory,
+    request: &StoryRequest,
+    progress: &mut RunProgress<F>,
+) -> Option<EmbeddingCache> {
+    if !config.enabled(ModuleId::Embeddings) {
+        progress.skip(Step::Embeddings, "Embeddings disabled");
+        return None;
+    }
+    if request.topic.is_none() {
+        progress.state(
+            ModuleId::Embeddings,
+            ModuleState::Skipped {
+                reason: "No topic; query retrieval is unnecessary".into(),
+            },
+        );
+        progress.skip(Step::Embeddings, "No topic");
+        return None;
+    }
+    let started = progress.start(Step::Embeddings);
+    let result = prepare_embeddings(config, key, inventory, request).await;
+    progress.finish(Step::Embeddings, started);
+    match result {
+        Ok(cache) => {
+            progress.state(ModuleId::Embeddings, ModuleState::Available);
+            Some(cache)
+        }
+        Err(error) => {
+            progress.warnings.push(Warning::embedding_fallback(&error));
+            progress.state(
+                ModuleId::Embeddings,
+                match error {
+                    ApplicationError::ResourceConfiguration(_) => ModuleState::NotConfigured,
+                    _ => ModuleState::Unavailable {
+                        error: error.to_string(),
+                    },
+                },
+            );
+            None
+        }
+    }
+}
+
+pub(super) fn load_optional(
+    config: &Configuration,
+    request: &StoryRequest,
+    warnings: &mut Vec<Warning>,
+) -> Option<EmbeddingCache> {
+    if !config.enabled(ModuleId::Embeddings) || request.topic.is_none() {
+        return None;
+    }
+    match load_cached_embeddings(config) {
+        Ok(cache) => Some(cache),
+        Err(error) => {
+            warnings.push(Warning::embedding_fallback(&error));
+            None
+        }
+    }
+}
+
+pub(super) fn select_for_request<'a>(
+    inventory: &'a LearnerInventory,
+    request: &'a StoryRequest,
+    cache: Option<&EmbeddingCache>,
+    limit: usize,
+    seed: u64,
+) -> Result<(StoryVocabularySelection<'a>, Option<StoryError>), StoryError> {
+    match cache
+        .map(|cache| select_vocabulary(inventory, request, cache, &cache.model, limit))
+        .transpose()
+    {
+        Ok(Some(selection)) => Ok((selection, None)),
+        result => Ok((
+            select_builtin_vocabulary(inventory, request, limit, seed)?,
+            result.err(),
+        )),
+    }
 }
