@@ -1,13 +1,17 @@
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use yomibu::{
-    adapters::embeddings::LexicalEmbedder,
-    inventory::{LearnerInventory, ManualInventory},
-    ports::Embedder,
-    retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
-    story::{
-        StoryError, StoryRequest, fit_selection_and_build_request, plan_generation,
-        select_vocabulary,
+use yomibu::application::story::plan_generation;
+use yomibu_components::{
+    embedding_vocabulary_selection::{prepare_embedding_inputs, select_vocabulary},
+    lexical_embeddings::LexicalEmbedder,
+    story_prompt_preparation::fit_selection_and_build_request,
+};
+use yomibu_core::{
+    capabilities::Embedder,
+    domain::{
+        embedding::{EmbeddingCache, EmbeddingModelIdentity},
+        inventory::{LearnerInventory, ManualInventory},
+        story::{StoryError, StoryRequest},
     },
 };
 
@@ -125,7 +129,7 @@ fn stale_model_text_and_invalid_vectors_fail_before_selection() {
     let mut changed = model();
     changed.revision = "2".into();
     assert!(select_vocabulary(&inventory, &request, &cache, &changed, 2).is_err());
-    request.topic = Some(yomibu::story::StoryTopic::new("flowers".into()).unwrap());
+    request.topic = Some(yomibu_core::domain::story::StoryTopic::new("flowers".into()).unwrap());
     assert!(select_vocabulary(&inventory, &request, &cache, &model(), 2).is_err());
 }
 #[test]
@@ -163,10 +167,9 @@ fn duplicate_embedding_inputs_do_not_hide_invalid_provider_vectors() {
 
 #[tokio::test]
 async fn manual_and_wanikani_sources_share_embedding_inputs_and_prepared_request() {
-    use yomibu::{
-        adapters::embeddings::LexicalEmbedder, knowledge::LearnerKnowledgePolicy, ports::Embedder,
-        story::fit_selection_and_build_request,
-    };
+    use yomibu_components::lexical_embeddings::LexicalEmbedder;
+    use yomibu_components::story_prompt_preparation::fit_selection_and_build_request;
+    use yomibu_core::{capabilities::Embedder, domain::knowledge::LearnerKnowledgePolicy};
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(fixture["snapshot"].clone()).unwrap();
@@ -215,7 +218,7 @@ async fn manual_and_wanikani_sources_share_embedding_inputs_and_prepared_request
 
 #[test]
 fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() {
-    use yomibu::story::StoryGenerationOptions;
+    use yomibu_core::domain::story::StoryGenerationOptions;
     assert_eq!(StoryGenerationOptions::default().candidate_count, 1);
     assert!(
         serde_json::to_value(request())
@@ -225,21 +228,19 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
     );
     for count in [1, 2, 8, 9, 100, usize::MAX / 2560] {
         assert!(
-            StoryGenerationOptions {
+            yomibu_components::openai_story_generation::validate_options(&StoryGenerationOptions {
                 candidate_count: count,
                 ..Default::default()
-            }
-            .validate()
+            })
             .is_ok()
         );
     }
     for count in [0, usize::MAX / 2560 + 1, usize::MAX] {
         assert!(
-            StoryGenerationOptions {
+            yomibu_components::openai_story_generation::validate_options(&StoryGenerationOptions {
                 candidate_count: count,
                 ..Default::default()
-            }
-            .validate()
+            })
             .is_err()
         );
     }
@@ -255,7 +256,7 @@ fn request_bounds_count_topic_bytes_and_each_target_kind_independently() {
         inventory.vocabulary.push(word);
         inventory
             .grammar_declarations
-            .push(yomibu::inventory::InventoryGrammar {
+            .push(yomibu_core::domain::inventory::InventoryGrammar {
                 id: format!("grammar-{index}"),
                 description: "familiar grammar".into(),
             });
@@ -263,8 +264,9 @@ fn request_bounds_count_topic_bytes_and_each_target_kind_independently() {
     let mut request = request();
     request.targets.vocabulary = (0..16).map(|index| format!("word-{index}")).collect();
     request.targets.grammar = (0..16).map(|index| format!("grammar-{index}")).collect();
-    request.topic =
-        Some(yomibu::story::StoryTopic::new(format!("{}ab", "猫".repeat(682))).unwrap());
+    request.topic = Some(
+        yomibu_core::domain::story::StoryTopic::new(format!("{}ab", "猫".repeat(682))).unwrap(),
+    );
     assert_eq!(request.topic.as_ref().unwrap().text().len(), 2048);
     assert!(request.validate(&inventory).is_ok());
     assert!(request.validate_selection_limit(16).is_ok());
@@ -283,8 +285,9 @@ fn request_bounds_count_topic_bytes_and_each_target_kind_independently() {
         request.validate(&inventory),
         Err(StoryError::Invalid("version, topic or target limits"))
     ));
-    request.topic =
-        Some(yomibu::story::StoryTopic::new(format!("{}ab", "猫".repeat(682))).unwrap());
+    request.topic = Some(
+        yomibu_core::domain::story::StoryTopic::new(format!("{}ab", "猫".repeat(682))).unwrap(),
+    );
     request.targets.vocabulary.push("word-16".into());
     assert!(request.validate(&inventory).is_err());
     request.targets.vocabulary.pop();

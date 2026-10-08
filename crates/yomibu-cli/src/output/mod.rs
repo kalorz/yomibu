@@ -3,7 +3,9 @@ use anyhow::{Result, anyhow};
 use clap::error::{ContextKind, ContextValue};
 use serde::Serialize;
 use std::io::Write;
-use yomibu::evaluation::{CheckKind, CheckOutcome, CheckState, Evaluation, UnassessedAspect};
+use yomibu::reports::analysis::{
+    CheckKind, CheckOutcome, CheckState, Evaluation, UnassessedAspect,
+};
 
 pub(crate) mod analysis;
 pub(crate) mod candidate;
@@ -27,7 +29,7 @@ pub(crate) fn escape_argument_error(mut error: clap::Error) -> clap::Error {
 }
 
 pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
-    if let Some(yomibu::app::local::ApplicationError::Setup { issues }) = error.downcast_ref() {
+    if let Some(yomibu::application::ApplicationError::Setup { issues }) = error.downcast_ref() {
         let mut message = String::from("Missing required setup:\n");
         for issue in issues {
             let module = issue.module.metadata();

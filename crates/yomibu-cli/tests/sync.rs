@@ -4,11 +4,13 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{header, method, path},
 };
-use yomibu::{
-    App,
-    adapters::sources::wanikani::Client,
-    adapters::stores::FileLearningStore,
-    adapters::stores::file::cache::{self, SyncGuard},
+use yomibu::App;
+use yomibu_components::{
+    file_learning_store::{
+        FileLearningStore,
+        cache::{self, SyncGuard},
+    },
+    wanikani_source::Client,
 };
 
 const TOKEN: &str = "synthetic-flow-credential";

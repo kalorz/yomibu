@@ -1,9 +1,6 @@
 //! Existing supplied-text input/report shape, independent of files and terminals.
-use crate::{
-    analysis::SentenceAnalysis,
-    evaluation::{CheckState, Evaluation, EvaluationBindings},
-};
 use serde::{Deserialize, Serialize};
+use yomibu_core::domain::{analysis::SentenceAnalysis, evaluation::EvaluationBindings};
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnalysisInput {
@@ -21,3 +18,8 @@ pub struct AnalysisReport<'a> {
     pub outcome: CheckState,
     pub evaluation: Evaluation,
 }
+
+pub use yomibu_core::domain::analysis::AnalysisProvenance;
+pub use yomibu_core::domain::evaluation::{
+    CheckKind, CheckOutcome, CheckState, Evaluation, UnassessedAspect,
+};

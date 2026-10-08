@@ -51,15 +51,15 @@ fn offline_preview_has_no_implicit_embedding_call_and_preserves_exact_bytes_and_
     assert!(missing.stderr.is_empty());
     assert!(!dir.path().join("vectors.json").exists());
     prepare(dir.path());
-    let inventory = yomibu::inventory::LearnerInventory::from_manual(
+    let inventory = yomibu_core::domain::inventory::LearnerInventory::from_manual(
         serde_json::from_slice(&fs::read(dir.path().join("inventory.json")).unwrap()).unwrap(),
     )
     .unwrap();
     let request =
         serde_json::from_slice(&fs::read(dir.path().join("request.json")).unwrap()).unwrap();
-    let cache: yomibu::retrieval::EmbeddingCache =
+    let cache: yomibu_core::domain::embedding::EmbeddingCache =
         serde_json::from_slice(&fs::read(dir.path().join("vectors.json")).unwrap()).unwrap();
-    let plan = yomibu::story::plan_generation(
+    let plan = yomibu::application::story::plan_generation(
         &inventory,
         &request,
         &cache,

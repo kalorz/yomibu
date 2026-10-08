@@ -1,5 +1,6 @@
+pub(crate) mod args;
 use crate::{
-    args::{Cli, Command, DictionaryCommand},
+    commands::args::{Cli, Command, DictionaryCommand},
     output,
 };
 use anyhow::{Context, Result};
@@ -9,10 +10,9 @@ use std::{
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
-use yomibu::app::{
-    Operation,
-    config::{Configuration, ConfigurationInput, ENVIRONMENT_SETTINGS, Settings},
-    local::{Credentials, LocalApp, ServiceEndpoints},
+use yomibu::{
+    application::{Credentials, LocalApp, Operation, ServiceEndpoints},
+    configuration::{Configuration, ConfigurationInput, ENVIRONMENT_SETTINGS, Settings},
 };
 
 pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {

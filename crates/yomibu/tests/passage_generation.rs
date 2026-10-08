@@ -2,10 +2,8 @@ use serde_json::{Value, json};
 #[path = "../../../tests/support/dictionary.rs"]
 mod test_dictionary;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
-use yomibu::{
-    adapters::openai::{Client, PreparedRequest},
-    story::{StoryFormat, StoryGenerationOptions},
-};
+use yomibu_components::openai_story_generation::{Client, PreparedRequest};
+use yomibu_core::domain::story::{StoryFormat, StoryGenerationOptions};
 
 #[tokio::test]
 async fn passage_request_uses_selected_model_and_preserves_sentence_byte_ranges() {
@@ -62,7 +60,9 @@ fn invalid_text_models_report_the_model_instead_of_the_candidate_count() {
             model,
             ..Default::default()
         };
-        let validation = options.validate().unwrap_err().to_string();
+        let validation = yomibu_components::openai_story_generation::validate_options(&options)
+            .unwrap_err()
+            .to_string();
         let preparation = PreparedRequest::new("prompt", "{}", "test", &options, 16384)
             .unwrap_err()
             .to_string();
@@ -78,16 +78,18 @@ fn invalid_text_models_report_the_model_instead_of_the_candidate_count() {
         model: "x".repeat(256),
         ..Default::default()
     };
-    assert!(options.validate().is_ok());
+    assert!(yomibu_components::openai_story_generation::validate_options(&options).is_ok());
     assert!(PreparedRequest::new("prompt", "{}", "test", &options, 16384).is_ok());
 }
 
 #[test]
 fn story_prompt_uses_complete_instructions_for_each_format_and_candidate_count() {
-    use yomibu::{
-        inventory::LearnerInventory,
-        story::{StoryRequest, fit_selection_and_build_request, select_builtin_vocabulary},
+    use yomibu_components::{
+        learner_vocabulary_selection::select_builtin_vocabulary,
+        story_prompt_preparation::fit_selection_and_build_request,
     };
+    use yomibu_core::domain::inventory::LearnerInventory;
+    use yomibu_core::domain::story::StoryRequest;
     let inventory = LearnerInventory::from_manual(
         serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
     )
@@ -125,12 +127,13 @@ fn story_prompt_uses_complete_instructions_for_each_format_and_candidate_count()
 
 #[tokio::test]
 async fn shared_generation_assesses_every_sentence_in_a_passage() {
-    use yomibu::{
-        adapters::embeddings::LexicalEmbedder,
-        inventory::LearnerInventory,
-        ports::Embedder,
-        retrieval::{prepare_cache, prepare_embedding_inputs},
-        story::{StoryRequest, generate_story, plan_generation},
+    use yomibu::application::story::{generate_story, plan_generation};
+    use yomibu_components::embedding_vocabulary_selection::prepare_embedding_inputs;
+    use yomibu_components::lexical_embeddings::LexicalEmbedder;
+    use yomibu_core::{
+        capabilities::Embedder,
+        domain::{inventory::LearnerInventory, story::StoryRequest},
+        pipeline::embeddings::prepare_cache,
     };
     let inventory = LearnerInventory::from_manual(
         serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),

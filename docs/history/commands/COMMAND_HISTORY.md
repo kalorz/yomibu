@@ -11,7 +11,7 @@ source-inspection slices, independent of current story generation.
 - Current `preview-story` exposes the exact offline request; `prepare-retrieval`
   builds the embeddings used by the current path.
 - Eligibility rules and retained source evidence still serve inventory projection;
-  their tests now live in `crates/yomibu/tests/knowledge.rs` without grammar input.
+  their tests now live in `crates/yomibu-core/tests/knowledge.rs` without grammar input.
 - Source alternatives, original observations, terminal safety and offline behavior
   remain protected by current inventory, story, source and CLI tests. Obsolete
   first-N/tuple-inspection contracts are not retained as artificial current tests.

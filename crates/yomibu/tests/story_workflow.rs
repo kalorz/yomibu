@@ -3,17 +3,21 @@ mod test_dictionary;
 
 use serde_json::{Value, json};
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
-use yomibu::{
-    adapters::{
-        embeddings::LexicalEmbedder,
-        openai::{Client, ProviderError},
+use yomibu::application::story::{generate_story, plan_generation};
+use yomibu_components::{
+    embedding_vocabulary_selection::prepare_embedding_inputs,
+    lexical_embeddings::LexicalEmbedder,
+    openai_story_generation::{Client, ProviderError},
+};
+use yomibu_core::{
+    capabilities::Embedder,
+    domain::{
+        candidate::CandidateAssessment,
+        embedding::EmbeddingCache,
+        evaluation::{CheckKind, CheckOutcome, CheckState},
+        inventory::LearnerInventory,
+        story::StoryRequest,
     },
-    candidate::CandidateAssessment,
-    evaluation::{CheckKind, CheckOutcome, CheckState},
-    inventory::LearnerInventory,
-    ports::Embedder,
-    retrieval::{EmbeddingCache, prepare_embedding_inputs},
-    story::{StoryRequest, generate_story, plan_generation},
 };
 
 async fn inputs() -> (LearnerInventory, StoryRequest, EmbeddingCache) {
@@ -117,9 +121,9 @@ async fn offline_planning_validates_options_targets_cache_and_request_bounds() {
             &cache,
             &cache.model,
             2,
-            yomibu::story::StoryGenerationOptions {
+            yomibu_core::domain::story::StoryGenerationOptions {
                 candidate_count: 0,
-                format: yomibu::story::StoryFormat::Sentence,
+                format: yomibu_core::domain::story::StoryFormat::Sentence,
                 ..Default::default()
             }
         )
@@ -148,7 +152,7 @@ async fn offline_planning_validates_options_targets_cache_and_request_bounds() {
     for i in 0..30 {
         oversized
             .grammar_declarations
-            .push(yomibu::inventory::InventoryGrammar {
+            .push(yomibu_core::domain::inventory::InventoryGrammar {
                 id: format!("extra-{i}"),
                 description: "x".repeat(1024),
             });
@@ -195,10 +199,10 @@ async fn provider_failure_returns_no_result_and_never_retries() {
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
 
-fn sentence_options(candidate_count: usize) -> yomibu::story::StoryGenerationOptions {
-    yomibu::story::StoryGenerationOptions {
+fn sentence_options(candidate_count: usize) -> yomibu_core::domain::story::StoryGenerationOptions {
+    yomibu_core::domain::story::StoryGenerationOptions {
         candidate_count,
-        format: yomibu::story::StoryFormat::Sentence,
+        format: yomibu_core::domain::story::StoryFormat::Sentence,
         ..Default::default()
     }
 }

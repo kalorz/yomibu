@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
-use yomibu::app::{
-    config::{Configuration, ConfigurationInput, Settings},
-    local::{ApplicationError, Credentials, LocalApp},
+use yomibu::{
+    application::{ApplicationError, Credentials, LocalApp},
+    configuration::{Configuration, ConfigurationInput, Settings},
 };
 
 #[tokio::test]
@@ -24,22 +24,22 @@ async fn offline_preview_and_retrieval_cannot_use_expired_source_content() {
             home: None,
             environment: BTreeMap::new(),
             flags: Settings {
-                embedding_provider: Some(yomibu::app::config::EmbeddingProvider::LexicalBaseline),
+                embedding_provider: Some(yomibu::configuration::EmbeddingProvider::LexicalBaseline),
                 ..Default::default()
             },
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap();
     let app = LocalApp::new(config, Credentials::default());
     assert!(matches!(
         app.preview(std::time::SystemTime::now().into(), 1),
-        Err(yomibu::app::local::ApplicationError::AccessExpired)
+        Err(yomibu::application::ApplicationError::AccessExpired)
     ));
     assert!(matches!(
         app.prepare_retrieval(std::time::SystemTime::now().into())
             .await,
-        Err(yomibu::app::local::ApplicationError::AccessExpired)
+        Err(yomibu::application::ApplicationError::AccessExpired)
     ));
     assert!(app.status().is_ok());
     assert!(!dir.path().join("embeddings.json").exists());
@@ -66,7 +66,7 @@ async fn offline_preview_uses_manual_inventory_and_explicit_sync_requires_a_key(
                 ..Default::default()
             },
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap();
     let app = LocalApp::new(config, Credentials::default());
@@ -102,7 +102,7 @@ async fn story_checks_request_before_inventory_but_offline_operations_check_inve
                 ..Default::default()
             },
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap();
     let app = LocalApp::new(config, Credentials::default());

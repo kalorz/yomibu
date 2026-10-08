@@ -5,10 +5,15 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
 };
-use yomibu::app::{
-    config::{Configuration, ConfigurationInput, Settings},
-    local::{ApplicationError, Credentials, LocalApp, ProgressEvent, ServiceEndpoints, Step},
-    modules::{ModuleId, ModuleState},
+use yomibu::{
+    application::{
+        ApplicationError, Credentials, LocalApp, ServiceEndpoints,
+        progress::{ProgressEvent, Step},
+    },
+    configuration::{
+        Configuration, ConfigurationInput, Settings,
+        modules::{ModuleId, ModuleState},
+    },
 };
 
 fn config(dir: &std::path::Path, flags: Settings) -> Configuration {
@@ -20,7 +25,7 @@ fn config(dir: &std::path::Path, flags: Settings) -> Configuration {
             environment: BTreeMap::new(),
             flags,
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap()
 }
@@ -225,7 +230,7 @@ fn write_cache(dir: &std::path::Path) -> chrono::DateTime<chrono::Utc> {
         include_bytes!("../../../tests/fixtures/mixed.json"),
     )
     .unwrap();
-    yomibu::adapters::stores::file::cache::load(dir)
+    yomibu_components::file_learning_store::cache::load(dir)
         .unwrap()
         .sync_completed_at
 }
@@ -278,7 +283,8 @@ async fn cache_from_a_future_completion_time_is_refreshed() {
 
 #[tokio::test]
 async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lock() {
-    use yomibu::adapters::stores::file::cache::{SyncGuard, load};
+    use yomibu_components::file_learning_store::cache::SyncGuard;
+    use yomibu_components::file_learning_store::cache::load;
     for replaced_by_another_writer in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let completed = write_cache(dir.path());
@@ -385,7 +391,7 @@ async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_pr
             assert!(matches!(
                 result,
                 Err(ApplicationError::Source(
-                    yomibu::adapters::sources::wanikani::Error::Authentication
+                    yomibu_components::wanikani_source::Error::Authentication
                 ))
             ));
         }
@@ -407,7 +413,8 @@ async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
         Credentials::new(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
-    let guard = yomibu::adapters::stores::file::cache::SyncGuard::acquire(dir.path()).unwrap();
+    let guard =
+        yomibu_components::file_learning_store::cache::SyncGuard::acquire(dir.path()).unwrap();
     let mut events = Vec::new();
     let report = unsafe {
         app.story(completed + chrono::Duration::hours(2), 1, |event| {
@@ -489,7 +496,7 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
             _ => {}
         }
         let app = LocalApp::new(
-            Configuration::load(input, &yomibu::app::Operation::Story).unwrap(),
+            Configuration::load(input, &yomibu::application::Operation::Story).unwrap(),
             Credentials::new(None, Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
@@ -519,7 +526,7 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
         }
         assert!(matches!(
             report.assessments[0].sentences[0].assessment.assessment,
-            yomibu::candidate::CandidateAssessment::NotRun
+            yomibu_core::domain::candidate::CandidateAssessment::NotRun
         ));
     }
 }
@@ -539,7 +546,7 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
         let flags = Settings {
             inventory: Some(inventory.clone()),
             topic: Some("cat".into()),
-            embedding_provider: Some(yomibu::app::config::EmbeddingProvider::LexicalBaseline),
+            embedding_provider: Some(yomibu::configuration::EmbeddingProvider::LexicalBaseline),
             enable: vec![ModuleId::Embeddings],
             disable: if assessment {
                 Vec::new()
@@ -579,7 +586,7 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
         assert_eq!(report.warnings.len(), usize::from(assessment));
         assert!(matches!(
             report.assessments[0].sentences[0].assessment.assessment,
-            yomibu::candidate::CandidateAssessment::NotRun
+            yomibu_core::domain::candidate::CandidateAssessment::NotRun
         ));
     }
     assert!(dir.path().join("embeddings.json").exists());
@@ -641,7 +648,7 @@ async fn optional_embedding_failure_falls_back_to_builtin_selection_without_host
         inventory: Some(inventory),
         topic: Some("cat".into()),
         enable: vec![ModuleId::Embeddings],
-        embedding_provider: Some(yomibu::app::config::EmbeddingProvider::Openai),
+        embedding_provider: Some(yomibu::configuration::EmbeddingProvider::Openai),
         embedding_model: Some("embedding-model".into()),
         embedding_revision: Some("pinned".into()),
         embedding_dimensions: Some(2),
@@ -677,7 +684,7 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
     let flags = Settings {
         inventory: Some(inventory.clone()),
         topic: Some("cat".into()),
-        embedding_provider: Some(yomibu::app::config::EmbeddingProvider::LexicalBaseline),
+        embedding_provider: Some(yomibu::configuration::EmbeddingProvider::LexicalBaseline),
         ..Default::default()
     };
     LocalApp::new(config(dir.path(), flags), Credentials::default())
@@ -736,11 +743,12 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
 
 #[tokio::test]
 async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentials() {
-    use yomibu::{
-        adapters::embedding_cache_file::EmbeddingCacheFile,
-        app::config::EmbeddingProvider,
+    use yomibu::configuration::EmbeddingProvider;
+    use yomibu_components::embedding_vocabulary_selection::prepare_embedding_inputs;
+    use yomibu_components::file_embedding_cache::EmbeddingCacheFile;
+    use yomibu_core::domain::{
+        embedding::{EmbeddingCache, EmbeddingModelIdentity},
         inventory::LearnerInventory,
-        retrieval::{EmbeddingCache, EmbeddingModelIdentity, prepare_embedding_inputs},
         story::StoryRequest,
     };
     let dir = tempfile::tempdir().unwrap();
@@ -952,7 +960,7 @@ async fn concurrent_story_runs_refresh_once_and_keep_a_complete_usable_cache() {
         4
     );
     assert!(
-        yomibu::adapters::stores::file::cache::load(dir.path())
+        yomibu_components::file_learning_store::cache::load(dir.path())
             .unwrap()
             .sync_completed_at
             > completed
@@ -961,7 +969,8 @@ async fn concurrent_story_runs_refresh_once_and_keep_a_complete_usable_cache() {
 
 #[tokio::test]
 async fn freshness_is_rechecked_under_the_lock_after_another_writer_refreshes() {
-    use yomibu::adapters::stores::file::cache::{SyncGuard, load};
+    use yomibu_components::file_learning_store::cache::SyncGuard;
+    use yomibu_components::file_learning_store::cache::load;
     let dir = tempfile::tempdir().unwrap();
     let completed = write_cache(dir.path());
     let server = MockServer::start().await;
@@ -976,8 +985,8 @@ async fn freshness_is_rechecked_under_the_lock_after_another_writer_refreshes() 
         app.story(now, 1, |event| {
             if matches!(
                 event,
-                yomibu::app::local::ProgressEvent::Started {
-                    step: yomibu::app::local::Step::Sync
+                yomibu::application::progress::ProgressEvent::Started {
+                    step: yomibu::application::progress::Step::Sync
                 }
             ) {
                 let writer = SyncGuard::acquire(dir.path()).unwrap();

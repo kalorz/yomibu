@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, path::PathBuf};
-use yomibu::app::{
-    Operation,
-    config::{Configuration, ConfigurationInput, Settings},
+use yomibu::{
+    application::Operation,
+    configuration::{Configuration, ConfigurationInput, Settings},
 };
 
 #[test]
@@ -23,7 +23,7 @@ fn configuration_rejects_the_removed_arbitrary_dictionary_setting() {
             },
             &Operation::Analyze("input.json".into())
         ),
-        Err(yomibu::app::config::ConfigError::Invalid { .. })
+        Err(yomibu::configuration::ConfigError::Invalid { .. })
     ));
 }
 
@@ -96,7 +96,7 @@ fn resolves_each_model_setting_before_job_fallback_and_paths_relative_to_config(
                 ..Default::default()
             },
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap();
     assert_eq!(config.generation.model, "file-generation");
@@ -120,7 +120,7 @@ fn malformed_config_does_not_reflect_its_contents_or_credentials() {
             environment: BTreeMap::new(),
             flags: Settings::default(),
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap_err();
     assert!(!format!("{error:?} {error}").contains("synthetic-secret"));
@@ -139,7 +139,7 @@ fn construction_with_defaults_neither_creates_files_nor_reads_environment() {
             environment: BTreeMap::new(),
             flags: Settings::default(),
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap();
     assert_eq!(config.data_dir, PathBuf::from(&data_dir).join(".yomibu"));
@@ -148,7 +148,7 @@ fn construction_with_defaults_neither_creates_files_nor_reads_environment() {
 
 #[test]
 fn module_controls_override_saved_choices_but_conflicts_remain_errors() {
-    use yomibu::app::modules::ModuleId;
+    use yomibu::configuration::modules::ModuleId;
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("config.toml"),
@@ -167,7 +167,7 @@ fn module_controls_override_saved_choices_but_conflicts_remain_errors() {
                 ..Default::default()
             },
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap();
     assert!(config.enabled(ModuleId::Sync));
@@ -186,7 +186,7 @@ fn module_controls_override_saved_choices_but_conflicts_remain_errors() {
                     ..Default::default()
                 }
             },
-            &yomibu::app::Operation::Story
+            &yomibu::application::Operation::Story
         )
         .is_err()
     );
@@ -214,7 +214,7 @@ fn flags_override_environment_and_environment_overrides_file_for_each_setting() 
                 ..Default::default()
             },
         },
-        &yomibu::app::Operation::Story,
+        &yomibu::application::Operation::Story,
     )
     .unwrap();
     assert_eq!(config.generation.model, "flag-generation");

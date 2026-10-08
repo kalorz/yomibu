@@ -1,9 +1,10 @@
 #[test]
 fn typed_downstream_error_reports_keep_available_analysis_without_completed_judgments() {
-    use yomibu::{
-        adapters::sudachi::AnalysisError,
+    use yomibu_components::japanese_constraint_checks::CandidateError;
+    use yomibu_components::sudachi_dictionary::AnalysisError;
+    use yomibu_core::domain::{
         analysis::{AnalysisProvenance, DictionaryProvenance, Sentence, SentenceAnalysis},
-        candidate::{CandidateAssessment, CandidateError},
+        candidate::CandidateAssessment,
         evaluation::EvaluationError,
     };
     let analysis = SentenceAnalysis {
@@ -70,8 +71,9 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
 #[test]
 fn target_reports_include_state_and_structured_uncertainty() {
     use serde_json::json;
-    use yomibu::{
-        evaluation::{DirectObjectEvidence, LexicalUncertainty},
+    use yomibu_core::domain::evaluation::DirectObjectEvidence;
+    use yomibu_core::domain::{
+        evaluation::LexicalUncertainty,
         story::{
             TargetCoverage::{Complete, Partial},
             TargetKind, TargetObservation,

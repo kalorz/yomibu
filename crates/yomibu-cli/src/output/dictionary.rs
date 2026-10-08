@@ -1,7 +1,6 @@
 //! Terminal display of dictionary loading provenance.
 use std::io::Write;
-use yomibu::adapters::dictionary::Verification;
-use yomibu::analysis::AnalysisProvenance;
+use yomibu::reports::{Verification, analysis::AnalysisProvenance};
 
 pub(crate) fn write_import(
     out: &mut impl Write,

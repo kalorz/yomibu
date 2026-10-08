@@ -106,7 +106,7 @@ analysis, process faults or unsafe behavior in mmap-backed parsing.
 
 ## Pinned artifacts
 
-The compiled verifier in [the Sudachi adapter](../crates/yomibu/src/adapters/sudachi.rs)
+The compiled verifier in [the Sudachi adapter](../crates/yomibu-components/src/sudachi_dictionary/mod.rs)
 and the [developer installer](../scripts/setup_test_dictionary.py) enforce these pins:
 
 | Item | Pin |
@@ -117,7 +117,7 @@ and the [developer installer](../scripts/setup_test_dictionary.py) enforce these
 | Extracted dictionary | 217,466,039 bytes; SHA-256 `53fa281d11eef3769712fe1c3c892117338f9892bee6daf4dad51daa5281bb6f` |
 | LEGAL | 6,037 bytes; SHA-256 `725a8776b38e058b185e905594bc9a2437dbf3787df022fffeefedb9a84e4665` |
 | LICENSE-2.0.txt | 11,358 bytes; SHA-256 `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
-| Embedded configuration | [sudachi.json](../crates/yomibu/src/adapters/sudachi.json); SHA-256 `45cde6f1eba960c32475e267dfa422e51b1f215e3fa142162079d711eff77e4c` |
+| Embedded configuration | [sudachi.json](../crates/yomibu-components/src/sudachi_dictionary/sudachi.json); SHA-256 `45cde6f1eba960c32475e267dfa422e51b1f215e3fa142162079d711eff77e4c` |
 
 These are reproducibility pins, not publisher signatures. Setup retains both
 publisher notices, including the dictionary's embedded-content notices. The
@@ -134,7 +134,7 @@ pins above. Reports include
 requirement. `dictionary_sha256` identifies the expected pin; it is not a claimed
 startup hash.
 
-Library calls use `adapters::dictionary::{import_bundle, verify,
+Library calls use `yomibu_components::sudachi_dictionary::installation::{import_bundle, verify,
 ManagedInstallation::open}` with explicit paths. Environment/output handling stays
 in the executable. `unsafe SudachiAnalyzer::load` consumes the checked installation
 handle: callers must ensure actual full installation verification and no writes

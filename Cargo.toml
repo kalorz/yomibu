@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/yomibu", "crates/yomibu-cli"]
+members = ["crates/yomibu-core", "crates/yomibu-components", "crates/yomibu", "crates/yomibu-cli"]
 resolver = "3"
 
 [workspace.package]
@@ -9,6 +9,8 @@ rust-version = "1.98.1"
 publish = false
 
 [workspace.dependencies]
+yomibu-core = { path = "crates/yomibu-core" }
+yomibu-components = { path = "crates/yomibu-components" }
 yomibu = { path = "crates/yomibu" }
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }

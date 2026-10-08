@@ -1,6 +1,6 @@
 //! Terminal rendering of shared candidate report data.
 use std::io::Write;
-use yomibu::candidate::GenerationProvenance;
+use yomibu::reports::candidate::GenerationProvenance;
 pub(crate) fn write_provenance(
     out: &mut impl Write,
     provenance: &GenerationProvenance,

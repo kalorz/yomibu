@@ -1,12 +1,11 @@
-use args::Cli;
 use clap::{CommandFactory, FromArgMatches};
+use commands::args::Cli;
 use std::{
     io::{self, Write},
     process::ExitCode,
 };
-use yomibu::app::{local::ServiceEndpoints, modules::MODULES};
+use yomibu::{application::ServiceEndpoints, configuration::modules::MODULES};
 
-mod args;
 mod commands;
 mod output;
 

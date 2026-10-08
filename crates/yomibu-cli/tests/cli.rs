@@ -233,7 +233,8 @@ fn missing_cache_guidance_points_to_sync_and_status_ignores_invalid_tokens() {
 
 #[test]
 fn another_process_cannot_sync_while_status_reads_the_locked_cache() {
-    use yomibu::adapters::stores::file::cache::{SyncGuard, load};
+    use yomibu_components::file_learning_store::cache::SyncGuard;
+    use yomibu_components::file_learning_store::cache::load;
     let dir = tempfile::tempdir().unwrap();
     cache(
         dir.path(),

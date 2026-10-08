@@ -1,11 +1,13 @@
 //! Structured candidate reports without terminal formatting or execution.
-use crate::{
-    adapters::sudachi::AnalysisError,
+use serde::Serialize;
+use yomibu_components::{
+    japanese_constraint_checks::CandidateError, sudachi_dictionary::AnalysisError,
+};
+use yomibu_core::domain::{
     analysis::{SentenceAnalysis, SentenceError},
-    candidate::{CandidateAssessment, CandidateError},
+    candidate::CandidateAssessment,
     evaluation::{CheckKind, CheckState, Evaluation, EvaluationError},
 };
-use serde::Serialize;
 
 pub const NOTICE: &str = "Experimental sentence candidates — not accepted exercises";
 
@@ -40,7 +42,11 @@ pub struct UnrunCheck {
 }
 
 impl<'a> CandidateReport<'a> {
-    pub fn new(index: usize, text: &'a str, assessment: &'a CandidateAssessment<'a>) -> Self {
+    pub fn new(
+        index: usize,
+        text: &'a str,
+        assessment: &'a CandidateAssessment<'a, CandidateError>,
+    ) -> Self {
         let (analysis, assessment) = match assessment {
             CandidateAssessment::NotRun => (None, AssessmentReport::NotRun),
             CandidateAssessment::Completed {
@@ -106,3 +112,5 @@ impl<'a> CandidateReport<'a> {
         }
     }
 }
+
+pub use yomibu_core::domain::candidate::GenerationProvenance;

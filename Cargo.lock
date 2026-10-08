@@ -2105,18 +2105,16 @@ name = "yomibu"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "libc",
- "memmap2",
- "reqwest",
  "serde",
  "serde_json",
  "sha2",
- "sudachi",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "toml",
  "wiremock",
+ "yomibu-components",
+ "yomibu-core",
 ]
 
 [[package]]
@@ -2133,6 +2131,38 @@ dependencies = [
  "tokio",
  "wiremock",
  "yomibu",
+ "yomibu-components",
+ "yomibu-core",
+]
+
+[[package]]
+name = "yomibu-components"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "libc",
+ "memmap2",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sudachi",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "wiremock",
+ "yomibu-core",
+]
+
+[[package]]
+name = "yomibu-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

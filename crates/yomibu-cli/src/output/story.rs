@@ -1,11 +1,12 @@
 use super::{candidate, write_json};
 use std::io::Write;
 use yomibu::{
-    app::{
-        local::{ProgressEvent, StoryPreviewRunReport, StoryRunReport, Warning},
-        modules::ModuleState,
+    application::progress::ProgressEvent,
+    configuration::modules::ModuleState,
+    reports::{
+        EmbeddingCache,
+        run::{StoryPreviewRunReport, StoryRunReport, Warning},
     },
-    retrieval::EmbeddingCache,
 };
 
 pub(crate) fn write_progress(out: &mut impl Write, event: &ProgressEvent) -> std::io::Result<()> {
