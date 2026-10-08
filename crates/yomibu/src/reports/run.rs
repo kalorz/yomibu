@@ -23,10 +23,18 @@ pub struct Warning {
     pub message: String,
 }
 impl Warning {
-    pub(crate) fn embedding_fallback(error: &impl std::fmt::Display) -> Self {
+    pub(crate) fn embedding_fallback(
+        error: &impl std::fmt::Display,
+        selection: &crate::configuration::SelectionSettings,
+    ) -> Self {
+        let fallback = if selection.steps == [crate::configuration::SelectionStep::SeededOrder] {
+            "Using seeded-only-v1 selection."
+        } else {
+            "Using built-in selection."
+        };
         Self {
             module: ModuleId::Embeddings,
-            message: format!("{error} Using built-in selection."),
+            message: format!("{error} {fallback}"),
         }
     }
 }

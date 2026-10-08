@@ -1,4 +1,4 @@
-use super::selection::{select_builtin_vocabulary, select_vocabulary};
+use super::selection::select_configured;
 use super::{
     local::ApplicationError,
     progress::{ProgressEvent, RunProgress, Step},
@@ -7,8 +7,7 @@ use crate::configuration::modules::{ModuleId, ModuleState};
 use crate::configuration::{Configuration, EmbeddingProvider};
 use crate::reports::run::Warning;
 use yomibu_components::{
-    embedding_vocabulary_selection::prepare_embedding_inputs,
-    file_embedding_cache::EmbeddingCacheFile, http_embeddings::HttpEmbedder,
+    embedding_vocabulary_selection::prepare_embedding_inputs, http_embeddings::HttpEmbedder,
     lexical_embeddings::LexicalEmbedder,
 };
 use yomibu_core::{
@@ -23,38 +22,42 @@ use yomibu_core::{
 
 pub(super) async fn prepare_embeddings(
     config: &Configuration,
-    key: Option<&str>,
+    credentials: &super::Credentials,
     inventory: &LearnerInventory,
     request: &StoryRequest,
 ) -> Result<EmbeddingCache, ApplicationError> {
     let inputs = prepare_embedding_inputs(inventory, request)?;
-    let file = EmbeddingCacheFile::new(&config.embedding_cache);
+    let file = config
+        .pipeline
+        .components
+        .embedding_cache
+        .open(&config.application.embedding_cache);
     let previous = file.load()?;
     let identity = embedding_model(config, previous.as_ref())?;
     let previous = match previous {
         Some(cache) if cache.vectors(&identity, &inputs).is_ok() => return Ok(cache),
         previous => previous,
     };
-    let cache = match config.embedding_provider {
+    let cache = match config.pipeline.embedding_provider {
         Some(EmbeddingProvider::LexicalBaseline) => {
             prepare_cache(&LexicalEmbedder::new(), &inputs, previous.as_ref()).await?
         }
         Some(EmbeddingProvider::Local) => {
             prepare_cache(
-                &HttpEmbedder::local(&config.embedding_endpoint, identity)?,
+                &HttpEmbedder::local(&config.pipeline.embedding_endpoint, identity)?,
                 &inputs,
                 previous.as_ref(),
             )
             .await?
         }
         Some(EmbeddingProvider::Openai) => {
-            if !config.allow_embedding_call {
+            if !config.application.allow_embedding_call {
                 return Err(ApplicationError::ResourceConfiguration(
                     "Hosted embeddings require --allow-embedding-call.",
                 ));
             }
-            let key = key.ok_or(ApplicationError::ResourceConfiguration(
-                "Hosted embeddings need --openai-api-key or YOMIBU_OPENAI_API_KEY with embedding access.",
+            let key = credentials.resolve(crate::configuration::components::EMBEDDING_KEY, &config.application.credential_bindings)?.ok_or(ApplicationError::ResourceConfiguration(
+                "Hosted embeddings need --http-embeddings-api-key or YOMIBU_HTTP_EMBEDDINGS_API_KEY with embedding access.",
             ))?;
             prepare_cache(
                 &HttpEmbedder::openai(key, identity)?,
@@ -70,6 +73,7 @@ pub(super) async fn prepare_embeddings(
         }
     };
     if let Some(parent) = config
+        .application
         .embedding_cache
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
@@ -85,7 +89,11 @@ pub(super) async fn prepare_embeddings(
 }
 
 fn load_cached_embeddings(config: &Configuration) -> Result<EmbeddingCache, ApplicationError> {
-    let cache = EmbeddingCacheFile::new(&config.embedding_cache)
+    let cache = config
+        .pipeline
+        .components
+        .embedding_cache
+        .open(&config.application.embedding_cache)
         .load()?
         .ok_or(yomibu_core::domain::embedding::EmbeddingError::Missing)?;
     if cache.model != embedding_model(config, Some(&cache))? {
@@ -98,7 +106,7 @@ fn embedding_model(
     config: &Configuration,
     previous: Option<&EmbeddingCache>,
 ) -> Result<EmbeddingModelIdentity, ApplicationError> {
-    let identity = match config.embedding_provider {
+    let identity = match config.pipeline.embedding_provider {
         Some(EmbeddingProvider::LexicalBaseline) => LexicalEmbedder::new().model_identity().clone(),
         Some(provider) => EmbeddingModelIdentity {
             provider: match provider {
@@ -106,19 +114,19 @@ fn embedding_model(
                 EmbeddingProvider::Openai => "openai",
                 EmbeddingProvider::LexicalBaseline => "local-baseline",
             }.into(),
-            model: config.embedding_model.clone().ok_or(
-                ApplicationError::ResourceConfiguration("Supply --embedding-model.")
+            model: config.pipeline.embedding_model.clone().ok_or(
+                ApplicationError::ResourceConfiguration("Supply --http-embeddings-model.")
             )?,
-            revision: config.embedding_revision.clone().ok_or(
-                ApplicationError::ResourceConfiguration("Supply --embedding-revision with a pinned encoder revision.")
+            revision: config.pipeline.embedding_revision.clone().ok_or(
+                ApplicationError::ResourceConfiguration("Supply --http-embeddings-revision with a pinned encoder revision.")
             )?,
-            dimensions: config.embedding_dimensions.ok_or(
-                ApplicationError::ResourceConfiguration("Supply --embedding-dimensions.")
+            dimensions: config.pipeline.embedding_dimensions.ok_or(
+                ApplicationError::ResourceConfiguration("Supply --http-embeddings-dimensions.")
             )?,
             encoding_revision: "plain-v1".into(),
         },
-        None if config.embedding_model.is_some() || config.embedding_revision.is_some()
-            || config.embedding_dimensions.is_some() => {
+        None if config.pipeline.embedding_model.is_some() || config.pipeline.embedding_revision.is_some()
+            || config.pipeline.embedding_dimensions.is_some() => {
             return Err(ApplicationError::ResourceConfiguration(
                 "Select --embedding-provider when supplying embedding model settings.",
             ));
@@ -134,7 +142,7 @@ fn embedding_model(
 
 pub(super) async fn prepare_optional<F: FnMut(ProgressEvent)>(
     config: &Configuration,
-    key: Option<&str>,
+    credentials: &super::Credentials,
     inventory: &LearnerInventory,
     request: &StoryRequest,
     progress: &mut RunProgress<F>,
@@ -154,7 +162,7 @@ pub(super) async fn prepare_optional<F: FnMut(ProgressEvent)>(
         return None;
     }
     let started = progress.start(Step::Embeddings);
-    let result = prepare_embeddings(config, key, inventory, request).await;
+    let result = prepare_embeddings(config, credentials, inventory, request).await;
     progress.finish(Step::Embeddings, started);
     match result {
         Ok(cache) => {
@@ -162,7 +170,10 @@ pub(super) async fn prepare_optional<F: FnMut(ProgressEvent)>(
             Some(cache)
         }
         Err(error) => {
-            progress.warnings.push(Warning::embedding_fallback(&error));
+            progress.warnings.push(Warning::embedding_fallback(
+                &error,
+                &config.pipeline.selection,
+            ));
             progress.state(
                 ModuleId::Embeddings,
                 match error {
@@ -188,13 +199,17 @@ pub(super) fn load_optional(
     match load_cached_embeddings(config) {
         Ok(cache) => Some(cache),
         Err(error) => {
-            warnings.push(Warning::embedding_fallback(&error));
+            warnings.push(Warning::embedding_fallback(
+                &error,
+                &config.pipeline.selection,
+            ));
             None
         }
     }
 }
 
 pub(super) fn select_for_request<'a>(
+    settings: &crate::configuration::SelectionSettings,
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
     cache: Option<&EmbeddingCache>,
@@ -202,12 +217,12 @@ pub(super) fn select_for_request<'a>(
     seed: u64,
 ) -> Result<(StoryVocabularySelection<'a>, Option<StoryError>), StoryError> {
     match cache
-        .map(|cache| select_vocabulary(inventory, request, cache, &cache.model, limit))
+        .map(|cache| select_configured(settings, inventory, request, Some(cache), limit, seed))
         .transpose()
     {
         Ok(Some(selection)) => Ok((selection, None)),
         result => Ok((
-            select_builtin_vocabulary(inventory, request, limit, seed)?,
+            select_configured(settings, inventory, request, None, limit, seed)?,
             result.err(),
         )),
     }

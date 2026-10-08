@@ -13,6 +13,8 @@ use thiserror::Error;
 use yomibu_core::domain::source::{Subject, UnavailableSubject, ValidationError, WaniKaniSyncData};
 
 const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
+pub const API_KEY: yomibu_core::capabilities::options::CredentialRequirement =
+    yomibu_core::capabilities::options::CredentialRequirement::new("wanikani-source", "api-key");
 
 /// Sanitized retrieval failures; transport URLs, response bodies, and credentials
 /// are deliberately omitted from both messages and underlying error chains.
@@ -24,9 +26,11 @@ pub enum Error {
     ConflictingDuplicate { collection: &'static str, id: u64 },
     #[error("Unsafe or repeated pagination URL for WaniKani {endpoint}.")]
     Pagination { endpoint: &'static str },
-    #[error("Invalid HTTP client configuration or YOMIBU_WANIKANI_API_KEY.")]
+    #[error("Invalid HTTP client configuration or supplied WaniKani credential.")]
     Configuration,
-    #[error("Authentication failed; check YOMIBU_WANIKANI_API_KEY and its read permissions.")]
+    #[error(
+        "Authentication failed; check the supplied WaniKani credential and its read permissions."
+    )]
     Authentication,
     #[error("HTTP {status} from WaniKani {endpoint}.")]
     Http { endpoint: &'static str, status: u16 },

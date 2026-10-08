@@ -6,7 +6,6 @@ use crate::configuration::Configuration;
 use crate::configuration::modules::{ModuleId, ModuleState};
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
-use yomibu_components::file_learning_store::FileLearningStore;
 use yomibu_components::{file_learning_store::cache, wanikani_source as wanikani};
 use yomibu_core::capabilities::LearningStore;
 use yomibu_core::domain::{
@@ -15,19 +14,26 @@ use yomibu_core::domain::{
 
 pub(super) fn cache_path(config: &Configuration) -> PathBuf {
     config
+        .application
         .wanikani_cache
         .clone()
-        .unwrap_or_else(|| config.data_dir.join("wanikani.json"))
+        .unwrap_or_else(|| config.application.data_dir.join("wanikani.json"))
 }
 
 pub(super) fn read_cache(
     config: &Configuration,
     use_default: bool,
 ) -> Result<Option<WaniKaniSyncData>, ApplicationError> {
-    if !use_default && config.wanikani_cache.is_none() {
+    if !use_default && config.application.wanikani_cache.is_none() {
         return Ok(None);
     }
-    match FileLearningStore::at_path(cache_path(config)).load_snapshot() {
+    match config
+        .pipeline
+        .components
+        .learning_store
+        .open(cache_path(config))
+        .load_snapshot()
+    {
         Ok(data) => Ok(Some(data)),
         Err(cache::CacheError::Missing { .. }) => Ok(None),
         Err(error) => Err(error.into()),
@@ -45,23 +51,23 @@ pub(super) fn usable_cache(
 }
 
 fn can_reuse_cache(config: &Configuration, data: &WaniKaniSyncData, now: DateTime<Utc>) -> bool {
-    usable_cache(data, &config.knowledge_policy, now)
+    usable_cache(data, &config.pipeline.knowledge_policy, now)
         && now
             .signed_duration_since(data.sync_completed_at)
             .to_std()
-            .is_ok_and(|age| age < config.cache_max_age)
+            .is_ok_and(|age| age < config.application.cache_max_age)
 }
 
 pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
     config: &Configuration,
-    key: Option<&str>,
+    credentials: &super::Credentials,
     endpoint: &str,
     manual_selected: bool,
     previous: Option<WaniKaniSyncData>,
     now: DateTime<Utc>,
     progress: &mut RunProgress<F>,
 ) -> Result<Option<WaniKaniSyncData>, ApplicationError> {
-    if manual_selected && config.wanikani_cache.is_none() {
+    if manual_selected && config.application.wanikani_cache.is_none() {
         if config.enabled(ModuleId::Sync) {
             progress.state(
                 ModuleId::Sync,
@@ -90,6 +96,11 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
         progress.skip(Step::Sync, "Cache is fresh");
         return Ok(previous);
     }
+    let key = if config.enabled(ModuleId::Sync) {
+        credentials.source(&config.application.credential_bindings)?
+    } else {
+        None
+    };
     if !config.enabled(ModuleId::Sync) || key.is_none() {
         if previous
             .as_ref()
@@ -107,7 +118,7 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
         return Ok(previous);
     }
     let started = progress.start(Step::Sync);
-    let mut client = wanikani::Client::with_base_url(
+    let mut client = config.pipeline.components.source.client(
         key.ok_or_else(|| ApplicationError::Setup {
             issues: vec![SetupIssue {
                 module: ModuleId::Sync,
@@ -115,12 +126,18 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
         })?,
         endpoint,
     )?;
-    let guard = match FileLearningStore::at_path(cache_path(config)).begin_sync() {
+    let guard = match config
+        .pipeline
+        .components
+        .learning_store
+        .open(cache_path(config))
+        .begin_sync()
+    {
         Ok(guard) => guard,
         Err(cache::WriteError::Locked)
             if previous
                 .as_ref()
-                .is_some_and(|data| usable_cache(data, &config.knowledge_policy, now)) =>
+                .is_some_and(|data| usable_cache(data, &config.pipeline.knowledge_policy, now)) =>
         {
             progress.warn(
                 ModuleId::Sync,
@@ -165,9 +182,9 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
         }
         Err(error)
             if temporary_source_error(&error)
-                && previous
-                    .as_ref()
-                    .is_some_and(|data| usable_cache(data, &config.knowledge_policy, now)) =>
+                && previous.as_ref().is_some_and(|data| {
+                    usable_cache(data, &config.pipeline.knowledge_policy, now)
+                }) =>
         {
             progress.warn(
                 ModuleId::Sync,

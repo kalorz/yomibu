@@ -22,7 +22,8 @@ def main():
                         "tests/fixtures/story/retrieval-cases.json").read_text())
     rows = []
     environment = {name: value for name, value in os.environ.items()
-                   if not name.startswith("YOMIBU_") or name == "YOMIBU_OPENAI_API_KEY"}
+                   if not name.startswith("YOMIBU_") or name in
+                   {"YOMIBU_HTTP_EMBEDDINGS_API_KEY", "YOMIBU_CREDENTIAL_OPENAI"}}
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         inventory = root / "inventory.json"

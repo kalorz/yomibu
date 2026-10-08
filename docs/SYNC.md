@@ -5,7 +5,7 @@ The saved data records progress; it does not prove mastery.
 
 ## CLI usage
 
-Set `YOMIBU_WANIKANI_API_KEY` in the environment before sync:
+Set `YOMIBU_WANIKANI_SOURCE_API_KEY` in the environment before sync:
 
 ```sh
 cargo run --locked -- sync

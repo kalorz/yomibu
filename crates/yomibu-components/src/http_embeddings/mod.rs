@@ -13,6 +13,17 @@ use yomibu_core::{
     },
 };
 
+use yomibu_core::capabilities::options::{CredentialRequirement, OptionDeclaration};
+
+pub const MODEL: OptionDeclaration<String> = OptionDeclaration::new("http-embeddings", "model");
+pub const REVISION: OptionDeclaration<String> =
+    OptionDeclaration::new("http-embeddings", "revision");
+pub const DIMENSIONS: OptionDeclaration<usize> =
+    OptionDeclaration::new("http-embeddings", "dimensions");
+pub const ENDPOINT: OptionDeclaration<String> =
+    OptionDeclaration::new("http-embeddings", "endpoint");
+pub const API_KEY: CredentialRequirement = CredentialRequirement::new("http-embeddings", "api-key");
+
 pub struct HttpEmbedder {
     http: reqwest::Client,
     endpoint: Url,

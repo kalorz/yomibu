@@ -7,7 +7,6 @@ use yomibu_components::{
     file_embedding_cache::EmbeddingCacheFileError,
     file_learning_store::cache,
     openai_story_generation as openai,
-    story_prompt_preparation::StoryPromptPreparation,
     sudachi_dictionary::{DictionaryError, installation::InstallationError},
     wanikani_source as wanikani,
 };
@@ -20,24 +19,7 @@ mod explicit;
 use super::progress::{ProgressEvent, Step};
 use crate::reports::run::{SelectionReport, StoryRunReport, Warning};
 
-#[derive(Default)]
-pub struct Credentials {
-    wanikani: Option<String>,
-    openai: Option<String>,
-}
-impl std::fmt::Debug for Credentials {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Credentials { redacted }")
-    }
-}
-impl Credentials {
-    pub fn new(wanikani: Option<String>, openai: Option<String>) -> Self {
-        Self {
-            wanikani: wanikani.filter(|key| !key.trim().is_empty()),
-            openai: openai.filter(|key| !key.trim().is_empty()),
-        }
-    }
-}
+use super::Credentials;
 
 pub struct ServiceEndpoints {
     pub wanikani: String,
@@ -54,8 +36,8 @@ impl Default for ServiceEndpoints {
 
 pub struct LocalApp {
     config: Configuration,
-    credentials: Credentials,
-    endpoints: ServiceEndpoints,
+    credentials: std::sync::Arc<Credentials>,
+    endpoints: std::sync::Arc<ServiceEndpoints>,
 }
 
 #[derive(Debug)]
@@ -64,6 +46,8 @@ pub struct SetupIssue {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum ApplicationError {
+    #[error(transparent)]
+    Credential(#[from] super::CredentialError),
     #[error("Missing required setup.")]
     Setup { issues: Vec<SetupIssue> },
     #[error(transparent)]
@@ -123,13 +107,26 @@ impl LocalApp {
     pub fn new(config: Configuration, credentials: Credentials) -> Self {
         Self {
             config,
-            credentials,
-            endpoints: ServiceEndpoints::default(),
+            credentials: std::sync::Arc::new(credentials),
+            endpoints: std::sync::Arc::new(ServiceEndpoints::default()),
         }
     }
     pub fn with_endpoints(mut self, endpoints: ServiceEndpoints) -> Self {
-        self.endpoints = endpoints;
+        self.endpoints = std::sync::Arc::new(endpoints);
         self
+    }
+
+    /// Resolve one invocation without I/O or mutations to shared resources/defaults.
+    pub fn for_invocation(
+        &self,
+        input: crate::configuration::Invocation,
+        operation: &super::Operation,
+    ) -> Result<Self, crate::configuration::ConfigError> {
+        Ok(Self {
+            config: self.config.for_invocation(input, operation)?,
+            credentials: std::sync::Arc::clone(&self.credentials),
+            endpoints: std::sync::Arc::clone(&self.endpoints),
+        })
     }
 
     /// # Safety
@@ -146,18 +143,17 @@ impl LocalApp {
         let started = progress.start(Step::Inputs);
         let request = inputs::read_request(&self.config)?;
         request.validate_shape()?;
-        request.validate_selection_limit(self.config.select)?;
-        let manual = inputs::read_manual(self.config.inventory.as_deref())?;
+        request.validate_selection_limit(self.config.story.select)?;
+        let manual = inputs::read_manual(self.config.application.inventory.as_deref())?;
         let cached = source::read_cache(&self.config, manual.is_none())?;
-        let usable = cached
-            .as_ref()
-            .is_some_and(|data| source::usable_cache(data, &self.config.knowledge_policy, now));
+        let usable = cached.as_ref().is_some_and(|data| {
+            source::usable_cache(data, &self.config.pipeline.knowledge_policy, now)
+        });
         let needs_source = manual.is_none() && !usable;
         self.validate_story_setup(needs_source, &mut progress.modules)?;
-        let client = openai::Client::with_base_url(
+        let client = self.config.pipeline.components.generation.client(
             self.credentials
-                .openai
-                .as_deref()
+                .generation(&self.config.application.credential_bindings)?
                 .ok_or_else(|| ApplicationError::Setup {
                     issues: vec![SetupIssue {
                         module: ModuleId::Generation,
@@ -169,7 +165,7 @@ impl LocalApp {
         progress.finish(Step::Inputs, started);
         let source = source::prepare_source(
             &self.config,
-            self.credentials.wanikani.as_deref(),
+            &self.credentials,
             &self.endpoints.wanikani,
             manual.is_some(),
             cached,
@@ -178,15 +174,19 @@ impl LocalApp {
         )
         .await?;
         let started = progress.start(Step::Knowledge);
-        let inventory =
-            inputs::prepare_inventory(&self.config.knowledge_policy, source.as_ref(), manual, now)?;
+        let inventory = inputs::prepare_inventory(
+            &self.config.pipeline.knowledge_policy,
+            source.as_ref(),
+            manual,
+            now,
+        )?;
         progress.state(ModuleId::Knowledge, ModuleState::Available);
         progress.finish(Step::Knowledge, started);
-        let seed = self.config.seed.unwrap_or(seed);
+        let seed = self.config.story.seed.unwrap_or(seed);
         request.validate(&inventory)?;
         let cache = embeddings::prepare_optional(
             &self.config,
-            self.credentials.openai.as_deref(),
+            &self.credentials,
             &inventory,
             &request,
             &mut progress,
@@ -194,14 +194,18 @@ impl LocalApp {
         .await;
         let started = progress.start(Step::Selection);
         let (selection, retrieval_error) = embeddings::select_for_request(
+            &self.config.pipeline.selection,
             &inventory,
             &request,
             cache.as_ref(),
-            self.config.select,
+            self.config.story.select,
             seed,
         )?;
         if let Some(error) = retrieval_error {
-            progress.warnings.push(Warning::embedding_fallback(&error));
+            progress.warnings.push(Warning::embedding_fallback(
+                &error,
+                &self.config.pipeline.selection,
+            ));
             progress.state(
                 ModuleId::Embeddings,
                 ModuleState::Unavailable {
@@ -210,11 +214,11 @@ impl LocalApp {
             );
         }
         let plan = prepare_story(
-            &StoryPromptPreparation,
+            &self.config.pipeline.components.preparation.construct(),
             &inventory,
             &request,
             selection,
-            self.config.generation.clone(),
+            self.config.generation(),
         )?;
         let selection = SelectionReport::from_selection(plan.selection(), seed);
         progress.finish(Step::Selection, started);
@@ -244,9 +248,16 @@ impl LocalApp {
                     ModuleId::Knowledge => needs_source && !self.config.enabled(ModuleId::Sync),
                     ModuleId::Sync => {
                         module.required = needs_source && self.config.enabled(ModuleId::Sync);
-                        module.required && self.credentials.wanikani.is_none()
+                        module.required
+                            && self.credentials.is_missing(
+                                crate::configuration::components::SOURCE_KEY,
+                                &self.config.application.credential_bindings,
+                            )
                     }
-                    ModuleId::Generation => self.credentials.openai.is_none(),
+                    ModuleId::Generation => self.credentials.is_missing(
+                        crate::configuration::components::GENERATION_KEY,
+                        &self.config.application.credential_bindings,
+                    ),
                     _ => false,
                 };
                 missing.then_some(SetupIssue {

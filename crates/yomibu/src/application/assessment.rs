@@ -21,9 +21,13 @@ use yomibu_core::pipeline::assessment::assess_passages;
 pub(super) unsafe fn load_analyzer(
     config: &Configuration,
 ) -> Result<SudachiAnalyzer, ApplicationError> {
-    let installation = ManagedInstallation::open(&config.dictionary_dir)?;
+    let installation = ManagedInstallation::open(&config.application.dictionary_dir)?;
     // The caller guarantees verified, unchanged files for the analyzer's lifetime.
-    Ok(unsafe { SudachiAnalyzer::load(installation) }?)
+    match config.pipeline.components.analysis {
+        crate::configuration::components::Analysis::Sudachi => {
+            Ok(unsafe { SudachiAnalyzer::load(installation) }?)
+        }
+    }
 }
 
 /// # Safety
@@ -36,14 +40,24 @@ pub(super) unsafe fn assess_optional<F: FnMut(ProgressEvent)>(
 ) -> Vec<StoryPassageAssessment<DefaultCandidateError>> {
     if !config.enabled(ModuleId::Assessment) {
         progress.skip(Step::Assessment, "Assessment disabled");
-        return assess_with_defaults(generated, inputs, None);
+        return assess_with_defaults(
+            generated,
+            inputs,
+            None,
+            &config.pipeline.components.assessment.construct(),
+        );
     }
-    if !config.dictionary_dir_explicit
-        && std::fs::symlink_metadata(&config.dictionary_dir)
+    if !config.application.dictionary_dir_explicit
+        && std::fs::symlink_metadata(&config.application.dictionary_dir)
             .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
     {
         progress.skip(Step::Assessment, "No dictionary configured");
-        return assess_with_defaults(generated, inputs, None);
+        return assess_with_defaults(
+            generated,
+            inputs,
+            None,
+            &config.pipeline.components.assessment.construct(),
+        );
     }
     let started = progress.start(Step::Assessment);
     let analyzer = match unsafe { load_analyzer(config) } {
@@ -62,7 +76,12 @@ pub(super) unsafe fn assess_optional<F: FnMut(ProgressEvent)>(
             None
         }
     };
-    let assessments = assess_with_defaults(generated, inputs, analyzer.as_ref());
+    let assessments = assess_with_defaults(
+        generated,
+        inputs,
+        analyzer.as_ref(),
+        &config.pipeline.components.assessment.construct(),
+    );
     for sentence in assessments.iter().flat_map(|passage| &passage.sentences) {
         if let yomibu_core::domain::candidate::CandidateAssessment::ExecutionError {
             error, ..
@@ -85,11 +104,12 @@ fn assess_with_defaults(
     generated: &GeneratedCandidates,
     inputs: &StoryAssessmentInputs<'_>,
     analyzer: Option<&SudachiAnalyzer>,
+    assessor: &JapaneseConstraintChecks,
 ) -> Vec<StoryPassageAssessment<DefaultCandidateError>> {
     assess_passages(
         generated.passages(),
         inputs,
-        analyzer.map(|analyzer| (analyzer, &JapaneseConstraintChecks)),
+        analyzer.map(|analyzer| (analyzer, assessor)),
     )
     .into_iter()
     .map(|passage| passage.map_error(DefaultCandidateError))

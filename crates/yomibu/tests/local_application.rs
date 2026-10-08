@@ -69,7 +69,7 @@ async fn missing_setup_is_aggregated_before_network_or_writes_and_secrets_are_re
     assert!(
         !format!(
             "{:?}",
-            Credentials::new(Some("wk-secret".into()), Some("ai-secret".into()))
+            supplied_credentials(Some("wk-secret".into()), Some("ai-secret".into()))
         )
         .contains("secret")
     );
@@ -87,7 +87,7 @@ async fn disabling_sync_without_knowledge_reports_the_missing_inventory_instead_
                 ..Default::default()
             },
         ),
-        Credentials::new(Some("supplied-wk-key".into()), None),
+        supplied_credentials(Some("supplied-wk-key".into()), None),
     );
     let ApplicationError::Setup { issues } =
         unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
@@ -148,7 +148,7 @@ async fn two_keys_generate_once_without_optional_resources_and_the_second_run_us
     let dir = tempfile::tempdir().unwrap();
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(Some("synthetic-wk".into()), Some("synthetic-ai".into())),
+        supplied_credentials(Some("synthetic-wk".into()), Some("synthetic-ai".into())),
     )
     .with_endpoints(ServiceEndpoints {
         wanikani: format!("{}/v2/", server.uri()),
@@ -250,7 +250,7 @@ async fn cache_is_fresh_until_the_one_hour_boundary_then_refreshes() {
     mount_generation(&server, 2).await;
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(Some("wk".into()), Some("ai".into())),
+        supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     unsafe { app.story(completed + chrono::Duration::seconds(3599), 1, |_| {}) }
@@ -272,7 +272,7 @@ async fn cache_from_a_future_completion_time_is_refreshed() {
     mount_generation(&server, 1).await;
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(Some("wk".into()), Some("ai".into())),
+        supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     unsafe { app.story(completed - chrono::Duration::seconds(1), 1, |_| {}) }
@@ -308,7 +308,7 @@ async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lo
         mount_generation(&server, 1).await;
         let app = LocalApp::new(
             config(dir.path(), Settings::default()),
-            Credentials::new(Some("wk".into()), Some("ai".into())),
+            supplied_credentials(Some("wk".into()), Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
         let report = unsafe {
@@ -351,7 +351,7 @@ async fn usable_old_cache_needs_no_source_key_and_disabled_sync_never_initialize
     ] {
         let app = LocalApp::new(
             config(dir.path(), flags),
-            Credentials::new(key, Some("ai".into())),
+            supplied_credentials(key, Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
         let report = unsafe { app.story(completed + chrono::Duration::hours(2), 1, |_| {}) }
@@ -381,7 +381,7 @@ async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_pr
         }
         let app = LocalApp::new(
             config(dir.path(), Settings::default()),
-            Credentials::new(Some("wk".into()), Some("ai".into())),
+            supplied_credentials(Some("wk".into()), Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
         let result = unsafe { app.story(completed + chrono::Duration::hours(2), 1, |_| {}) }.await;
@@ -410,7 +410,7 @@ async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
     mount_generation(&server, 1).await;
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(Some("wk".into()), Some("ai".into())),
+        supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     let guard =
@@ -444,7 +444,7 @@ async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
     .unwrap();
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(None, Some("ai".into())),
+        supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     assert!(
@@ -487,7 +487,7 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
             }
             "file" => {
                 let file = dir.path().join("config.toml");
-                std::fs::write(&file, "dictionary_dir = 'missing'\n").unwrap();
+                std::fs::write(&file, "[application]\ndictionary_dir = 'missing'\n").unwrap();
                 input.config = Some(file);
             }
             "broken_default" => {
@@ -497,7 +497,7 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
         }
         let app = LocalApp::new(
             Configuration::load(input, &yomibu::application::Operation::Story).unwrap(),
-            Credentials::new(None, Some("ai".into())),
+            supplied_credentials(None, Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
         let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
@@ -558,7 +558,7 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
         };
         let app = LocalApp::new(
             config(dir.path(), flags),
-            Credentials::new(None, Some("ai".into())),
+            supplied_credentials(None, Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
         let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
@@ -610,7 +610,7 @@ async fn no_topic_skips_embeddings_and_the_explicit_retrieval_command_requires_a
     };
     let app = LocalApp::new(
         config(dir.path(), flags),
-        Credentials::new(None, Some("ai".into())),
+        supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
@@ -656,7 +656,7 @@ async fn optional_embedding_failure_falls_back_to_builtin_selection_without_host
     };
     let app = LocalApp::new(
         config(dir.path(), flags),
-        Credentials::new(None, Some("ai".into())),
+        supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
@@ -705,7 +705,7 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
                 ..Default::default()
             },
         ),
-        Credentials::new(None, Some("ai".into())),
+        supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
@@ -802,6 +802,29 @@ async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentia
     let preview = app.preview(now, 7).unwrap();
     assert_eq!(preview.selection.embedding_model, Some(cache.model));
     assert!(preview.warnings.is_empty());
+    let mut invocation = yomibu::configuration::Invocation::default();
+    invocation.pipeline.selection.embedding_steps = Some(vec![
+        yomibu::configuration::SelectionStep::EmbeddingRank,
+        yomibu::configuration::SelectionStep::SeededOrder,
+    ]);
+    let composed = app
+        .for_invocation(invocation, &yomibu::application::Operation::Preview)
+        .unwrap()
+        .preview(now, 7)
+        .unwrap();
+    assert_eq!(
+        composed.selection.selector_revision,
+        "inventory-similarity-seeded-v1"
+    );
+    assert_eq!(
+        composed.selection.vocabulary_ids,
+        ["sleep", "cat", "dog", "walk"]
+    );
+    assert_eq!(
+        composed.selection.embedding_model,
+        preview.selection.embedding_model
+    );
+    assert!(composed.warnings.is_empty());
 
     let mut changed: serde_json::Value = serde_json::from_slice(request_bytes).unwrap();
     changed["topic"] = json!("An uncached topic");
@@ -835,7 +858,7 @@ async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_p
                 ..Default::default()
             },
         ),
-        Credentials::new(Some("wk".into()), Some("ai".into())),
+        supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     unsafe { app.story(completed + chrono::Duration::hours(2), 1, |_| {}) }
@@ -857,7 +880,7 @@ async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_p
                 ..Default::default()
             },
         ),
-        Credentials::new(Some("wk".into()), Some("ai".into())),
+        supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     assert!(matches!(
@@ -886,7 +909,7 @@ async fn invalid_request_files_are_rejected_before_automatic_sync_or_writes() {
                     ..Default::default()
                 },
             ),
-            Credentials::new(Some("wk".into()), Some("ai".into())),
+            supplied_credentials(Some("wk".into()), Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
         assert!(matches!(
@@ -911,7 +934,7 @@ async fn refreshed_expired_access_is_rejected_before_replacing_a_usable_cache() 
     mount_source_with_user(&server, &user.to_string()).await;
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(Some("wk".into()), Some("ai".into())),
+        supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     assert!(matches!(
@@ -933,7 +956,7 @@ async fn concurrent_story_runs_refresh_once_and_keep_a_complete_usable_cache() {
     mount_generation(&server, 2).await;
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(Some("wk".into()), Some("ai".into())),
+        supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     let now = completed + chrono::Duration::hours(2);
@@ -977,7 +1000,7 @@ async fn freshness_is_rechecked_under_the_lock_after_another_writer_refreshes() 
     mount_generation(&server, 1).await;
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(Some("wk".into()), Some("ai".into())),
+        supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     let now = completed + chrono::Duration::hours(2);
@@ -1028,10 +1051,21 @@ async fn an_inactive_subscription_retains_its_recorded_free_content_access() {
     mount_generation(&server, 1).await;
     let app = LocalApp::new(
         config(dir.path(), Settings::default()),
-        Credentials::new(None, Some("ai".into())),
+        supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     unsafe { app.story(completed + chrono::Duration::minutes(10), 1, |_| {}) }
         .await
         .unwrap();
+}
+
+fn supplied_credentials(wanikani: Option<String>, openai: Option<String>) -> Credentials {
+    let mut credentials = Credentials::default();
+    if let Some(value) = wanikani {
+        credentials.supply("wanikani", value.into());
+    }
+    if let Some(value) = openai {
+        credentials.supply("openai", value.into());
+    }
+    credentials
 }

@@ -1,10 +1,13 @@
 //! Explicit synchronization and offline status for one account-scoped store.
 
 mod assessment;
+mod construction;
+mod credentials;
+pub use credentials::{CredentialError, Credentials, Secret};
 mod embeddings;
 mod inputs;
 mod local;
-pub use local::{ApplicationError, Credentials, LocalApp, ServiceEndpoints, SetupIssue};
+pub use local::{ApplicationError, LocalApp, ServiceEndpoints, SetupIssue};
 pub mod input_file;
 pub mod progress;
 pub mod selection;
@@ -34,13 +37,21 @@ impl Operation {
     pub(crate) fn uses_setting(&self, name: &str) -> bool {
         use Operation::*;
         match name {
+            "credential_bindings" => true,
+            "source" => matches!(self, Story | Sync),
+            "learning_store" => matches!(self, Story | Preview | Retrieval | Sync | Status),
+            "embedding_cache_component" => matches!(self, Story | Preview | Retrieval),
+            "preparation" | "generation_component" => matches!(self, Story | Preview),
+            "analysis" => matches!(self, Story | Analyze(_) | Import(_) | Verify),
+            "assessment_component" => matches!(self, Story | Analyze(_)),
             "wanikani_cache" => matches!(self, Story | Preview | Retrieval | Sync | Status),
             "dictionary_dir" => matches!(self, Story | Analyze(_) | Import(_) | Verify),
             "model" | "generation_model" | "format" | "candidates" | "seed" => {
                 matches!(self, Story | Preview)
             }
             "cache_max_age_seconds" => matches!(self, Story),
-            "enable" | "disable" => matches!(self, Story | Preview),
+            "enable" | "disable" | "sync" | "embeddings" | "assessment" | "steps"
+            | "embedding_steps" => matches!(self, Story | Preview),
             _ => matches!(self, Story | Preview | Retrieval),
         }
     }

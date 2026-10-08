@@ -93,7 +93,16 @@ fn help_exposes_only_managed_dictionary_selection_without_accessing_resources() 
 fn offline_import_verify_and_analysis_report_the_selected_generation() {
     let directory = tempfile::tempdir().unwrap();
     fs::create_dir(directory.path().join("data")).unwrap();
-    fs::write(directory.path().join("data/config.toml"), "model = ''\nformat = 'unused-invalid'\nselect = 40\ncandidates = 0\ntopic = '猫'\nrequest = 'unused.json'\n").unwrap();
+    fs::write(
+        directory.path().join("data/default-pipeline.toml"),
+        "[pipeline]\nmodel=''\n",
+    )
+    .unwrap();
+    fs::write(
+        directory.path().join("data/default-story.toml"),
+        "[story]\nformat='unused-invalid'\nselect=40\ncandidates=0\ntopic='猫'\n",
+    )
+    .unwrap();
     let root = directory.path().join("managed");
     fs::write(directory.path().join("input.json"), INPUT).unwrap();
     let imported = success(

@@ -1,4 +1,5 @@
 pub(crate) mod args;
+pub(crate) mod credentials;
 use crate::{
     commands::args::{Cli, Command, DictionaryCommand},
     output,
@@ -12,10 +13,14 @@ use std::{
 };
 use yomibu::{
     application::{Credentials, LocalApp, Operation, ServiceEndpoints},
-    configuration::{Configuration, ConfigurationInput, ENVIRONMENT_SETTINGS, Settings},
+    configuration::{Configuration, ConfigurationInput, Settings, environment_names},
 };
 
-pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
+pub(crate) fn run(
+    cli: Cli,
+    endpoints: ServiceEndpoints,
+    mut credentials: Credentials,
+) -> Result<()> {
     let Some(command) = cli.command else {
         return Ok(());
     };
@@ -51,13 +56,9 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
         Command::Sync => (Operation::Sync, Settings::default()),
         Command::Status => (Operation::Status, Settings::default()),
     };
-    let environment: BTreeMap<_, _> = ENVIRONMENT_SETTINGS
-        .iter()
-        .filter_map(|name| {
-            std::env::var(name)
-                .ok()
-                .map(|value| ((*name).into(), value))
-        })
+    let environment: BTreeMap<_, _> = environment_names()
+        .into_iter()
+        .filter_map(|name| std::env::var(&name).ok().map(|value| (name, value)))
         .collect();
     let config = Configuration::load(
         ConfigurationInput {
@@ -75,12 +76,7 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
         },
         &operation,
     )?;
-    let credentials = Credentials::new(
-        cli.wanikani_api_key
-            .or_else(|| std::env::var("YOMIBU_WANIKANI_API_KEY").ok()),
-        cli.openai_api_key
-            .or_else(|| std::env::var("YOMIBU_OPENAI_API_KEY").ok()),
-    );
+    credentials::environment(&mut credentials);
     let app = LocalApp::new(config, credentials).with_endpoints(endpoints);
     let clock = SystemTime::now();
     let seed = clock

@@ -52,13 +52,13 @@ python3 scripts/compare_story_retrieval.py target/debug/yomibu \
 
 # Substitute an actually installed, pinned OpenAI-compatible local model:
 python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider local --embedding-endpoint http://127.0.0.1:11434/v1/ \
-  --embedding-model MODEL --embedding-revision REVISION --embedding-dimensions DIMENSIONS
+  --embedding-provider local --http-embeddings-endpoint http://127.0.0.1:11434/v1/ \
+  --http-embeddings-model MODEL --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS
 
-# Explicit paid/data-transmitting comparison, with a configured environment key:
+# Explicit paid/data-transmitting comparison; supply YOMIBU_HTTP_EMBEDDINGS_API_KEY:
 python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider openai --embedding-model MODEL \
-  --embedding-revision REVISION --embedding-dimensions DIMENSIONS --allow-embedding-call
+  --embedding-provider openai --http-embeddings-model MODEL \
+  --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS --allow-embedding-call
 ```
 
 The script fails if the requested encoder is unavailable; it never substitutes

@@ -10,11 +10,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use std::path::Path;
-use yomibu_components::file_learning_store::FileLearningStore;
-use yomibu_components::{
-    story_prompt_preparation::StoryPromptPreparation,
-    sudachi_dictionary::installation as dictionary, wanikani_source as wanikani,
-};
+use yomibu_components::sudachi_dictionary::installation as dictionary;
 use yomibu_core::capabilities::{LearningStore, SourceSyncWriter};
 use yomibu_core::domain::{
     analysis::Sentence, embedding::EmbeddingCache, grammar::GrammarDeclarations,
@@ -26,39 +22,53 @@ impl LocalApp {
         &self,
         now: DateTime<Utc>,
     ) -> Result<EmbeddingCache, ApplicationError> {
-        let manual = inputs::read_manual(self.config.inventory.as_deref())?;
+        let manual = inputs::read_manual(self.config.application.inventory.as_deref())?;
         let source = source::read_cache(&self.config, manual.is_none())?;
-        let inventory =
-            inputs::prepare_inventory(&self.config.knowledge_policy, source.as_ref(), manual, now)?;
+        let inventory = inputs::prepare_inventory(
+            &self.config.pipeline.knowledge_policy,
+            source.as_ref(),
+            manual,
+            now,
+        )?;
         let request = inputs::read_request(&self.config)?;
-        request.validate_selection_limit(self.config.select)?;
-        embeddings::prepare_embeddings(
-            &self.config,
-            self.credentials.openai.as_deref(),
-            &inventory,
-            &request,
-        )
-        .await
+        request.validate_selection_limit(self.config.story.select)?;
+        embeddings::prepare_embeddings(&self.config, &self.credentials, &inventory, &request).await
     }
 
     pub fn status(&self) -> Result<Summary, ApplicationError> {
         Ok(crate::reports::summary::summarize(
-            &FileLearningStore::at_path(source::cache_path(&self.config)).load_snapshot()?,
+            &self
+                .config
+                .pipeline
+                .components
+                .learning_store
+                .open(source::cache_path(&self.config))
+                .load_snapshot()?,
         )?)
     }
 
     pub async fn sync(&self) -> Result<SyncReport, ApplicationError> {
         let key = self
             .credentials
-            .wanikani
-            .as_deref()
+            .source(&self.config.application.credential_bindings)?
             .ok_or_else(|| ApplicationError::Setup {
                 issues: vec![SetupIssue {
                     module: ModuleId::Sync,
                 }],
             })?;
-        let mut source = wanikani::Client::with_base_url(key, &self.endpoints.wanikani)?;
-        let writer = FileLearningStore::at_path(source::cache_path(&self.config)).begin_sync()?;
+        let mut source = self
+            .config
+            .pipeline
+            .components
+            .source
+            .client(key, &self.endpoints.wanikani)?;
+        let writer = self
+            .config
+            .pipeline
+            .components
+            .learning_store
+            .open(source::cache_path(&self.config))
+            .begin_sync()?;
         let data = source.fetch().await?;
         let summary = crate::reports::summary::summarize(&data)?;
         let persistence = writer.replace(data)?;
@@ -73,30 +83,38 @@ impl LocalApp {
         now: DateTime<Utc>,
         seed: u64,
     ) -> Result<StoryPreviewRunReport, ApplicationError> {
-        let manual = inputs::read_manual(self.config.inventory.as_deref())?;
+        let manual = inputs::read_manual(self.config.application.inventory.as_deref())?;
         let source = source::read_cache(&self.config, manual.is_none())?;
-        let inventory =
-            inputs::prepare_inventory(&self.config.knowledge_policy, source.as_ref(), manual, now)?;
+        let inventory = inputs::prepare_inventory(
+            &self.config.pipeline.knowledge_policy,
+            source.as_ref(),
+            manual,
+            now,
+        )?;
         let request = inputs::read_request(&self.config)?;
-        let seed = self.config.seed.unwrap_or(seed);
+        let seed = self.config.story.seed.unwrap_or(seed);
         let mut warnings = Vec::new();
         let cache = embeddings::load_optional(&self.config, &request, &mut warnings);
         let (selection, retrieval_error) = embeddings::select_for_request(
+            &self.config.pipeline.selection,
             &inventory,
             &request,
             cache.as_ref(),
-            self.config.select,
+            self.config.story.select,
             seed,
         )?;
         if let Some(error) = retrieval_error {
-            warnings.push(Warning::embedding_fallback(&error));
+            warnings.push(Warning::embedding_fallback(
+                &error,
+                &self.config.pipeline.selection,
+            ));
         }
         let plan = prepare_story(
-            &StoryPromptPreparation,
+            &self.config.pipeline.components.preparation.construct(),
             &inventory,
             &request,
             selection,
-            self.config.generation.clone(),
+            self.config.generation(),
         )?;
         let (selection, provider_request) = plan.into_parts();
         let selection = SelectionReport::from_selection(&selection, seed);
@@ -125,11 +143,15 @@ impl LocalApp {
             GrammarDeclarations::from_descriptions(input.grammar.iter().map(String::as_str))?;
         let analyzer = unsafe { assessment::load_analyzer(&self.config) }?;
         let analysis = yomibu_core::capabilities::SentenceAnalyzer::analyze(&analyzer, sentence)?;
-        let evaluation = yomibu_components::japanese_constraint_checks::evaluate(
-            &analysis,
-            &grammar,
-            &input.bindings,
-        )?;
+        let evaluation = match self.config.pipeline.components.assessment {
+            crate::configuration::components::Assessment::JapaneseConstraints => {
+                yomibu_components::japanese_constraint_checks::evaluate(
+                    &analysis,
+                    &grammar,
+                    &input.bindings,
+                )?
+            }
+        };
         Ok(AnalysisRunReport {
             version: 1,
             analysis: analysis.into_owned(),
@@ -140,12 +162,18 @@ impl LocalApp {
     }
 
     pub fn import_dictionary(&self, bundle: &Path) -> Result<String, ApplicationError> {
-        Ok(dictionary::import_bundle(
-            &self.config.dictionary_dir,
-            bundle,
-        )?)
+        match self.config.pipeline.components.analysis {
+            crate::configuration::components::Analysis::Sudachi => Ok(dictionary::import_bundle(
+                &self.config.application.dictionary_dir,
+                bundle,
+            )?),
+        }
     }
     pub fn verify_dictionary(&self) -> Result<dictionary::Verification, ApplicationError> {
-        Ok(dictionary::verify(&self.config.dictionary_dir)?)
+        match self.config.pipeline.components.analysis {
+            crate::configuration::components::Analysis::Sudachi => {
+                Ok(dictionary::verify(&self.config.application.dictionary_dir)?)
+            }
+        }
     }
 }

@@ -43,20 +43,20 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let text = String::from_utf8(output.stderr).unwrap();
-    assert!(text.contains("--wanikani-api-key"));
-    assert!(text.contains("--openai-api-key"));
+    assert!(text.contains("--wanikani-source-api-key"));
+    assert!(text.contains("--openai-story-generation-api-key"));
     assert!(text.contains("\n  "));
     assert!(text.contains("no write permissions"));
     assert!(!text.contains("old-secret"));
     let output = cli(dir.path())
-        .args(["story", "--wanikani-api-key", "flag-secret"])
-        .env("YOMIBU_WANIKANI_API_KEY", "environment-secret")
+        .args(["story", "--wanikani-source-api-key", "flag-secret"])
+        .env("YOMIBU_WANIKANI_SOURCE_API_KEY", "environment-secret")
         .output()
         .unwrap();
     let text = String::from_utf8(output.stderr).unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert!(!text.contains("--wanikani-api-key"));
-    assert!(text.contains("--openai-api-key"));
+    assert!(!text.contains("--wanikani-source-api-key"));
+    assert!(text.contains("--openai-story-generation-api-key"));
     assert!(!text.contains("secret"));
     assert!(!dir.path().join(".yomibu").exists());
 }
@@ -71,11 +71,11 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     for flag in [
         "--topic",
         "--model",
-        "--generation-model",
+        "--openai-story-generation-model",
         "--enable",
         "--disable",
-        "--wanikani-api-key",
-        "--openai-api-key",
+        "--wanikani-source-api-key",
+        "--openai-story-generation-api-key",
     ] {
         assert!(text.contains(flag), "{text}");
     }
@@ -83,7 +83,7 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     let output = cli(dir.path())
         .args([
             "story",
-            "--openai-api-key",
+            "--openai-story-generation-api-key",
             "synthetic-secret",
             "--format",
             "日本語\n\u{1b}",

@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 use yomibu::configuration::{
-    EmbeddingProvider, KnowledgePolicy, Settings, StoryFormat, modules::ModuleId,
+    EmbeddingProvider, KnowledgePolicy, Settings, StoryFormat, components, modules::ModuleId,
 };
 
 #[derive(Parser)]
@@ -18,12 +18,6 @@ pub(crate) struct Cli {
     /// Configuration file (default: <data-dir>/config.toml).
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
-    /// WaniKani read-only key; env: YOMIBU_WANIKANI_API_KEY. No write permissions needed.
-    #[arg(long, global = true, value_name = "KEY")]
-    pub wanikani_api_key: Option<String>,
-    /// OpenAI key; env: YOMIBU_OPENAI_API_KEY. Requires api.responses.write and selected model access.
-    #[arg(long, global = true, value_name = "KEY")]
-    pub openai_api_key: Option<String>,
     /// Emit a single structured JSON report.
     #[arg(long, global = true)]
     pub json: bool,
@@ -71,8 +65,8 @@ pub(crate) struct StoryArgs {
     /// Shared text-model fallback; env: YOMIBU_MODEL.
     #[arg(long)]
     model: Option<String>,
-    /// Override the model for generation; env: YOMIBU_GENERATION_MODEL.
-    #[arg(long)]
+    /// Override the model for generation.
+    #[arg(long = components::GENERATION_MODEL.name.cli())]
     generation_model: Option<String>,
     /// Output format: passage (default) or sentence.
     #[arg(long)]
@@ -107,14 +101,14 @@ pub(crate) struct StoryArgs {
     /// Encoder: lexical-baseline, local, or openai. Does not enable embeddings.
     #[arg(long)]
     embedding_provider: Option<EmbeddingProvider>,
-    #[arg(long)]
+    #[arg(long = components::EMBEDDING_MODEL.name.cli())]
     embedding_model: Option<String>,
-    #[arg(long)]
+    #[arg(long = components::EMBEDDING_REVISION.name.cli())]
     embedding_revision: Option<String>,
-    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=4096))]
+    #[arg(long = components::EMBEDDING_DIMENSIONS.name.cli(), value_parser = clap::value_parser!(u16).range(1..=4096))]
     embedding_dimensions: Option<u16>,
     /// Numeric loopback OpenAI-compatible endpoint for a local encoder.
-    #[arg(long)]
+    #[arg(long = components::EMBEDDING_ENDPOINT.name.cli())]
     embedding_endpoint: Option<String>,
     /// Authorize hosted embedding calls sending vocabulary and topic text.
     #[arg(long)]

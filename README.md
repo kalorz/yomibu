@@ -9,8 +9,8 @@ correct meaning in context.
 Build with `cargo build --locked`, then supply two keys:
 
 ```sh
-export YOMIBU_WANIKANI_API_KEY=...
-export YOMIBU_OPENAI_API_KEY=...
+export YOMIBU_WANIKANI_SOURCE_API_KEY=...
+export YOMIBU_OPENAI_STORY_GENERATION_API_KEY=...
 target/debug/yomibu story
 ```
 
@@ -46,7 +46,7 @@ Use `cargo run --locked -- --help` for flags.
 | Command | Purpose |
 | --- | --- |
 | `status` | Read the saved WaniKani cache; no network or writes |
-| `sync` | Refresh the cache; needs `YOMIBU_WANIKANI_API_KEY` |
+| `sync` | Refresh the cache; needs `YOMIBU_WANIKANI_SOURCE_API_KEY` |
 | `prepare-retrieval` | Prepare vectors with an explicitly chosen encoder |
 | `preview-story` | Show the exact generation request offline |
 | `story` | Generate one short passage with one AI request |

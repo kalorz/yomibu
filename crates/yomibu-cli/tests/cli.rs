@@ -31,7 +31,7 @@ fn status_is_offline_and_uses_a_global_data_directory() {
         dir.path(),
         include_str!("../../../tests/fixtures/mixed.json"),
     );
-    fs::write(dir.path().join("config.toml"), "model = 'unused'").unwrap();
+    fs::write(dir.path().join("config.toml"), "[application]").unwrap();
     fs::write(dir.path().join("wanikani.json.lock"), "existing lock").unwrap();
     let before = fs::read(dir.path().join("wanikani.json")).unwrap();
     for args in [
@@ -51,7 +51,7 @@ fn status_is_offline_and_uses_a_global_data_directory() {
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("config.toml")).unwrap(),
-        "model = 'unused'"
+        "[application]"
     );
 }
 
@@ -63,7 +63,21 @@ fn status_uses_the_configured_cache_without_validating_unused_story_settings() {
         include_bytes!("../../../tests/fixtures/mixed.json"),
     )
     .unwrap();
-    fs::write(dir.path().join("config.toml"), "wanikani_cache = 'source.json'\nselect = 40\ncandidates = 0\nmodel = ''\ntopic = '猫'\nrequest = 'unused.json'\ndictionary_dir = 'unused'\nformat = 'invalid-unused'\n").unwrap();
+    fs::write(
+        dir.path().join("config.toml"),
+        "[application]\nwanikani_cache='source.json'\ndictionary_dir='unused'\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("default-pipeline.toml"),
+        "[pipeline]\nmodel=''\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("default-story.toml"),
+        "[story]\nselect=40\ncandidates=0\nformat='invalid-unused'\n",
+    )
+    .unwrap();
     let before = fs::read_dir(dir.path()).unwrap().count();
     let output = cli()
         .args(["--data-dir", dir.path().to_str().unwrap(), "status"])
@@ -193,7 +207,7 @@ fn sync_requires_an_environment_token_before_creating_files() {
         let dir = root.path().join("data");
         let mut command = cli();
         if let Some(token) = token {
-            command.env("YOMIBU_WANIKANI_API_KEY", token);
+            command.env("YOMIBU_WANIKANI_SOURCE_API_KEY", token);
         }
         let output = command
             .arg("sync")
@@ -203,7 +217,7 @@ fn sync_requires_an_environment_token_before_creating_files() {
             .unwrap();
         assert!(!output.status.success());
         let error = String::from_utf8(output.stderr).unwrap();
-        assert!(error.contains("YOMIBU_WANIKANI_API_KEY"), "{error}");
+        assert!(error.contains("YOMIBU_WANIKANI_SOURCE_API_KEY"), "{error}");
         assert!(!dir.exists());
     }
 }
@@ -223,7 +237,7 @@ fn missing_cache_guidance_points_to_sync_and_status_ignores_invalid_tokens() {
         include_str!("../../../tests/fixtures/empty.json"),
     );
     let output = cli()
-        .env("YOMIBU_WANIKANI_API_KEY", "invalid\nsynthetic-token")
+        .env("YOMIBU_WANIKANI_SOURCE_API_KEY", "invalid\nsynthetic-token")
         .args(["status", "--data-dir"])
         .arg(dir.path())
         .output()
@@ -244,7 +258,7 @@ fn another_process_cannot_sync_while_status_reads_the_locked_cache() {
     let before = fs::read(dir.path().join("wanikani.json")).unwrap();
     let token = "synthetic-contending-credential";
     let output = cli()
-        .env("YOMIBU_WANIKANI_API_KEY", token)
+        .env("YOMIBU_WANIKANI_SOURCE_API_KEY", token)
         .args(["sync", "--data-dir"])
         .arg(dir.path())
         .output()
@@ -309,4 +323,152 @@ fn retired_preview_and_prepare_commands_have_no_aliases() {
     assert!(!help.contains("  prepare "));
     assert!(help.contains("preview-story"));
     assert!(help.contains("prepare-retrieval"));
+}
+
+#[test]
+fn canonical_component_options_have_generated_names_and_parser_errors_hide_secrets() {
+    let help = cli().args(["story", "--help"]).output().unwrap();
+    let help = stdout(&help);
+    assert!(help.contains("--openai-story-generation-model"));
+    assert!(help.contains("--http-embeddings-dimensions"));
+    assert!(!help.contains("--generation-model"));
+    for args in [
+        vec![
+            "story",
+            "--openai-story-generation-api-key=synthetic-secret",
+            "--format",
+            "invalid",
+        ],
+        vec![
+            "story",
+            "--openai-story-generation-api-key",
+            "synthetic-secret",
+            "--openai-story-generation-api-key",
+            "duplicate-secret",
+        ],
+        vec![
+            "story",
+            "--http-embeddings-api-key",
+            "synthetic-secret",
+            "--topic",
+            "猫",
+            "--request",
+            "story.json",
+        ],
+    ] {
+        let output = cli().args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.starts_with("error:"), "{error}");
+        assert!(error.contains("\n\nUsage: yomibu"), "{error}");
+        assert!(!error.contains("synthetic-secret"), "{error}");
+        assert!(!error.contains("duplicate-secret"), "{error}");
+    }
+}
+
+#[test]
+fn credential_redaction_preserves_help_and_rejects_non_utf8_secret_values() {
+    for flag in ["--help", "--version"] {
+        let output = cli()
+            .args(["--openai-story-generation-api-key=synthetic-secret", flag])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        let output = cli()
+            .args(["story", "--openai-story-generation-api-key"])
+            .arg(std::ffi::OsString::from_vec(
+                b"synthetic-secret\xff".to_vec(),
+            ))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(!error.contains("synthetic-secret"));
+        assert!(error.contains("UTF-8"));
+        assert!(error.contains("\n\nUsage: yomibu"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn invalid_credential_environment_is_lazy_and_cannot_fall_through_to_a_shared_key() {
+    use std::os::unix::ffi::OsStringExt;
+    let dir = tempfile::tempdir().unwrap();
+    cache(
+        dir.path(),
+        include_str!("../../../tests/fixtures/mixed.json"),
+    );
+    for (operation, success) in [("status", true), ("sync", false)] {
+        let output = cli()
+            .args(["--data-dir", dir.path().to_str().unwrap(), operation])
+            .env(
+                "YOMIBU_WANIKANI_SOURCE_API_KEY",
+                std::ffi::OsString::from_vec(b"synthetic-secret\xff".to_vec()),
+            )
+            .env("YOMIBU_CREDENTIAL_WANIKANI", "invalid\nshared")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.success(), success);
+        if success {
+            assert!(output.stderr.is_empty());
+        } else {
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(error.contains("Invalid credential input"), "{error}");
+            assert!(!error.contains("synthetic-secret"));
+            assert!(!error.contains("shared"));
+        }
+    }
+    assert!(!dir.path().join("wanikani.json.lock").exists());
+}
+
+#[test]
+fn removed_configuration_spellings_have_no_compatibility_paths() {
+    for flag in [
+        "--openai-api-key",
+        "--wanikani-api-key",
+        "--generation-model",
+        "--embedding-model",
+        "--embedding-revision",
+        "--embedding-dimensions",
+        "--embedding-endpoint",
+    ] {
+        let output = cli().args(["story", flag, "value"]).output().unwrap();
+        assert_eq!(output.status.code(), Some(2), "{flag}");
+        assert!(output.stdout.is_empty());
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let output = cli()
+        .args(["sync", "--data-dir", dir.path().to_str().unwrap()])
+        .env("YOMIBU_WANIKANI_API_KEY", "unused-secret")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("Missing required setup")
+    );
+    assert!(!dir.path().join("wanikani.json.lock").exists());
+    fs::write(dir.path().join("config.toml"), "model='old-flat-config'\n").unwrap();
+    let output = cli()
+        .args(["status", "--data-dir", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("Invalid configuration")
+    );
 }
