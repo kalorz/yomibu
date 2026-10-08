@@ -1,10 +1,13 @@
-//! Narrow I/O contracts for synchronization/storage and explicit embeddings.
+//! Focused contracts for explicitly wired components.
 //!
 //! The stored unit includes related source material and learner progress. It is
 //! currently WaniKani-specific; this is not a general learner or material catalog.
 
 use crate::domain::source::WaniKaniSyncData;
 use std::{error::Error, sync::Arc};
+
+mod story;
+pub use story::{CandidateGenerator, SentenceAnalyzer, StoryAssessor, StoryPreparer};
 
 /// Retrieves and normalizes one complete WaniKani account refresh.
 ///

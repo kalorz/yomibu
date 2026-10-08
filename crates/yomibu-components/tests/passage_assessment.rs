@@ -2,7 +2,7 @@
 mod test_dictionary;
 use serde_json::json;
 use yomibu_components::{
-    japanese_constraint_checks::assess_passages,
+    japanese_constraint_checks::JapaneseConstraintChecks,
     learner_vocabulary_selection::{LexicalTopicScoring, SeededOrdering},
 };
 use yomibu_core::domain::{
@@ -11,6 +11,7 @@ use yomibu_core::domain::{
     inventory::LearnerInventory,
     story::{StoryAssessmentInputs, StoryRequest},
 };
+use yomibu_core::pipeline::assessment::assess_passages;
 use yomibu_core::{domain::story::SelectionInput, pipeline::selection::select_target_first};
 
 #[test]
@@ -40,7 +41,11 @@ fn passage_checks_full_inventory_sentence_by_sentence_and_leaves_missing_grammar
         sentence_spans: vec![0..18, 18..30, 30..48],
     };
     let analyzer = test_dictionary::load_analyzer();
-    let results = assess_passages(&[passage], &inputs, Some(&analyzer));
+    let results = assess_passages(
+        &[passage],
+        &inputs,
+        Some((&analyzer, &JapaneseConstraintChecks)),
+    );
     let result = &results[0];
     assert_eq!(result.sentences.len(), 3);
     assert_eq!(result.targets[0].spans, [0..3, 18..21, 30..33]);
@@ -121,7 +126,11 @@ fn missing_grammar_preserves_independent_scope_findings_and_vocabulary_failures(
             text: text.into(),
             sentence_spans: std::iter::once(0..text.len()).collect(),
         };
-        let results = assess_passages(&[passage], &inputs, Some(&analyzer));
+        let results = assess_passages(
+            &[passage],
+            &inputs,
+            Some((&analyzer, &JapaneseConstraintChecks)),
+        );
         let yomibu_core::domain::candidate::CandidateAssessment::Completed { evaluation, .. } =
             &results[0].sentences[0].assessment.assessment
         else {
@@ -172,7 +181,10 @@ fn absent_dictionary_reports_not_run_without_losing_the_passage() {
     )
     .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
-    let results = assess_passages(
+    let results = assess_passages::<
+        yomibu_components::sudachi_dictionary::SudachiAnalyzer,
+        JapaneseConstraintChecks,
+    >(
         &[GeneratedPassage {
             text: "猫です。".into(),
             sentence_spans: std::iter::once(0..12).collect(),

@@ -1,204 +1,40 @@
-//! Full-inventory assessment and target observations.
+//! Full-inventory assessment and target observations from supplied evidence.
 
 use super as evaluation;
-use crate::{
-    japanese_constraint_checks::{CandidateError, LexicalStatus, SentenceAssessment},
-    sudachi_dictionary::SudachiAnalyzer,
-};
-use yomibu_core::domain::story::{
-    PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, StoryPassageAssessment,
-    StorySentenceAssessment, TargetKind, TargetObservation, TargetState, TargetUncertainty,
-    TargetUncertaintyReason, TargetUncertaintyScope,
-};
-use yomibu_core::domain::{
-    analysis::{Sentence, SentenceAnalysis},
-    candidate::{CandidateAssessment, GeneratedCandidates, GeneratedPassage},
-    evaluation::{DirectObjectEvidence, LexicalUncertainty},
-};
-
-pub fn assess_passages(
-    passages: &[GeneratedPassage],
-    inputs: &StoryAssessmentInputs<'_>,
-    analyzer: Option<&SudachiAnalyzer>,
-) -> Vec<StoryPassageAssessment<CandidateError>> {
-    passages
-        .iter()
-        .map(|passage| {
-            let sentences: Vec<_> = passage
-                .sentence_spans
-                .iter()
-                .map(|span| {
-                    let assessment = match analyzer {
-                        Some(analyzer) => match passage.text.get(span.clone()) {
-                            Some(text) => assess_candidate(text, inputs, analyzer),
-                            None => failed_candidate(
-                                None,
-                                CandidateError::Analysis(
-                                    crate::sudachi_dictionary::AnalysisError::InvalidSpan,
-                                ),
-                                inputs,
-                            ),
-                        },
-                        None => StoryCandidateAssessment {
-                            assessment: CandidateAssessment::NotRun,
-                            targets: unrun_targets(inputs),
-                            plan_departures: Vec::new(),
-                        },
-                    };
-                    StorySentenceAssessment {
-                        span: span.clone(),
-                        assessment: assessment.into_owned(),
-                    }
-                })
-                .collect();
-            let mut targets = unrun_targets(inputs);
-            for target in &mut targets {
-                let mut spans = Vec::new();
-                let mut uncertainties = Vec::new();
-                let mut ran = false;
-                for sentence in &sentences {
-                    if let Some(observed) =
-                        sentence.assessment.targets.iter().find(|observed| {
-                            observed.id == target.id && observed.kind == target.kind
-                        })
-                    {
-                        ran |= observed.state != TargetState::NotRun;
-                        spans.extend(observed.spans.iter().map(|span| {
-                            span.start + sentence.span.start..span.end + sentence.span.start
-                        }));
-                        uncertainties.extend(observed.uncertainties.iter().map(|uncertainty| {
-                            TargetUncertainty {
-                                span: uncertainty.span.start + sentence.span.start
-                                    ..uncertainty.span.end + sentence.span.start,
-                                scope: uncertainty.scope,
-                                reason: uncertainty.reason,
-                                inventory_entries: uncertainty.inventory_entries.clone(),
-                            }
-                        }));
-                        if observed.state == TargetState::NotRun && analyzer.is_some() {
-                            uncertainties.push(TargetUncertainty {
-                                span: sentence.span.clone(),
-                                scope: TargetUncertaintyScope::SentenceCoverage,
-                                reason: TargetUncertaintyReason::AssessmentUnavailable,
-                                inventory_entries: Vec::new(),
-                            });
-                        }
-                    }
-                }
-                if ran {
-                    *target = TargetObservation::from_evidence(
-                        target.kind,
-                        &target.id,
-                        spans,
-                        uncertainties,
-                    );
-                }
-            }
-            let plan_departures = sentences
-                .iter()
-                .flat_map(|sentence| {
-                    sentence
-                        .assessment
-                        .plan_departures
-                        .iter()
-                        .map(|departure| PlanDeparture {
-                            span: departure.span.start + sentence.span.start
-                                ..departure.span.end + sentence.span.start,
-                            inventory_entries: departure.inventory_entries.clone(),
-                        })
-                })
-                .collect();
-            StoryPassageAssessment {
-                sentences,
-                targets,
-                plan_departures,
-            }
-        })
-        .collect()
-}
-
-pub fn assess_candidates<'a>(
-    generated: &'a GeneratedCandidates,
-    inputs: &StoryAssessmentInputs<'_>,
-    analyzer: &SudachiAnalyzer,
-) -> Vec<StoryCandidateAssessment<'a, CandidateError>> {
-    generated
-        .passages()
-        .iter()
-        .flat_map(|passage| {
-            passage
-                .sentence_spans
-                .iter()
-                .map(move |span| assess_candidate(&passage.text[span.clone()], inputs, analyzer))
-        })
-        .collect()
-}
-
-fn assess_candidate<'a>(
-    text: &'a str,
-    inputs: &StoryAssessmentInputs<'_>,
-    analyzer: &SudachiAnalyzer,
-) -> StoryCandidateAssessment<'a, CandidateError> {
-    let sentence = match Sentence::new(text) {
-        Ok(sentence) => sentence,
-        Err(error) => {
-            return failed_candidate(None, CandidateError::Sentence(error), inputs);
-        }
-    };
-    let analysis = match analyzer.analyze(sentence) {
-        Ok(analysis) => analysis,
-        Err(error) => {
-            return failed_candidate(None, CandidateError::Analysis(error), inputs);
-        }
-    };
-    let assessed = match evaluation::assess_inventory(&analysis, inputs.inventory()) {
-        Ok(assessed) => assessed,
-        Err(error) => {
-            return failed_candidate(Some(analysis), CandidateError::Evaluation(error), inputs);
-        }
-    };
-    let mut targets = observe_vocabulary_targets(&analysis, &assessed, inputs);
-    targets.extend(observe_grammar_targets(&analysis, &assessed, inputs));
-    let plan_departures = observe_plan_departures(&analysis, &assessed, inputs);
-    StoryCandidateAssessment {
-        assessment: CandidateAssessment::Completed {
-            analysis,
-            evaluation: Box::new(assessed.evaluation),
+use super::{LexicalStatus, SentenceAssessment};
+use yomibu_core::{
+    capabilities::StoryAssessor,
+    domain::{
+        analysis::SentenceAnalysis,
+        evaluation::{DirectObjectEvidence, EvaluationError, LexicalUncertainty},
+        story::{
+            PlanDeparture, StoryAssessmentInputs, StoryFindings, TargetKind, TargetObservation,
+            TargetUncertainty, TargetUncertaintyReason, TargetUncertaintyScope,
         },
-        targets,
-        plan_departures,
-    }
-}
+    },
+};
 
-fn failed_candidate<'a>(
-    analysis: Option<SentenceAnalysis<'a>>,
-    error: CandidateError,
-    inputs: &StoryAssessmentInputs<'_>,
-) -> StoryCandidateAssessment<'a, CandidateError> {
-    let targets = unrun_targets(inputs);
-    StoryCandidateAssessment {
-        assessment: CandidateAssessment::ExecutionError { analysis, error },
-        targets,
-        plan_departures: Vec::new(),
-    }
-}
+pub struct JapaneseConstraintChecks;
 
-fn unrun_targets(inputs: &StoryAssessmentInputs<'_>) -> Vec<TargetObservation> {
-    [
-        (TargetKind::Vocabulary, &inputs.request().targets.vocabulary),
-        (TargetKind::Grammar, &inputs.request().targets.grammar),
-    ]
-    .into_iter()
-    .flat_map(|(kind, ids)| {
-        ids.iter().map(move |id| TargetObservation {
-            kind,
-            id: id.clone(),
-            state: TargetState::NotRun,
-            spans: Vec::new(),
-            uncertainties: Vec::new(),
-        })
-    })
-    .collect()
+impl StoryAssessor for JapaneseConstraintChecks {
+    type Error = EvaluationError;
+
+    fn assess<'a>(
+        &self,
+        analysis: &'a SentenceAnalysis<'_>,
+        inputs: &StoryAssessmentInputs<'_>,
+    ) -> Result<StoryFindings<'a>, EvaluationError> {
+        let assessed = evaluation::assess_inventory(analysis, inputs.inventory())?;
+        let mut targets = observe_vocabulary_targets(analysis, &assessed, inputs);
+        targets.extend(observe_grammar_targets(analysis, &assessed, inputs));
+        let plan_departures = observe_plan_departures(analysis, &assessed, inputs);
+        StoryFindings::new(
+            analysis.sentence.text(),
+            assessed.evaluation,
+            targets,
+            plan_departures,
+        )
+    }
 }
 
 fn observe_plan_departures(

@@ -19,6 +19,19 @@ use yomibu_core::domain::{
 const BASE_URL: &str = "https://api.openai.com/v1/";
 const OUTPUT_TOKENS_PER_CANDIDATE: usize = 512;
 const MAX_RESPONSE_BODY_BYTES: usize = 65536;
+
+impl yomibu_core::capabilities::CandidateGenerator for Client {
+    type PreparedRequest = PreparedRequest;
+    type Error = ProviderError;
+
+    async fn generate_candidates(
+        &self,
+        request: &PreparedRequest,
+    ) -> Result<GeneratedCandidates, ProviderError> {
+        self.generate_candidates(request).await
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PreparationError {
     #[error("Text model must be nonblank and at most 256 bytes.")]

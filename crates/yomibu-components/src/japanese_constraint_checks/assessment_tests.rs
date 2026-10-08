@@ -6,6 +6,10 @@ use yomibu_core::domain::{
     story::TargetCoverage,
 };
 use yomibu_core::domain::{inventory::LearnerInventory, story::StoryRequest};
+use yomibu_core::{
+    domain::candidate::CandidateAssessment, domain::story::TargetState,
+    pipeline::assessment::assess_candidate,
+};
 
 #[test]
 fn object_uncertainty_preserves_independent_grammar_targets() {
@@ -99,7 +103,12 @@ fn object_uncertainty_preserves_independent_grammar_targets() {
         )
         .unwrap();
         let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
-        let assessed = assess_candidate("猫は犬を食べます。", &inputs, &analyzer);
+        let assessed = assess_candidate(
+            "猫は犬を食べます。",
+            &inputs,
+            &analyzer,
+            &JapaneseConstraintChecks,
+        );
         for (index, span) in [(0, 3..6), (1, 18..24)] {
             assert_eq!(
                 assessed.targets[index].state,
@@ -169,7 +178,7 @@ fn object_uncertainty_preserves_independent_grammar_targets() {
                 "{case}"
             );
         }
-        let absent = assess_candidate("犬です。", &inputs, &analyzer);
+        let absent = assess_candidate("犬です。", &inputs, &analyzer, &JapaneseConstraintChecks);
         assert!(
             absent
                 .targets

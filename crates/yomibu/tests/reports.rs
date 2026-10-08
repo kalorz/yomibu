@@ -1,10 +1,10 @@
 #[test]
 fn typed_downstream_error_reports_keep_available_analysis_without_completed_judgments() {
-    use yomibu_components::japanese_constraint_checks::CandidateError;
+    use yomibu::application::story::DefaultCandidateError;
     use yomibu_components::sudachi_dictionary::AnalysisError;
     use yomibu_core::domain::{
         analysis::{AnalysisProvenance, DictionaryProvenance, Sentence, SentenceAnalysis},
-        candidate::CandidateAssessment,
+        candidate::{CandidateAssessment, CandidateError},
         evaluation::EvaluationError,
     };
     let analysis = || SentenceAnalysis {
@@ -28,7 +28,7 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         (
             CandidateAssessment::ExecutionError {
                 analysis: None,
-                error: CandidateError::Analysis(AnalysisError::InvalidSpan),
+                error: DefaultCandidateError(CandidateError::Analysis(AnalysisError::InvalidSpan)),
             },
             "analysis",
             "invalid_analysis_span",
@@ -37,7 +37,9 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         (
             CandidateAssessment::ExecutionError {
                 analysis: Some(analysis()),
-                error: CandidateError::Evaluation(EvaluationError::InvalidAnalysis),
+                error: DefaultCandidateError(CandidateError::Assessment(
+                    EvaluationError::InvalidAnalysis,
+                )),
             },
             "evaluation",
             "invalid_analysis",
@@ -46,7 +48,9 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         (
             CandidateAssessment::ExecutionError {
                 analysis: Some(analysis()),
-                error: CandidateError::Evaluation(EvaluationError::InvalidFindingSpan),
+                error: DefaultCandidateError(CandidateError::Assessment(
+                    EvaluationError::InvalidFindingSpan,
+                )),
             },
             "evaluation",
             "invalid_finding_span",
@@ -55,7 +59,9 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         (
             CandidateAssessment::ExecutionError {
                 analysis: Some(analysis()),
-                error: CandidateError::Evaluation(EvaluationError::InvalidCheckState),
+                error: DefaultCandidateError(CandidateError::Assessment(
+                    EvaluationError::InvalidCheckState,
+                )),
             },
             "evaluation",
             "invalid_check_state",
@@ -63,6 +69,12 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         ),
     ] {
         let report = yomibu::reports::candidate::CandidateReport::new(1, "猫です。", &assessment);
+        if stage == "analysis" {
+            assert_eq!(
+                serde_json::to_value(&assessment).unwrap()["error"],
+                "Pinned Sudachi analysis failed."
+            );
+        }
         let json = serde_json::to_value(report).unwrap();
         assert_eq!(!json["analysis"].is_null(), has_analysis);
         assert_eq!(json["assessment"]["status"], "execution_error");

@@ -1,10 +1,8 @@
 mod assessment;
-mod error;
 mod lexical;
 mod morphology;
 mod structural_checks;
-pub use assessment::{assess_candidates, assess_passages};
-pub use error::CandidateError;
+pub use assessment::JapaneseConstraintChecks;
 use lexical::LexicalStatus;
 use morphology::supports_target_morphology;
 use std::ops::Range;

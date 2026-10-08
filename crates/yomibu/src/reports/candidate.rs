@@ -1,11 +1,10 @@
 //! Structured candidate reports without terminal formatting or execution.
+use crate::application::story::DefaultCandidateError;
 use serde::Serialize;
-use yomibu_components::{
-    japanese_constraint_checks::CandidateError, sudachi_dictionary::AnalysisError,
-};
+use yomibu_components::sudachi_dictionary::AnalysisError;
 use yomibu_core::domain::{
     analysis::{SentenceAnalysis, SentenceError},
-    candidate::CandidateAssessment,
+    candidate::{CandidateAssessment, CandidateError},
     evaluation::{CheckKind, CheckState, Evaluation, EvaluationError},
 };
 
@@ -45,7 +44,7 @@ impl<'a> CandidateReport<'a> {
     pub fn new(
         index: usize,
         text: &'a str,
-        assessment: &'a CandidateAssessment<'a, CandidateError>,
+        assessment: &'a CandidateAssessment<'a, DefaultCandidateError>,
     ) -> Self {
         let (analysis, assessment) = match assessment {
             CandidateAssessment::NotRun => (None, AssessmentReport::NotRun),
@@ -60,7 +59,10 @@ impl<'a> CandidateReport<'a> {
                 },
             ),
             CandidateAssessment::ExecutionError { analysis, error } => {
-                let (stage, code) = match error {
+                let (stage, code) = match &error.0 {
+                    CandidateError::InvalidSentenceSpan => ("analysis", "invalid_analysis_span"),
+                    CandidateError::MismatchedAnalysis => ("analysis", "mismatched_analysis"),
+                    CandidateError::MismatchedAssessment => ("evaluation", "mismatched_assessment"),
                     CandidateError::Sentence(SentenceError::Blank) => {
                         ("sentence", "blank_sentence")
                     }
@@ -73,19 +75,19 @@ impl<'a> CandidateReport<'a> {
                     CandidateError::Analysis(AnalysisError::Analyzer(_)) => {
                         ("analysis", "analysis_failed")
                     }
-                    CandidateError::Evaluation(EvaluationError::BlankVocabulary) => {
+                    CandidateError::Assessment(EvaluationError::BlankVocabulary) => {
                         ("evaluation", "blank_vocabulary")
                     }
-                    CandidateError::Evaluation(EvaluationError::MissingDeclaration) => {
+                    CandidateError::Assessment(EvaluationError::MissingDeclaration) => {
                         ("evaluation", "missing_declaration")
                     }
-                    CandidateError::Evaluation(EvaluationError::InvalidAnalysis) => {
+                    CandidateError::Assessment(EvaluationError::InvalidAnalysis) => {
                         ("evaluation", "invalid_analysis")
                     }
-                    CandidateError::Evaluation(EvaluationError::InvalidFindingSpan) => {
+                    CandidateError::Assessment(EvaluationError::InvalidFindingSpan) => {
                         ("evaluation", "invalid_finding_span")
                     }
-                    CandidateError::Evaluation(EvaluationError::InvalidCheckState) => {
+                    CandidateError::Assessment(EvaluationError::InvalidCheckState) => {
                         ("evaluation", "invalid_check_state")
                     }
                 };

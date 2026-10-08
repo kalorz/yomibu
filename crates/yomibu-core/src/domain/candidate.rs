@@ -2,6 +2,22 @@
 use crate::domain::{analysis::SentenceAnalysis, evaluation::Evaluation, story::StoryFormat};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, thiserror::Error)]
+pub enum CandidateError<A, E> {
+    #[error(transparent)]
+    Sentence(crate::domain::analysis::SentenceError),
+    #[error("Sentence analysis failed.")]
+    Analysis(#[source] A),
+    #[error(transparent)]
+    Assessment(E),
+    #[error("Sentence span is outside the original passage.")]
+    InvalidSentenceSpan,
+    #[error("Analysis does not describe the original sentence.")]
+    MismatchedAnalysis,
+    #[error("Assessment does not describe the original sentence.")]
+    MismatchedAssessment,
+}
+
 /// Counts reported by the provider, not an independently verified bill.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TokenUsage {

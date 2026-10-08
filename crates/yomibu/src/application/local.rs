@@ -7,14 +7,13 @@ use yomibu_components::{
     file_embedding_cache::EmbeddingCacheFileError,
     file_learning_store::cache,
     openai_story_generation as openai,
-    story_prompt_preparation::fit_selection_and_build_request,
+    story_prompt_preparation::StoryPromptPreparation,
     sudachi_dictionary::{DictionaryError, installation::InstallationError},
     wanikani_source as wanikani,
 };
+use yomibu_core::capabilities::StoryPreparer;
 use yomibu_core::domain::{
-    embedding::EmbeddingError,
-    inventory::InventoryError,
-    story::{StoryAssessmentInputs, StoryError},
+    embedding::EmbeddingError, inventory::InventoryError, story::StoryError,
 };
 mod explicit;
 
@@ -208,20 +207,24 @@ impl LocalApp {
                 },
             );
         }
-        let (selection, prepared) = fit_selection_and_build_request(
+        let plan = StoryPromptPreparation.prepare(
             &inventory,
             &request,
             selection,
             self.config.generation.clone(),
         )?;
-        let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection)?;
-        let selection = SelectionReport::from_selection(selection, seed);
+        let selection = SelectionReport::from_selection(plan.selection(), seed);
         progress.finish(Step::Selection, started);
         let started = progress.start(Step::Generation);
-        let generated = client.generate_candidates(&prepared).await?;
+        let generated = plan.generate(&client).await?;
         progress.finish(Step::Generation, started);
         let assessments = unsafe {
-            assessment::assess_optional(&self.config, &generated, &inputs, &mut progress)
+            assessment::assess_optional(
+                &self.config,
+                &generated,
+                plan.assessment_inputs(),
+                &mut progress,
+            )
         };
         Ok(progress.into_story_report(request, selection, generated, assessments))
     }

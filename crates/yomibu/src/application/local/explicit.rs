@@ -12,10 +12,10 @@ use chrono::{DateTime, Utc};
 use std::path::Path;
 use yomibu_components::file_learning_store::FileLearningStore;
 use yomibu_components::{
-    story_prompt_preparation::fit_selection_and_build_request,
+    story_prompt_preparation::StoryPromptPreparation,
     sudachi_dictionary::installation as dictionary, wanikani_source as wanikani,
 };
-use yomibu_core::capabilities::{LearningStore, SourceSyncWriter};
+use yomibu_core::capabilities::{LearningStore, SourceSyncWriter, StoryPreparer};
 use yomibu_core::domain::{
     analysis::Sentence, embedding::EmbeddingCache, grammar::GrammarDeclarations,
 };
@@ -90,13 +90,14 @@ impl LocalApp {
         if let Some(error) = retrieval_error {
             warnings.push(Warning::embedding_fallback(&error));
         }
-        let (selection, provider_request) = fit_selection_and_build_request(
+        let plan = StoryPromptPreparation.prepare(
             &inventory,
             &request,
             selection,
             self.config.generation.clone(),
         )?;
-        let selection = SelectionReport::from_selection(selection, seed);
+        let (selection, provider_request) = plan.into_parts();
+        let selection = SelectionReport::from_selection(&selection, seed);
         Ok(StoryPreviewRunReport {
             kind: "story_generation_plan_preview",
             request,
@@ -121,7 +122,7 @@ impl LocalApp {
         let grammar =
             GrammarDeclarations::from_descriptions(input.grammar.iter().map(String::as_str))?;
         let analyzer = unsafe { assessment::load_analyzer(&self.config) }?;
-        let analysis = analyzer.analyze(sentence)?;
+        let analysis = yomibu_core::capabilities::SentenceAnalyzer::analyze(&analyzer, sentence)?;
         let evaluation = yomibu_components::japanese_constraint_checks::evaluate(
             &analysis,
             &grammar,

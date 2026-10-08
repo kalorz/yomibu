@@ -11,7 +11,7 @@ use wiremock::{
 };
 use yomibu_components::{
     embedding_vocabulary_selection::{EmbeddingRanking, prepare_embedding_inputs},
-    japanese_constraint_checks::assess_candidates,
+    japanese_constraint_checks::JapaneseConstraintChecks,
     openai_story_generation::{Client, PreparedRequest},
     story_prompt_preparation::fit_selection_and_build_request,
 };
@@ -20,11 +20,13 @@ use yomibu_core::domain::{
     inventory::LearnerInventory,
     story::{StoryAssessmentInputs, StoryRequest, StoryVocabularySelection},
 };
+use yomibu_core::pipeline::assessment::assess_candidates;
 
 #[tokio::test]
 async fn real_assessment_preserves_both_texts_and_independent_errors_and_findings() {
-    use yomibu_components::japanese_constraint_checks::{CandidateError, evaluate};
+    use yomibu_components::japanese_constraint_checks::evaluate;
     use yomibu_core::domain::analysis::Sentence;
+    use yomibu_core::domain::candidate::CandidateError;
     use yomibu_core::domain::{
         candidate::CandidateAssessment,
         evaluation::{CheckKind, CheckOutcome, CheckState},
@@ -77,7 +79,8 @@ async fn real_assessment_preserves_both_texts_and_independent_errors_and_finding
                 .collect::<Vec<_>>(),
             &pair
         );
-        let assessments = assess_candidates(&generated, &inputs, analyzer());
+        let assessments =
+            assess_candidates(&generated, &inputs, analyzer(), &JapaneseConstraintChecks);
         for (text, assessment) in pair.iter().zip(assessments) {
             match Sentence::new(text) {
                 Ok(sentence) => {

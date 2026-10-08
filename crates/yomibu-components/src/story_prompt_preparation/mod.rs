@@ -4,7 +4,27 @@ use crate::openai_story_generation::{PreparationError, PreparedRequest, validate
 use yomibu_core::domain::story::{
     StoryError, StoryFormat, StoryGenerationOptions, StoryRequest, StoryVocabularySelection,
 };
+use yomibu_core::{capabilities::StoryPreparer, pipeline::story::PreparedStory};
 use yomibu_core::{domain::inventory::LearnerInventory, pipeline::selection::validate_selection};
+
+pub struct StoryPromptPreparation;
+
+impl StoryPreparer for StoryPromptPreparation {
+    type PreparedRequest = PreparedRequest;
+    type Error = StoryError;
+
+    fn prepare<'a>(
+        &self,
+        inventory: &'a LearnerInventory,
+        request: &'a StoryRequest,
+        selection: StoryVocabularySelection<'a>,
+        options: StoryGenerationOptions,
+    ) -> Result<PreparedStory<'a, PreparedRequest>, StoryError> {
+        let (selection, prepared) =
+            fit_selection_and_build_request(inventory, request, selection, options)?;
+        PreparedStory::new(inventory, request, selection, prepared)
+    }
+}
 
 pub const STORY_PROMPT_REVISION: &str = "story-inventory-v3";
 const MAX_STORY_REQUEST_BYTES: usize = 16384;

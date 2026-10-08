@@ -29,7 +29,7 @@ impl<'a> StoryPreviewReport<'a> {
             kind: "story_generation_plan_preview",
             request,
             plan: plan.selection(),
-            generation_options: plan.generation_options(),
+            generation_options: prepared_request.options().clone(),
             provider_request: RequestBytes {
                 body_utf8: prepared_request.body_utf8(),
                 bytes: prepared_request.body_utf8().len(),

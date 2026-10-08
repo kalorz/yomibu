@@ -3,8 +3,8 @@ mod observation;
 mod request;
 mod selection;
 pub use assessment::{
-    PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, StoryPassageAssessment,
-    StorySentenceAssessment,
+    PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, StoryFindings,
+    StoryPassageAssessment, StorySentenceAssessment,
 };
 pub use observation::{
     TargetCoverage, TargetKind, TargetObservation, TargetState, TargetUncertainty,

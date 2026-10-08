@@ -1,7 +1,7 @@
+use crate::application::story::DefaultCandidateError;
 use crate::configuration::modules::{ModuleId, ModuleReport};
 use crate::reports::analysis::AnalysisInput;
 use serde::Serialize;
-use yomibu_components::japanese_constraint_checks::CandidateError;
 use yomibu_components::openai_story_generation as openai;
 use yomibu_core::domain::{
     analysis::SentenceAnalysis,
@@ -39,7 +39,7 @@ pub struct SelectionReport {
 }
 impl SelectionReport {
     pub(crate) fn from_selection(
-        selection: yomibu_core::domain::story::StoryVocabularySelection<'_>,
+        selection: &yomibu_core::domain::story::StoryVocabularySelection<'_>,
         seed: u64,
     ) -> Self {
         Self {
@@ -50,7 +50,7 @@ impl SelectionReport {
                 .map(|entry| entry.word.id.clone())
                 .collect(),
             seed,
-            embedding_model: selection.embedding_model,
+            embedding_model: selection.embedding_model.clone(),
         }
     }
 }
@@ -61,7 +61,7 @@ pub struct StoryRunReport {
     pub request: StoryRequest,
     pub selection: SelectionReport,
     pub generated: GeneratedCandidates,
-    pub assessments: Vec<StoryPassageAssessment<CandidateError>>,
+    pub assessments: Vec<StoryPassageAssessment<DefaultCandidateError>>,
     pub modules: Vec<ModuleReport>,
     pub timings: Vec<StepTiming>,
     pub warnings: Vec<Warning>,

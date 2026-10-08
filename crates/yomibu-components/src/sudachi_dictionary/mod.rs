@@ -47,6 +47,14 @@ pub struct SudachiAnalyzer {
     generation: String,
 }
 
+impl yomibu_core::capabilities::SentenceAnalyzer for SudachiAnalyzer {
+    type Error = AnalysisError;
+
+    fn analyze<'a>(&self, sentence: Sentence<'a>) -> Result<SentenceAnalysis<'a>, AnalysisError> {
+        self.analyze(sentence)
+    }
+}
+
 impl SudachiAnalyzer {
     /// Map the handle checked by `ManagedInstallation::open`, retaining embedded
     /// configuration and character definitions. No full hash or ambient resource

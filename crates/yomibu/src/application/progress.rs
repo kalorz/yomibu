@@ -1,3 +1,4 @@
+use crate::application::story::DefaultCandidateError;
 use crate::configuration::{
     Configuration,
     modules::{MODULES, ModuleId, ModuleReport, ModuleState},
@@ -5,7 +6,6 @@ use crate::configuration::{
 use crate::reports::run::{SelectionReport, StepTiming, StoryRunReport, Warning};
 use serde::Serialize;
 use std::time::Instant;
-use yomibu_components::japanese_constraint_checks::CandidateError;
 use yomibu_core::domain::{
     candidate::GeneratedCandidates,
     story::{StoryPassageAssessment, StoryRequest},
@@ -61,7 +61,7 @@ impl<F: FnMut(ProgressEvent)> RunProgress<F> {
         request: StoryRequest,
         selection: SelectionReport,
         generated: GeneratedCandidates,
-        assessments: Vec<StoryPassageAssessment<CandidateError>>,
+        assessments: Vec<StoryPassageAssessment<DefaultCandidateError>>,
     ) -> StoryRunReport {
         StoryRunReport {
             kind: "experimental_story",
