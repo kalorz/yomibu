@@ -39,6 +39,8 @@ pub fn validate_selection(
 /// Validate inputs, run steps in caller order, then put targets first and fill support slots.
 /// Empty step lists keep inventory order. Each step must retain targets and return
 /// unique inventory references with finite scores (or absent scores).
+/// Candidates start with reason `inventory_entry`. Finalization reserves `practice_target`
+/// for requested targets and resets that reason on supports to `inventory_entry`.
 /// `selector_revision` identifies the whole composition; changed behavior needs a new revision.
 pub fn select_target_first<'a>(
     input: SelectionInput<'a>,
@@ -55,7 +57,7 @@ pub fn select_target_first<'a>(
             .map(|word| VocabularyCandidate {
                 word,
                 score: None,
-                reason: "local_sample",
+                reason: "inventory_entry",
             })
             .collect(),
         embedding_model: None,
@@ -85,7 +87,13 @@ pub fn select_target_first<'a>(
         candidates
             .entries
             .into_iter()
-            .take(input.limit - selected.len()),
+            .take(input.limit - selected.len())
+            .map(|mut support| {
+                if support.reason == "practice_target" {
+                    support.reason = "inventory_entry";
+                }
+                support
+            }),
     );
     Ok(StoryVocabularySelection {
         selected,

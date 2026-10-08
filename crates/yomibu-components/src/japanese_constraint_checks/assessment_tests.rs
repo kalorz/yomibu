@@ -95,7 +95,7 @@ fn object_uncertainty_preserves_independent_grammar_targets() {
                 &crate::learner_vocabulary_selection::LexicalTopicScoring,
                 &crate::learner_vocabulary_selection::SeededOrdering { seed: 0 },
             ],
-            "builtin-v2",
+            "test-lexical-seeded-v1",
         )
         .unwrap();
         let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();

@@ -48,6 +48,7 @@ impl SelectionStep for LexicalTopicScoring {
 }
 
 /// Order current scores descending, then SHA-256(seed bytes, ID), then ID.
+/// Mark neutral `inventory_entry` reasons as `local_sample`; preserve scoring reasons.
 pub struct SeededOrdering {
     pub seed: u64,
 }
@@ -61,7 +62,10 @@ impl SelectionStep for SeededOrdering {
         let mut ranked: Vec<_> = candidates
             .entries
             .into_iter()
-            .map(|entry| {
+            .map(|mut entry| {
+                if entry.reason == "inventory_entry" {
+                    entry.reason = "local_sample";
+                }
                 let mut hash = Sha256::new();
                 hash.update(self.seed.to_be_bytes());
                 hash.update(entry.word.id.as_bytes());

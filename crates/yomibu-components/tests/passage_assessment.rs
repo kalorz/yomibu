@@ -31,7 +31,7 @@ fn passage_checks_full_inventory_sentence_by_sentence_and_leaves_missing_grammar
             limit: 1,
         },
         &[&LexicalTopicScoring, &SeededOrdering { seed: 7 }],
-        "builtin-v2",
+        "test-lexical-seeded-v1",
     )
     .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
@@ -86,7 +86,7 @@ fn missing_grammar_preserves_independent_scope_findings_and_vocabulary_failures(
             limit: 3,
         },
         &[&LexicalTopicScoring, &SeededOrdering { seed: 7 }],
-        "builtin-v2",
+        "test-lexical-seeded-v1",
     )
     .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
@@ -168,7 +168,7 @@ fn absent_dictionary_reports_not_run_without_losing_the_passage() {
             limit: 1,
         },
         &[&LexicalTopicScoring, &SeededOrdering { seed: 7 }],
-        "builtin-v2",
+        "test-lexical-seeded-v1",
     )
     .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();

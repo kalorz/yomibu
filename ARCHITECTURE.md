@@ -29,6 +29,8 @@ components import no application code.
 [Capabilities](crates/yomibu-core/src/capabilities/) define source, storage,
 embedding and synchronous selection contracts. [Pipeline](crates/yomibu-core/src/pipeline/)
 checks each step's candidates and owns target-first finalization and embedding-cache assembly.
+Core validates candidates against the full allowed inventory; external steps may restore
+allowed entries. The supplied rankers retain filtered subsets.
 The application wires default selection steps and prepares embedding evidence before selection;
 optional fallback remains application policy.
 

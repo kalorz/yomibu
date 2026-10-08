@@ -157,7 +157,7 @@ fn prepare<'a>(
     let plan = yomibu_core::pipeline::selection::select_target_first(
         input,
         &[&ranking],
-        "inventory-similarity-v1",
+        "test-embedding-ranked-v1",
     )
     .unwrap();
     fit_selection_and_build_request(inventory, request, plan, sentence_options(2)).unwrap()

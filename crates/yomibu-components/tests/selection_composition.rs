@@ -69,6 +69,12 @@ fn callers_can_omit_scoring_or_change_step_order_without_an_implicit_reorder() {
         select_target_first(input, &[&SeededOrdering { seed: 7 }], "test-seeded-only-v1").unwrap();
     assert_eq!(ids(&sampled), ["dog", "cat"]);
     assert!(sampled.selected.iter().all(|entry| entry.score.is_none()));
+    assert!(
+        sampled
+            .selected
+            .iter()
+            .all(|entry| entry.reason == "local_sample")
+    );
     assert_eq!(sampled.selector_revision, "test-seeded-only-v1");
     let ordered_before_scoring = select_target_first(
         input,
@@ -213,11 +219,11 @@ fn existing_rankers_consume_an_external_steps_subset_without_restoring_removed_s
         model(),
         &inputs,
         vec![
-            vec![0., 1.],
-            vec![1., 0.],
-            vec![0., 1.],
-            vec![0., 1.],
-            vec![1., 0.],
+            vec![0., 1.],  // sleep
+            vec![1., 0.],  // cat
+            vec![-1., 0.], // dog
+            vec![3., 4.],  // walk
+            vec![1., 0.],  // query
         ],
     )
     .unwrap();
@@ -230,7 +236,7 @@ fn existing_rankers_consume_an_external_steps_subset_without_restoring_removed_s
     .unwrap();
     assert_eq!(ids(&selection), ["cat", "walk"]);
     assert_eq!(selection.selected[0].score, Some(1.));
-    assert_eq!(selection.selected[1].score, Some(0.));
+    assert_eq!(selection.selected[1].score, Some(0.6)); // 3 / sqrt(3² + 4²)
     let selection = select_target_first(
         input,
         &[

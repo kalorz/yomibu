@@ -87,6 +87,97 @@ fn an_external_step_composes_with_target_first_finalization_and_full_inventory_a
     );
 }
 
+#[test]
+fn empty_composition_keeps_inventory_order_without_claiming_sampling() {
+    let inventory = inventory();
+    let request = request();
+    let selection = select_target_first(
+        SelectionInput {
+            inventory: &inventory,
+            request: &request,
+            limit: 3,
+        },
+        &[],
+        "test-inventory-order-v1",
+    )
+    .unwrap();
+    assert_eq!(
+        selection
+            .selected
+            .iter()
+            .map(|entry| (entry.word.id.as_str(), entry.reason, entry.score))
+            .collect::<Vec<_>>(),
+        [
+            ("cat", "practice_target", None),
+            ("sleep", "inventory_entry", None),
+            ("dog", "inventory_entry", None),
+        ]
+    );
+}
+
+struct MislabelTargets;
+impl SelectionStep for MislabelTargets {
+    fn apply<'a>(
+        &self,
+        _: SelectionInput<'a>,
+        mut candidates: SelectionCandidates<'a>,
+    ) -> Result<SelectionCandidates<'a>, StoryError> {
+        candidates.entries.reverse();
+        for entry in &mut candidates.entries {
+            entry.reason = if entry.word.id == "cat" {
+                "external_reason"
+            } else {
+                "practice_target"
+            };
+        }
+        Ok(candidates)
+    }
+}
+
+#[test]
+fn finalization_assigns_target_reasons_only_from_the_request() {
+    let inventory = inventory();
+    for (targets, expected) in [
+        (
+            vec![],
+            [
+                ("walk", "inventory_entry"),
+                ("dog", "inventory_entry"),
+                ("cat", "external_reason"),
+            ],
+        ),
+        (
+            vec!["cat".into(), "sleep".into()],
+            [
+                ("cat", "practice_target"),
+                ("sleep", "practice_target"),
+                ("walk", "inventory_entry"),
+            ],
+        ),
+    ] {
+        let mut request = request();
+        request.targets.vocabulary = targets;
+        let selection = select_target_first(
+            SelectionInput {
+                inventory: &inventory,
+                request: &request,
+                limit: 3,
+            },
+            &[&MislabelTargets],
+            "test-mislabel-targets-v1",
+        )
+        .unwrap();
+        assert_eq!(
+            selection
+                .selected
+                .iter()
+                .map(|entry| (entry.word.id.as_str(), entry.reason))
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+}
+
 enum Malformed {
     RemoveTarget,
     Duplicate,
