@@ -51,7 +51,7 @@ pub fn evaluate(
         &rules,
         LexicalPermissions::Explicit(&bindings.vocabulary),
         true,
-    )
+    )?
     .evaluation)
 }
 
@@ -65,12 +65,12 @@ pub(crate) fn assess_inventory(
         .iter()
         .map(|binding| binding.rule)
         .collect();
-    Ok(assess_permissions(
+    assess_permissions(
         analysis,
         &rules,
         LexicalPermissions::Inventory(inventory),
         !inventory.grammar_bindings.is_empty(),
-    ))
+    )
 }
 
 fn assess_permissions(
@@ -78,7 +78,7 @@ fn assess_permissions(
     rules: &[GrammarRule],
     permissions: LexicalPermissions<'_>,
     grammar_supplied: bool,
-) -> SentenceAssessment {
+) -> Result<SentenceAssessment, EvaluationError> {
     let basis = permissions.basis();
     let lexical: Vec<_> = analysis
         .units
@@ -158,11 +158,19 @@ fn assess_permissions(
             check.coverage = "grammar knowledge was not supplied";
         }
     }
-    SentenceAssessment {
-        evaluation: Evaluation::new(basis, vocabulary, inflection, particles, nominal, scope),
+    Ok(SentenceAssessment {
+        evaluation: Evaluation::new(
+            analysis.sentence.text(),
+            basis,
+            vocabulary,
+            inflection,
+            particles,
+            nominal,
+            scope,
+        )?,
         lexical,
         construction,
-    }
+    })
 }
 
 fn recognize_construction(analysis: &SentenceAnalysis<'_>) -> Option<RecognizedConstruction> {

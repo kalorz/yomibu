@@ -7,7 +7,7 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         candidate::CandidateAssessment,
         evaluation::EvaluationError,
     };
-    let analysis = SentenceAnalysis {
+    let analysis = || SentenceAnalysis {
         sentence: Sentence::new("猫です。").unwrap(),
         units: vec![],
         provenance: AnalysisProvenance {
@@ -36,11 +36,29 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         ),
         (
             CandidateAssessment::ExecutionError {
-                analysis: Some(analysis),
+                analysis: Some(analysis()),
                 error: CandidateError::Evaluation(EvaluationError::InvalidAnalysis),
             },
             "evaluation",
             "invalid_analysis",
+            true,
+        ),
+        (
+            CandidateAssessment::ExecutionError {
+                analysis: Some(analysis()),
+                error: CandidateError::Evaluation(EvaluationError::InvalidFindingSpan),
+            },
+            "evaluation",
+            "invalid_finding_span",
+            true,
+        ),
+        (
+            CandidateAssessment::ExecutionError {
+                analysis: Some(analysis()),
+                error: CandidateError::Evaluation(EvaluationError::InvalidCheckState),
+            },
+            "evaluation",
+            "invalid_check_state",
             true,
         ),
     ] {

@@ -277,6 +277,43 @@ fn rejects_unsafe_endpoints_and_credentials_without_reflecting_secrets() {
 }
 
 #[tokio::test]
+async fn candidate_count_and_format_mismatches_are_invalid_responses_without_retries() {
+    use yomibu_components::openai_story_generation::ProviderError;
+    use yomibu_core::domain::story::{StoryFormat, StoryGenerationOptions};
+
+    let server = MockServer::start().await;
+    let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
+    for (format, candidates, sentences) in [
+        (StoryFormat::Sentence, 1, 1),
+        (StoryFormat::Sentence, 4, 1),
+        (StoryFormat::Sentence, 3, 2),
+        (StoryFormat::Passage, 3, 2),
+        (StoryFormat::Passage, 3, 6),
+    ] {
+        server.reset().await;
+        let options = StoryGenerationOptions {
+            candidate_count: 3,
+            format,
+            ..Default::default()
+        };
+        let request = PreparedRequest::new("prompt", "{}", "test", &options, 16384).unwrap();
+        let payload = json!({"candidates": (0..candidates)
+            .map(|_| json!({"sentences": vec!["猫です。"; sentences]}))
+            .collect::<Vec<_>>()});
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response(&payload.to_string())))
+            .expect(1)
+            .mount(&server)
+            .await;
+        assert!(matches!(
+            client.generate_candidates(&request).await,
+            Err(ProviderError::InvalidResponse)
+        ));
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+}
+
+#[tokio::test]
 async fn rejects_whole_response_failures_without_salvage_or_retries() {
     let server = MockServer::start().await;
     let client =

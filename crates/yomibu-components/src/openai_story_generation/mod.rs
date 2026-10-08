@@ -292,17 +292,10 @@ impl Client {
         let payload = payload.ok_or(ProviderError::InvalidResponse)?;
         let candidates: Payload =
             serde_json::from_str(&payload).map_err(|_| ProviderError::InvalidResponse)?;
-        if candidates.candidates.len() != request.candidate_count() {
-            return Err(ProviderError::InvalidResponse);
-        }
-        let (min, max) = request.options.format.sentence_bounds();
         let passages = candidates
             .candidates
             .into_iter()
             .map(|candidate| {
-                if !(min..=max).contains(&candidate.sentences.len()) {
-                    return Err(ProviderError::InvalidResponse);
-                }
                 let mut text = String::new();
                 let mut sentence_spans = Vec::new();
                 for sentence in candidate.sentences {
@@ -310,12 +303,12 @@ impl Client {
                     text.push_str(&sentence);
                     sentence_spans.push(start..text.len());
                 }
-                Ok(GeneratedPassage {
+                GeneratedPassage {
                     text,
                     sentence_spans,
-                })
+                }
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect();
         GeneratedCandidates::new(
             passages,
             GenerationProvenance {
@@ -332,6 +325,8 @@ impl Client {
                 request_count: 1,
                 usage: envelope.usage,
             },
+            request.options.format,
+            request.candidate_count(),
         )
         .map_err(|_| ProviderError::InvalidResponse)
     }

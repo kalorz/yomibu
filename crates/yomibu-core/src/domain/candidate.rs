@@ -1,5 +1,5 @@
 //! Generated texts, provider metadata, assessments and execution errors.
-use crate::domain::{analysis::SentenceAnalysis, evaluation::Evaluation};
+use crate::domain::{analysis::SentenceAnalysis, evaluation::Evaluation, story::StoryFormat};
 use serde::{Deserialize, Serialize};
 
 /// Counts reported by the provider, not an independently verified bill.
@@ -42,6 +42,10 @@ pub struct GeneratedCandidates {
 pub enum CandidateConstructionError {
     #[error("Generated candidates must contain at least one passage.")]
     Empty,
+    #[error("Generated {actual} candidates; expected {expected}.")]
+    CandidateCount { expected: usize, actual: usize },
+    #[error("Generated {actual} sentences for {format:?} format.")]
+    SentenceCount { format: StoryFormat, actual: usize },
     #[error("Sentence spans must cover each original passage with valid UTF-8 boundaries.")]
     InvalidSpans,
     #[error(transparent)]
@@ -49,16 +53,29 @@ pub enum CandidateConstructionError {
 }
 
 impl GeneratedCandidates {
+    /// Validate the requested count, format and complete spans without changing text.
     pub fn new(
         passages: Vec<GeneratedPassage>,
         provenance: GenerationProvenance,
+        format: StoryFormat,
+        candidate_count: usize,
     ) -> Result<Self, CandidateConstructionError> {
         if passages.is_empty() {
             return Err(CandidateConstructionError::Empty);
         }
+        if passages.len() != candidate_count {
+            return Err(CandidateConstructionError::CandidateCount {
+                expected: candidate_count,
+                actual: passages.len(),
+            });
+        }
+        let (min, max) = format.sentence_bounds();
         for passage in &passages {
-            if passage.sentence_spans.is_empty() {
-                return Err(CandidateConstructionError::InvalidSpans);
+            if !(min..=max).contains(&passage.sentence_spans.len()) {
+                return Err(CandidateConstructionError::SentenceCount {
+                    format,
+                    actual: passage.sentence_spans.len(),
+                });
             }
             let mut end = 0;
             for span in &passage.sentence_spans {

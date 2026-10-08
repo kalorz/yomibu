@@ -82,6 +82,12 @@ impl<'a> CandidateReport<'a> {
                     CandidateError::Evaluation(EvaluationError::InvalidAnalysis) => {
                         ("evaluation", "invalid_analysis")
                     }
+                    CandidateError::Evaluation(EvaluationError::InvalidFindingSpan) => {
+                        ("evaluation", "invalid_finding_span")
+                    }
+                    CandidateError::Evaluation(EvaluationError::InvalidCheckState) => {
+                        ("evaluation", "invalid_check_state")
+                    }
                 };
                 (
                     analysis.as_ref(),

@@ -111,15 +111,38 @@ pub struct Evaluation {
 }
 
 impl Evaluation {
+    /// Validate findings against the original text and check states.
+    /// Callers must keep this evaluation paired with that text.
     pub fn new(
+        text: &str,
         basis: EvaluationBasis,
         vocabulary: Check,
         inflection: Check,
         particles: Check,
         nominal: Check,
         scope: Check,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, EvaluationError> {
+        for check in [&vocabulary, &inflection, &particles, &nominal, &scope] {
+            if check
+                .findings
+                .iter()
+                .any(|finding| text.get(finding.span.clone()).is_none())
+            {
+                return Err(EvaluationError::InvalidFindingSpan);
+            }
+            let consistent = match check.state {
+                CheckState::Completed(CheckOutcome::Fail | CheckOutcome::Inconclusive) => {
+                    !check.findings.is_empty()
+                }
+                CheckState::Completed(CheckOutcome::Pass) | CheckState::NotRun => {
+                    check.findings.is_empty()
+                }
+            };
+            if !consistent {
+                return Err(EvaluationError::InvalidCheckState);
+            }
+        }
+        Ok(Self {
             notice: REPORT_NOTICE,
             unassessed: [
                 UnassessedAspect::Naturalness,
@@ -132,7 +155,7 @@ impl Evaluation {
             particles,
             nominal,
             scope,
-        }
+        })
     }
 
     pub fn check(&self, kind: CheckKind) -> &Check {
@@ -173,6 +196,12 @@ pub enum EvaluationError {
     MissingDeclaration,
     #[error("Analysis must completely cover the original text with valid whole/component spans.")]
     InvalidAnalysis,
+    #[error("Finding spans must lie within the original text on UTF-8 boundaries.")]
+    InvalidFindingSpan,
+    #[error(
+        "Fail and Inconclusive checks require findings; Pass and NotRun checks must have none."
+    )]
+    InvalidCheckState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

@@ -13,6 +13,7 @@ pub fn select_ranked<'a>(
     selector_revision: &'static str,
     embedding_model: Option<EmbeddingModelIdentity>,
 ) -> Result<StoryVocabularySelection<'a>, StoryError> {
+    request.validate_selection_limit(limit)?;
     let mut selected = Vec::new();
     for id in &request.targets.vocabulary {
         let (word, score) = ranked

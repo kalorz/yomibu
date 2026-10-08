@@ -149,9 +149,9 @@ Dictionary pins, configuration, developer setup and loading rules have one
 home: [dictionary contracts](docs/DICTIONARY.md). No ambient configuration, fallback
 tokenizer or runtime download is allowed.
 
-`evaluation::evaluate` synchronously takes concrete analysis, unchanged free-form
-declarations, and explicit word/rule bindings. Vocabulary tuples retain written
-form, dictionary-style katakana reading, nonblank sense and `direct_object` boolean.
+`japanese_constraint_checks::evaluate` synchronously takes concrete analysis,
+unchanged free-form declarations, and explicit word/rule bindings. Vocabulary tuples
+retain written form, dictionary-style katakana reading, nonblank sense and `direct_object` boolean.
 True supplies transitive-use evidence for that tuple; false supplies no positive
 object-use evidence, not a claim of intransitivity. Such metadata needs source
 evidence and is never inferred from を. A sense label is not contextual validation.
@@ -225,8 +225,8 @@ Name implemented responsibilities consistently:
 - Use `InMemory...` for volatile adapters and provider/backend names for others.
 - Source progress is evidence; `LearnerKnowledgePolicy` derives eligibility.
   Inventory is the complete allowed material; selection is only the prompt subset.
-- Prompt templates are reusable content. `openai::PreparedRequest` is one finalized
-  Responses payload.
+- Prompt templates are reusable content. `openai_story_generation::PreparedRequest`
+  is one finalized Responses payload.
   An exercise generator would own acceptance; current story generation does not.
 
 Future responsibility names are not reserved APIs. Add types and extension points
@@ -388,7 +388,7 @@ the synchronization interval, learner, subjects, assignments, review statistics,
 and `unavailable_subjects`. Subject lexical content is tagged
 as `kanji`, `vocabulary`, or `kana_vocabulary`; only the first two have readings.
 The cache contains normalized Yomibu data, not WaniKani response envelopes. See
-[domain.rs](crates/yomibu/src/domain.rs) for fields and
+[source.rs](crates/yomibu-core/src/domain/source.rs) for fields and
 [fixtures](tests/fixtures/) for synthetic examples. Null dates remain null;
 missing statistics remain absent records. Additional JSON fields are tolerated.
 
@@ -439,9 +439,10 @@ Required nullable dates must be present, but may be null. Validate subjects befo
 applying content-access limits; invalid excluded records still fail. Returned
 subjects must belong to the requested batch. Unexplained missing subjects fail.
 
-See [the source adapter](crates/yomibu/src/adapters/sources/wanikani/) and its
-adjacent tests for normalization and transport behavior; [the file adapter](crates/yomibu/src/adapters/stores/file/)
-and its adjacent tests cover failures, interruption and locks.
+See [the source adapter](crates/yomibu-components/src/wanikani_source/) and its
+adjacent tests for normalization and transport behavior;
+[the file adapter](crates/yomibu-components/src/file_learning_store/) and its
+adjacent tests cover failures, interruption and locks.
 
 ## Reliability and storage
 
