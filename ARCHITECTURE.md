@@ -44,10 +44,12 @@ executor. Current sync file operations run on that caller's thread.
 OpenAI owns exact prepared bytes, options and model/encoding validation. Prompt
 preparation owns content, the request-byte cap and support trimming. `PreparedStory<R>`
 binds the finalized selection and full-inventory assessment inputs to that request;
-generation requires the same associated request type. Library callers inject
-capabilities through `StoryPreparer::prepare` and `generate_story_with`.
+generation requires the same associated request type and checks the caller's count
+and format. Library callers inject capabilities through `prepare_story` and
+`generate_story_with`. Only core binds preparation output to assessment inputs.
 
-Assessment consumes one analysis per original sentence. Core composes typed failures
+Assessment consumes one analysis per original sentence. Core checks target identities,
+evidence-consistent states and full-inventory basis, and composes typed failures
 and passage spans; Japanese checks consume evidence without depending on Sudachi.
 The application owns optional resource loading and default diagnostics. Reports
 project results without rerunning checks. Checked candidate construction preserves

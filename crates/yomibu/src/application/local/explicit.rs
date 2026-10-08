@@ -15,10 +15,11 @@ use yomibu_components::{
     story_prompt_preparation::StoryPromptPreparation,
     sudachi_dictionary::installation as dictionary, wanikani_source as wanikani,
 };
-use yomibu_core::capabilities::{LearningStore, SourceSyncWriter, StoryPreparer};
+use yomibu_core::capabilities::{LearningStore, SourceSyncWriter};
 use yomibu_core::domain::{
     analysis::Sentence, embedding::EmbeddingCache, grammar::GrammarDeclarations,
 };
+use yomibu_core::pipeline::story::prepare_story;
 
 impl LocalApp {
     pub async fn prepare_retrieval(
@@ -90,7 +91,8 @@ impl LocalApp {
         if let Some(error) = retrieval_error {
             warnings.push(Warning::embedding_fallback(&error));
         }
-        let plan = StoryPromptPreparation.prepare(
+        let plan = prepare_story(
+            &StoryPromptPreparation,
             &inventory,
             &request,
             selection,

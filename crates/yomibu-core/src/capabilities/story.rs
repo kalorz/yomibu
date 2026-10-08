@@ -1,23 +1,22 @@
 use std::error::Error;
 
-use crate::{
-    domain::{
-        analysis::{Sentence, SentenceAnalysis},
-        candidate::GeneratedCandidates,
-        inventory::LearnerInventory,
-        story::{
-            StoryAssessmentInputs, StoryFindings, StoryGenerationOptions, StoryRequest,
-            StoryVocabularySelection,
-        },
+use crate::domain::{
+    analysis::{Sentence, SentenceAnalysis},
+    candidate::GeneratedCandidates,
+    inventory::LearnerInventory,
+    story::{
+        StoryAssessmentInputs, StoryError, StoryFindings, StoryGenerationOptions, StoryRequest,
+        StoryVocabularySelection,
     },
-    pipeline::story::PreparedStory,
 };
 
 /// Synchronous preparation. The request must encode the finalized selection and
 /// supplied options; its concrete type belongs to the matching provider.
+/// Use [`prepare_story`](crate::pipeline::story::prepare_story) to bind this output
+/// to the caller's assessment inputs.
 pub trait StoryPreparer {
     type PreparedRequest;
-    type Error: Error + Send + Sync + 'static;
+    type Error: Error + From<StoryError> + Send + Sync + 'static;
 
     fn prepare<'a>(
         &self,
@@ -25,7 +24,7 @@ pub trait StoryPreparer {
         request: &'a StoryRequest,
         selection: StoryVocabularySelection<'a>,
         options: StoryGenerationOptions,
-    ) -> Result<PreparedStory<'a, Self::PreparedRequest>, Self::Error>;
+    ) -> Result<(StoryVocabularySelection<'a>, Self::PreparedRequest), Self::Error>;
 }
 
 /// Analyze unchanged text with original byte spans. Resource loading is separate;
@@ -37,7 +36,8 @@ pub trait SentenceAnalyzer {
 }
 
 /// Judge supplied evidence against the full inventory and finalized prompt plan.
-/// Implementations do not load resources or rerun sentence analysis.
+/// Derive evaluations from this analysis and return one evidence-consistent observation
+/// per requested target. Implementations do not load resources or rerun analysis.
 pub trait StoryAssessor {
     type Error: Error + Send + Sync + 'static;
 

@@ -11,8 +11,8 @@ use yomibu_core::{
             Token,
         },
         candidate::{
-            CandidateAssessment, CandidateError, GeneratedCandidates, GeneratedPassage,
-            GenerationProvenance,
+            CandidateAssessment, CandidateConstructionError, CandidateError, GeneratedCandidates,
+            GeneratedPassage, GenerationProvenance,
         },
         evaluation::{Check, CheckOutcome, CheckState, Evaluation, EvaluationBasis},
         inventory::LearnerInventory,
@@ -22,7 +22,10 @@ use yomibu_core::{
             TargetObservation,
         },
     },
-    pipeline::{assessment::assess_passages, story::PreparedStory},
+    pipeline::{
+        assessment::assess_passages,
+        story::{GenerationError, prepare_story},
+    },
 };
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -45,11 +48,11 @@ impl StoryPreparer for TestPreparer {
 
     fn prepare<'a>(
         &self,
-        inventory: &'a LearnerInventory,
-        request: &'a StoryRequest,
+        _: &'a LearnerInventory,
+        _: &'a StoryRequest,
         mut selection: StoryVocabularySelection<'a>,
         options: StoryGenerationOptions,
-    ) -> Result<PreparedStory<'a, TestRequest>, Self::Error> {
+    ) -> Result<(StoryVocabularySelection<'a>, TestRequest), Self::Error> {
         // This test's prompt uses just the explicit target.
         selection.selected.truncate(1);
         let prepared = TestRequest {
@@ -60,7 +63,7 @@ impl StoryPreparer for TestPreparer {
                 .map(|entry| entry.word.id.clone())
                 .collect(),
         };
-        Ok(PreparedStory::new(inventory, request, selection, prepared)?)
+        Ok((selection, prepared))
     }
 }
 
@@ -127,21 +130,26 @@ async fn supplied_preparer_binds_trimmed_selection_and_executes_matching_generat
         let selection =
             yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 3, 7)
                 .unwrap();
-        let plan = TestPreparer
-            .prepare(
-                &inventory,
-                &request,
-                selection,
-                StoryGenerationOptions {
-                    model: "test-only-model".into(),
-                    candidate_count: 1,
-                    format: StoryFormat::Sentence,
-                },
-            )
-            .unwrap();
+        let plan = prepare_story(
+            &TestPreparer,
+            &inventory,
+            &request,
+            selection,
+            StoryGenerationOptions {
+                model: "test-only-model".into(),
+                candidate_count: 1,
+                format: StoryFormat::Sentence,
+            },
+        )
+        .unwrap();
         assert_eq!(plan.selection().selected.len(), 1);
         assert_eq!(plan.assessment_inputs().selected_vocabulary_ids(), ["cat"]);
         assert_eq!(plan.assessment_inputs().inventory().vocabulary.len(), 4);
+        assert!(std::ptr::eq(
+            plan.assessment_inputs().inventory(),
+            &inventory
+        ));
+        assert!(std::ptr::eq(plan.assessment_inputs().request(), &request));
         let generator = TestGenerator {
             calls: AtomicUsize::new(0),
             fail: false,
@@ -183,18 +191,18 @@ async fn supplied_generator_failure_stays_typed_and_is_not_retried() {
     let selection =
         yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 3, 7)
             .unwrap();
-    let plan = TestPreparer
-        .prepare(
-            &inventory,
-            &request,
-            selection,
-            StoryGenerationOptions {
-                model: "test-only-model".into(),
-                candidate_count: 1,
-                format: StoryFormat::Sentence,
-            },
-        )
-        .unwrap();
+    let plan = prepare_story(
+        &TestPreparer,
+        &inventory,
+        &request,
+        selection,
+        StoryGenerationOptions {
+            model: "test-only-model".into(),
+            candidate_count: 1,
+            format: StoryFormat::Sentence,
+        },
+    )
+    .unwrap();
     let generator = TestGenerator {
         calls: AtomicUsize::new(0),
         fail: true,
@@ -204,12 +212,11 @@ async fn supplied_generator_failure_stays_typed_and_is_not_retried() {
         replace_text: false,
     };
     let assessor = TestAssessor(RefCell::new(vec![]));
-    assert_eq!(
+    assert!(matches!(
         yomibu::application::story::generate_story_with(&plan, &generator, &analyzer, &assessor)
-            .await
-            .unwrap_err(),
-        ProviderFailure(429)
-    );
+            .await,
+        Err(GenerationError::Generator(ProviderFailure(429)))
+    ));
     assert_eq!(generator.calls.load(Ordering::SeqCst), 1);
     assert!(analyzer.calls.borrow().is_empty());
     assert!(assessor.0.borrow().is_empty());
@@ -223,7 +230,13 @@ fn preparation_cannot_bind_a_selection_that_drops_a_request_target() {
         yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 3, 7)
             .unwrap();
     assert!(matches!(
-        TestPreparer.prepare(&inventory, &request, selection, Default::default()),
+        prepare_story(
+            &TestPreparer,
+            &inventory,
+            &request,
+            selection,
+            Default::default()
+        ),
         Err(PreparationFailure(StoryError::Invalid(
             "plan does not match inventory and targets"
         )))
@@ -537,4 +550,276 @@ fn findings_for_a_different_sentence_cannot_be_attached_to_original_analysis() {
     };
     assert_eq!(analysis.sentence.text(), "猫。");
     assert_eq!(*analyzer.calls.borrow(), ["猫。"]);
+}
+
+#[derive(Debug, Clone, Copy)]
+enum InvalidFindings {
+    MissingTarget,
+    DuplicateTarget,
+    ExtraTarget,
+    WrongKind,
+    ContradictoryState,
+    WrongBasis,
+}
+
+impl StoryAssessor for InvalidFindings {
+    type Error = AssessmentFailure;
+
+    fn assess<'a>(
+        &self,
+        analysis: &'a SentenceAnalysis<'_>,
+        _: &StoryAssessmentInputs<'_>,
+    ) -> Result<StoryFindings<'a>, Self::Error> {
+        let observed = || {
+            TargetObservation::from_evidence(
+                TargetKind::Vocabulary,
+                "cat",
+                std::iter::once(0..3).collect(),
+                vec![],
+            )
+        };
+        let mut targets = vec![observed()];
+        let mut basis = EvaluationBasis::FullLearnerInventory;
+        // Keep a later sentence valid to check passage coverage and retention.
+        if analysis.sentence.text() == "猫。" {
+            match self {
+                Self::MissingTarget => targets.clear(),
+                Self::DuplicateTarget => targets.push(observed()),
+                Self::ExtraTarget => targets.push(TargetObservation::from_evidence(
+                    TargetKind::Vocabulary,
+                    "dog",
+                    vec![],
+                    vec![],
+                )),
+                Self::WrongKind => targets[0].kind = TargetKind::Grammar,
+                Self::ContradictoryState => targets[0].spans.clear(),
+                Self::WrongBasis => basis = EvaluationBasis::ExplicitWordUses,
+            }
+        }
+        let pass = || Check {
+            state: CheckState::Completed(CheckOutcome::Pass),
+            findings: vec![],
+            coverage: "test",
+        };
+        let evaluation = Evaluation::new(
+            analysis.sentence.text(),
+            basis,
+            pass(),
+            pass(),
+            pass(),
+            pass(),
+            pass(),
+        )
+        .unwrap();
+        Ok(StoryFindings::new(analysis.sentence.text(), evaluation, targets, vec![]).unwrap())
+    }
+}
+
+#[test]
+fn inconsistent_assessor_outputs_fail_the_sentence_without_losing_other_evidence() {
+    use yomibu_core::domain::story::{TargetCoverage, TargetState, TargetUncertaintyReason};
+    let (inventory, request) = inputs();
+    let selection =
+        yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 1, 7)
+            .unwrap();
+    let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
+    let passages = [GeneratedPassage {
+        text: "猫。鳥。".into(),
+        sentence_spans: vec![0..6, 6..12],
+    }];
+    for assessor in [
+        InvalidFindings::MissingTarget,
+        InvalidFindings::DuplicateTarget,
+        InvalidFindings::ExtraTarget,
+        InvalidFindings::WrongKind,
+        InvalidFindings::ContradictoryState,
+        InvalidFindings::WrongBasis,
+    ] {
+        let analyzer = TestAnalyzer {
+            calls: RefCell::new(vec![]),
+            replace_text: false,
+        };
+        let results = assess_passages(&passages, &inputs, Some((&analyzer, &assessor)));
+        assert!(
+            matches!(
+                results[0].sentences[0].assessment.assessment,
+                CandidateAssessment::ExecutionError {
+                    analysis: Some(_),
+                    error: CandidateError::MismatchedAssessment,
+                }
+            ),
+            "{assessor:?}"
+        );
+        assert!(
+            matches!(
+                results[0].sentences[1].assessment.assessment,
+                CandidateAssessment::Completed { .. }
+            ),
+            "{assessor:?}"
+        );
+        assert_eq!(results[0].targets.len(), 1);
+        let target = &results[0].targets[0];
+        assert_eq!(target.state, TargetState::Observed(TargetCoverage::Partial));
+        assert_eq!(target.spans, vec![6..9]);
+        assert_eq!(target.uncertainties.len(), 1);
+        assert_eq!(target.uncertainties[0].span, 0..6);
+        assert_eq!(
+            target.uncertainties[0].reason,
+            TargetUncertaintyReason::AssessmentUnavailable
+        );
+        assert_eq!(*analyzer.calls.borrow(), ["猫。", "鳥。"]);
+    }
+}
+
+struct ForeignPreparer;
+impl StoryPreparer for ForeignPreparer {
+    type PreparedRequest = TestRequest;
+    type Error = PreparationFailure;
+
+    fn prepare<'a>(
+        &self,
+        _: &'a LearnerInventory,
+        _: &'a StoryRequest,
+        _: StoryVocabularySelection<'a>,
+        options: StoryGenerationOptions,
+    ) -> Result<(StoryVocabularySelection<'a>, TestRequest), Self::Error> {
+        static FOREIGN: std::sync::OnceLock<(LearnerInventory, StoryRequest)> =
+            std::sync::OnceLock::new();
+        let (inventory, request) = FOREIGN.get_or_init(inputs);
+        let selection =
+            yomibu::application::selection::select_builtin_vocabulary(inventory, request, 1, 7)?;
+        TestPreparer.prepare(inventory, request, selection, options)
+    }
+}
+
+#[test]
+fn supplied_preparer_cannot_replace_the_callers_full_inventory() {
+    let (inventory, request) = inputs();
+    let selection =
+        yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 1, 7)
+            .unwrap();
+    assert!(matches!(
+        prepare_story(
+            &ForeignPreparer,
+            &inventory,
+            &request,
+            selection,
+            Default::default()
+        ),
+        Err(PreparationFailure(StoryError::Invalid(
+            "plan does not match inventory and targets"
+        )))
+    ));
+}
+
+struct WrongShapeGenerator {
+    format: StoryFormat,
+    count: usize,
+    calls: AtomicUsize,
+}
+impl CandidateGenerator for WrongShapeGenerator {
+    type PreparedRequest = TestRequest;
+    type Error = ProviderFailure;
+
+    async fn generate_candidates(
+        &self,
+        _: &TestRequest,
+    ) -> Result<GeneratedCandidates, Self::Error> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let sentences = self.format.sentence_bounds().0;
+        Ok(GeneratedCandidates::new(
+            (0..self.count)
+                .map(|_| GeneratedPassage {
+                    text: "猫。".repeat(sentences),
+                    sentence_spans: (0..sentences).map(|i| i * 6..(i + 1) * 6).collect(),
+                })
+                .collect(),
+            GenerationProvenance {
+                provider: "test",
+                requested_model: "test".into(),
+                returned_model: "test".into(),
+                requested_tier: "test",
+                returned_tier: None,
+                prompt_revision: "test",
+                request_sha256: "test".into(),
+                request_bytes: 0,
+                response_id: "test".into(),
+                request_id: None,
+                request_count: 1,
+                usage: None,
+            },
+            self.format,
+            self.count,
+        )
+        .unwrap())
+    }
+}
+
+#[tokio::test]
+async fn generated_count_and_format_must_match_the_bound_options_before_assessment() {
+    let (inventory, request) = inputs();
+    for (expected, returned, count) in [
+        (StoryFormat::Sentence, StoryFormat::Sentence, 3),
+        (StoryFormat::Sentence, StoryFormat::Passage, 1),
+        (StoryFormat::Passage, StoryFormat::Sentence, 1),
+    ] {
+        let selection =
+            yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 1, 7)
+                .unwrap();
+        let plan = prepare_story(
+            &TestPreparer,
+            &inventory,
+            &request,
+            selection,
+            StoryGenerationOptions {
+                format: expected,
+                candidate_count: 1,
+                model: "test-only-model".into(),
+            },
+        )
+        .unwrap();
+        let generator = WrongShapeGenerator {
+            format: returned,
+            count,
+            calls: AtomicUsize::new(0),
+        };
+        let analyzer = TestAnalyzer {
+            calls: RefCell::new(vec![]),
+            replace_text: false,
+        };
+        let assessor = TestAssessor(RefCell::new(vec![]));
+        let result = yomibu::application::story::generate_story_with(
+            &plan, &generator, &analyzer, &assessor,
+        )
+        .await;
+        match result.unwrap_err() {
+            GenerationError::InvalidCandidates(CandidateConstructionError::CandidateCount {
+                expected: requested_count,
+                actual,
+            }) => {
+                assert_eq!(requested_count, 1);
+                assert_eq!(actual, 3);
+                assert_eq!(count, 3);
+            }
+            GenerationError::InvalidCandidates(CandidateConstructionError::SentenceCount {
+                format,
+                actual,
+            }) => {
+                assert_eq!(format, expected);
+                assert_eq!(
+                    actual,
+                    if returned == StoryFormat::Sentence {
+                        1
+                    } else {
+                        3
+                    }
+                );
+                assert_eq!(count, 1);
+            }
+            error => panic!("unexpected error: {error}"),
+        }
+        assert_eq!(generator.calls.load(Ordering::SeqCst), 1);
+        assert!(analyzer.calls.borrow().is_empty());
+        assert!(assessor.0.borrow().is_empty());
+    }
 }

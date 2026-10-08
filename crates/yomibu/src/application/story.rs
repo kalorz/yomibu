@@ -17,8 +17,11 @@ use yomibu_core::domain::{
     inventory::LearnerInventory,
 };
 use yomibu_core::{
-    capabilities::{CandidateGenerator, SentenceAnalyzer, StoryAssessor, StoryPreparer},
-    pipeline::{assessment::assess_candidates, story::PreparedStory},
+    capabilities::{CandidateGenerator, SentenceAnalyzer, StoryAssessor},
+    pipeline::{
+        assessment::assess_candidates,
+        story::{GenerationError, PreparedStory, prepare_story},
+    },
 };
 
 /// Plan offline before initializing the caller's dictionary, credential or client.
@@ -34,16 +37,41 @@ pub fn plan_generation<'a>(
     request.validate_selection_limit(selection_limit)?;
     request.validate(inventory)?;
     let selection = select_vocabulary(inventory, request, cache, model, selection_limit)?;
-    StoryPromptPreparation.prepare(inventory, request, selection, options)
+    prepare_story(
+        &StoryPromptPreparation,
+        inventory,
+        request,
+        selection,
+        options,
+    )
 }
 
 /// Execute the default components with caller-supplied resources and executor.
 /// Candidate errors remain in the result.
+///
+/// ```no_run
+/// use yomibu::application::story::{plan_generation, generate_story};
+/// use yomibu_core::domain::{inventory::LearnerInventory, story::StoryRequest, embedding::EmbeddingCache};
+/// use yomibu_components::{sudachi_dictionary::{installation::ManagedInstallation, SudachiAnalyzer}, openai_story_generation::Client};
+/// # async unsafe fn example(inventory: &LearnerInventory, request: &StoryRequest,
+/// #     cache: &EmbeddingCache, dictionary_dir: &std::path::Path, api_key: &str)
+/// #     -> Result<(), Box<dyn std::error::Error>> {
+/// let plan = plan_generation(inventory, request, cache, &cache.model, 12, Default::default())?;
+/// // Safety: this generation was fully verified by Yomibu's importer; the caller
+/// // guarantees its mapped bytes stay unchanged for the analyzer's entire lifetime.
+/// let installation = ManagedInstallation::open(dictionary_dir)?;
+/// let analyzer = unsafe { SudachiAnalyzer::load(installation) }?;
+/// let client = Client::new(api_key)?;
+/// let result = generate_story(&plan, &client, &analyzer).await?;
+/// assert_eq!(result.candidates().passages().iter().map(|p| p.sentence_spans.len()).sum::<usize>(), result.assessments().len());
+/// # Ok(())
+/// # }
+/// ```
 pub async fn generate_story(
     plan: &StoryGenerationPlan<'_>,
     client: &Client,
     analyzer: &SudachiAnalyzer,
-) -> Result<StoryGenerationResult, ProviderError> {
+) -> Result<StoryGenerationResult, GenerationError<ProviderError>> {
     let result = generate_story_with(plan, client, analyzer, &JapaneseConstraintChecks).await?;
     Ok(StoryGenerationResult {
         generated: result.generated,
@@ -61,7 +89,7 @@ pub async fn generate_story_with<R, G, A, S>(
     generator: &G,
     analyzer: &A,
     assessor: &S,
-) -> Result<StoryGenerationResult<CandidateError<A::Error, S::Error>>, G::Error>
+) -> Result<StoryGenerationResult<CandidateError<A::Error, S::Error>>, GenerationError<G::Error>>
 where
     G: CandidateGenerator<PreparedRequest = R>,
     A: SentenceAnalyzer,
@@ -94,7 +122,7 @@ impl std::fmt::Display for DefaultCandidateError {
 
 impl std::error::Error for DefaultCandidateError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.0)
+        self.0.source()
     }
 }
 

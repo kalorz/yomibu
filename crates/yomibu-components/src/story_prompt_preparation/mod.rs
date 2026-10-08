@@ -1,10 +1,10 @@
 //! Fit selected vocabulary to the story budget and prepare the OpenAI request.
 
 use crate::openai_story_generation::{PreparationError, PreparedRequest, validate_options};
+use yomibu_core::capabilities::StoryPreparer;
 use yomibu_core::domain::story::{
     StoryError, StoryFormat, StoryGenerationOptions, StoryRequest, StoryVocabularySelection,
 };
-use yomibu_core::{capabilities::StoryPreparer, pipeline::story::PreparedStory};
 use yomibu_core::{domain::inventory::LearnerInventory, pipeline::selection::validate_selection};
 
 pub struct StoryPromptPreparation;
@@ -19,10 +19,8 @@ impl StoryPreparer for StoryPromptPreparation {
         request: &'a StoryRequest,
         selection: StoryVocabularySelection<'a>,
         options: StoryGenerationOptions,
-    ) -> Result<PreparedStory<'a, PreparedRequest>, StoryError> {
-        let (selection, prepared) =
-            fit_selection_and_build_request(inventory, request, selection, options)?;
-        PreparedStory::new(inventory, request, selection, prepared)
+    ) -> Result<(StoryVocabularySelection<'a>, PreparedRequest), StoryError> {
+        fit_selection_and_build_request(inventory, request, selection, options)
     }
 }
 

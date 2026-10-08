@@ -194,7 +194,9 @@ async fn provider_failure_returns_no_result_and_never_retries() {
     let client = Client::with_base_url("synthetic", &format!("{}/v1/", server.uri())).unwrap();
     assert!(matches!(
         generate_story(&plan, &client, &analyzer).await,
-        Err(ProviderError::Http { status: 429 })
+        Err(yomibu_core::pipeline::story::GenerationError::Generator(
+            ProviderError::Http { status: 429 }
+        ))
     ));
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }

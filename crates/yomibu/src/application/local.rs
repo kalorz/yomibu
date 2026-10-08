@@ -11,10 +11,10 @@ use yomibu_components::{
     sudachi_dictionary::{DictionaryError, installation::InstallationError},
     wanikani_source as wanikani,
 };
-use yomibu_core::capabilities::StoryPreparer;
 use yomibu_core::domain::{
     embedding::EmbeddingError, inventory::InventoryError, story::StoryError,
 };
+use yomibu_core::pipeline::story::prepare_story;
 mod explicit;
 
 use super::progress::{ProgressEvent, Step};
@@ -74,6 +74,8 @@ pub enum ApplicationError {
     Source(#[from] wanikani::Error),
     #[error(transparent)]
     Provider(#[from] openai::ProviderError),
+    #[error(transparent)]
+    Generation(#[from] yomibu_core::pipeline::story::GenerationError<openai::ProviderError>),
     #[error(transparent)]
     Input(#[from] input_file::InputFileError),
     #[error("Invalid {kind} JSON: {source}")]
@@ -207,7 +209,8 @@ impl LocalApp {
                 },
             );
         }
-        let plan = StoryPromptPreparation.prepare(
+        let plan = prepare_story(
+            &StoryPromptPreparation,
             &inventory,
             &request,
             selection,

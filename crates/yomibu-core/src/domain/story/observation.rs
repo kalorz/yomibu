@@ -106,26 +106,37 @@ impl TargetObservation {
         spans: Vec<Range<usize>>,
         uncertainties: Vec<TargetUncertainty>,
     ) -> Self {
-        let state = if kind == TargetKind::Vocabulary
-            && uncertainties
-                .iter()
-                .any(|uncertainty| uncertainty.scope == TargetUncertaintyScope::TargetOccurrence)
-        {
-            TargetState::Unassessable
-        } else {
-            match (spans.is_empty(), uncertainties.is_empty()) {
-                (true, true) => TargetState::Absent,
-                (true, false) => TargetState::Unassessable,
-                (false, true) => TargetState::Observed(TargetCoverage::Complete),
-                (false, false) => TargetState::Observed(TargetCoverage::Partial),
-            }
-        };
+        let state = state_from_evidence(kind, &spans, &uncertainties);
         Self {
             kind,
             id: id.to_owned(),
             state,
             spans,
             uncertainties,
+        }
+    }
+    pub(crate) fn has_consistent_state(&self) -> bool {
+        self.state == state_from_evidence(self.kind, &self.spans, &self.uncertainties)
+    }
+}
+
+fn state_from_evidence(
+    kind: TargetKind,
+    spans: &[Range<usize>],
+    uncertainties: &[TargetUncertainty],
+) -> TargetState {
+    if kind == TargetKind::Vocabulary
+        && uncertainties
+            .iter()
+            .any(|uncertainty| uncertainty.scope == TargetUncertaintyScope::TargetOccurrence)
+    {
+        TargetState::Unassessable
+    } else {
+        match (spans.is_empty(), uncertainties.is_empty()) {
+            (true, true) => TargetState::Absent,
+            (true, false) => TargetState::Unassessable,
+            (false, true) => TargetState::Observed(TargetCoverage::Complete),
+            (false, false) => TargetState::Observed(TargetCoverage::Partial),
         }
     }
 }

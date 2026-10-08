@@ -174,3 +174,29 @@ fn target_reports_include_state_and_structured_uncertainty() {
         assert_eq!(json["uncertainties"][0]["scope"], "sentence_coverage");
     }
 }
+
+#[test]
+fn default_candidate_errors_forward_causes_without_repeating_transparent_messages() {
+    use std::error::Error;
+    use yomibu::application::story::DefaultCandidateError;
+    use yomibu_components::sudachi_dictionary::AnalysisError;
+    use yomibu_core::domain::{
+        analysis::SentenceError, candidate::CandidateError, evaluation::EvaluationError,
+    };
+    for error in [
+        CandidateError::Sentence(SentenceError::Blank),
+        CandidateError::Assessment(EvaluationError::InvalidAnalysis),
+        CandidateError::MismatchedAssessment,
+    ] {
+        let error = DefaultCandidateError(error);
+        assert!(error.source().is_none(), "duplicate cause: {error}");
+    }
+    let error = DefaultCandidateError(CandidateError::Analysis(AnalysisError::InvalidSpan));
+    assert_eq!(error.to_string(), "Pinned Sudachi analysis failed.");
+    let cause = error.source().unwrap();
+    assert!(matches!(
+        cause.downcast_ref::<AnalysisError>(),
+        Some(AnalysisError::InvalidSpan)
+    ));
+    assert!(cause.source().is_none());
+}

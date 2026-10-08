@@ -4,6 +4,7 @@ use crate::{
     domain::{
         analysis::{Sentence, SentenceAnalysis},
         candidate::{CandidateAssessment, CandidateError, GeneratedCandidates, GeneratedPassage},
+        evaluation::EvaluationBasis,
         story::{
             PlanDeparture, StoryAssessmentInputs, StoryCandidateAssessment, StoryFindings,
             StoryPassageAssessment, StorySentenceAssessment, TargetKind, TargetObservation,
@@ -153,7 +154,30 @@ pub fn assess_candidate<'a, A: SentenceAnalyzer, S: StoryAssessor>(
             return failed_candidate(Some(analysis), CandidateError::Assessment(error), inputs);
         }
     };
-    if findings.text != text {
+    let requested = &inputs.request().targets;
+    if findings.text != text
+        || findings.evaluation.basis != EvaluationBasis::FullLearnerInventory
+        || findings.targets.len() != requested.vocabulary.len() + requested.grammar.len()
+        || findings
+            .targets
+            .iter()
+            .any(|target| !target.has_consistent_state())
+        || [
+            (TargetKind::Vocabulary, &requested.vocabulary),
+            (TargetKind::Grammar, &requested.grammar),
+        ]
+        .into_iter()
+        .any(|(kind, ids)| {
+            ids.iter().any(|id| {
+                findings
+                    .targets
+                    .iter()
+                    .filter(|target| target.kind == kind && target.id == *id)
+                    .count()
+                    != 1
+            })
+        })
+    {
         return failed_candidate(Some(analysis), CandidateError::MismatchedAssessment, inputs);
     }
     let StoryFindings {
