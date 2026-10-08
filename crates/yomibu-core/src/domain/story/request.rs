@@ -83,6 +83,8 @@ impl Default for StoryGenerationOptions {
 #[derive(Debug, thiserror::Error)]
 pub enum StoryError {
     #[error(transparent)]
+    Selection(#[from] super::SelectionError),
+    #[error(transparent)]
     Inventory(#[from] InventoryError),
     #[error(transparent)]
     Embedding(#[from] EmbeddingError),

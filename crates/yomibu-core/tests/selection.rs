@@ -1,13 +1,13 @@
 use yomibu_core::{
     domain::{
         inventory::LearnerInventory,
-        story::{PracticeTargets, StoryError, StoryRequest},
+        story::{PracticeTargets, SelectionInput, StoryError, StoryRequest},
     },
-    pipeline::selection::select_ranked,
+    pipeline::selection::select_target_first,
 };
 
 #[test]
-fn ranked_selection_rejects_limits_that_cannot_hold_targets_or_exceed_the_bound() {
+fn target_first_selection_rejects_limits_that_cannot_hold_targets_or_exceed_the_bound() {
     let inventory = LearnerInventory::from_manual(
         serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
     )
@@ -21,17 +21,14 @@ fn ranked_selection_rejects_limits_that_cannot_hold_targets_or_exceed_the_bound(
         },
     };
     for limit in [0, 1, 17, usize::MAX] {
-        let result = select_ranked(
-            &request,
-            inventory
-                .vocabulary
-                .iter()
-                .map(|word| (word, None))
-                .collect(),
-            limit,
-            |_| "support",
+        let result = select_target_first(
+            SelectionInput {
+                inventory: &inventory,
+                request: &request,
+                limit,
+            },
+            &[],
             "test",
-            None,
         );
         assert!(
             matches!(

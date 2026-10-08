@@ -10,7 +10,7 @@ use wiremock::{
     matchers::{method, path},
 };
 use yomibu_components::{
-    embedding_vocabulary_selection::{prepare_embedding_inputs, select_vocabulary},
+    embedding_vocabulary_selection::{EmbeddingRanking, prepare_embedding_inputs},
     japanese_constraint_checks::assess_candidates,
     openai_story_generation::{Client, PreparedRequest},
     story_prompt_preparation::fit_selection_and_build_request,
@@ -148,7 +148,18 @@ fn prepare<'a>(
     let cache =
         EmbeddingCache::from_vectors(model.clone(), &inputs, vec![vec![1., 0.]; inputs.len()])
             .unwrap();
-    let plan = select_vocabulary(inventory, request, &cache, &model, 2).unwrap();
+    let input = yomibu_core::domain::story::SelectionInput {
+        inventory,
+        request,
+        limit: 2,
+    };
+    let ranking = EmbeddingRanking::prepare(input, &cache, &model).unwrap();
+    let plan = yomibu_core::pipeline::selection::select_target_first(
+        input,
+        &[&ranking],
+        "inventory-similarity-v1",
+    )
+    .unwrap();
     fit_selection_and_build_request(inventory, request, plan, sentence_options(2)).unwrap()
 }
 

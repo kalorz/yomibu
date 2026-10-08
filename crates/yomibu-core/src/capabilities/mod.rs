@@ -73,3 +73,13 @@ pub trait Embedder {
         inputs: &[crate::domain::embedding::EmbeddingInput],
     ) -> impl Future<Output = Result<Vec<Vec<f32>>, crate::domain::embedding::EmbeddingError>> + Send;
 }
+
+/// Synchronous candidate transformation. Prepare external evidence before calling.
+/// Keep word identity and targets; update scores, reasons and embedding provenance together.
+pub trait SelectionStep {
+    fn apply<'a>(
+        &self,
+        input: crate::domain::story::SelectionInput<'a>,
+        candidates: crate::domain::story::SelectionCandidates<'a>,
+    ) -> Result<crate::domain::story::SelectionCandidates<'a>, crate::domain::story::StoryError>;
+}

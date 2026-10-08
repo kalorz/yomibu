@@ -1,30 +1,27 @@
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use yomibu_core::{
-    domain::{
-        inventory::LearnerInventory,
-        story::{StoryError, StoryRequest, StoryVocabularySelection},
-    },
-    pipeline::selection::select_ranked,
+    capabilities::SelectionStep,
+    domain::story::{SelectionCandidates, SelectionInput, StoryError},
 };
 
-pub fn select_builtin_vocabulary<'a>(
-    inventory: &'a LearnerInventory,
-    request: &'a StoryRequest,
-    limit: usize,
-    seed: u64,
-) -> Result<StoryVocabularySelection<'a>, StoryError> {
-    request.validate(inventory)?;
-    request.validate_selection_limit(limit)?;
-    let topic = request
-        .topic
-        .as_ref()
-        .map(|topic| (topic.text(), lexical_terms(topic.text())));
-    let mut ranked: Vec<_> = inventory
-        .vocabulary
-        .iter()
-        .map(|word| {
-            let score = topic.as_ref().map(|(text, topic_terms)| {
+/// Replace lexical scores and reasons; clear embedding provenance.
+pub struct LexicalTopicScoring;
+
+impl SelectionStep for LexicalTopicScoring {
+    fn apply<'a>(
+        &self,
+        input: SelectionInput<'a>,
+        mut candidates: SelectionCandidates<'a>,
+    ) -> Result<SelectionCandidates<'a>, StoryError> {
+        let topic = input
+            .request
+            .topic
+            .as_ref()
+            .map(|topic| (topic.text(), lexical_terms(topic.text())));
+        for entry in &mut candidates.entries {
+            let word = entry.word;
+            entry.score = topic.as_ref().map(|(text, topic_terms)| {
                 let terms: BTreeSet<_> = std::iter::once(word.written_form.as_str())
                     .chain(
                         word.readings
@@ -39,35 +36,48 @@ pub fn select_builtin_vocabulary<'a>(
                     word.written_form.chars().any(is_japanese) && text.contains(&word.written_form);
                 overlap.max(f64::from(written_match))
             });
-            let mut hash = Sha256::new();
-            hash.update(seed.to_be_bytes());
-            hash.update(word.id.as_bytes());
-            (word, score, hash.finalize())
-        })
-        .collect();
-    ranked.sort_by(|(a, sa, ha), (b, sb, hb)| {
-        sb.partial_cmp(sa)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| ha.cmp(hb))
-            .then_with(|| a.id.cmp(&b.id))
-    });
-    select_ranked(
-        request,
-        ranked
-            .into_iter()
-            .map(|(word, score, _)| (word, score))
-            .collect(),
-        limit,
-        |score| {
-            if score.is_some_and(|score| score > 0.) {
+            entry.reason = if entry.score.is_some_and(|score| score > 0.) {
                 "topic_overlap"
             } else {
                 "local_sample"
-            }
-        },
-        "builtin-v2",
-        None,
-    )
+            };
+        }
+        candidates.embedding_model = None;
+        Ok(candidates)
+    }
+}
+
+/// Order current scores descending, then SHA-256(seed bytes, ID), then ID.
+pub struct SeededOrdering {
+    pub seed: u64,
+}
+
+impl SelectionStep for SeededOrdering {
+    fn apply<'a>(
+        &self,
+        _: SelectionInput<'a>,
+        mut candidates: SelectionCandidates<'a>,
+    ) -> Result<SelectionCandidates<'a>, StoryError> {
+        let mut ranked: Vec<_> = candidates
+            .entries
+            .into_iter()
+            .map(|entry| {
+                let mut hash = Sha256::new();
+                hash.update(self.seed.to_be_bytes());
+                hash.update(entry.word.id.as_bytes());
+                (entry, hash.finalize())
+            })
+            .collect();
+        ranked.sort_by(|(a, ha), (b, hb)| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| ha.cmp(hb))
+                .then_with(|| a.word.id.cmp(&b.word.id))
+        });
+        candidates.entries = ranked.into_iter().map(|(entry, _)| entry).collect();
+        Ok(candidates)
+    }
 }
 
 fn is_japanese(character: char) -> bool {

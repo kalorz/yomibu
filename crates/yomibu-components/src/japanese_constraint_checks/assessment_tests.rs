@@ -85,11 +85,17 @@ fn object_uncertainty_preserves_independent_grammar_targets() {
         }
         inventory.grammar_declarations.reverse();
         request.validate(&inventory).unwrap();
-        let selection = crate::learner_vocabulary_selection::select_builtin_vocabulary(
-            &inventory,
-            &request,
-            inventory.vocabulary.len(),
-            0,
+        let selection = yomibu_core::pipeline::selection::select_target_first(
+            yomibu_core::domain::story::SelectionInput {
+                inventory: &inventory,
+                request: &request,
+                limit: inventory.vocabulary.len(),
+            },
+            &[
+                &crate::learner_vocabulary_selection::LexicalTopicScoring,
+                &crate::learner_vocabulary_selection::SeededOrdering { seed: 0 },
+            ],
+            "builtin-v2",
         )
         .unwrap();
         let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();

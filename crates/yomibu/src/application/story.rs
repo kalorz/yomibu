@@ -1,12 +1,12 @@
-use yomibu_components::{
-    embedding_vocabulary_selection::select_vocabulary,
-    japanese_constraint_checks::assess_candidates, openai_story_generation::validate_options,
-    story_prompt_preparation::fit_selection_and_build_request,
-};
+use super::selection::select_vocabulary;
 use yomibu_components::{
     japanese_constraint_checks::CandidateError,
     openai_story_generation::{Client, PreparedRequest, ProviderError},
     sudachi_dictionary::SudachiAnalyzer,
+};
+use yomibu_components::{
+    japanese_constraint_checks::assess_candidates, openai_story_generation::validate_options,
+    story_prompt_preparation::fit_selection_and_build_request,
 };
 use yomibu_core::domain::story::{
     StoryAssessmentInputs, StoryCandidateAssessment, StoryError, StoryGenerationOptions,

@@ -1,54 +1,17 @@
-use crate::domain::{
-    embedding::EmbeddingModelIdentity,
-    inventory::InventoryWord,
-    story::{SelectedVocabulary, StoryError, StoryRequest, StoryVocabularySelection},
+use crate::{
+    capabilities::SelectionStep,
+    domain::{
+        inventory::{InventoryWord, LearnerInventory},
+        story::{
+            SelectionCandidates, SelectionError, SelectionInput, StoryError, StoryRequest,
+            StoryVocabularySelection, VocabularyCandidate,
+        },
+    },
 };
-use std::collections::BTreeSet;
-
-pub fn select_ranked<'a>(
-    request: &'a StoryRequest,
-    ranked: Vec<(&'a InventoryWord, Option<f64>)>,
-    limit: usize,
-    support_reason: fn(Option<f64>) -> &'static str,
-    selector_revision: &'static str,
-    embedding_model: Option<EmbeddingModelIdentity>,
-) -> Result<StoryVocabularySelection<'a>, StoryError> {
-    request.validate_selection_limit(limit)?;
-    let mut selected = Vec::new();
-    for id in &request.targets.vocabulary {
-        let (word, score) = ranked
-            .iter()
-            .find(|(word, _)| &word.id == id)
-            .ok_or(StoryError::Invalid("missing target"))?;
-        selected.push(SelectedVocabulary {
-            word,
-            reason: "practice_target",
-            score: *score,
-        });
-    }
-    for (word, score) in ranked {
-        if selected.len() == limit {
-            break;
-        }
-        if !selected.iter().any(|entry| entry.word.id == word.id) {
-            selected.push(SelectedVocabulary {
-                word,
-                reason: support_reason(score),
-                score,
-            });
-        }
-    }
-    Ok(StoryVocabularySelection {
-        selector_revision,
-        selected,
-        vocabulary_targets: &request.targets.vocabulary,
-        grammar_targets: &request.targets.grammar,
-        embedding_model,
-    })
-}
+use std::collections::{BTreeMap, BTreeSet};
 
 pub fn validate_selection(
-    inventory: &crate::domain::inventory::LearnerInventory,
+    inventory: &LearnerInventory,
     request: &StoryRequest,
     selection: &StoryVocabularySelection<'_>,
 ) -> Result<(), StoryError> {
@@ -69,6 +32,98 @@ pub fn validate_selection(
         return Err(StoryError::Invalid(
             "plan does not match inventory and targets",
         ));
+    }
+    Ok(())
+}
+
+/// Validate inputs, run steps in caller order, then put targets first and fill support slots.
+/// Empty step lists keep inventory order. Each step must retain targets and return
+/// unique inventory references with finite scores (or absent scores).
+/// `selector_revision` identifies the whole composition; changed behavior needs a new revision.
+pub fn select_target_first<'a>(
+    input: SelectionInput<'a>,
+    steps: &[&dyn SelectionStep],
+    selector_revision: &'static str,
+) -> Result<StoryVocabularySelection<'a>, StoryError> {
+    input.request.validate(input.inventory)?;
+    input.request.validate_selection_limit(input.limit)?;
+    let mut candidates = SelectionCandidates {
+        entries: input
+            .inventory
+            .vocabulary
+            .iter()
+            .map(|word| VocabularyCandidate {
+                word,
+                score: None,
+                reason: "local_sample",
+            })
+            .collect(),
+        embedding_model: None,
+    };
+    let inventory: BTreeMap<_, _> = input
+        .inventory
+        .vocabulary
+        .iter()
+        .map(|word| (word.id.as_str(), word))
+        .collect();
+    for step in steps {
+        candidates = step.apply(input, candidates)?;
+        validate_candidates(&inventory, input.request, &candidates)?;
+    }
+    let mut selected = Vec::new();
+    for id in &input.request.targets.vocabulary {
+        let index = candidates
+            .entries
+            .iter()
+            .position(|entry| &entry.word.id == id)
+            .ok_or_else(|| SelectionError::MissingTarget { id: id.clone() })?;
+        let mut target = candidates.entries.remove(index);
+        target.reason = "practice_target";
+        selected.push(target);
+    }
+    selected.extend(
+        candidates
+            .entries
+            .into_iter()
+            .take(input.limit - selected.len()),
+    );
+    Ok(StoryVocabularySelection {
+        selected,
+        selector_revision,
+        vocabulary_targets: &input.request.targets.vocabulary,
+        grammar_targets: &input.request.targets.grammar,
+        embedding_model: candidates.embedding_model,
+    })
+}
+
+fn validate_candidates(
+    inventory: &BTreeMap<&str, &InventoryWord>,
+    request: &StoryRequest,
+    candidates: &SelectionCandidates<'_>,
+) -> Result<(), SelectionError> {
+    if candidates.entries.is_empty() {
+        return Err(SelectionError::EmptyCandidates);
+    }
+    let mut ids = BTreeSet::new();
+    for entry in &candidates.entries {
+        let id = &entry.word.id;
+        if !inventory
+            .get(id.as_str())
+            .is_some_and(|word| std::ptr::eq(*word, entry.word))
+        {
+            return Err(SelectionError::ForeignCandidate { id: id.clone() });
+        }
+        if !ids.insert(id) {
+            return Err(SelectionError::DuplicateCandidate { id: id.clone() });
+        }
+        if entry.score.is_some_and(|score| !score.is_finite()) {
+            return Err(SelectionError::NonfiniteScore { id: id.clone() });
+        }
+    }
+    for id in &request.targets.vocabulary {
+        if !ids.contains(id) {
+            return Err(SelectionError::MissingTarget { id: id.clone() });
+        }
     }
     Ok(())
 }

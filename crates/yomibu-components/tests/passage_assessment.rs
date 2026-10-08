@@ -3,7 +3,7 @@ mod test_dictionary;
 use serde_json::json;
 use yomibu_components::{
     japanese_constraint_checks::assess_passages,
-    learner_vocabulary_selection::select_builtin_vocabulary,
+    learner_vocabulary_selection::{LexicalTopicScoring, SeededOrdering},
 };
 use yomibu_core::domain::{
     candidate::GeneratedPassage,
@@ -11,6 +11,7 @@ use yomibu_core::domain::{
     inventory::LearnerInventory,
     story::{StoryAssessmentInputs, StoryRequest},
 };
+use yomibu_core::{domain::story::SelectionInput, pipeline::selection::select_target_first};
 
 #[test]
 fn passage_checks_full_inventory_sentence_by_sentence_and_leaves_missing_grammar_unknown() {
@@ -23,7 +24,16 @@ fn passage_checks_full_inventory_sentence_by_sentence_and_leaves_missing_grammar
     let request: StoryRequest =
         serde_json::from_value(json!({"version":1,"targets":{"vocabulary":["cat"],"grammar":[]}}))
             .unwrap();
-    let selection = select_builtin_vocabulary(&inventory, &request, 1, 7).unwrap();
+    let selection = select_target_first(
+        SelectionInput {
+            inventory: &inventory,
+            request: &request,
+            limit: 1,
+        },
+        &[&LexicalTopicScoring, &SeededOrdering { seed: 7 }],
+        "builtin-v2",
+    )
+    .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
     let passage = GeneratedPassage {
         text: "猫は寝ます。猫です。猫は寝ます。".into(),
@@ -69,7 +79,16 @@ fn missing_grammar_preserves_independent_scope_findings_and_vocabulary_failures(
     let request: StoryRequest =
         serde_json::from_value(json!({"version":1,"targets":{"vocabulary":[],"grammar":[]}}))
             .unwrap();
-    let selection = select_builtin_vocabulary(&inventory, &request, 3, 7).unwrap();
+    let selection = select_target_first(
+        SelectionInput {
+            inventory: &inventory,
+            request: &request,
+            limit: 3,
+        },
+        &[&LexicalTopicScoring, &SeededOrdering { seed: 7 }],
+        "builtin-v2",
+    )
+    .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
     let analyzer = test_dictionary::load_analyzer();
     for (text, span, reason, vocabulary) in [
@@ -142,7 +161,16 @@ fn absent_dictionary_reports_not_run_without_losing_the_passage() {
     let request: StoryRequest =
         serde_json::from_value(json!({"version":1,"targets":{"vocabulary":["cat"],"grammar":[]}}))
             .unwrap();
-    let selection = select_builtin_vocabulary(&inventory, &request, 1, 7).unwrap();
+    let selection = select_target_first(
+        SelectionInput {
+            inventory: &inventory,
+            request: &request,
+            limit: 1,
+        },
+        &[&LexicalTopicScoring, &SeededOrdering { seed: 7 }],
+        "builtin-v2",
+    )
+    .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
     let results = assess_passages(
         &[GeneratedPassage {

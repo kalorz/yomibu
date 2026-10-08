@@ -1,9 +1,9 @@
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use yomibu::application::selection::select_vocabulary;
 use yomibu::application::story::plan_generation;
 use yomibu_components::{
-    embedding_vocabulary_selection::{prepare_embedding_inputs, select_vocabulary},
-    lexical_embeddings::LexicalEmbedder,
+    embedding_vocabulary_selection::prepare_embedding_inputs, lexical_embeddings::LexicalEmbedder,
     story_prompt_preparation::fit_selection_and_build_request,
 };
 use yomibu_core::{
@@ -320,6 +320,16 @@ fn request_budget_drops_lowest_ranked_supports_and_keeps_targets_and_grammar() {
             .collect::<Vec<_>>(),
         ["cat", "meet"]
     );
+    assert_eq!(selection.selector_revision, "inventory-similarity-v1");
+    assert_eq!(selection.embedding_model.as_ref(), Some(&model()));
+    assert_eq!(selection.selected[0].reason, "practice_target");
+    assert_eq!(selection.selected[1].reason, "topic_similarity");
+    assert!(
+        selection
+            .selected
+            .iter()
+            .all(|entry| entry.score == Some(1.))
+    );
     assert!(prepared_request.body_utf8().len() <= 16384);
     let body: serde_json::Value = serde_json::from_str(prepared_request.body_utf8()).unwrap();
     let data: serde_json::Value =
@@ -354,5 +364,87 @@ fn request_budget_rejects_targets_that_cannot_fit() {
     assert!(matches!(
         fit_selection_and_build_request(&inventory, &request, selection, Default::default()),
         Err(StoryError::RequiredMaterialTooLarge { bytes, limit: 16384 }) if bytes > 16384
+    ));
+}
+
+#[test]
+fn embedding_ties_keep_id_order_target_order_scores_and_provenance() {
+    let inventory = inventory();
+    let mut request = request();
+    request.targets.vocabulary = vec!["station".into(), "cat".into()];
+    let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
+    let cache = EmbeddingCache::from_vectors(model(), &inputs, vec![vec![1., 0.]; 4]).unwrap();
+    for targets in [vec!["station".into(), "cat".into()], vec![]] {
+        request.targets.vocabulary = targets;
+        let selection = select_vocabulary(&inventory, &request, &cache, &model(), 3).unwrap();
+        let expected = if request.targets.vocabulary.is_empty() {
+            ["cat", "meet", "station"]
+        } else {
+            ["station", "cat", "meet"]
+        };
+        assert_eq!(
+            selection
+                .selected
+                .iter()
+                .map(|entry| entry.word.id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(
+            selection
+                .selected
+                .iter()
+                .all(|entry| entry.score == Some(1.))
+        );
+        for (index, entry) in selection.selected.iter().enumerate() {
+            assert_eq!(
+                entry.reason,
+                if index < request.targets.vocabulary.len() {
+                    "practice_target"
+                } else {
+                    "topic_similarity"
+                }
+            );
+        }
+        assert_eq!(selection.selector_revision, "inventory-similarity-v1");
+        assert_eq!(selection.embedding_model.as_ref(), Some(&model()));
+    }
+}
+
+#[test]
+fn embedding_selection_preserves_preflight_error_precedence() {
+    use yomibu_core::domain::embedding::EmbeddingError;
+    let mut inventory = inventory();
+    let mut request = request();
+    let cache = EmbeddingCache::from_vectors(model(), &[], vec![]).unwrap();
+    request.topic = None;
+    request.version = 0;
+    assert!(matches!(
+        select_vocabulary(&inventory, &request, &cache, &model(), 0),
+        Err(StoryError::Invalid("semantic selection requires a topic"))
+    ));
+    request.topic = Some(yomibu_core::domain::story::StoryTopic::new("cat".into()).unwrap());
+    assert!(matches!(
+        select_vocabulary(&inventory, &request, &cache, &model(), 0),
+        Err(StoryError::Invalid("version, topic or target limits"))
+    ));
+    request.version = 1;
+    inventory.vocabulary[0].meanings = vec!["x".repeat(1024); 32];
+    assert!(matches!(
+        select_vocabulary(&inventory, &request, &cache, &model(), 0),
+        Err(StoryError::Embedding(EmbeddingError::Invalid(
+            "combined embedding document exceeds the 32768-byte input limit"
+        )))
+    ));
+    inventory.vocabulary[0].meanings = vec!["cat".into()];
+    assert!(matches!(
+        select_vocabulary(&inventory, &request, &cache, &model(), 0),
+        Err(StoryError::Invalid(
+            "selection limit must include all targets and be at most 16"
+        ))
+    ));
+    assert!(matches!(
+        select_vocabulary(&inventory, &request, &cache, &model(), 2),
+        Err(StoryError::Embedding(EmbeddingError::Missing))
     ));
 }

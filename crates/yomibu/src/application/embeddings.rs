@@ -1,3 +1,4 @@
+use super::selection::{select_builtin_vocabulary, select_vocabulary};
 use super::{
     local::ApplicationError,
     progress::{ProgressEvent, RunProgress, Step},
@@ -6,10 +7,8 @@ use crate::configuration::modules::{ModuleId, ModuleState};
 use crate::configuration::{Configuration, EmbeddingProvider};
 use crate::reports::run::Warning;
 use yomibu_components::{
-    embedding_vocabulary_selection::{prepare_embedding_inputs, select_vocabulary},
-    file_embedding_cache::EmbeddingCacheFile,
-    http_embeddings::HttpEmbedder,
-    learner_vocabulary_selection::select_builtin_vocabulary,
+    embedding_vocabulary_selection::prepare_embedding_inputs,
+    file_embedding_cache::EmbeddingCacheFile, http_embeddings::HttpEmbedder,
     lexical_embeddings::LexicalEmbedder,
 };
 use yomibu_core::{

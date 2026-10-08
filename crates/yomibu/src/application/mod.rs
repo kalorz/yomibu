@@ -7,6 +7,7 @@ mod local;
 pub use local::{ApplicationError, Credentials, LocalApp, ServiceEndpoints, SetupIssue};
 pub mod input_file;
 pub mod progress;
+pub mod selection;
 mod source;
 pub mod story;
 

@@ -13,7 +13,8 @@ intent and constraints; [PLAN](PLAN.md) lists open work.
 | Input loading and allowed material | [Input preparation](crates/yomibu/src/application/inputs.rs), [knowledge](crates/yomibu-core/src/domain/knowledge.rs), [inventory](crates/yomibu-core/src/domain/inventory.rs) | [Knowledge](crates/yomibu-core/tests/knowledge.rs), [inventory](crates/yomibu-core/tests/inventory.rs) |
 | Optional assessment, progress and reports | [Assessment policy](crates/yomibu/src/application/assessment.rs), [progress](crates/yomibu/src/application/progress.rs), [reports](crates/yomibu/src/reports/) | [First run](crates/yomibu/tests/local_application.rs), [CLI story](crates/yomibu-cli/src/story_tests.rs), [passages](crates/yomibu/tests/passage_generation.rs) |
 | Sentence analysis and checks | [Sudachi](crates/yomibu-components/src/sudachi_dictionary/), [Japanese checks](crates/yomibu-components/src/japanese_constraint_checks/) | [Sudachi](crates/yomibu-components/tests/sudachi.rs), [evaluation](crates/yomibu-components/tests/evaluation.rs), [passage assessment](crates/yomibu-components/tests/passage_assessment.rs) |
-| Story selection, preparation and generation | [Learner selection](crates/yomibu-components/src/learner_vocabulary_selection/), [prompt preparation](crates/yomibu-components/src/story_prompt_preparation/), [OpenAI](crates/yomibu-components/src/openai_story_generation/), [workflow](crates/yomibu/src/application/story.rs) | [Selection](crates/yomibu-components/tests/first_run_selection.rs), [planning](crates/yomibu/tests/story_generation_plan.rs), [workflow](crates/yomibu/tests/story_workflow.rs), [OpenAI](crates/yomibu-components/tests/openai.rs) |
+| Selection composition | [Capability](crates/yomibu-core/src/capabilities/mod.rs), [core finalization](crates/yomibu-core/src/pipeline/selection.rs), [learner operations](crates/yomibu-components/src/learner_vocabulary_selection/), [default pipelines](crates/yomibu/src/application/selection.rs) | [Boundaries and extension](crates/yomibu-core/tests/selection_composition.rs), [operations](crates/yomibu-components/tests/selection_composition.rs), [defaults](crates/yomibu/tests/first_run_selection.rs), [trimming](crates/yomibu/tests/selection_composition.rs) |
+| Story preparation and generation | [Prompt preparation](crates/yomibu-components/src/story_prompt_preparation/), [OpenAI](crates/yomibu-components/src/openai_story_generation/), [workflow](crates/yomibu/src/application/story.rs) | [Planning](crates/yomibu/tests/story_generation_plan.rs), [workflow](crates/yomibu/tests/story_workflow.rs), [OpenAI](crates/yomibu-components/tests/openai.rs) |
 | Embeddings, reuse and selection fallback | [Application policy](crates/yomibu/src/application/embeddings.rs), [embedding selection](crates/yomibu-components/src/embedding_vocabulary_selection/), [HTTP](crates/yomibu-components/src/http_embeddings/), [lexical baseline](crates/yomibu-components/src/lexical_embeddings/), [file cache](crates/yomibu-components/src/file_embedding_cache/) | [Preparation](crates/yomibu-components/tests/retrieval_preparation.rs), [transport](crates/yomibu-components/tests/embeddings.rs), [cache](crates/yomibu-components/tests/embedding_cache_file.rs) |
 | Dictionary installation and loading | [Installation](crates/yomibu-components/src/sudachi_dictionary/installation.rs) | [Managed loading](crates/yomibu-components/tests/managed_dictionary.rs); installation fault tests live beside the component |
 
@@ -25,10 +26,11 @@ for fixtures and adapter comparisons. Core imports no concrete components;
 components import no application code.
 
 [Core domain](crates/yomibu-core/src/domain/) owns shared evidence and invariants.
-[Capabilities](crates/yomibu-core/src/capabilities/) define source, storage and
-embedding contracts. [Pipeline](crates/yomibu-core/src/pipeline/) holds existing
-ranked-selection finalization, selection binding and complete embedding-cache assembly.
-There is no configurable selection pipeline.
+[Capabilities](crates/yomibu-core/src/capabilities/) define source, storage,
+embedding and synchronous selection contracts. [Pipeline](crates/yomibu-core/src/pipeline/)
+checks each step's candidates and owns target-first finalization and embedding-cache assembly.
+The application wires default selection steps and prepares embedding evidence before selection;
+optional fallback remains application policy.
 
 The CLI captures environment values, drives the runtime and renders results.
 The application resolves configuration, constructs components, prepares resources,
