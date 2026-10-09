@@ -153,8 +153,10 @@ impl Configuration {
                 overrides.selection.embedding_steps,
                 pipeline.selection.embedding_steps
             );
-            set!(overrides.selection.embeddings, pipeline.embeddings);
             set!(overrides.assessment.enabled, pipeline.assessment);
+        }
+        if operation.uses_setting("pipeline.selection.embeddings") {
+            set!(overrides.selection.embeddings, pipeline.embeddings);
         }
         if operation.uses_setting("pipeline.embedding.provider") {
             overrides

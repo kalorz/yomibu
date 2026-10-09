@@ -2,7 +2,7 @@ use crate::configuration::{
     components,
     credentials::{CredentialBindings, CredentialProvider},
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::OnceLock};
 use yomibu_core::capabilities::options::CredentialRequirement;
 
 #[derive(Clone)]
@@ -15,7 +15,7 @@ impl Secret {
         Self(None)
     }
     pub fn expose(&self) -> Result<&str, CredentialError> {
-        self.0.as_deref().ok_or(CredentialError)
+        self.0.as_deref().ok_or(CredentialError::InvalidEncoding)
     }
 }
 impl From<String> for Secret {
@@ -28,9 +28,15 @@ impl From<&str> for Secret {
         Self::new(value.into())
     }
 }
-#[derive(Debug, thiserror::Error)]
-#[error("Invalid credential input; supply a UTF-8 credential.")]
-pub struct CredentialError;
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+pub enum CredentialError {
+    #[error("Invalid credential input; supply a UTF-8 credential.")]
+    InvalidEncoding,
+    #[error(
+        "Cannot access the credential store; unlock it or supply a CLI/environment credential."
+    )]
+    StoreUnavailable,
+}
 
 impl std::fmt::Debug for Secret {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -42,11 +48,50 @@ impl std::fmt::Debug for Secret {
 pub struct Credentials {
     cli: BTreeMap<String, Secret>,
     environment: BTreeMap<String, Secret>,
-    supplied: BTreeMap<String, Secret>,
+    supplied: BTreeMap<String, SuppliedCredential>,
+}
+enum SuppliedCredential {
+    Value(Secret),
+    Lookup {
+        read: Box<dyn Fn() -> Result<Option<Secret>, CredentialError> + Send + Sync>,
+        cached: OnceLock<Result<Option<Secret>, CredentialError>>,
+    },
+}
+impl std::fmt::Debug for SuppliedCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
+impl SuppliedCredential {
+    fn resolve(&self) -> Result<Option<&Secret>, CredentialError> {
+        match self {
+            Self::Value(value) => Ok(Some(value)),
+            Self::Lookup { read, cached } => cached
+                .get_or_init(read)
+                .as_ref()
+                .map(Option::as_ref)
+                .map_err(|error| *error),
+        }
+    }
 }
 impl Credentials {
     pub fn supply(&mut self, key: &str, value: Secret) {
-        self.supplied.insert(key.into(), value);
+        self.supplied
+            .insert(key.into(), SuppliedCredential::Value(value));
+    }
+    /// Read a bound slot only when needed, caching its value, absence, or error.
+    pub fn supply_with(
+        &mut self,
+        key: &str,
+        read: impl Fn() -> Result<Option<Secret>, CredentialError> + Send + Sync + 'static,
+    ) {
+        self.supplied.insert(
+            key.into(),
+            SuppliedCredential::Lookup {
+                read: Box::new(read),
+                cached: OnceLock::new(),
+            },
+        );
     }
     pub fn set_cli(&mut self, requirement: CredentialRequirement, value: Secret) {
         self.cli.insert(requirement.name.key(), value);
@@ -67,16 +112,22 @@ impl Credentials {
     ) -> Result<Option<&str>, CredentialError> {
         let target = requirement.name.key();
         let binding = bindings.get(requirement);
-        self.cli
+        let input = self
+            .cli
             .get(&target)
             .or_else(|| binding.and_then(|binding| self.cli.get(&binding.key)))
             .or_else(|| self.environment.get(&target))
-            .or_else(|| binding.and_then(|binding| self.environment.get(&binding.key)))
-            .or_else(|| {
-                binding.and_then(|binding| match binding.provider {
-                    CredentialProvider::Supplied => self.supplied.get(&binding.key),
-                })
-            })
+            .or_else(|| binding.and_then(|binding| self.environment.get(&binding.key)));
+        let value = match input {
+            Some(value) => Some(value),
+            None => match binding.and_then(|binding| match binding.provider {
+                CredentialProvider::Supplied => self.supplied.get(&binding.key),
+            }) {
+                Some(supplied) => supplied.resolve()?,
+                None => None,
+            },
+        };
+        value
             .map(Secret::expose)
             .transpose()
             .map(|value| value.filter(|value| !value.trim().is_empty()))

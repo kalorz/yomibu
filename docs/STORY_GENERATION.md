@@ -88,7 +88,15 @@ key is missing; it never falls through. Invalid encoding makes credential-depend
 work fail, including stale source refresh and explicit retrieval. Optional story
 embeddings report this failure as a warning and use the configured base selection.
 No other key is tried. There is no cross-provider fallback.
-Keychain is not implemented. WaniKani requires read access, OpenAI generation
+On macOS, `yomibu auth [CREDENTIAL]` saves keys in Keychain. Omit the slot to
+prompt for missing configured credentials; Enter skips any prompt. Shared slots
+are `wanikani` and `openai`; exact component slots allow separate bound keys.
+Disabled integrations are excluded. Generation is required for stories; source
+sync and hosted embeddings are optional during setup. Saved keys are supplied
+lazily after CLI/ENV inputs. `--no-keychain` disables lookup. Normal commands never
+ask for API keys. Other platforms use CLI/ENV inputs. No plaintext fallback.
+
+WaniKani requires read access, OpenAI generation
 requires response creation and model access, and hosted embeddings require
 embedding access.
 

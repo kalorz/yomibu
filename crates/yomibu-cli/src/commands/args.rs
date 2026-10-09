@@ -19,6 +19,9 @@ pub(crate) struct Cli {
     /// Configuration file (default: <data-dir>/config.toml).
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
+    /// Use only explicit credentials; do not read macOS Keychain.
+    #[arg(long, global = true)]
+    pub no_keychain: bool,
     /// Emit a single structured JSON report.
     #[arg(long, global = true)]
     pub json: bool,
@@ -31,6 +34,12 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
+    /// Save credentials in macOS Keychain; without a target, prompt for missing configured credentials.
+    Auth {
+        /// Shared provider slot or exact component credential slot. Enter skips any prompt.
+        #[arg(value_name = "CREDENTIAL", value_parser = clap::builder::PossibleValuesParser::new(super::auth::slots()))]
+        credential: Option<String>,
+    },
     /// Generate a passage of 3–5 short sentences with one AI request.
     Story(StoryArgs),
     /// Show an exact generation request offline without calling an AI model.

@@ -6,7 +6,8 @@ correct meaning in context.
 
 ## First story
 
-Build with `cargo build --locked`, then supply two keys:
+Build with `cargo build --locked`. On macOS, run `yomibu auth` once to save keys
+in Keychain. Other platforms use environment variables:
 
 ```sh
 export YOMIBU_WANIKANI_SOURCE_API_KEY=...

@@ -6,6 +6,7 @@ use std::{
 
 fn cli() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
+    command.arg("--no-keychain");
     command.env_clear();
     command
 }

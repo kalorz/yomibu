@@ -12,6 +12,7 @@ const INPUT: &str = include_str!("../../../tests/fixtures/analyze/nominal.json")
 
 fn cli(directory: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
+    command.arg("--no-keychain");
     command
         .env_clear()
         .current_dir(directory)

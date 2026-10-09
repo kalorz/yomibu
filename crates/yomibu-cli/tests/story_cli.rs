@@ -20,6 +20,7 @@ fn setup() -> tempfile::TempDir {
 }
 fn cli(dir: &Path, command: &str) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_yomibu"));
+    c.arg("--no-keychain");
     c.env_clear()
         .current_dir(dir)
         .env("YOMIBU_DATA_DIR", dir.join("data"))
@@ -182,6 +183,7 @@ fn story_invocation_authorizes_generation_and_rejects_the_removed_opt_in_flag() 
         vec!["--version"],
     ] {
         let o = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+            .arg("--no-keychain")
             .env_clear()
             .args(args)
             .output()
@@ -248,6 +250,7 @@ fn obsolete_generation_commands_are_removed_without_aliases() {
         "generate-reading",
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+            .arg("--no-keychain")
             .env_clear()
             .args([old, "--help"])
             .output()

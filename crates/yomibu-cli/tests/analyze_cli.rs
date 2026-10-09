@@ -27,6 +27,7 @@ fn cli(dir: &Path) -> Command {
 
 fn cli_with_installation(dir: &Path, root: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
+    command.arg("--no-keychain");
     command
         .env_clear()
         .current_dir(dir)
@@ -373,6 +374,7 @@ fn argument_errors_escape_invalid_subcommands_and_values_without_flattening_help
         ),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+            .arg("--no-keychain")
             .env_clear()
             .current_dir(dir.path())
             .args(args)
@@ -402,6 +404,7 @@ fn argument_errors_use_a_trusted_executable_name_in_usage() {
 
     let dir = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+        .arg("--no-keychain")
         .env_clear()
         .current_dir(dir.path())
         .arg0(UNTRUSTED)
@@ -458,6 +461,7 @@ fn input_path_is_required_and_explicit_dictionary_errors_have_no_report() {
     ] {
         assert_error(
             Command::new(env!("CARGO_BIN_EXE_yomibu"))
+                .arg("--no-keychain")
                 .env_clear()
                 .env("YOMIBU_DATA_DIR", dir.path().join("data"))
                 .current_dir(dir.path())

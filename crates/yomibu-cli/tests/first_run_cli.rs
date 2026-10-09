@@ -1,6 +1,7 @@
 use std::{path::Path, process::Command};
 fn cli(dir: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
+    command.arg("--no-keychain");
     command.env_clear().env("HOME", dir);
     command
 }

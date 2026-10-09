@@ -42,9 +42,10 @@ async fn child(
 async fn child_with_args(
     server: &MockServer,
     dir: &std::path::Path,
-    args: Vec<String>,
+    mut args: Vec<String>,
     wk_key: bool,
 ) -> Output {
+    args.insert(1, "--no-keychain".into());
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
         .env_clear()

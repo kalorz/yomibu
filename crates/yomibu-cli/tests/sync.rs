@@ -43,6 +43,7 @@ async fn refresh(client: &mut Client, dir: &Path) -> Result<(), Box<dyn std::err
 }
 fn offline_status(dir: &Path) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+        .arg("--no-keychain")
         .env_clear()
         .arg("status")
         .arg("--data-dir")
