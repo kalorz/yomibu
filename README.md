@@ -9,8 +9,8 @@ correct meaning in context.
 Build with `cargo build --locked`, then supply two keys:
 
 ```sh
-export YOMIBU_WANIKANI_API_KEY=...
-export YOMIBU_OPENAI_API_KEY=...
+export YOMIBU_WANIKANI_SOURCE_API_KEY=...
+export YOMIBU_OPENAI_STORY_GENERATION_API_KEY=...
 target/debug/yomibu story
 ```
 
@@ -46,7 +46,7 @@ Use `cargo run --locked -- --help` for flags.
 | Command | Purpose |
 | --- | --- |
 | `status` | Read the saved WaniKani cache; no network or writes |
-| `sync` | Refresh the cache; needs `YOMIBU_WANIKANI_API_KEY` |
+| `sync` | Refresh the cache; needs `YOMIBU_WANIKANI_SOURCE_API_KEY` |
 | `prepare-retrieval` | Prepare vectors with an explicitly chosen encoder |
 | `preview-story` | Show the exact generation request offline |
 | `story` | Generate one short passage with one AI request |
@@ -63,7 +63,8 @@ not that the sentence is an accepted exercise.
 
 ## Developing
 
-`crates/yomibu` is the library; `crates/yomibu-cli` builds `yomibu`.
+`crates/yomibu` is the application library; `crates/yomibu-cli` builds `yomibu`.
+Shared contracts live in `yomibu-core`; implementations live in `yomibu-components`.
 Read [AGENTS](AGENTS.md), then use the [task map](ARCHITECTURE.md#current-module-map)
 to find code and tests. Read only the relevant [SPEC](SPEC.md) contract.
 [PLAN](PLAN.md) lists open work; the
@@ -72,7 +73,7 @@ to find code and tests. Read only the relevant [SPEC](SPEC.md) contract.
 Quick tests without a dictionary:
 
 ```sh
-cargo test --locked -p yomibu --test knowledge --test inventory
+cargo test --locked -p yomibu-core --test knowledge --test inventory
 ```
 
 The full suite needs Python 3.8+ and the pinned dictionary. Setup downloads about
@@ -102,7 +103,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps
 git diff --check
 ```
 
-After setup, run a focused adapter test with `cargo test --locked -p yomibu --test sudachi`.
+After setup, run a focused adapter test with `cargo test --locked -p yomibu-components --test sudachi`.
 
 [CI](.github/workflows/ci.yml) runs on Linux and macOS. API docs build into
 `target/doc/yomibu`. [History](docs/history/README.md) holds earlier results and code pins.

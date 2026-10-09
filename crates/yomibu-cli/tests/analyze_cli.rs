@@ -10,9 +10,10 @@ use std::{
 };
 
 use serde_json::{Value, json};
-use yomibu::{
+use yomibu_components::japanese_constraint_checks::evaluate;
+use yomibu_core::domain::{
     analysis::Sentence,
-    evaluation::{CheckKind, EvaluationBindings, evaluate},
+    evaluation::{CheckKind, EvaluationBindings},
     grammar::GrammarDeclarations,
 };
 

@@ -1,4 +1,4 @@
-use yomibu::adapters::input_file::{InputFileError, read_bounded};
+use yomibu::application::input_file::{InputFileError, read_bounded};
 #[test]
 fn reads_exact_bytes_at_limit_and_rejects_excess_without_writes() {
     let dir = tempfile::tempdir().unwrap();

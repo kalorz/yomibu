@@ -4,7 +4,7 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
 };
-use yomibu::app::local::ServiceEndpoints;
+use yomibu::application::ServiceEndpoints;
 const HOSTILE: &str = "猫\u{1b}\r\n\t\u{7f}\u{9b}\u{2028}\u{2029}\u{202e}\u{e0001}";
 
 #[test]
@@ -33,7 +33,7 @@ async fn child(
         "story".into(),
         "--seed".into(),
         "7".into(),
-        "--openai-api-key".into(),
+        "--openai-story-generation-api-key".into(),
         "flag-ai-key".into(),
     ];
     args.extend(options.iter().map(|value| (*value).to_owned()));
@@ -58,9 +58,12 @@ async fn child_with_args(
         ])
         .env("STORY_TEST_BASE_URL", server.uri())
         .env("STORY_TEST_ARGS", serde_json::to_string(&args).unwrap())
-        .env("YOMIBU_OPENAI_API_KEY", "environment-ai-key");
+        .env(
+            "YOMIBU_OPENAI_STORY_GENERATION_API_KEY",
+            "environment-ai-key",
+        );
     if wk_key {
-        command.env("YOMIBU_WANIKANI_API_KEY", "synthetic-wk-key");
+        command.env("YOMIBU_WANIKANI_SOURCE_API_KEY", "synthetic-wk-key");
     }
     let mut output = tokio::task::spawn_blocking(move || command.output().unwrap())
         .await
@@ -269,7 +272,7 @@ async fn sentence_assessment_with_a_real_dictionary_reports_available_evidence_a
             dictionary.to_str().unwrap(),
             "--format",
             "sentence",
-            "--generation-model",
+            "--openai-story-generation-model",
             "chosen-model",
             "--json",
         ],

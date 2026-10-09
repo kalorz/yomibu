@@ -4,14 +4,22 @@ mod test_dictionary;
 use serde_json::json;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 use yomibu::{
-    adapters::{embeddings::LexicalEmbedder, openai::Client},
-    candidate::CandidateAssessment,
-    evaluation::{CheckKind, CheckOutcome, CheckState},
-    inventory::{LearnerInventory, ManualInventory},
-    ports::Embedder,
+    application::story::{generate_story, plan_generation},
     reports::story::StoryReport,
-    retrieval::{EmbeddingCache, prepare_embedding_inputs},
-    story::{StoryRequest, generate_story, plan_generation},
+};
+use yomibu_components::{
+    embedding_vocabulary_selection::prepare_embedding_inputs, lexical_embeddings::LexicalEmbedder,
+    openai_story_generation::Client,
+};
+use yomibu_core::{
+    capabilities::Embedder,
+    domain::{
+        candidate::CandidateAssessment,
+        embedding::EmbeddingCache,
+        evaluation::{CheckKind, CheckOutcome, CheckState},
+        inventory::{LearnerInventory, ManualInventory},
+        story::StoryRequest,
+    },
 };
 fn inventory() -> LearnerInventory {
     LearnerInventory::from_manual(serde_json::from_value::<ManualInventory>(json!({"version":1,"vocabulary":[
@@ -184,16 +192,16 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
                 (case == "explicit_object" || case == "competing_object").then_some(true);
             inventory
                 .grammar_declarations
-                .push(yomibu::inventory::InventoryGrammar {
+                .push(yomibu_core::domain::inventory::InventoryGrammar {
                     id: "object".into(),
                     description: "object を".into(),
                 });
-            inventory
-                .grammar_bindings
-                .push(yomibu::inventory::InventoryGrammarBinding {
+            inventory.grammar_bindings.push(
+                yomibu_core::domain::inventory::InventoryGrammarBinding {
                     declaration_id: "object".into(),
-                    rule: yomibu::grammar::GrammarRule::ObjectWo,
-                });
+                    rule: yomibu_core::domain::grammar::GrammarRule::ObjectWo,
+                },
+            );
         }
         if case == "intransitive_object" {
             inventory.vocabulary[2].written_form = "歩く".into();
@@ -221,7 +229,7 @@ async fn target_observations_preserve_lexical_and_object_evidence_limits() {
             inventory.vocabulary.push(alternative);
             inventory
                 .grammar_bindings
-                .retain(|b| b.rule != yomibu::grammar::GrammarRule::ObjectWo);
+                .retain(|b| b.rule != yomibu_core::domain::grammar::GrammarRule::ObjectWo);
         }
         let mut request = request;
         if case.ends_with("object") {
@@ -332,9 +340,9 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
             &cache,
             encoder.model_identity(),
             2,
-            yomibu::story::StoryGenerationOptions {
+            yomibu_core::domain::story::StoryGenerationOptions {
                 candidate_count: count,
-                format: yomibu::story::StoryFormat::Sentence,
+                format: yomibu_core::domain::story::StoryFormat::Sentence,
                 ..Default::default()
             },
         )
@@ -397,10 +405,10 @@ async fn configured_count_controls_schema_transport_and_every_candidate_assessme
     }
 }
 
-fn sentence_options(candidate_count: usize) -> yomibu::story::StoryGenerationOptions {
-    yomibu::story::StoryGenerationOptions {
+fn sentence_options(candidate_count: usize) -> yomibu_core::domain::story::StoryGenerationOptions {
+    yomibu_core::domain::story::StoryGenerationOptions {
         candidate_count,
-        format: yomibu::story::StoryFormat::Sentence,
+        format: yomibu_core::domain::story::StoryFormat::Sentence,
         ..Default::default()
     }
 }

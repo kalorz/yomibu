@@ -5,7 +5,7 @@ The saved data records progress; it does not prove mastery.
 
 ## CLI usage
 
-Set `YOMIBU_WANIKANI_API_KEY` in the environment before sync:
+Set `YOMIBU_WANIKANI_SOURCE_API_KEY` in the environment before sync:
 
 ```sh
 cargo run --locked -- sync
@@ -27,7 +27,8 @@ replacement happened but directory synchronization failed; it does not mean roll
 The caller supplies a Tokio runtime with I/O and timers for sync:
 
 ```rust,ignore
-use yomibu::{App, adapters::{sources::wanikani::Client, stores::FileLearningStore}};
+use yomibu::App;
+use yomibu_components::{wanikani_source::Client, file_learning_store::FileLearningStore};
 
 let mut app = App::new(FileLearningStore::new("/path/to/data"))
     .with_source(Client::new(token)?);
@@ -40,6 +41,6 @@ what the write guarantees. Status needs only `App::new(store).status()`, without
 source or runtime. Constructors do no I/O.
 
 See [SPEC](../SPEC.md#wanikani-synchronization) for cache and sync contracts,
-and [Rustdoc](../crates/yomibu/src/app.rs) for errors and cancellation. Direct file
+and [Rustdoc](../crates/yomibu/src/application/mod.rs) for errors and cancellation. Direct file
 callers must hold `SyncGuard` across retrieval and replacement. Reuse clients for
 rate-limit state, and trust any custom endpoint that receives the token.

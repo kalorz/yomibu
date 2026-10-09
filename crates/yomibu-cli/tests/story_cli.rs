@@ -51,15 +51,15 @@ fn offline_preview_has_no_implicit_embedding_call_and_preserves_exact_bytes_and_
     assert!(missing.stderr.is_empty());
     assert!(!dir.path().join("vectors.json").exists());
     prepare(dir.path());
-    let inventory = yomibu::inventory::LearnerInventory::from_manual(
+    let inventory = yomibu_core::domain::inventory::LearnerInventory::from_manual(
         serde_json::from_slice(&fs::read(dir.path().join("inventory.json")).unwrap()).unwrap(),
     )
     .unwrap();
     let request =
         serde_json::from_slice(&fs::read(dir.path().join("request.json")).unwrap()).unwrap();
-    let cache: yomibu::retrieval::EmbeddingCache =
+    let cache: yomibu_core::domain::embedding::EmbeddingCache =
         serde_json::from_slice(&fs::read(dir.path().join("vectors.json")).unwrap()).unwrap();
-    let plan = yomibu::story::plan_generation(
+    let plan = yomibu::application::story::plan_generation(
         &inventory,
         &request,
         &cache,
@@ -124,7 +124,7 @@ fn preview_falls_back_for_partial_embedding_settings_and_reports_a_safe_warning(
         command.args([
             "--enable",
             "embeddings",
-            "--embedding-model",
+            "--http-embeddings-model",
             "another-model",
         ]);
         if json {
@@ -269,7 +269,12 @@ fn impossible_selection_fails_before_embedding_work() {
     request["targets"]["vocabulary"] = json!(["cat", "sleep", "dog"]);
     fs::write(dir.path().join("request.json"), request.to_string()).unwrap();
     let out = cli(dir.path(), "story")
-        .args(["--openai-api-key", "unused", "--json", "--verbose"])
+        .args([
+            "--openai-story-generation-api-key",
+            "unused",
+            "--json",
+            "--verbose",
+        ])
         .args([
             "--dictionary-dir",
             "missing",
@@ -297,13 +302,13 @@ async fn retrieval_reuses_complete_cache_and_preserves_it_on_provider_failure() 
         c.args([
             "--embedding-provider",
             "local",
-            "--embedding-model",
+            "--http-embeddings-model",
             "test-model",
-            "--embedding-revision",
+            "--http-embeddings-revision",
             "pinned",
-            "--embedding-dimensions",
+            "--http-embeddings-dimensions",
             "2",
-            "--embedding-endpoint",
+            "--http-embeddings-endpoint",
             &endpoint,
         ]);
         c
@@ -422,13 +427,13 @@ async fn oversized_combined_embedding_document_fails_before_any_provider_call() 
     c.args([
         "--embedding-provider",
         "local",
-        "--embedding-model",
+        "--http-embeddings-model",
         "test-model",
-        "--embedding-revision",
+        "--http-embeddings-revision",
         "pinned",
-        "--embedding-dimensions",
+        "--http-embeddings-dimensions",
         "2",
-        "--embedding-endpoint",
+        "--http-embeddings-endpoint",
         &endpoint,
     ]);
     let out = tokio::task::spawn_blocking(move || c.output().unwrap())
@@ -459,7 +464,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
             .arg(&dictionary)
             .args(["--data-dir", "ignored"]);
         if let Some(key) = key {
-            command.env("YOMIBU_OPENAI_API_KEY", key);
+            command.env("YOMIBU_OPENAI_STORY_GENERATION_API_KEY", key);
         }
         let output = command.output().unwrap();
         assert_eq!(output.status.code(), Some(1));
@@ -467,7 +472,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
             stderr.contains(if key.is_none() {
-                "YOMIBU_OPENAI_API_KEY"
+                "YOMIBU_OPENAI_STORY_GENERATION_API_KEY"
             } else {
                 "credential"
             }),

@@ -1,8 +1,6 @@
 use serde_json::json;
-use yomibu::{
-    inventory::LearnerInventory,
-    story::{StoryRequest, select_builtin_vocabulary},
-};
+use yomibu::application::selection::select_builtin_vocabulary;
+use yomibu_core::domain::{inventory::LearnerInventory, story::StoryRequest};
 
 fn inventory() -> LearnerInventory {
     LearnerInventory::from_manual(
@@ -118,4 +116,87 @@ fn a_story_request_needs_no_topic_and_does_not_invent_one() {
             .get("topic")
             .is_none()
     );
+}
+
+#[test]
+fn seeded_orders_and_equal_lexical_scores_match_the_existing_sha256_strategy() {
+    let inventory = inventory();
+    for (topic, targets, seed, expected, scores, reasons) in [
+        (
+            None,
+            vec![],
+            0,
+            ["sleep", "walk", "cat", "dog"],
+            [None; 4],
+            ["local_sample"; 4],
+        ),
+        (
+            None,
+            vec![],
+            7,
+            ["dog", "cat", "walk", "sleep"],
+            [None; 4],
+            ["local_sample"; 4],
+        ),
+        (
+            Some("cat dog"),
+            vec![],
+            7,
+            ["dog", "cat", "walk", "sleep"],
+            [Some(1.), Some(1.), Some(0.), Some(0.)],
+            [
+                "topic_overlap",
+                "topic_overlap",
+                "local_sample",
+                "local_sample",
+            ],
+        ),
+        (
+            Some("cat dog"),
+            vec!["sleep", "cat"],
+            7,
+            ["sleep", "cat", "dog", "walk"],
+            [Some(0.), Some(1.), Some(1.), Some(0.)],
+            [
+                "practice_target",
+                "practice_target",
+                "topic_overlap",
+                "local_sample",
+            ],
+        ),
+    ] {
+        let request: StoryRequest = serde_json::from_value(json!({
+            "version": 1, "topic": topic,
+            "targets": {"vocabulary": targets, "grammar": ["polite"]}
+        }))
+        .unwrap();
+        let selection = select_builtin_vocabulary(&inventory, &request, 4, seed).unwrap();
+        assert_eq!(
+            selection
+                .selected
+                .iter()
+                .map(|entry| entry.word.id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            selection
+                .selected
+                .iter()
+                .map(|entry| entry.score)
+                .collect::<Vec<_>>(),
+            scores
+        );
+        assert_eq!(
+            selection
+                .selected
+                .iter()
+                .map(|entry| entry.reason)
+                .collect::<Vec<_>>(),
+            reasons
+        );
+        assert_eq!(selection.selector_revision, "builtin-v2");
+        assert_eq!(selection.grammar_targets, ["polite"]);
+        assert!(selection.embedding_model.is_none());
+    }
 }

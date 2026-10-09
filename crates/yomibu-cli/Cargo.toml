@@ -22,6 +22,8 @@ serde_json.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+yomibu-core.workspace = true
+yomibu-components.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 wiremock.workspace = true

@@ -1,5 +1,7 @@
+pub(crate) mod args;
+pub(crate) mod credentials;
 use crate::{
-    args::{Cli, Command, DictionaryCommand},
+    commands::args::{Cli, Command, DictionaryCommand},
     output,
 };
 use anyhow::{Context, Result};
@@ -9,55 +11,45 @@ use std::{
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
-use yomibu::app::{
-    Operation,
-    config::{Configuration, ConfigurationInput, ENVIRONMENT_SETTINGS, Settings},
-    local::{Credentials, LocalApp, ServiceEndpoints},
+use yomibu::{
+    application::{Credentials, LocalApp, Operation, ServiceEndpoints},
+    configuration::{Configuration, ConfigurationInput, ProcessOverrides, environment_names},
 };
 
-pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
+pub(crate) fn run(
+    cli: Cli,
+    endpoints: ServiceEndpoints,
+    mut credentials: Credentials,
+) -> Result<()> {
     let Some(command) = cli.command else {
         return Ok(());
     };
     let (operation, flags) = match command {
-        Command::Story(args) => (Operation::Story, args.settings()),
-        Command::PreviewStory(args) => (Operation::Preview, args.settings()),
-        Command::PrepareRetrieval(args) => (Operation::Retrieval, args.settings()),
+        Command::Story(args) => (Operation::Story, args.overrides()),
+        Command::PreviewStory(args) => (Operation::Preview, args.overrides()),
+        Command::PrepareRetrieval(args) => (Operation::Retrieval, args.overrides()),
         Command::Analyze { dictionary, input } => {
-            (Operation::Analyze(input), dictionary.settings())
+            (Operation::Analyze(input), dictionary.overrides())
         }
-        Command::Dictionary {
-            command:
+        Command::Dictionary { command } => {
+            let (operation, dictionary_dir) = match command {
                 DictionaryCommand::Import {
                     bundle,
                     dictionary_dir,
-                },
-        } => (
-            Operation::Import(bundle),
-            Settings {
-                dictionary_dir,
-                ..Default::default()
-            },
-        ),
-        Command::Dictionary {
-            command: DictionaryCommand::Verify { dictionary_dir },
-        } => (
-            Operation::Verify,
-            Settings {
-                dictionary_dir,
-                ..Default::default()
-            },
-        ),
-        Command::Sync => (Operation::Sync, Settings::default()),
-        Command::Status => (Operation::Status, Settings::default()),
+                } => (Operation::Import(bundle), dictionary_dir),
+                DictionaryCommand::Verify { dictionary_dir } => (Operation::Verify, dictionary_dir),
+            };
+            (
+                operation,
+                args::DictionaryArgs { dictionary_dir }.overrides(),
+            )
+        }
+        Command::Sync => (Operation::Sync, ProcessOverrides::default()),
+        Command::Status => (Operation::Status, ProcessOverrides::default()),
     };
-    let environment: BTreeMap<_, _> = ENVIRONMENT_SETTINGS
-        .iter()
-        .filter_map(|name| {
-            std::env::var(name)
-                .ok()
-                .map(|value| ((*name).into(), value))
-        })
+    let environment: BTreeMap<_, _> = environment_names()
+        .into_iter()
+        .filter_map(|name| std::env::var(&name).ok().map(|value| (name, value)))
         .collect();
     let config = Configuration::load(
         ConfigurationInput {
@@ -75,12 +67,7 @@ pub(crate) fn run(cli: Cli, endpoints: ServiceEndpoints) -> Result<()> {
         },
         &operation,
     )?;
-    let credentials = Credentials::new(
-        cli.wanikani_api_key
-            .or_else(|| std::env::var("YOMIBU_WANIKANI_API_KEY").ok()),
-        cli.openai_api_key
-            .or_else(|| std::env::var("YOMIBU_OPENAI_API_KEY").ok()),
-    );
+    credentials::environment(&mut credentials);
     let app = LocalApp::new(config, credentials).with_endpoints(endpoints);
     let clock = SystemTime::now();
     let seed = clock

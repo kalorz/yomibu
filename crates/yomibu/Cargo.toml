@@ -6,19 +6,16 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+yomibu-core.workspace = true
+yomibu-components.workspace = true
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
-tempfile.workspace = true
-sha2.workspace = true
-libc.workspace = true
-memmap2.workspace = true
-sudachi.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
+sha2.workspace = true
 wiremock.workspace = true
 tokio = { workspace = true, features = ["macros", "io-util", "sync", "test-util"] }

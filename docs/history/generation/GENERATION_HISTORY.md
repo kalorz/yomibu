@@ -3,7 +3,7 @@
 G1 and G2 were engineering steps toward the current story path. Their production
 entry points, CLI composition, authored situation selector and focused observations
 are retired as of 2026-10-06. Start at
-[`story::plan_generation` and `story::generate_story`](../../../crates/yomibu/src/story/mod.rs) for current execution;
+[`plan_generation` and `generate_story`](../../../crates/yomibu/src/application/story.rs) for current execution;
 [story usage](../../STORY_GENERATION.md) describes its library stages and contracts.
 
 ## What the experiments established

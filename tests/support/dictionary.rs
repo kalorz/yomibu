@@ -2,7 +2,8 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use yomibu::adapters::{dictionary::ManagedInstallation, sudachi::SudachiAnalyzer};
+use yomibu_components::sudachi_dictionary::SudachiAnalyzer;
+use yomibu_components::sudachi_dictionary::installation::ManagedInstallation;
 
 pub(crate) fn open_installation(root: &Path) -> ManagedInstallation {
     ManagedInstallation::open(root).unwrap_or_else(|error| {

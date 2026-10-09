@@ -1,10 +1,10 @@
 //! Shared preview and generation report projections; no execution or output.
 use super::candidate;
-use crate::story::{
-    PlanDeparture, StoryGenerationPlan, StoryGenerationResult, StoryRequest,
-    StoryVocabularySelection, TargetObservation,
-};
+use crate::application::story::{StoryGenerationPlan, StoryGenerationResult};
 use serde::Serialize;
+use yomibu_core::domain::story::{
+    PlanDeparture, StoryRequest, StoryVocabularySelection, TargetObservation,
+};
 #[derive(Serialize)]
 pub struct RequestBytes<'a> {
     pub body_utf8: &'a str,
@@ -18,7 +18,7 @@ pub struct StoryPreviewReport<'a> {
     pub kind: &'static str,
     pub request: &'a StoryRequest,
     pub plan: &'a StoryVocabularySelection<'a>,
-    pub generation_options: crate::story::StoryGenerationOptions,
+    pub generation_options: yomibu_core::domain::story::StoryGenerationOptions,
     pub provider_request: RequestBytes<'a>,
 }
 impl<'a> StoryPreviewReport<'a> {
@@ -29,7 +29,7 @@ impl<'a> StoryPreviewReport<'a> {
             kind: "story_generation_plan_preview",
             request,
             plan: plan.selection(),
-            generation_options: plan.generation_options(),
+            generation_options: prepared_request.options().clone(),
             provider_request: RequestBytes {
                 body_utf8: prepared_request.body_utf8(),
                 bytes: prepared_request.body_utf8().len(),
@@ -54,7 +54,7 @@ pub struct StoryReport<'a> {
     pub kind: &'static str,
     pub notice: &'static str,
     pub plan: StoryPreviewReport<'a>,
-    pub generation: &'a crate::candidate::GenerationProvenance,
+    pub generation: &'a yomibu_core::domain::candidate::GenerationProvenance,
     pub candidates: Vec<StoryCandidateReport<'a>>,
 }
 impl<'a> StoryReport<'a> {

@@ -1,12 +1,13 @@
 #[test]
 fn typed_downstream_error_reports_keep_available_analysis_without_completed_judgments() {
-    use yomibu::{
-        adapters::sudachi::AnalysisError,
+    use yomibu::application::story::DefaultCandidateError;
+    use yomibu_components::sudachi_dictionary::AnalysisError;
+    use yomibu_core::domain::{
         analysis::{AnalysisProvenance, DictionaryProvenance, Sentence, SentenceAnalysis},
         candidate::{CandidateAssessment, CandidateError},
         evaluation::EvaluationError,
     };
-    let analysis = SentenceAnalysis {
+    let analysis = || SentenceAnalysis {
         sentence: Sentence::new("猫です。").unwrap(),
         units: vec![],
         provenance: AnalysisProvenance {
@@ -27,7 +28,7 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         (
             CandidateAssessment::ExecutionError {
                 analysis: None,
-                error: CandidateError::Analysis(AnalysisError::InvalidSpan),
+                error: DefaultCandidateError(CandidateError::Analysis(AnalysisError::InvalidSpan)),
             },
             "analysis",
             "invalid_analysis_span",
@@ -35,15 +36,45 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
         ),
         (
             CandidateAssessment::ExecutionError {
-                analysis: Some(analysis),
-                error: CandidateError::Evaluation(EvaluationError::InvalidAnalysis),
+                analysis: Some(analysis()),
+                error: DefaultCandidateError(CandidateError::Assessment(
+                    EvaluationError::InvalidAnalysis,
+                )),
             },
             "evaluation",
             "invalid_analysis",
             true,
         ),
+        (
+            CandidateAssessment::ExecutionError {
+                analysis: Some(analysis()),
+                error: DefaultCandidateError(CandidateError::Assessment(
+                    EvaluationError::InvalidFindingSpan,
+                )),
+            },
+            "evaluation",
+            "invalid_finding_span",
+            true,
+        ),
+        (
+            CandidateAssessment::ExecutionError {
+                analysis: Some(analysis()),
+                error: DefaultCandidateError(CandidateError::Assessment(
+                    EvaluationError::InvalidCheckState,
+                )),
+            },
+            "evaluation",
+            "invalid_check_state",
+            true,
+        ),
     ] {
         let report = yomibu::reports::candidate::CandidateReport::new(1, "猫です。", &assessment);
+        if stage == "analysis" {
+            assert_eq!(
+                serde_json::to_value(&assessment).unwrap()["error"],
+                "Pinned Sudachi analysis failed."
+            );
+        }
         let json = serde_json::to_value(report).unwrap();
         assert_eq!(!json["analysis"].is_null(), has_analysis);
         assert_eq!(json["assessment"]["status"], "execution_error");
@@ -70,8 +101,9 @@ fn typed_downstream_error_reports_keep_available_analysis_without_completed_judg
 #[test]
 fn target_reports_include_state_and_structured_uncertainty() {
     use serde_json::json;
-    use yomibu::{
-        evaluation::{DirectObjectEvidence, LexicalUncertainty},
+    use yomibu_core::domain::evaluation::DirectObjectEvidence;
+    use yomibu_core::domain::{
+        evaluation::LexicalUncertainty,
         story::{
             TargetCoverage::{Complete, Partial},
             TargetKind, TargetObservation,
@@ -141,4 +173,30 @@ fn target_reports_include_state_and_structured_uncertainty() {
         assert_eq!(json["uncertainties"][0]["reason"], expected);
         assert_eq!(json["uncertainties"][0]["scope"], "sentence_coverage");
     }
+}
+
+#[test]
+fn default_candidate_errors_forward_causes_without_repeating_transparent_messages() {
+    use std::error::Error;
+    use yomibu::application::story::DefaultCandidateError;
+    use yomibu_components::sudachi_dictionary::AnalysisError;
+    use yomibu_core::domain::{
+        analysis::SentenceError, candidate::CandidateError, evaluation::EvaluationError,
+    };
+    for error in [
+        CandidateError::Sentence(SentenceError::Blank),
+        CandidateError::Assessment(EvaluationError::InvalidAnalysis),
+        CandidateError::MismatchedAssessment,
+    ] {
+        let error = DefaultCandidateError(error);
+        assert!(error.source().is_none(), "duplicate cause: {error}");
+    }
+    let error = DefaultCandidateError(CandidateError::Analysis(AnalysisError::InvalidSpan));
+    assert_eq!(error.to_string(), "Pinned Sudachi analysis failed.");
+    let cause = error.source().unwrap();
+    assert!(matches!(
+        cause.downcast_ref::<AnalysisError>(),
+        Some(AnalysisError::InvalidSpan)
+    ));
+    assert!(cause.source().is_none());
 }

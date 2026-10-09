@@ -1,0 +1,43 @@
+# Saved defaults, resolved per invocation. Lists replace; they never concatenate.
+[pipeline]
+knowledge_policy = "lesson-started" # alternative: "recorded-pass"
+model = "gpt-6-luna"                # shared text-model fallback
+
+[pipeline.components]
+source = "wanikani-source"
+learning_store = "file-learning-store"
+embedding_cache = "file-embedding-cache"
+preparation = "story-prompt-preparation"
+generation = "openai-story-generation"
+analysis = "sudachi-dictionary"
+assessment = "japanese-constraint-checks"
+
+[pipeline.selection]
+steps = ["lexical-topic", "seeded-order"] # alternative: ["seeded-order"]
+embedding_steps = ["embedding-rank"]     # alternative: ["embedding-rank", "seeded-order"]
+embeddings = false
+# Empty/repeated steps are invalid. Core target finalization is always mandatory.
+# Enablement permits optional preparation; hosted calls need application authorization.
+
+[pipeline.options.openai-story-generation]
+# model = "gpt-6-luna" # optional override; otherwise inherit pipeline.model
+# model = { clear = true }
+# Credential: --openai-story-generation-api-key / YOMIBU_OPENAI_STORY_GENERATION_API_KEY
+
+[pipeline.embedding]
+# provider = "lexical-baseline" # deterministic baseline, no credentials
+# provider = "local"            # numeric loopback HTTP, pinned model identity below
+# provider = "openai"           # hosted HTTP; requires authorization and credential
+# Omission can reuse the existing cache's identity. Clear: { clear = true }.
+
+[pipeline.options.http-embeddings]
+# model = "encoder-model"       # required for local/openai preparation
+# revision = "pinned-revision"  # caller's pinned encoder assertion
+# dimensions = 768              # 1..=4096; match the selected model
+# endpoint = "http://127.0.0.1:11434/v1/" # computed local endpoint, numeric loopback only
+# These optional options accept { clear = true }; identity fields are independent.
+# Credential: --http-embeddings-api-key / YOMIBU_HTTP_EMBEDDINGS_API_KEY
+# No persistent storage is chosen or owned by the embedder.
+
+[pipeline.assessment]
+enabled = true

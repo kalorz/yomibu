@@ -1,6 +1,6 @@
 # Retrieval implementation and evidence
 
-`ports::Embedder` accepts explicit document/query inputs and returns vectors.
+`yomibu_core::capabilities::Embedder` accepts explicit document/query inputs and returns vectors.
 `HttpEmbedder` supports an OpenAI-compatible numeric loopback server and the
 hosted OpenAI embeddings endpoint. `LexicalEmbedder` is an explicit nonsemantic
 comparison baseline. No default dense model is selected.
@@ -20,11 +20,11 @@ vocabulary target is retained, irrespective of similarity. No vector database,
 plugin registry, server launcher or new dependency is introduced. Explicit preparation and enabled story embeddings can prepare missing vectors. Selection and input preparation are synchronous;
 encoding through `prepare_cache` is async and driven by the caller's executor.
 
-Library `retrieval::prepare_cache` groups at most 32 missing inputs; the HTTP adapter further splits groups by actual
+Library `yomibu_core::pipeline::embeddings::prepare_cache` groups at most 32 missing inputs; the HTTP adapter further splits groups by actual
 encoded JSON size, including escapes and model metadata, to keep each request
 within 512 KiB. All vectors must succeed before cache publication; a failed batch
 leaves the prior file intact, without retry. Compatible cached documents are reused.
-`adapters::embedding_cache_file::EmbeddingCacheFile` owns explicit bounded reads
+`yomibu_components::file_embedding_cache::EmbeddingCacheFile` owns explicit bounded reads
 and publication. A temporary file is synchronized before atomic replacement; a directory-sync
 failure reports uncertain durability after publication. Concurrent independent
 writers may replace each other's additional cached entries; they cannot publish
@@ -52,13 +52,13 @@ python3 scripts/compare_story_retrieval.py target/debug/yomibu \
 
 # Substitute an actually installed, pinned OpenAI-compatible local model:
 python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider local --embedding-endpoint http://127.0.0.1:11434/v1/ \
-  --embedding-model MODEL --embedding-revision REVISION --embedding-dimensions DIMENSIONS
+  --embedding-provider local --http-embeddings-endpoint http://127.0.0.1:11434/v1/ \
+  --http-embeddings-model MODEL --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS
 
-# Explicit paid/data-transmitting comparison, with a configured environment key:
+# Explicit paid/data-transmitting comparison; supply YOMIBU_HTTP_EMBEDDINGS_API_KEY:
 python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider openai --embedding-model MODEL \
-  --embedding-revision REVISION --embedding-dimensions DIMENSIONS --allow-embedding-call
+  --embedding-provider openai --http-embeddings-model MODEL \
+  --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS --allow-embedding-call
 ```
 
 The script fails if the requested encoder is unavailable; it never substitutes

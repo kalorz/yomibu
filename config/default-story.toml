@@ -1,0 +1,16 @@
+# Story invocation defaults. CLI/ENV and typed invocation fields override these.
+[story]
+select = 12        # 1..=16, including targets
+format = "passage" # alternative: "sentence"
+candidates = 1     # positive; must fit the generation output budget
+# topic = "猫の朝" # optional; no topic means locally sampled vocabulary
+# seed = 7         # optional; otherwise the caller supplies the seed
+# Optional topic/seed accept { clear = true }. Empty strings do not mean clear.
+
+[story.targets]
+vocabulary = []   # allowed inventory IDs; order retained; max 16, no duplicates
+grammar = []      # allowed grammar IDs; order retained; max 16, no duplicates
+# Example alternatives, only for inventory containing these IDs:
+# vocabulary = ["cat"]
+# grammar = ["polite"]
+# Lists replace whole lists. Explicit [] clears saved targets.

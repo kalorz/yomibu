@@ -1,12 +1,11 @@
-use args::Cli;
 use clap::{CommandFactory, FromArgMatches};
+use commands::args::Cli;
 use std::{
     io::{self, Write},
     process::ExitCode,
 };
-use yomibu::app::{local::ServiceEndpoints, modules::MODULES};
+use yomibu::{application::ServiceEndpoints, configuration::modules::MODULES};
 
-mod args;
 mod commands;
 mod output;
 
@@ -26,8 +25,10 @@ fn entry(
         .map(|module| format!("{}: {}\n  {}", module.name, module.purpose, module.guidance))
         .collect::<Vec<_>>()
         .join("\n");
-    let mut command =
-        Cli::command().mut_subcommand("story", |command| command.after_help(guidance));
+    let (args, credentials) = commands::credentials::capture(args);
+    let mut command = Cli::command()
+        .args(commands::credentials::arguments())
+        .mut_subcommand("story", |command| command.after_help(guidance));
     let cli = match command
         .try_get_matches_from_mut(args)
         .and_then(|matches| Cli::from_arg_matches(&matches))
@@ -54,7 +55,7 @@ fn entry(
     if cli.command.is_none() {
         return if command.print_help().is_ok() { 0 } else { 1 };
     }
-    match commands::run(cli, endpoints).map_err(output::command_error) {
+    match commands::run(cli, endpoints, credentials).map_err(output::command_error) {
         Ok(()) => 0,
         Err(error) => {
             let _ = writeln!(io::stderr().lock(), "error: {error}");

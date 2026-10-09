@@ -34,46 +34,107 @@ projection retains source subject IDs and exclusions.
 
 ## Configuration and optional work
 
-Supply `YOMIBU_WANIKANI_API_KEY` and `YOMIBU_OPENAI_API_KEY`, or the corresponding
-`--wanikani-api-key` and `--openai-api-key` flags. Flags win. Credentials are never
-saved or included in reports. WaniKani needs [read access without write permissions](https://docs.api.wanikani.com/20170710/#authentication).
-OpenAI needs [response creation and selected-model access](https://developers.openai.com/api/docs/guides/terraform/service-accounts#assign-least-privilege-permissions).
-A usable cached/manual inventory removes the WaniKani-key requirement.
+The complete TOML references are [application settings](../config/config.toml),
+[pipeline defaults](../config/default-pipeline.toml), and
+[story defaults](../config/default-story.toml). Their active values equal omission.
+They are not installed automatically. Flat files and old component CLI spellings are
+rejected; old ENV names are ignored. There are no aliases or migrations.
 
-Storage uses `--data-dir`, `YOMIBU_DATA_DIR`, or `$HOME/.yomibu`. Optional
-`config.toml` lives there; `--config` or `YOMIBU_CONFIG` selects another file.
-Non-secret settings resolve flags → supported `YOMIBU_` bindings → file → defaults.
-Environment names use the uppercase setting name. File paths are relative to the
-configuration file. Commands validate only settings they use. Invalid TOML and
-unknown settings fail without reflecting their contents.
+Storage uses `--data-dir` → `YOMIBU_DATA_DIR` → `$HOME/.yomibu`.
+`--config` → `YOMIBU_CONFIG` selects `config.toml`; otherwise use the data directory.
+The two defaults files are siblings of that selected file, even if it is absent.
+Missing implicit files are empty; a missing explicit config or another read error
+fails. Each document is bounded to 64 KiB of UTF-8. Application paths are relative
+to the config directory; CLI/ENV paths use the working directory.
 
-```toml
-model = "gpt-6-luna"
-# generation_model overrides the shared text fallback after source resolution.
-disable = ["assessment"]
-# inventory = "inventory.json"
-```
+Application settings own resources, sync policy, hosted-call authorization and
+credential bindings. Pipeline settings own component choices (including source
+and storage), component options and selection ordering. Story settings own topic,
+targets, seed, limit, format and candidate count.
 
-`--model` supplies a text fallback; `--generation-model` overrides it.
-Embedding provider/model/revision/dimensions are separate. Configuring them does
-not enable embeddings. Partial settings require a provider; they never override
-an unrelated cached model. Repeat `--enable MODULE` / `--disable MODULE` for `sync`,
-`embeddings`, and `assessment`. Saved `enable`/`disable` lists work the same way;
-environment lists use commas. CLI controls win; conflicting controls fail.
-Disabled modules perform no initialization or I/O. Explicit resource commands
-still require their resources.
+Ordinary precedence is CLI → ENV → saved defaults → built-ins, independently per
+field. Lists replace whole lists. Empty target lists clear targets; empty selection
+lists are invalid. Optional values accept exactly `{ clear = true }` in TOML or
+`Patch::Clear` in typed invocations. Clearing restores absence or the computed
+resource default, including implicit-path behavior. It does not clear related
+settings. Required fields use values, optional features use booleans; there is no
+ENV clear sentinel. Empty strings do not mean clear.
 
-Sync and available local assessment default to enabled. Embeddings require
-explicit enablement. Hosted embeddings additionally require
-`--allow-embedding-call`; see [retrieval](RETRIEVAL.md). No dictionary is downloaded.
-Optional failures warn and preserve generated text, using built-in selection when
-retrieval fails. Preview checks the same embedding settings and reports fallback
-warnings. It remains offline and never refreshes resources.
+The generation component's optional model resolves independently, then falls back
+to `pipeline.model` (`--model`). Thus a saved generation model beats a CLI shared
+model. `--openai-story-generation-model` and
+`YOMIBU_OPENAI_STORY_GENERATION_MODEL` are generated from the component declaration.
+HTTP encoder options use `--http-embeddings-{model,revision,dimensions,endpoint}`
+and matching uppercase `YOMIBU_HTTP_EMBEDDINGS_…` names. Names never use Rust types.
+Existing story, resource and policy flags remain explicit. Repeat `--enable` /
+`--disable` for sync, embeddings or assessment; ENV controls are comma-separated.
+A same-source enable/disable conflict fails. Mandatory core validation cannot be
+disabled.
+
+Component credentials use `--{component}-api-key` and
+`YOMIBU_{COMPONENT}_API_KEY`: `wanikani-source`, `openai-story-generation`, or
+`http-embeddings`. Values never belong in TOML, reports or Debug output. The CLI
+replaces secret arguments before parsing diagnostics. Components receive keys
+explicitly and never read process inputs or credential stores.
+
+Bindings name only the supported `supplied` provider and either the exact component
+requirement or its shared provider slot: `wanikani` for the source, `openai` for
+text generation and hosted embeddings. Shared inputs are `--credential-openai` /
+`YOMIBU_CREDENTIAL_OPENAI` and `--credential-wanikani` /
+`YOMIBU_CREDENTIAL_WANIKANI`. An explicit component binding or `{ clear = true }`
+removes access to the shared slot. Resolution is component CLI → bound shared CLI
+→ component ENV → bound shared ENV → caller-supplied bound value. A winning blank
+key is missing; it never falls through. Invalid encoding makes credential-dependent
+work fail, including stale source refresh and explicit retrieval. Optional story
+embeddings report this failure as a warning and use the configured base selection.
+No other key is tried. There is no cross-provider fallback.
+Keychain is not implemented. WaniKani requires read access, OpenAI generation
+requires response creation and model access, and hosted embeddings require
+embedding access.
+
+All commands read application and relevant pipeline settings. Story, preview and
+retrieval also load story defaults. Sync uses the selected source/store regardless
+of automatic-sync policy; status uses only the store. Analyze uses the selected
+analyzer/checks; dictionary commands use its dictionary resources. They ignore
+story and text-generation settings. Unknown paths and malformed loaded TOML fail
+without reflecting contents. Known unused fields are pruned before type checking;
+consumed lower-precedence inputs must still have valid types.
+Credential bindings follow this rule per requirement: story uses all three,
+sync uses the source, and retrieval uses embeddings. Offline operations ignore
+known binding values; unknown requirements and fields still fail. Every binding
+must be a table, even when unused; plain secret values are rejected.
+
+`LocalApp::for_invocation(Invocation { pipeline, story }, operation)` resolves an
+independent snapshot through the same typed application logic as file/CLI loading.
+It shares immutable resource settings and credentials. Request overrides cannot
+choose resource paths, authorization or credential bindings. No shared current
+pipeline is mutated.
+
+Default selection is `lexical-topic` then `seeded-order` (`builtin-v2`).
+`seeded-order` alone uses `seeded-only-v1`. Embedding selection is `embedding-rank`
+(`inventory-similarity-v1`), optionally followed by `seeded-order`
+(`inventory-similarity-seeded-v1`). Other sequences, duplicates and empty lists
+fail application validation. Library compositions remain unrestricted; core's
+target-first finalization is mandatory and the full allowed inventory stays
+separate from prompt selection.
+
+Embeddings require `pipeline.selection.embeddings = true` and a topic. The
+embedding sequence never authorizes hosted calls. Complete caches are reused
+before credential resolution or provider construction. Missing/stale evidence may
+be prepared only under application policy; optional failure warns and falls back
+to the configured base sequence. Preview only reads caches. Explicit retrieval
+prepares evidence regardless of optional enablement. See [retrieval](RETRIEVAL.md).
+Sync and optional assessment default on. Disabled work does no resource I/O.
+Assessment still initializes after generation, keeps dictionary lifetimes, warns
+on optional failures and preserves generated text and NotRun behavior.
 
 ## Topic and vocabulary
 
-`--topic` is optional and conflicts with `--request PATH`. Advanced request JSON
-uses `topic` plus target IDs. Without a topic, the AI creates a coherent scene
+`--topic` is optional and conflicts with `--request PATH`. Typed topic overrides,
+including clear, have the same conflict. Advanced request JSON
+uses `topic` plus target IDs. Omitted topic inherits saved defaults; `null` clears
+it. Both target arrays remain required and replace saved lists. The request file
+is invocation input, not a persisted defaults reference. Without a topic, the AI creates a coherent scene
 around locally sampled vocabulary. `--seed` makes selection repeatable.
 With a topic, built-in selection matches lexical terms and Japanese written-form
 substrings. Readings still use exact terms. Enabled embeddings can enhance selection.

@@ -1,8 +1,10 @@
-use yomibu::{
-    App,
-    adapters::stores::{FileLearningStore, InMemoryLearningStore},
-    domain::WaniKaniSyncData,
-    ports::{LearningSource, LearningStore, Persistence},
+use yomibu::App;
+use yomibu_components::{
+    file_learning_store::FileLearningStore, in_memory_learning_store::InMemoryLearningStore,
+};
+use yomibu_core::{
+    capabilities::{LearningSource, LearningStore, Persistence},
+    domain::source::WaniKaniSyncData,
 };
 
 fn fixture() -> WaniKaniSyncData {
@@ -26,7 +28,10 @@ async fn sync_and_status(store: impl LearningStore, persistence: Persistence) {
     assert!(app.status().is_err());
     let report = app.sync().await.unwrap();
     assert_eq!(report.persistence, persistence);
-    assert_eq!(report.summary, fixture().summarize().unwrap());
+    assert_eq!(
+        report.summary,
+        yomibu::reports::summary::summarize(&fixture()).unwrap()
+    );
     let summary = app.status().unwrap();
     drop(app);
     assert_eq!(
@@ -48,13 +53,16 @@ async fn same_use_case_runs_with_memory_and_file_storage() {
     let summary = App::new(FileLearningStore::new(directory.path()))
         .status()
         .unwrap();
-    assert_eq!(summary, fixture().summarize().unwrap());
+    assert_eq!(
+        summary,
+        yomibu::reports::summary::summarize(&fixture()).unwrap()
+    );
 }
 
 #[tokio::test]
 async fn real_http_source_can_publish_to_memory() {
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
-    use yomibu::adapters::sources::wanikani::Client;
+    use yomibu_components::wanikani_source::Client;
 
     let server = MockServer::start().await;
     for (endpoint, body) in [
@@ -111,7 +119,7 @@ where
         future::Future,
         task::{Context, Poll, Waker},
     };
-    use yomibu::ports::SourceSyncWriter;
+    use yomibu_core::capabilities::SourceSyncWriter;
 
     store.begin_sync().unwrap().replace(fixture()).unwrap();
     let mut app = App::new(store.clone()).with_source(PendingSource);
@@ -129,7 +137,10 @@ where
     assert_eq!(*store.load().unwrap(), fixture());
     drop(operation);
     store.begin_sync().unwrap().replace(fixture()).unwrap();
-    assert_eq!(app.status().unwrap(), fixture().summarize().unwrap());
+    assert_eq!(
+        app.status().unwrap(),
+        yomibu::reports::summary::summarize(&fixture()).unwrap()
+    );
 }
 
 #[test]
@@ -153,7 +164,8 @@ impl LearningSource for OneResultSource {
 
 #[tokio::test]
 async fn source_and_validation_failures_are_typed_and_preserve_data() {
-    use yomibu::{app::SyncError, ports::SourceSyncWriter};
+    use yomibu::application::SyncError;
+    use yomibu_core::capabilities::SourceSyncWriter;
     let store = InMemoryLearningStore::new();
     store.begin_sync().unwrap().replace(fixture()).unwrap();
     let source = OneResultSource(Some(Err(std::io::ErrorKind::TimedOut.into())));
@@ -174,10 +186,9 @@ async fn source_and_validation_failures_are_typed_and_preserve_data() {
 
 #[tokio::test]
 async fn unusable_store_prevents_fetch_and_preserves_its_error() {
-    use yomibu::{
-        adapters::stores::file::cache::{CacheError, WriteError},
-        app::SyncError,
-    };
+    use yomibu::application::SyncError;
+    use yomibu_components::file_learning_store::cache::CacheError;
+    use yomibu_components::file_learning_store::cache::WriteError;
     let directory = tempfile::tempdir().unwrap();
     let store = FileLearningStore::new(directory.path());
     let writer = store.begin_sync().unwrap();
