@@ -1,3 +1,8 @@
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "embedding-vocabulary-selection",
+    settings: &[],
+};
+
 use std::collections::BTreeMap;
 use yomibu_core::{
     capabilities::SelectionStep,

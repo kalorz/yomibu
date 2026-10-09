@@ -1,20 +1,6 @@
 use std::ffi::OsString;
 use yomibu::application::{Credentials, Secret};
-use yomibu::configuration::components::{CREDENTIALS, CredentialRequirement};
-
-pub(crate) fn arguments() -> impl Iterator<Item = clap::Arg> {
-    CREDENTIALS.iter().map(|requirement| {
-        clap::Arg::new(requirement.name.cli())
-            .long(requirement.name.cli())
-            .global(true)
-            .help_heading("Credentials")
-            .value_name("KEY")
-            .help(format!(
-                "Secret credential; env: {}",
-                requirement.name.environment()
-            ))
-    })
-}
+use yomibu::configuration::components::{self, OptionKey};
 
 // Clap only sees placeholders, including when it formats conflicts and usage.
 pub(crate) fn capture(
@@ -28,7 +14,7 @@ pub(crate) fn capture(
         if text == "--" {
             break;
         }
-        if let Some(requirement) = CREDENTIALS.iter().find(|requirement| {
+        if let Some(requirement) = components::credentials().find(|requirement| {
             text == format!("--{}", requirement.name.cli())
                 || text.starts_with(&format!("--{}=", requirement.name.cli()))
         }) {
@@ -38,7 +24,7 @@ pub(crate) fn capture(
                 } else {
                     Secret::invalid_encoding()
                 };
-                credentials.set_cli(*requirement, secret);
+                credentials.set_cli(requirement, secret);
                 args[index] = format!("--{}=[REDACTED]", requirement.name.cli()).into();
             } else if index + 1 < args.len() {
                 let value = args[index + 1].to_string_lossy();
@@ -48,12 +34,11 @@ pub(crate) fn capture(
                     } else {
                         Secret::invalid_encoding()
                     };
-                    credentials.set_cli(*requirement, secret);
+                    credentials.set_cli(requirement, secret);
                     args[index + 1] = "[REDACTED]".into();
                     index += 1;
                 } else if !matches!(value.as_ref(), "--help" | "-h" | "--version" | "-V")
-                    && !CREDENTIALS
-                        .iter()
+                    && !components::credentials()
                         .any(|requirement| value == format!("--{}", requirement.name.cli()))
                 {
                     // Keep a missing-value diagnostic without exposing a dash-prefixed key.
@@ -65,7 +50,7 @@ pub(crate) fn capture(
     }
     (args, credentials)
 }
-pub(crate) fn environment(credentials: &mut Credentials, requirements: &[CredentialRequirement]) {
+pub(crate) fn environment(credentials: &mut Credentials, requirements: &[OptionKey<Secret>]) {
     for requirement in requirements {
         if let Some(value) = std::env::var_os(requirement.name.environment()) {
             let value = value

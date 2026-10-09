@@ -17,7 +17,7 @@ pub struct PipelineOverrides {
     pub knowledge_policy: Option<KnowledgePolicy>,
     pub model: Option<String>,
     pub selection: SelectionOverrides,
-    pub options: ComponentOptions,
+    pub options: super::OptionOverrides,
     pub embedding: EmbeddingOverrides,
     pub assessment: AssessmentOverrides,
 }
@@ -38,27 +38,6 @@ pub struct SelectionOverrides {
     pub steps: Option<Vec<SelectionStep>>,
     pub embedding_steps: Option<Vec<SelectionStep>>,
     pub embeddings: Option<bool>,
-}
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ComponentOptions {
-    #[serde(rename = "openai")]
-    pub generation: GenerationOptions,
-    #[serde(rename = "http-embeddings")]
-    pub embeddings: EmbeddingOptions,
-}
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct GenerationOptions {
-    pub model: Patch<String>,
-}
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct EmbeddingOptions {
-    pub model: Patch<String>,
-    pub revision: Patch<String>,
-    pub dimensions: Patch<usize>,
-    pub endpoint: Patch<String>,
 }
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -95,11 +74,15 @@ impl Configuration {
     ) -> Result<Self, ConfigError> {
         let topic_override = !matches!(input.story.topic, Patch::Inherit);
         let mut resolved = self.clone();
-        resolved.apply(input, operation);
+        resolved.apply(input, operation)?;
         resolved.validate(operation, topic_override)?;
         Ok(resolved)
     }
-    pub(super) fn apply(&mut self, input: Invocation, operation: &Operation) {
+    pub(super) fn apply(
+        &mut self,
+        input: Invocation,
+        operation: &Operation,
+    ) -> Result<(), ConfigError> {
         let pipeline = &mut self.pipeline;
         let story = &mut self.story;
         let overrides = input.pipeline;
@@ -138,11 +121,6 @@ impl Configuration {
         }
         if operation.uses_setting("pipeline.model") {
             set!(overrides.model, pipeline.model);
-            overrides
-                .options
-                .generation
-                .model
-                .apply(&mut pipeline.generation_model);
             set!(input.story.format, story.format);
             set!(input.story.candidates, story.candidates);
             input.story.seed.apply(&mut story.seed);
@@ -163,35 +141,15 @@ impl Configuration {
                 .embedding
                 .provider
                 .apply(&mut pipeline.embedding_provider);
-            overrides
-                .options
-                .embeddings
-                .model
-                .apply(&mut pipeline.embedding_model);
-            overrides
-                .options
-                .embeddings
-                .revision
-                .apply(&mut pipeline.embedding_revision);
-            overrides
-                .options
-                .embeddings
-                .dimensions
-                .apply(&mut pipeline.embedding_dimensions);
-            match overrides.options.embeddings.endpoint {
-                Patch::Inherit => {}
-                Patch::Clear => {
-                    pipeline.embedding_endpoint = super::DEFAULT_EMBEDDING_ENDPOINT.into()
-                }
-                Patch::Set(value) => pipeline.embedding_endpoint = value,
-            }
         }
+        overrides.options.apply(&mut pipeline.options, operation)?;
         if operation.uses_setting("story.topic") {
             input.story.topic.apply(&mut story.topic);
             set!(input.story.select, story.select);
             set!(input.story.targets.vocabulary, story.vocabulary_targets);
             set!(input.story.targets.grammar, story.grammar_targets);
         }
+        Ok(())
     }
     pub(super) fn validate(
         &self,
@@ -199,7 +157,7 @@ impl Configuration {
         topic_override: bool,
     ) -> Result<(), ConfigError> {
         if operation.uses_setting("pipeline.model") {
-            yomibu_components::openai_story_generation::validate_options(&self.generation()).map_err(|_|ConfigError::InvalidSetting("Choose a nonblank text model and a positive candidate count that fits the output budget."))?;
+            yomibu_components::openai_story_generation::validate_options(&self.generation()?).map_err(|_|ConfigError::InvalidSetting("Choose a nonblank text model and a positive candidate count that fits the output budget."))?;
         }
         if operation.uses_setting("story.select") && !(1..=16).contains(&self.story.select) {
             return Err(ConfigError::InvalidSetting(

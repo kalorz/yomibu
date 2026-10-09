@@ -35,6 +35,12 @@ allowed entries. The supplied rankers retain filtered subsets.
 The application wires default selection steps and prepares embedding evidence before selection;
 optional fallback remains application policy.
 
+Components declare typed option keys in one [static catalog](crates/yomibu-components/src/lib.rs).
+CLI arguments, environment names, file validation and auth enumerate those declarations.
+Shared [component options](crates/yomibu-core/src/component/) use typed keys and validators.
+The application passes each component its scoped options; credentials retain lazy lookup.
+Component declarations also supply help and setup guidance.
+
 The CLI captures environment values, drives the runtime and renders results.
 The application resolves scoped settings, immutable invocation overrides and
 credentials, constructs components through explicit typed mappings, prepares resources,

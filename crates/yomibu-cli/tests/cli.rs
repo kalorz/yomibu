@@ -357,12 +357,22 @@ fn retired_preview_and_prepare_commands_have_no_aliases() {
 
 #[test]
 fn component_model_options_and_provider_keys_have_safe_parser_diagnostics() {
-    let help = cli().args(["story", "--help"]).output().unwrap();
-    let help = stdout(&help);
-    assert!(help.contains("--openai-model"));
-    assert!(help.contains("--http-embeddings-dimensions"));
-    assert!(!help.contains("--generation-model"));
-    for requirement in yomibu::configuration::components::CREDENTIALS {
+    for command in ["story", "preview-story", "prepare-retrieval"] {
+        let help = cli().args([command, "--help"]).output().unwrap();
+        assert_eq!(help.status.code(), Some(0));
+        assert!(help.stderr.is_empty());
+        let help = stdout(&help);
+        assert!(help.contains(&format!("Usage: yomibu {command}")), "{help}");
+        for setting in yomibu::configuration::components::settings() {
+            assert!(
+                help.contains(&format!("--{}", setting.name().cli())),
+                "{help}"
+            );
+            assert!(help.contains(&setting.name().environment()), "{help}");
+        }
+        assert!(!help.contains("--generation-model"));
+    }
+    for requirement in yomibu::configuration::components::credentials() {
         let flag = format!("--{}", requirement.name.cli());
         for args in [
             vec![
@@ -402,7 +412,7 @@ fn component_model_options_and_provider_keys_have_safe_parser_diagnostics() {
 
 #[test]
 fn credential_redaction_preserves_help_and_version() {
-    for requirement in yomibu::configuration::components::CREDENTIALS {
+    for requirement in yomibu::configuration::components::credentials() {
         let key = format!("--{}=synthetic-secret", requirement.name.cli());
         for flag in ["--help", "--version"] {
             let output = cli().args([&key, flag]).output().unwrap();

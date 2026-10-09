@@ -1,6 +1,9 @@
 use serde_json::json;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
-use yomibu_components::{http_embeddings::HttpEmbedder, lexical_embeddings::LexicalEmbedder};
+use yomibu_components::{
+    http_embeddings::{self, HttpEmbedder},
+    lexical_embeddings::LexicalEmbedder,
+};
 use yomibu_core::{
     capabilities::Embedder,
     domain::embedding::{EmbeddingInput, EmbeddingModelIdentity, EmbeddingPurpose},
@@ -26,10 +29,20 @@ fn identity() -> EmbeddingModelIdentity {
         encoding_revision: "plain-v1".into(),
     }
 }
+fn local(endpoint: &str) -> Result<HttpEmbedder, http_embeddings::BuildError> {
+    let mut values = yomibu_core::component::options::Options::default();
+    values
+        .set(http_embeddings::ENDPOINT, endpoint.into())
+        .unwrap();
+    HttpEmbedder::local(
+        values.for_component(&http_embeddings::COMPONENT),
+        identity(),
+    )
+}
 #[tokio::test]
 async fn http_embeddings_reorders_indexed_vectors_and_rejects_partial_data_without_retry() {
     let server = MockServer::start().await;
-    let client = HttpEmbedder::local(&format!("{}/v1/", server.uri()), identity()).unwrap();
+    let client = local(&format!("{}/v1/", server.uri())).unwrap();
     Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"model":"test-model","data":[{"index":1,"embedding":[0.,1.]},{"index":0,"embedding":[1.,0.]}]}))).expect(1).mount(&server).await;
     assert_eq!(
         client.embed(&inputs()).await.unwrap(),
@@ -70,14 +83,14 @@ async fn lexical_baseline_is_explicit_deterministic_and_has_a_distinct_identity(
         encoder.embed(&inputs()).await.unwrap(),
         encoder.embed(&inputs()).await.unwrap()
     );
-    assert!(HttpEmbedder::local("https://example.com/v1/", identity()).is_err());
-    assert!(HttpEmbedder::local("http://secret@127.0.0.1/v1/", identity()).is_err());
+    assert!(local("https://example.com/v1/").is_err());
+    assert!(local("http://secret@127.0.0.1/v1/").is_err());
 }
 
 #[tokio::test]
 async fn large_embedding_batches_split_by_encoded_bytes_and_preserve_order() {
     let server = MockServer::start().await;
-    let client = HttpEmbedder::local(&format!("{}/v1/", server.uri()), identity()).unwrap();
+    let client = local(&format!("{}/v1/", server.uri())).unwrap();
     // Escaped controls make JSON considerably larger than the raw document.
     for character in ['x', '\u{1b}'] {
         server.reset().await;

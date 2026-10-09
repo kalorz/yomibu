@@ -3,15 +3,18 @@ use super::{
     local::ApplicationError,
     progress::{ProgressEvent, RunProgress, Step},
 };
+use crate::configuration::components::EMBEDDING_KEY;
 use crate::configuration::modules::{ModuleId, ModuleState};
 use crate::configuration::{Configuration, EmbeddingProvider};
 use crate::reports::run::Warning;
 use yomibu_components::{
-    embedding_vocabulary_selection::prepare_embedding_inputs, http_embeddings::HttpEmbedder,
+    embedding_vocabulary_selection::prepare_embedding_inputs,
+    http_embeddings::{self, HttpEmbedder},
     lexical_embeddings::LexicalEmbedder,
 };
 use yomibu_core::{
     capabilities::Embedder,
+    component::options::OptionError,
     domain::{
         embedding::{EmbeddingCache, EmbeddingModelIdentity},
         inventory::LearnerInventory,
@@ -44,7 +47,13 @@ pub(super) async fn prepare_embeddings(
         }
         Some(EmbeddingProvider::Local) => {
             prepare_cache(
-                &HttpEmbedder::local(&config.pipeline.embedding_endpoint, identity)?,
+                &HttpEmbedder::local(
+                    config
+                        .pipeline
+                        .options
+                        .for_component(&http_embeddings::COMPONENT),
+                    identity,
+                )?,
                 &inputs,
                 previous.as_ref(),
             )
@@ -56,9 +65,9 @@ pub(super) async fn prepare_embeddings(
                     "Hosted embeddings require --allow-embedding-call.",
                 ));
             }
-            let key = credentials.resolve(crate::configuration::components::EMBEDDING_KEY)?.ok_or(ApplicationError::ResourceConfiguration(
-                "Hosted embeddings need --http-embeddings-api-key or YOMIBU_HTTP_EMBEDDINGS_API_KEY with embedding access. On macOS, run yomibu auth http-embeddings.",
-            ))?;
+            let key = credentials
+                .resolve(EMBEDDING_KEY)?
+                .ok_or(ApplicationError::MissingCredential(EMBEDDING_KEY))?;
             prepare_cache(
                 &HttpEmbedder::openai(key, identity)?,
                 &inputs,
@@ -106,27 +115,18 @@ fn embedding_model(
     config: &Configuration,
     previous: Option<&EmbeddingCache>,
 ) -> Result<EmbeddingModelIdentity, ApplicationError> {
+    let options = config
+        .pipeline
+        .options
+        .for_component(&http_embeddings::COMPONENT);
     let identity = match config.pipeline.embedding_provider {
         Some(EmbeddingProvider::LexicalBaseline) => LexicalEmbedder::new().model_identity().clone(),
-        Some(provider) => EmbeddingModelIdentity {
-            provider: match provider {
-                EmbeddingProvider::Local => "local",
-                EmbeddingProvider::Openai => "openai",
-                EmbeddingProvider::LexicalBaseline => "local-baseline",
-            }.into(),
-            model: config.pipeline.embedding_model.clone().ok_or(
-                ApplicationError::ResourceConfiguration("Supply --http-embeddings-model.")
-            )?,
-            revision: config.pipeline.embedding_revision.clone().ok_or(
-                ApplicationError::ResourceConfiguration("Supply --http-embeddings-revision with a pinned encoder revision.")
-            )?,
-            dimensions: config.pipeline.embedding_dimensions.ok_or(
-                ApplicationError::ResourceConfiguration("Supply --http-embeddings-dimensions.")
-            )?,
-            encoding_revision: "plain-v1".into(),
-        },
-        None if config.pipeline.embedding_model.is_some() || config.pipeline.embedding_revision.is_some()
-            || config.pipeline.embedding_dimensions.is_some() => {
+        Some(provider) => http_embeddings::model_identity(options, match provider {
+            EmbeddingProvider::Local => "local",
+            EmbeddingProvider::Openai => "openai",
+            EmbeddingProvider::LexicalBaseline => "local-baseline",
+        })?,
+        None if http_embeddings::has_model_options(options)? => {
             return Err(ApplicationError::ResourceConfiguration(
                 "Select --embedding-provider when supplying embedding model settings.",
             ));
@@ -177,7 +177,9 @@ pub(super) async fn prepare_optional<F: FnMut(ProgressEvent)>(
             progress.state(
                 ModuleId::Embeddings,
                 match error {
-                    ApplicationError::ResourceConfiguration(_) => ModuleState::NotConfigured,
+                    ApplicationError::ResourceConfiguration(_)
+                    | ApplicationError::Options(OptionError::Missing { .. })
+                    | ApplicationError::MissingCredential(_) => ModuleState::NotConfigured,
                     _ => ModuleState::Unavailable {
                         error: error.to_string(),
                     },

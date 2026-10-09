@@ -4,7 +4,10 @@ use std::{
 };
 use yomibu::{
     application::Operation,
-    configuration::{ConfigError, Configuration, ConfigurationInput, Patch, ProcessOverrides},
+    configuration::{
+        ConfigError, Configuration, ConfigurationInput, Patch, ProcessOverrides,
+        components::{EMBEDDING_ENDPOINT, GENERATION_MODEL},
+    },
 };
 
 fn load_config(
@@ -23,6 +26,39 @@ fn load_config(
         },
         operation,
     )
+}
+
+#[test]
+fn status_configuration_keeps_defaults_for_a_later_local_retrieval_invocation() {
+    use yomibu::configuration::{EmbeddingProvider, Invocation};
+    use yomibu_components::http_embeddings as http;
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = load_config(
+        dir.path(),
+        &Operation::Status,
+        ProcessOverrides::default(),
+        BTreeMap::new(),
+    )
+    .unwrap();
+    let mut invocation = Invocation::default();
+    invocation.pipeline.embedding.provider = Patch::Set(EmbeddingProvider::Local);
+    let options = &mut invocation.pipeline.options;
+    options.set(http::MODEL, "test-model".into()).unwrap();
+    options.set(http::REVISION, "pinned".into()).unwrap();
+    options.set(http::DIMENSIONS, 2).unwrap();
+
+    let retrieval = config
+        .for_invocation(invocation, &Operation::Retrieval)
+        .unwrap();
+    let options = retrieval.pipeline.options.for_component(&http::COMPONENT);
+    assert_eq!(
+        options.required(http::ENDPOINT).unwrap(),
+        "http://127.0.0.1:11434/v1/"
+    );
+    let identity = http::model_identity(options, "local").unwrap();
+    assert!(http::HttpEmbedder::local(options, identity).is_ok());
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
 #[test]
@@ -54,7 +90,7 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
     ] {
         let environment = BTreeMap::from([(name.into(), "wrong-type".into())]);
         assert!(
-            matches!(load(environment.clone()), Err(ConfigError::Environment { name: invalid }) if invalid == name)
+            matches!(load(environment.clone()), Err(ConfigError::Environment { name: invalid } | ConfigError::ComponentEnvironment { name: invalid, .. }) if invalid == name)
         );
         assert!(
             load_config(
@@ -68,6 +104,85 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
     }
     std::fs::write(&path, "[story]\nselect=0\n").unwrap();
     assert_eq!(load(BTreeMap::new()).unwrap().story.select, 4);
+}
+
+#[test]
+fn component_validators_apply_to_file_and_environment_but_skip_unused_operations() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("default-pipeline.toml");
+    for dimensions in ["0", "4097"] {
+        for file in [false, true] {
+            std::fs::write(
+                &path,
+                if file {
+                    format!("[pipeline.options.http-embeddings]\ndimensions={dimensions}\n")
+                } else {
+                    String::new()
+                },
+            )
+            .unwrap();
+            let environment = if file {
+                BTreeMap::new()
+            } else {
+                BTreeMap::from([(
+                    "YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS".into(),
+                    dimensions.into(),
+                )])
+            };
+            let error = load_config(
+                dir.path(),
+                &Operation::Retrieval,
+                ProcessOverrides::default(),
+                environment.clone(),
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("Embedding dimensions must be between 1 and 4096."),
+                "{error}"
+            );
+            assert!(
+                load_config(
+                    dir.path(),
+                    &Operation::Status,
+                    ProcessOverrides::default(),
+                    environment
+                )
+                .is_ok()
+            );
+        }
+    }
+}
+
+#[test]
+fn auth_reads_credential_selection_but_ignores_component_tuning() {
+    use yomibu::configuration::components::{EMBEDDING_KEY, GENERATION_KEY, SOURCE_KEY};
+    let dir = tempfile::tempdir().unwrap();
+    for (provider, sync, hosted) in [("local", false, false), ("openai", true, true)] {
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!("[application]\nsync={sync}\n"),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("default-pipeline.toml"), format!(
+            "[pipeline.selection]\nembeddings=true\n[pipeline.embedding]\nprovider='{provider}'\n[pipeline.options.http-embeddings]\ndimensions=0\nmodel=42\n[pipeline.options.openai]\nmodel=42\n"
+        )).unwrap();
+        let config = load_config(
+            dir.path(),
+            &Operation::Auth,
+            ProcessOverrides::default(),
+            BTreeMap::from([("YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS".into(), "invalid".into())]),
+        )
+        .unwrap();
+        let required: Vec<_> = config
+            .credential_requirements()
+            .map(|key| key.name)
+            .collect();
+        assert!(required.contains(&GENERATION_KEY.name));
+        assert_eq!(required.contains(&EMBEDDING_KEY.name), hosted);
+        assert_eq!(required.contains(&SOURCE_KEY.name), sync);
+    }
 }
 
 #[test]
@@ -162,11 +277,11 @@ fn scoped_defaults_resolve_component_options_and_file_relative_resources() {
         config.application.inventory,
         Some(dir.path().join("inventory.json"))
     );
-    assert_eq!(config.generation().model, "environment-generation");
+    assert_eq!(config.generation().unwrap().model, "environment-generation");
     assert_eq!(config.story.select, 4);
     assert_eq!(config.story.seed, Some(7));
     assert_eq!(
-        config.generation().format,
+        config.generation().unwrap().format,
         yomibu::configuration::StoryFormat::Sentence
     );
 }
@@ -269,7 +384,7 @@ fn resolves_each_model_setting_before_job_fallback_and_paths_relative_to_config(
     let mut flags = ProcessOverrides::default();
     flags.invocation.pipeline.model = Some("flag-default".into());
     let config = load_config(dir.path(), &Operation::Story, flags, env).unwrap();
-    assert_eq!(config.generation().model, "file-generation");
+    assert_eq!(config.generation().unwrap().model, "file-generation");
     assert_eq!(
         config.application.inventory,
         Some(dir.path().join("inventory.json"))
@@ -352,7 +467,12 @@ fn flags_override_environment_and_environment_overrides_file_for_each_setting() 
     .unwrap();
     std::fs::write(dir.path().join("default-story.toml"), "[story]\nselect=2\n").unwrap();
     let mut flags = ProcessOverrides::default();
-    flags.invocation.pipeline.options.generation.model = Patch::Set("flag-generation".into());
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(GENERATION_MODEL, "flag-generation".into())
+        .unwrap();
     let config = load_config(
         dir.path(),
         &Operation::Story,
@@ -363,7 +483,7 @@ fn flags_override_environment_and_environment_overrides_file_for_each_setting() 
         ]),
     )
     .unwrap();
-    assert_eq!(config.generation().model, "flag-generation");
+    assert_eq!(config.generation().unwrap().model, "flag-generation");
     assert_eq!(config.story.select, 3);
 }
 
@@ -510,6 +630,8 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
     for input in [
         r#"{"pipeline":{"credentials":{}}}"#,
         r#"{"pipeline":{"options":{"openai":{"api-key":"secret"}}}}"#,
+        r#"{"pipeline":{"options":{"unknown":{"model":"test"}}}}"#,
+        r#"{"pipeline":{"options":{"openai":{"unknown":"test"}}}}"#,
         r#"{"story":{"inventory":"input.json"}}"#,
     ] {
         assert!(serde_json::from_str::<Invocation>(input).is_err());
@@ -517,15 +639,44 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
     let dir = tempfile::tempdir().unwrap();
     let mut flags = ProcessOverrides::default();
     flags.invocation.pipeline.model = Some("shared".into());
-    flags.invocation.pipeline.options.generation.model = Patch::Set("specific".into());
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(GENERATION_MODEL, "specific".into())
+        .unwrap();
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_ENDPOINT, "http://127.0.0.1:9000/v1/".into())
+        .unwrap();
     let config = load_config(dir.path(), &Operation::Story, flags, BTreeMap::new()).unwrap();
     let input: Invocation = serde_json::from_str(
-        r#"{"pipeline":{"model":"new-shared","options":{"openai":{"model":{"clear":true}}}}}"#,
+        r#"{"pipeline":{"model":"new-shared","options":{"openai":{"model":{"clear":true}},"http-embeddings":{"endpoint":{"clear":true}}}}}"#,
     )
     .unwrap();
     let changed = config.for_invocation(input, &Operation::Story).unwrap();
-    assert_eq!(changed.generation().model, "new-shared");
-    assert_eq!(config.generation().model, "specific");
+    assert_eq!(changed.generation().unwrap().model, "new-shared");
+    assert_eq!(
+        changed
+            .pipeline
+            .options
+            .get(EMBEDDING_ENDPOINT)
+            .unwrap()
+            .map(String::as_str),
+        Some("http://127.0.0.1:11434/v1/")
+    );
+    assert_eq!(
+        config
+            .pipeline
+            .options
+            .get(EMBEDDING_ENDPOINT)
+            .unwrap()
+            .map(String::as_str),
+        Some("http://127.0.0.1:9000/v1/")
+    );
+    assert_eq!(config.generation().unwrap().model, "specific");
     assert!(std::sync::Arc::ptr_eq(
         &config.application,
         &changed.application

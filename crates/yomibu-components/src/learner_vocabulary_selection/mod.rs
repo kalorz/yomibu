@@ -1,3 +1,8 @@
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "learner-vocabulary-selection",
+    settings: &[],
+};
+
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use yomibu_core::{

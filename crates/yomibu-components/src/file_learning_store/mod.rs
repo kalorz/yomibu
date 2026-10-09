@@ -1,4 +1,9 @@
 //! File-backed storage with validated atomic replacement.
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "file-learning-store",
+    settings: &[],
+};
+
 pub mod cache;
 
 use std::{path::PathBuf, sync::Arc};

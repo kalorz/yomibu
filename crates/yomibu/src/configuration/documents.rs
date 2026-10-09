@@ -1,4 +1,4 @@
-use super::{ConfigError, ProcessOverrides};
+use super::{ConfigError, Patch, ProcessOverrides, components};
 use crate::application::Operation;
 use std::{io::Read, path::Path};
 
@@ -25,12 +25,7 @@ const PIPELINE: &[&str] = &[
     "pipeline.assessment.enabled",
     "pipeline.model",
     "pipeline.knowledge_policy",
-    "pipeline.options.openai.model",
     "pipeline.embedding.provider",
-    "pipeline.options.http-embeddings.model",
-    "pipeline.options.http-embeddings.revision",
-    "pipeline.options.http-embeddings.dimensions",
-    "pipeline.options.http-embeddings.endpoint",
 ];
 const STORY: &[&str] = &[
     "story.targets.vocabulary",
@@ -49,12 +44,20 @@ pub(super) fn load(
 ) -> Result<ProcessOverrides, ConfigError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut input = ProcessOverrides::default();
+    let paths: Vec<_> = super::components::options()
+        .map(super::options::path)
+        .collect();
+    let pipeline: Vec<_> = PIPELINE
+        .iter()
+        .copied()
+        .chain(paths.iter().map(String::as_str))
+        .collect();
     for (path, explicit, fields, scope) in [
         (path.to_owned(), explicit, APPLICATION, "application"),
         (
             parent.join("default-pipeline.toml"),
             false,
-            PIPELINE,
+            pipeline.as_slice(),
             "pipeline",
         ),
         (parent.join("default-story.toml"), false, STORY, "story"),
@@ -63,7 +66,7 @@ pub(super) fn load(
             continue;
         }
         let invalid = || ConfigError::Invalid { path: path.clone() };
-        let table = prune(read(&path, explicit)?, "", fields, operation).ok_or_else(invalid)?;
+        let table = prune(read(&path, explicit)?, "", fields, operation, &path)?;
         let source: ProcessOverrides = table.try_into().map_err(|_| invalid())?;
         match scope {
             "application" => input.application = source.application,
@@ -79,11 +82,13 @@ fn prune(
     prefix: &str,
     fields: &[&str],
     operation: &Operation,
-) -> Option<toml::Table> {
+    file: &Path,
+) -> Result<toml::Table, ConfigError> {
+    let invalid = || ConfigError::Invalid { path: file.into() };
     let mut out = toml::Table::new();
     for (key, value) in table {
         if key.contains('.') {
-            return None;
+            return Err(invalid());
         }
         let path = if prefix.is_empty() {
             key.clone()
@@ -104,6 +109,24 @@ fn prune(
                 }) {
                     continue;
                 }
+                if let Some(setting) =
+                    components::options().find(|setting| super::options::path(*setting) == path)
+                {
+                    let option_error = |error| ConfigError::ComponentFile {
+                        path: file.into(),
+                        error,
+                    };
+                    let patch: Patch<components::Value> =
+                        value.clone().try_into().map_err(|_| {
+                            option_error(components::OptionError::Invalid {
+                                name: setting.name(),
+                                reason: "Wrong component option type.",
+                            })
+                        })?;
+                    if let Patch::Set(value) = patch {
+                        setting.check(&value).map_err(option_error)?;
+                    }
+                }
                 out.insert(key, value);
             }
         } else if fields
@@ -111,14 +134,14 @@ fn prune(
             .any(|name| name.starts_with(&format!("{path}.")))
         {
             let toml::Value::Table(table) = value else {
-                return None;
+                return Err(invalid());
             };
-            out.insert(key, prune(table, &path, fields, operation)?.into());
+            out.insert(key, prune(table, &path, fields, operation, file)?.into());
         } else {
-            return None;
+            return Err(invalid());
         }
     }
-    Some(out)
+    Ok(out)
 }
 
 fn read(path: &Path, explicit: bool) -> Result<toml::Table, ConfigError> {

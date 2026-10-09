@@ -13,20 +13,68 @@ use yomibu_core::{
     },
 };
 
-use yomibu_core::capabilities::options::{CredentialRequirement, OptionDeclaration};
+use yomibu_core::component::{
+    Component,
+    credentials::Secret,
+    options::{ComponentOptions, OptionError, OptionKey},
+};
 
-pub const MODEL: OptionDeclaration<String> = OptionDeclaration::new("http-embeddings", "model");
-pub const REVISION: OptionDeclaration<String> =
-    OptionDeclaration::new("http-embeddings", "revision");
-pub const DIMENSIONS: OptionDeclaration<usize> =
-    OptionDeclaration::new("http-embeddings", "dimensions");
-pub const ENDPOINT: OptionDeclaration<String> =
-    OptionDeclaration::new("http-embeddings", "endpoint");
-pub const API_KEY: CredentialRequirement = CredentialRequirement::new(
-    "http-embeddings",
-    "api-key",
-    "Hosted embeddings: OpenAI embedding access",
-);
+pub const ID: &str = "http-embeddings";
+pub const MODEL: OptionKey<String> = OptionKey::new(ID, "model", "Embedding model.");
+pub const REVISION: OptionKey<String> = OptionKey::new(ID, "revision", "Pinned encoder revision.");
+pub const DIMENSIONS: OptionKey<usize> =
+    OptionKey::new(ID, "dimensions", "Embedding dimensions (1..=4096).").validate(|value| {
+        if (1..=4096).contains(value) {
+            Ok(())
+        } else {
+            Err("Embedding dimensions must be between 1 and 4096.")
+        }
+    });
+pub const ENDPOINT: OptionKey<String> = OptionKey::new(
+    ID,
+    "endpoint",
+    "Numeric loopback OpenAI-compatible endpoint for a local encoder.",
+)
+.default("http://127.0.0.1:11434/v1/");
+pub const API_KEY: OptionKey<Secret> =
+    OptionKey::new(ID, "api-key", "Use an OpenAI key with embedding access.");
+pub const COMPONENT: Component = Component {
+    id: ID,
+    settings: &[
+        MODEL.setting(),
+        REVISION.setting(),
+        DIMENSIONS.setting(),
+        ENDPOINT.setting(),
+        API_KEY.setting(),
+    ],
+};
+
+pub fn model_identity(
+    options: ComponentOptions<'_>,
+    provider: &str,
+) -> Result<EmbeddingModelIdentity, OptionError> {
+    Ok(EmbeddingModelIdentity {
+        provider: provider.into(),
+        model: options.required(MODEL)?.clone(),
+        revision: options.required(REVISION)?.clone(),
+        dimensions: *options.required(DIMENSIONS)?,
+        encoding_revision: "plain-v1".into(),
+    })
+}
+
+pub fn has_model_options(options: ComponentOptions<'_>) -> Result<bool, OptionError> {
+    Ok(options.get(MODEL)?.is_some()
+        || options.get(REVISION)?.is_some()
+        || options.get(DIMENSIONS)?.is_some())
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BuildError {
+    #[error(transparent)]
+    Options(#[from] OptionError),
+    #[error(transparent)]
+    Embedding(#[from] EmbeddingError),
+}
 
 pub struct HttpEmbedder {
     http: reqwest::Client,
@@ -37,8 +85,11 @@ impl HttpEmbedder {
     pub fn openai(key: &str, model: EmbeddingModelIdentity) -> Result<Self, EmbeddingError> {
         Self::build("https://api.openai.com/v1/", Some(key), model)
     }
-    pub fn local(base: &str, model: EmbeddingModelIdentity) -> Result<Self, EmbeddingError> {
-        Self::build(base, None, model)
+    pub fn local(
+        options: ComponentOptions<'_>,
+        model: EmbeddingModelIdentity,
+    ) -> Result<Self, BuildError> {
+        Ok(Self::build(options.required(ENDPOINT)?, None, model)?)
     }
     fn build(
         base: &str,

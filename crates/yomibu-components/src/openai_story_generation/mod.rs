@@ -16,17 +16,37 @@ use yomibu_core::domain::{
     story::{StoryError, StoryGenerationOptions},
 };
 
+use yomibu_core::component::{
+    Component,
+    credentials::Secret,
+    options::{ComponentOptions, OptionError, OptionKey},
+};
+
+pub const ID: &str = "openai";
+pub const MODEL: OptionKey<String> =
+    OptionKey::new(ID, "model", "Override the model for generation.");
+pub const API_KEY: OptionKey<Secret> = OptionKey::new(
+    ID,
+    "api-key",
+    "Use an OpenAI key with response creation (api.responses.write) and access to the selected model.",
+);
+pub const COMPONENT: Component = Component {
+    id: ID,
+    settings: &[MODEL.setting(), API_KEY.setting()],
+};
+
+pub fn generation_options(
+    options: ComponentOptions<'_>,
+    mut defaults: StoryGenerationOptions,
+) -> Result<StoryGenerationOptions, OptionError> {
+    if let Some(model) = options.get(MODEL)? {
+        defaults.model = model.clone();
+    }
+    Ok(defaults)
+}
+
 const BASE_URL: &str = "https://api.openai.com/v1/";
 const OUTPUT_TOKENS_PER_CANDIDATE: usize = 512;
-pub const MODEL: yomibu_core::capabilities::options::OptionDeclaration<String> =
-    yomibu_core::capabilities::options::OptionDeclaration::new("openai", "model");
-pub const API_KEY: yomibu_core::capabilities::options::CredentialRequirement =
-    yomibu_core::capabilities::options::CredentialRequirement::new(
-        "openai",
-        "api-key",
-        "Story generation: OpenAI response creation and model access",
-    );
-
 const MAX_RESPONSE_BODY_BYTES: usize = 65536;
 
 impl yomibu_core::capabilities::CandidateGenerator for Client {

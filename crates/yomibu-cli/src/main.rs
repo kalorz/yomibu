@@ -27,7 +27,7 @@ fn entry(
         .join("\n");
     let (args, credentials) = commands::credentials::capture(args);
     let mut command = Cli::command()
-        .args(commands::credentials::arguments())
+        .args(commands::options::arguments(true))
         .mut_subcommand("story", |command| command.after_help(guidance));
     let cli = match command
         .try_get_matches_from_mut(args)

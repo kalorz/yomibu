@@ -107,7 +107,7 @@ async fn failed_later_batch_returns_no_partial_cache_and_preserves_previous_data
 #[tokio::test]
 async fn oversized_later_input_fails_before_any_http_call_and_exact_limit_is_accepted() {
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
-    use yomibu_components::http_embeddings::HttpEmbedder;
+    use yomibu_components::http_embeddings::{self, HttpEmbedder};
     use yomibu_core::domain::embedding::MAX_EMBEDDING_INPUT_BYTES;
     let server = MockServer::start().await;
     Mock::given(path("/v1/embeddings"))
@@ -125,8 +125,12 @@ async fn oversized_later_input_fails_before_any_http_call_and_exact_limit_is_acc
         })
         .mount(&server)
         .await;
+    let mut options = yomibu_core::component::options::Options::default();
+    options
+        .set(http_embeddings::ENDPOINT, format!("{}/v1/", server.uri()))
+        .unwrap();
     let encoder = HttpEmbedder::local(
-        &format!("{}/v1/", server.uri()),
+        options.for_component(&http_embeddings::COMPONENT),
         EmbeddingModelIdentity {
             provider: "local".into(),
             model: "boundary-model".into(),

@@ -47,7 +47,11 @@ pub struct SetupIssue {
 #[derive(Debug, thiserror::Error)]
 pub enum ApplicationError {
     #[error(transparent)]
+    Options(#[from] crate::configuration::components::OptionError),
+    #[error(transparent)]
     Credential(#[from] super::CredentialError),
+    #[error("{}", crate::configuration::components::credential_guidance(*.0))]
+    MissingCredential(crate::configuration::components::OptionKey<super::Secret>),
     #[error("Missing required setup.")]
     Setup { issues: Vec<SetupIssue> },
     #[error(transparent)]
@@ -100,6 +104,16 @@ pub enum ApplicationError {
     Grammar(#[from] yomibu_core::domain::grammar::GrammarError),
     #[error(transparent)]
     Evaluation(#[from] yomibu_core::domain::evaluation::EvaluationError),
+}
+
+impl From<yomibu_components::http_embeddings::BuildError> for ApplicationError {
+    fn from(error: yomibu_components::http_embeddings::BuildError) -> Self {
+        use yomibu_components::http_embeddings::BuildError;
+        match error {
+            BuildError::Options(error) => error.into(),
+            BuildError::Embedding(error) => error.into(),
+        }
+    }
 }
 
 impl LocalApp {
@@ -218,7 +232,7 @@ impl LocalApp {
             &inventory,
             &request,
             selection,
-            self.config.generation(),
+            self.config.generation()?,
         )?;
         let selection = SelectionReport::from_selection(plan.selection(), seed);
         progress.finish(Step::Selection, started);

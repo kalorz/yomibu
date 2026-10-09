@@ -1,5 +1,10 @@
 //! Pinned Sudachi/Core adapter with explicit loading and no ambient configuration.
 
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "sudachi-dictionary",
+    settings: &[],
+};
+
 use sha2::{Digest, Sha256};
 use sudachi::{
     analysis::{Mode, Tokenize, morpheme::Morpheme, stateless_tokenizer::StatelessTokenizer},

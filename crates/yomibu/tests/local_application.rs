@@ -12,7 +12,9 @@ use yomibu::{
     },
     configuration::{
         Configuration, ConfigurationInput, Patch, ProcessOverrides,
-        components::{GENERATION_KEY, SOURCE_KEY},
+        components::{
+            EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_REVISION, GENERATION_KEY, SOURCE_KEY,
+        },
         modules::{ModuleId, ModuleState},
     },
 };
@@ -685,6 +687,69 @@ async fn no_topic_skips_embeddings_and_the_explicit_retrieval_command_requires_a
 }
 
 #[tokio::test]
+async fn invalid_component_options_report_unavailable_instead_of_missing_setup() {
+    use yomibu_components::http_embeddings as http;
+    use yomibu_core::component::options::OptionKey;
+
+    let dir = tempfile::tempdir().unwrap();
+    let inventory = dir.path().join("inventory.json");
+    std::fs::write(
+        &inventory,
+        include_bytes!("../../../tests/fixtures/story/inventory.json"),
+    )
+    .unwrap();
+    let server = MockServer::start().await;
+    mount_generation(&server, 2).await;
+    for name in [http::MODEL.name, http::ENDPOINT.name] {
+        let mut flags = ProcessOverrides {
+            enable: vec![ModuleId::Embeddings],
+            ..Default::default()
+        };
+        flags.application.inventory = Some(inventory.clone());
+        flags.invocation.story.topic = Patch::Set("cat".into());
+        flags.invocation.pipeline.embedding.provider =
+            Patch::Set(yomibu::configuration::EmbeddingProvider::Local);
+        let mut config = config(dir.path(), flags);
+        config
+            .pipeline
+            .options
+            .set(http::MODEL, "test-model".into())
+            .unwrap();
+        config
+            .pipeline
+            .options
+            .set(http::REVISION, "pinned".into())
+            .unwrap();
+        config.pipeline.options.set(http::DIMENSIONS, 2).unwrap();
+        config
+            .pipeline
+            .options
+            .set(
+                OptionKey::<usize>::new(name.component, name.option, "Wrong type"),
+                1,
+            )
+            .unwrap();
+        let app = LocalApp::new(config, supplied_credentials(None, Some("ai".into())))
+            .with_endpoints(endpoints(&server));
+        let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+            .await
+            .unwrap();
+        let state = &report
+            .modules
+            .iter()
+            .find(|module| module.metadata.id == ModuleId::Embeddings)
+            .unwrap()
+            .state;
+        assert!(
+            matches!(state, ModuleState::Unavailable { error } if error.contains("Wrong component option type")),
+            "{state:?}"
+        );
+        assert_eq!(report.warnings.len(), 1);
+        assert!(!dir.path().join("embeddings.json").exists());
+    }
+}
+
+#[tokio::test]
 async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_error() {
     use yomibu::{
         application::Secret,
@@ -698,8 +763,13 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
     )
     .unwrap();
     let server = MockServer::start().await;
-    mount_generation(&server, 2).await;
-    for authorized in [false, true] {
+    mount_generation(&server, 3).await;
+    for (authorized, credential) in [
+        (false, Some(Secret::invalid_encoding())),
+        (true, Some(Secret::invalid_encoding())),
+        (true, None),
+    ] {
+        let missing = credential.is_none();
         let mut flags = ProcessOverrides {
             enable: vec![ModuleId::Embeddings],
             ..Default::default()
@@ -709,17 +779,39 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
         flags.invocation.story.topic = Patch::Set("cat".into());
         flags.invocation.pipeline.embedding.provider =
             Patch::Set(yomibu::configuration::EmbeddingProvider::Openai);
-        flags.invocation.pipeline.options.embeddings.model = Patch::Set("embedding-model".into());
-        flags.invocation.pipeline.options.embeddings.revision = Patch::Set("pinned".into());
-        flags.invocation.pipeline.options.embeddings.dimensions = Patch::Set(2);
+        flags
+            .invocation
+            .pipeline
+            .options
+            .set(EMBEDDING_MODEL, "embedding-model".into())
+            .unwrap();
+        flags
+            .invocation
+            .pipeline
+            .options
+            .set(EMBEDDING_REVISION, "pinned".into())
+            .unwrap();
+        flags
+            .invocation
+            .pipeline
+            .options
+            .set(EMBEDDING_DIMENSIONS, 2)
+            .unwrap();
         let mut credentials = Credentials::default();
         credentials.set_cli(GENERATION_KEY, "ai".into());
-        credentials.set_environment(EMBEDDING_KEY, Secret::invalid_encoding());
+        if let Some(credential) = credential {
+            credentials.set_environment(EMBEDDING_KEY, credential);
+        }
         let app = LocalApp::new(config(dir.path(), flags), credentials)
             .with_endpoints(endpoints(&server));
         let now = SystemTime::now().into();
         let error = app.prepare_retrieval(now).await.unwrap_err();
-        if authorized {
+        if missing {
+            assert!(
+                matches!(error, ApplicationError::MissingCredential(_)),
+                "{error:?}"
+            );
+        } else if authorized {
             assert!(
                 matches!(error, ApplicationError::Credential(_)),
                 "{error:?}"
@@ -738,10 +830,21 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
         let report = unsafe { app.story(now, 1, |_| {}) }.await.unwrap();
         assert_eq!(report.selection.selector_revision, "builtin-v2");
         assert_eq!(report.warnings.len(), 1);
+        let state = &report
+            .modules
+            .iter()
+            .find(|report| report.metadata.id == ModuleId::Embeddings)
+            .unwrap()
+            .state;
+        if missing || !authorized {
+            assert!(matches!(state, ModuleState::NotConfigured));
+        } else {
+            assert!(matches!(state, ModuleState::Unavailable { .. }));
+        }
         assert!(report.warnings[0].message.contains(&error.to_string()));
         assert!(!dir.path().join("embeddings.json").exists());
     }
-    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
 }
 
 #[tokio::test]
@@ -771,7 +874,12 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
     };
     flags.application.inventory = Some(inventory);
     flags.invocation.story.topic = Patch::Set("cat".into());
-    flags.invocation.pipeline.options.embeddings.model = Patch::Set("another-model".into());
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_MODEL, "another-model".into())
+        .unwrap();
     let app = LocalApp::new(
         config(dir.path(), flags),
         supplied_credentials(None, Some("ai".into())),
@@ -853,10 +961,24 @@ async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentia
     };
     flags.application.inventory = Some(inventory_path);
     flags.invocation.pipeline.embedding.provider = Patch::Set(EmbeddingProvider::Openai);
-    flags.invocation.pipeline.options.embeddings.model = Patch::Set(cache.model.model.clone());
-    flags.invocation.pipeline.options.embeddings.revision =
-        Patch::Set(cache.model.revision.clone());
-    flags.invocation.pipeline.options.embeddings.dimensions = Patch::Set(2);
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_MODEL, cache.model.model.clone())
+        .unwrap();
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_REVISION, cache.model.revision.clone())
+        .unwrap();
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_DIMENSIONS, 2)
+        .unwrap();
     let app = LocalApp::new(config(dir.path(), flags), Credentials::default());
     let now = SystemTime::now().into();
     let reused = app.prepare_retrieval(now).await.unwrap();
