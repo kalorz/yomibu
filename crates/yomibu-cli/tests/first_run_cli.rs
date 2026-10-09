@@ -33,8 +33,15 @@ fn bare_help_and_help_command_list_every_command_without_setup_or_writes() {
             .filter(|word| word.starts_with("--") && word.ends_with("-api-key"))
             .collect();
         assert_eq!(credential_flags, ["--openai-api-key", "--wanikani-api-key"]);
-        assert!(text.contains("YOMIBU_OPENAI_API_KEY"));
-        assert!(text.contains("YOMIBU_WANIKANI_API_KEY"));
+        let (_, credentials_help) = text
+            .split_once("\nCredentials:\n")
+            .expect("Missing Credentials help section");
+        assert!(credentials_help.contains("--no-keychain"));
+        assert!(credentials_help.contains("--openai-api-key"));
+        assert!(credentials_help.contains("--wanikani-api-key"));
+        assert!(credentials_help.contains("YOMIBU_OPENAI_API_KEY"));
+        assert!(credentials_help.contains("YOMIBU_WANIKANI_API_KEY"));
+        assert!(!credentials_help.contains("--data-dir"));
         assert!(!text.contains("--credential-"));
     }
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);

@@ -20,7 +20,7 @@ pub(crate) struct Cli {
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
     /// Use only explicit credentials; do not read macOS Keychain.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = "Credentials")]
     pub no_keychain: bool,
     /// Emit a single structured JSON report.
     #[arg(long, global = true)]

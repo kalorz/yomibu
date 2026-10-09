@@ -30,6 +30,7 @@ pub(crate) fn arguments() -> impl Iterator<Item = clap::Arg> {
         clap::Arg::new(provider.cli())
             .long(provider.cli())
             .global(true)
+            .help_heading("Credentials")
             .value_name("KEY")
             .help(format!(
                 "Secret credential; env: {}",
