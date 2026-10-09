@@ -93,9 +93,10 @@ impl Configuration {
         input: Invocation,
         operation: &Operation,
     ) -> Result<Self, ConfigError> {
+        let topic_override = !matches!(input.story.topic, Patch::Inherit);
         let mut resolved = self.clone();
         resolved.apply(input, operation);
-        resolved.validate(operation)?;
+        resolved.validate(operation, topic_override)?;
         Ok(resolved)
     }
     pub(super) fn apply(&mut self, input: Invocation, operation: &Operation) {
@@ -177,7 +178,9 @@ impl Configuration {
                 .apply(&mut pipeline.embedding_dimensions);
             match overrides.options.embeddings.endpoint {
                 Patch::Inherit => {}
-                Patch::Clear => pipeline.embedding_endpoint = "http://127.0.0.1:11434/v1/".into(),
+                Patch::Clear => {
+                    pipeline.embedding_endpoint = super::DEFAULT_EMBEDDING_ENDPOINT.into()
+                }
                 Patch::Set(value) => pipeline.embedding_endpoint = value,
             }
         }
@@ -188,7 +191,11 @@ impl Configuration {
             set!(input.story.targets.grammar, story.grammar_targets);
         }
     }
-    pub(super) fn validate(&self, operation: &Operation) -> Result<(), ConfigError> {
+    pub(super) fn validate(
+        &self,
+        operation: &Operation,
+        topic_override: bool,
+    ) -> Result<(), ConfigError> {
         if operation.uses_setting("model") {
             yomibu_components::openai_story_generation::validate_options(&self.generation()).map_err(|_|ConfigError::InvalidSetting("Choose a nonblank text model and a positive candidate count that fits the output budget."))?;
         }
@@ -199,6 +206,11 @@ impl Configuration {
         }
         if operation.uses_setting("steps") {
             self.pipeline.selection.validate()?;
+        }
+        if operation.uses_setting("topic") && topic_override && self.story.request.is_some() {
+            return Err(ConfigError::InvalidSetting(
+                "--topic and --request conflict; put the topic in the request file.",
+            ));
         }
         Ok(())
     }

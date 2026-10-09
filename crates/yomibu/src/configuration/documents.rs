@@ -1,4 +1,4 @@
-use super::{ConfigError, Settings};
+use super::{ConfigError, Settings, credentials::DEFAULT_CREDENTIAL_BINDINGS};
 use crate::application::Operation;
 use std::{io::Read, path::Path};
 
@@ -101,7 +101,9 @@ fn collect(
             format!("{prefix}.{key}")
         };
         if let Some((_, field)) = fields.iter().find(|(name, _)| *name == path) {
-            if operation.uses_setting(field) {
+            if *field == "credential_bindings" {
+                out.insert((*field).into(), credential_bindings(value, operation)?);
+            } else if operation.uses_setting(field) {
                 if value.as_table().is_some_and(|table| {
                     table.len() == 1
                         && table.get("clear").and_then(toml::Value::as_bool) == Some(true)
@@ -136,6 +138,26 @@ fn collect(
         }
     }
     Some(())
+}
+
+fn credential_bindings(value: &toml::Value, operation: &Operation) -> Option<toml::Value> {
+    let mut bindings = toml::Table::new();
+    for (target, value) in value.as_table()? {
+        let (requirement, _) = DEFAULT_CREDENTIAL_BINDINGS
+            .iter()
+            .find(|(requirement, _)| requirement.name.key() == *target)?;
+        if value.as_table().is_some_and(|table| {
+            table
+                .keys()
+                .any(|key| !matches!(key.as_str(), "provider" | "key" | "clear"))
+        }) {
+            return None;
+        }
+        if operation.uses_credential(*requirement) {
+            bindings.insert(target.clone(), value.clone());
+        }
+    }
+    Some(bindings.into())
 }
 
 fn read(path: &Path, explicit: bool) -> Result<toml::Table, ConfigError> {

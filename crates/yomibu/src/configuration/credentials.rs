@@ -1,6 +1,15 @@
-use super::{ConfigError, Patch, components};
+use super::{
+    ConfigError, Patch,
+    components::{self, CredentialRequirement},
+};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+
+pub const DEFAULT_CREDENTIAL_BINDINGS: &[(CredentialRequirement, &str)] = &[
+    (components::SOURCE_KEY, "wanikani"),
+    (components::GENERATION_KEY, "openai"),
+    (components::EMBEDDING_KEY, "openai"),
+];
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -18,36 +27,24 @@ pub enum CredentialProvider {
 pub struct CredentialBindings(BTreeMap<String, CredentialBinding>);
 impl Default for CredentialBindings {
     fn default() -> Self {
-        Self(BTreeMap::from([
-            (
-                components::SOURCE_KEY.name.key(),
-                CredentialBinding {
-                    provider: CredentialProvider::Supplied,
-                    key: "wanikani".into(),
-                },
-            ),
-            (
-                components::GENERATION_KEY.name.key(),
-                CredentialBinding {
-                    provider: CredentialProvider::Supplied,
-                    key: "openai".into(),
-                },
-            ),
-            (
-                components::EMBEDDING_KEY.name.key(),
-                CredentialBinding {
-                    provider: CredentialProvider::Supplied,
-                    key: "openai".into(),
-                },
-            ),
-        ]))
+        Self(
+            DEFAULT_CREDENTIAL_BINDINGS
+                .iter()
+                .map(|(requirement, shared)| {
+                    (
+                        requirement.name.key(),
+                        CredentialBinding {
+                            provider: CredentialProvider::Supplied,
+                            key: (*shared).into(),
+                        },
+                    )
+                })
+                .collect(),
+        )
     }
 }
 impl CredentialBindings {
-    pub fn get(
-        &self,
-        requirement: yomibu_core::capabilities::options::CredentialRequirement,
-    ) -> Option<&CredentialBinding> {
+    pub fn get(&self, requirement: CredentialRequirement) -> Option<&CredentialBinding> {
         self.0.get(&requirement.name.key())
     }
     pub(super) fn resolve(
@@ -55,17 +52,14 @@ impl CredentialBindings {
     ) -> Result<Self, ConfigError> {
         let mut bindings = Self::default();
         for (target, patch) in patches {
-            let shared = match target.as_str() {
-                "wanikani-source.api-key" => "wanikani",
-                "openai-story-generation.api-key" | "http-embeddings.api-key" => "openai",
-                _ => {
-                    return Err(ConfigError::InvalidSetting(
-                        "Unknown credential requirement.",
-                    ));
-                }
-            };
+            let (_, shared) = DEFAULT_CREDENTIAL_BINDINGS
+                .iter()
+                .find(|(requirement, _)| requirement.name.key() == target)
+                .ok_or(ConfigError::InvalidSetting(
+                    "Unknown credential requirement.",
+                ))?;
             match patch {
-                Patch::Set(binding) if binding.key == shared || binding.key == target => {
+                Patch::Set(binding) if binding.key == *shared || binding.key == target => {
                     bindings.0.insert(target, binding);
                 }
                 Patch::Set(_) => {

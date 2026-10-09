@@ -366,6 +366,59 @@ async fn usable_old_cache_needs_no_source_key_and_disabled_sync_never_initialize
 }
 
 #[tokio::test]
+async fn invalid_source_credentials_are_ignored_until_a_refresh_needs_them() {
+    use yomibu::{application::Secret, configuration::components::SOURCE_KEY};
+    let server = MockServer::start().await;
+    mount_generation(&server, 4).await;
+    for shared in [false, true] {
+        for (age_hours, sync, succeeds) in [(0, true, true), (2, false, true), (2, true, false)] {
+            let dir = tempfile::tempdir().unwrap();
+            let completed = write_cache(dir.path());
+            let before = std::fs::read(dir.path().join("wanikani.json")).unwrap();
+            let mut credentials = supplied_credentials(None, Some("ai".into()));
+            if shared {
+                credentials.set_shared_environment("wanikani", Secret::invalid_encoding());
+            } else {
+                credentials.set_environment(SOURCE_KEY, Secret::invalid_encoding());
+                credentials.set_shared_environment("wanikani", Secret::new("unused-key".into()));
+            }
+            let app = LocalApp::new(
+                config(
+                    dir.path(),
+                    Settings {
+                        sync: Some(sync),
+                        ..Default::default()
+                    },
+                ),
+                credentials,
+            )
+            .with_endpoints(endpoints(&server));
+            let result =
+                unsafe { app.story(completed + chrono::Duration::hours(age_hours), 1, |_| {}) }
+                    .await;
+            if succeeds {
+                let report = result.unwrap();
+                assert_eq!(
+                    report.generated.passages()[0].text,
+                    "猫です。寝ます。朝です。"
+                );
+            } else {
+                assert!(
+                    matches!(result, Err(ApplicationError::Credential(_))),
+                    "{result:?}"
+                );
+            }
+            assert_eq!(
+                std::fs::read(dir.path().join("wanikani.json")).unwrap(),
+                before
+            );
+            assert!(!dir.path().join("wanikani.json.lock").exists());
+        }
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 4);
+}
+
+#[tokio::test]
 async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_preserves_bytes() {
     for status in [500, 401] {
         let dir = tempfile::tempdir().unwrap();

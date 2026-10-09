@@ -1,8 +1,7 @@
 use std::ffi::OsString;
-use yomibu::configuration::components::CredentialRequirement;
-use yomibu::{
-    application::{Credentials, Secret},
-    configuration::components,
+use yomibu::application::{Credentials, Secret};
+use yomibu::configuration::{
+    components::CredentialRequirement, credentials::DEFAULT_CREDENTIAL_BINDINGS,
 };
 
 pub(crate) enum Input {
@@ -33,28 +32,22 @@ impl Input {
         }
     }
 }
-fn inputs() -> [Input; 5] {
-    [
-        Input::Component(components::SOURCE_KEY),
-        Input::Component(components::GENERATION_KEY),
-        Input::Component(components::EMBEDDING_KEY),
-        Input::Shared("wanikani"),
-        Input::Shared("openai"),
-    ]
+fn inputs() -> impl Iterator<Item = Input> {
+    let shared: std::collections::BTreeSet<_> = DEFAULT_CREDENTIAL_BINDINGS
+        .iter()
+        .map(|(_, shared)| *shared)
+        .collect();
+    DEFAULT_CREDENTIAL_BINDINGS
+        .iter()
+        .map(|(requirement, _)| Input::Component(*requirement))
+        .chain(shared.into_iter().map(Input::Shared))
 }
 pub(crate) fn arguments() -> impl Iterator<Item = clap::Arg> {
-    inputs().into_iter().map(|input| {
+    inputs().map(|input| {
         clap::Arg::new(input.cli())
             .long(input.cli())
             .global(true)
             .value_name("KEY")
-            .value_parser(|value: &str| {
-                if value == "[INVALID UTF8]" {
-                    Err("Credential must be valid UTF-8.")
-                } else {
-                    Ok(())
-                }
-            })
             .help(format!("Secret credential; env: {}", input.environment()))
     })
 }
@@ -65,36 +58,37 @@ pub(crate) fn capture(
 ) -> (Vec<OsString>, Credentials) {
     let mut args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     let mut credentials = Credentials::default();
+    let inputs: Vec<_> = inputs().collect();
     let mut index = 1;
     while index < args.len() {
         let text = args[index].to_string_lossy();
         if text == "--" {
             break;
         }
-        if let Some(input) = inputs().into_iter().find(|input| {
+        if let Some(input) = inputs.iter().find(|input| {
             text == format!("--{}", input.cli()) || text.starts_with(&format!("--{}=", input.cli()))
         }) {
             if let Some((_, value)) = text.split_once('=') {
-                let placeholder = if args[index].to_str().is_some() {
-                    input.set(&mut credentials, Secret::new(value.to_string()), true);
-                    "[REDACTED]"
+                let secret = if args[index].to_str().is_some() {
+                    Secret::new(value.to_string())
                 } else {
-                    "[INVALID UTF8]"
+                    Secret::invalid_encoding()
                 };
-                args[index] = format!("--{}={placeholder}", input.cli()).into();
+                input.set(&mut credentials, secret, true);
+                args[index] = format!("--{}=[REDACTED]", input.cli()).into();
             } else if index + 1 < args.len() {
                 let value = args[index + 1].to_string_lossy();
                 if !value.starts_with('-') {
-                    let placeholder = if args[index + 1].to_str().is_some() {
-                        input.set(&mut credentials, Secret::new(value.to_string()), true);
-                        "[REDACTED]"
+                    let secret = if args[index + 1].to_str().is_some() {
+                        Secret::new(value.to_string())
                     } else {
-                        "[INVALID UTF8]"
+                        Secret::invalid_encoding()
                     };
-                    args[index + 1] = placeholder.into();
+                    input.set(&mut credentials, secret, true);
+                    args[index + 1] = "[REDACTED]".into();
                     index += 1;
                 } else if !matches!(value.as_ref(), "--help" | "-h" | "--version" | "-V")
-                    && !inputs()
+                    && !inputs
                         .iter()
                         .any(|input| value == format!("--{}", input.cli()))
                 {

@@ -4,7 +4,7 @@ mod documents;
 mod invocation;
 pub mod modules;
 mod patch;
-use self::modules::{MODULES, ModuleId};
+use self::modules::ModuleId;
 use crate::application::Operation;
 pub use invocation::*;
 pub use patch::Patch;
@@ -13,6 +13,8 @@ use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use yomibu_core::domain::knowledge::LearnerKnowledgePolicy;
 pub use yomibu_core::domain::story::StoryFormat;
 use yomibu_core::domain::story::StoryGenerationOptions;
+
+const DEFAULT_EMBEDDING_ENDPOINT: &str = "http://127.0.0.1:11434/v1/";
 
 pub const ENVIRONMENT_SETTINGS: &[&str] = &[
     "YOMIBU_MODEL",
@@ -209,33 +211,25 @@ impl Configuration {
             }
         }
         let mut env = environment_settings(input.environment, operation)?;
-        let mut enabled: BTreeMap<_, _> = MODULES
-            .iter()
-            .map(|module| (module.id, module.default_enabled))
-            .collect();
         if operation.uses_setting("enable") {
-            for source in [&file, &env, &input.flags] {
-                for (id, value) in [
-                    (ModuleId::Sync, source.sync),
-                    (ModuleId::Embeddings, source.embeddings),
-                    (ModuleId::Assessment, source.assessment),
-                ] {
-                    if let Some(value) = value {
-                        enabled.insert(id, value);
-                    }
-                }
+            for source in [&mut file, &mut env, &mut input.flags] {
                 for id in source.enable.iter().chain(&source.disable) {
-                    if !id.metadata().controllable {
-                        return Err(ConfigError::InvalidSetting(
-                            "Only sync, embeddings, and assessment can be enabled or disabled.",
-                        ));
-                    }
+                    let setting = match id {
+                        ModuleId::Sync => &mut source.sync,
+                        ModuleId::Embeddings => &mut source.embeddings,
+                        ModuleId::Assessment => &mut source.assessment,
+                        ModuleId::Knowledge | ModuleId::Generation => {
+                            return Err(ConfigError::InvalidSetting(
+                                "Only sync, embeddings, and assessment can be enabled or disabled.",
+                            ));
+                        }
+                    };
                     if source.enable.contains(id) && source.disable.contains(id) {
                         return Err(ConfigError::ConflictingControl {
                             module: id.metadata().name,
                         });
                     }
-                    enabled.insert(*id, source.enable.contains(id));
+                    *setting = Some(source.enable.contains(id));
                 }
             }
         }
@@ -251,9 +245,9 @@ impl Configuration {
         }
         let topic_conflict = input.flags.topic.is_some() || env.topic.is_some();
         let request = setting!(request);
-        let credential_bindings = credentials::CredentialBindings::resolve(std::mem::take(
-            &mut file.credential_bindings,
-        ))?;
+        let credential_bindings =
+            credentials::CredentialBindings::resolve(std::mem::take(&mut file.credential_bindings))
+                .map_err(|_| ConfigError::Invalid { path: path.clone() })?;
         let dictionary_dir = setting!(dictionary_dir);
         let mut resolved = Self {
             application: std::sync::Arc::new(ApplicationSettings {
@@ -266,7 +260,12 @@ impl Configuration {
                     .unwrap_or_else(|| data_dir.join("embeddings.json")),
                 allow_embedding_call: setting!(allow_embedding_call).unwrap_or(false),
                 credential_bindings,
-                sync: enabled[&ModuleId::Sync],
+                sync: if operation.uses_setting("sync") {
+                    setting!(sync)
+                } else {
+                    None
+                }
+                .unwrap_or(ModuleId::Sync.metadata().default_enabled),
                 data_dir,
             }),
             pipeline: PipelineSettings {
@@ -282,9 +281,9 @@ impl Configuration {
                 embedding_model: None,
                 embedding_revision: None,
                 embedding_dimensions: None,
-                embedding_endpoint: "http://127.0.0.1:11434/v1/".into(),
-                embeddings: false,
-                assessment: true,
+                embedding_endpoint: DEFAULT_EMBEDDING_ENDPOINT.into(),
+                embeddings: ModuleId::Embeddings.metadata().default_enabled,
+                assessment: ModuleId::Assessment.metadata().default_enabled,
             },
             story: StorySettings {
                 request,
@@ -300,14 +299,7 @@ impl Configuration {
         for source in [file, env, input.flags] {
             resolved.apply(source.into_invocation(), operation);
         }
-        resolved.pipeline.embeddings = enabled[&ModuleId::Embeddings];
-        resolved.pipeline.assessment = enabled[&ModuleId::Assessment];
-        resolved.validate(operation)?;
-        if operation.uses_setting("topic") && topic_conflict && resolved.story.request.is_some() {
-            return Err(ConfigError::InvalidSetting(
-                "--topic and --request conflict; put the topic in the request file.",
-            ));
-        }
+        resolved.validate(operation, topic_conflict)?;
         Ok(resolved)
     }
     pub fn generation(&self) -> StoryGenerationOptions {
@@ -351,11 +343,33 @@ fn environment_settings(
             continue;
         }
         let value = match field.as_str() {
-            "select" | "seed" | "candidates" | "cache_max_age_seconds" | "embedding_dimensions" => {
-                serde_json::Value::from(
-                    text.parse::<u64>()
-                        .map_err(|_| ConfigError::Environment { name: name.clone() })?,
-                )
+            "select" | "seed" | "candidates" | "cache_max_age_seconds" => serde_json::Value::from(
+                text.parse::<u64>()
+                    .map_err(|_| ConfigError::Environment { name: name.clone() })?,
+            ),
+            "generation_model"
+            | "embedding_model"
+            | "embedding_revision"
+            | "embedding_dimensions"
+            | "embedding_endpoint" => {
+                let value = match field.as_str() {
+                    "generation_model" => components::GENERATION_MODEL
+                        .parse(&text)
+                        .map(serde_json::Value::from),
+                    "embedding_model" => components::EMBEDDING_MODEL
+                        .parse(&text)
+                        .map(serde_json::Value::from),
+                    "embedding_revision" => components::EMBEDDING_REVISION
+                        .parse(&text)
+                        .map(serde_json::Value::from),
+                    "embedding_dimensions" => components::EMBEDDING_DIMENSIONS
+                        .parse(&text)
+                        .map(serde_json::Value::from),
+                    _ => components::EMBEDDING_ENDPOINT
+                        .parse(&text)
+                        .map(serde_json::Value::from),
+                };
+                value.map_err(|_| ConfigError::Environment { name: name.clone() })?
             }
             "allow_embedding_call" => serde_json::Value::from(
                 text.parse::<bool>()

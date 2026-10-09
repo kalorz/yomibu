@@ -325,6 +325,59 @@ fn component_choices_and_credential_bindings_belong_to_separate_scopes() {
 }
 
 #[test]
+fn credential_bindings_validate_only_consumed_requirements_but_always_reject_unknown_paths() {
+    use yomibu::configuration::ConfigError;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let load = |operation: &Operation| {
+        Configuration::load(
+            ConfigurationInput {
+                data_dir: Some(dir.path().into()),
+                config: None,
+                home: None,
+                environment: BTreeMap::new(),
+                flags: Settings::default(),
+            },
+            operation,
+        )
+    };
+    for (requirement, used_by_sync, used_by_retrieval) in [
+        ("wanikani-source.api-key", true, false),
+        ("openai-story-generation.api-key", false, false),
+        ("http-embeddings.api-key", false, true),
+    ] {
+        std::fs::write(&path, format!("[application.credentials]\n\"{requirement}\"={{provider='supplied',key='unrelated'}}\n")).unwrap();
+        for (operation, used) in [
+            (Operation::Status, false),
+            (Operation::Story, true),
+            (Operation::Sync, used_by_sync),
+            (Operation::Retrieval, used_by_retrieval),
+            (Operation::Preview, false),
+            (Operation::Verify, false),
+            (Operation::Analyze("input.json".into()), false),
+            (Operation::Import("bundle".into()), false),
+        ] {
+            match load(&operation) {
+                Err(ConfigError::Invalid { path: invalid }) if used => assert_eq!(invalid, path),
+                Ok(_) if !used => {}
+                result => panic!("{operation:?}, {requirement}: {result:?}"),
+            }
+        }
+    }
+    for invalid in [
+        "\"bogus.api-key\"={provider='supplied',key='x'}",
+        "\"openai-story-generation.api-key\"={provider='supplied',key='openai',value='synthetic-secret'}",
+    ] {
+        std::fs::write(&path, format!("[application.credentials]\n{invalid}\n")).unwrap();
+        for operation in [Operation::Story, Operation::Status, Operation::Verify] {
+            let error = load(&operation).unwrap_err();
+            assert!(matches!(&error, ConfigError::Invalid { path: invalid } if invalid == &path));
+            assert!(!format!("{error:?} {error}").contains("synthetic-secret"));
+        }
+    }
+}
+
+#[test]
 fn status_does_not_open_story_defaults_but_story_requires_bounded_valid_documents() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("default-story.toml")).unwrap();
@@ -446,4 +499,59 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
         &config.application,
         &changed.application
     ));
+}
+
+#[test]
+fn typed_topic_overrides_conflict_with_request_files_after_option_validation() {
+    use yomibu::configuration::{ConfigError, Invocation, Patch};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("default-story.toml"),
+        "[story]\ntopic='saved'\n",
+    )
+    .unwrap();
+    for operation in [Operation::Story, Operation::Preview, Operation::Retrieval] {
+        let config = Configuration::load(
+            ConfigurationInput {
+                data_dir: Some(dir.path().into()),
+                config: None,
+                home: None,
+                environment: BTreeMap::new(),
+                flags: Settings {
+                    request: Some(dir.path().join("unopened.json")),
+                    ..Default::default()
+                },
+            },
+            &operation,
+        )
+        .unwrap();
+        let inherited = config
+            .for_invocation(Invocation::default(), &operation)
+            .unwrap();
+        assert_eq!(inherited.story.topic.as_deref(), Some("saved"));
+        for topic in [Patch::Set("overridden".into()), Patch::Clear] {
+            let mut invocation = Invocation::default();
+            invocation.story.topic = topic;
+            assert!(
+                matches!(
+                    config.for_invocation(invocation, &operation),
+                    Err(ConfigError::InvalidSetting(
+                        "--topic and --request conflict; put the topic in the request file."
+                    ))
+                ),
+                "{operation:?}"
+            );
+        }
+        let mut invalid = Invocation::default();
+        invalid.story.topic = Patch::Clear;
+        invalid.story.select = Some(0);
+        assert!(matches!(
+            config.for_invocation(invalid, &operation),
+            Err(ConfigError::InvalidSetting(
+                "--select must be between 1 and 16."
+            ))
+        ));
+        assert_eq!(config.story.topic.as_deref(), Some("saved"));
+    }
+    assert!(!dir.path().join("unopened.json").exists());
 }

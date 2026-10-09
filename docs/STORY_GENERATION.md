@@ -85,7 +85,8 @@ text generation and hosted embeddings. Shared inputs are `--credential-openai` /
 removes access to the shared slot. Resolution is component CLI → bound shared CLI
 → component ENV → bound shared ENV → caller-supplied bound value. A winning blank
 key is missing; it never falls through. Invalid credential encoding fails when
-that credential is needed. There is no cross-provider fallback.
+that credential is needed, including for a stale-cache refresh. There is no
+cross-provider fallback.
 Keychain is not implemented. WaniKani requires read access, OpenAI generation
 requires response creation and model access, and hosted embeddings require
 embedding access.
@@ -97,13 +98,15 @@ analyzer/checks; dictionary commands use its dictionary resources. They ignore
 story and text-generation settings. Unknown paths and malformed loaded TOML fail
 without reflecting contents. Known unused fields are pruned before type checking;
 consumed lower-precedence inputs must still have valid types.
+Credential bindings follow this rule per requirement: story uses all three,
+sync uses the source, and retrieval uses embeddings. Offline operations ignore
+known binding values; unknown requirements and fields still fail.
 
 `LocalApp::for_invocation(Invocation { pipeline, story }, operation)` resolves an
 independent snapshot through the same typed application logic as file/CLI loading.
 It shares immutable resource settings and credentials. Request overrides cannot
 choose resource paths, authorization or credential bindings. No shared current
-pipeline is mutated. The existing production workflow owns resource timing and
-failure policy.
+pipeline is mutated.
 
 Default selection is `lexical-topic` then `seeded-order` (`builtin-v2`).
 `seeded-order` alone uses `seeded-only-v1`. Embedding selection is `embedding-rank`
@@ -125,7 +128,8 @@ on optional failures and preserves generated text and NotRun behavior.
 
 ## Topic and vocabulary
 
-`--topic` is optional and conflicts with `--request PATH`. Advanced request JSON
+`--topic` is optional and conflicts with `--request PATH`. Typed topic overrides,
+including clear, have the same conflict. Advanced request JSON
 uses `topic` plus target IDs. Omitted topic inherits saved defaults; `null` clears
 it. Both target arrays remain required and replace saved lists. The request file
 is invocation input, not a persisted defaults reference. Without a topic, the AI creates a coherent scene

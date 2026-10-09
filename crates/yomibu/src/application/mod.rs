@@ -34,10 +34,22 @@ pub enum Operation {
 }
 
 impl Operation {
+    pub(crate) fn uses_credential(
+        &self,
+        requirement: crate::configuration::components::CredentialRequirement,
+    ) -> bool {
+        use crate::configuration::components;
+        match self {
+            Self::Story => true,
+            Self::Sync => requirement.name == components::SOURCE_KEY.name,
+            Self::Retrieval => requirement.name == components::EMBEDDING_KEY.name,
+            _ => false,
+        }
+    }
+
     pub(crate) fn uses_setting(&self, name: &str) -> bool {
         use Operation::*;
         match name {
-            "credential_bindings" => true,
             "source" => matches!(self, Story | Sync),
             "learning_store" => matches!(self, Story | Preview | Retrieval | Sync | Status),
             "embedding_cache_component" => matches!(self, Story | Preview | Retrieval),

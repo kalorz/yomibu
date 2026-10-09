@@ -42,6 +42,12 @@ impl<T> OptionDeclaration<T> {
     }
 }
 
+impl<T: std::str::FromStr> OptionDeclaration<T> {
+    pub fn parse(&self, value: &str) -> Result<T, &'static str> {
+        value.parse().map_err(|_| "Invalid component option value.")
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CredentialRequirement {
     pub name: OptionName,

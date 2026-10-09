@@ -65,7 +65,7 @@ fn status_uses_the_configured_cache_without_validating_unused_story_settings() {
     .unwrap();
     fs::write(
         dir.path().join("config.toml"),
-        "[application]\nwanikani_cache='source.json'\ndictionary_dir='unused'\n",
+        "[application]\nwanikani_cache='source.json'\ndictionary_dir='unused'\n[application.credentials]\n\"wanikani-source.api-key\"={provider=false,key=7}\n",
     )
     .unwrap();
     fs::write(
@@ -368,7 +368,7 @@ fn canonical_component_options_have_generated_names_and_parser_errors_hide_secre
 }
 
 #[test]
-fn credential_redaction_preserves_help_and_rejects_non_utf8_secret_values() {
+fn credential_redaction_preserves_help_and_version() {
     for flag in ["--help", "--version"] {
         let output = cli()
             .args(["--openai-story-generation-api-key=synthetic-secret", flag])
@@ -381,54 +381,64 @@ fn credential_redaction_preserves_help_and_rejects_non_utf8_secret_values() {
         );
         assert!(output.stderr.is_empty());
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStringExt;
-        let output = cli()
-            .args(["story", "--openai-story-generation-api-key"])
-            .arg(std::ffi::OsString::from_vec(
-                b"synthetic-secret\xff".to_vec(),
-            ))
-            .output()
-            .unwrap();
-        assert_eq!(output.status.code(), Some(2));
-        assert!(output.stdout.is_empty());
-        let error = String::from_utf8(output.stderr).unwrap();
-        assert!(!error.contains("synthetic-secret"));
-        assert!(error.contains("UTF-8"));
-        assert!(error.contains("\n\nUsage: yomibu"));
-    }
 }
 
 #[cfg(unix)]
 #[test]
-fn invalid_credential_environment_is_lazy_and_cannot_fall_through_to_a_shared_key() {
+fn invalid_credentials_are_lazy_and_cannot_fall_through_to_lower_precedence_keys() {
     use std::os::unix::ffi::OsStringExt;
     let dir = tempfile::tempdir().unwrap();
     cache(
         dir.path(),
         include_str!("../../../tests/fixtures/mixed.json"),
     );
-    for (operation, success) in [("status", true), ("sync", false)] {
-        let output = cli()
-            .args(["--data-dir", dir.path().to_str().unwrap(), operation])
-            .env(
-                "YOMIBU_WANIKANI_SOURCE_API_KEY",
-                std::ffi::OsString::from_vec(b"synthetic-secret\xff".to_vec()),
-            )
-            .env("YOMIBU_CREDENTIAL_WANIKANI", "invalid\nshared")
-            .output()
-            .unwrap();
-        assert_eq!(output.status.success(), success);
-        if success {
-            assert!(output.stderr.is_empty());
-        } else {
-            let error = String::from_utf8(output.stderr).unwrap();
-            assert!(error.contains("Invalid credential input"), "{error}");
-            assert!(!error.contains("synthetic-secret"));
-            assert!(!error.contains("shared"));
+    let before = fs::read(dir.path().join("wanikani.json")).unwrap();
+    for input in [
+        "environment",
+        "component",
+        "shared",
+        "component-equals",
+        "shared-equals",
+    ] {
+        for operation in ["status", "sync"] {
+            let mut command = cli();
+            command.args(["--data-dir", dir.path().to_str().unwrap(), operation]);
+            command.env("YOMIBU_CREDENTIAL_WANIKANI", "invalid\nshared");
+            let invalid = std::ffi::OsString::from_vec(b"synthetic-secret\xff".to_vec());
+            if input == "environment" {
+                command.env("YOMIBU_WANIKANI_SOURCE_API_KEY", invalid);
+            } else {
+                let flag = if input.starts_with("component") {
+                    "--wanikani-source-api-key"
+                } else {
+                    "--credential-wanikani"
+                };
+                if input.ends_with("-equals") {
+                    let mut argument = std::ffi::OsString::from(format!("{flag}="));
+                    argument.push(invalid);
+                    command.arg(argument);
+                } else {
+                    command.arg(flag).arg(invalid);
+                }
+            }
+            let output = command.output().unwrap();
+            if operation == "status" {
+                assert_eq!(
+                    stdout(&output),
+                    include_str!("../../../tests/fixtures/mixed-status.txt")
+                );
+            } else {
+                assert_eq!(output.status.code(), Some(1), "{input}");
+                assert!(output.stdout.is_empty());
+                let error = String::from_utf8(output.stderr).unwrap();
+                assert_eq!(
+                    error, "error: Invalid credential input; supply a UTF-8 credential.\n",
+                    "{input}"
+                );
+            }
         }
     }
+    assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
     assert!(!dir.path().join("wanikani.json.lock").exists());
 }
 

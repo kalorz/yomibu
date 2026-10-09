@@ -60,18 +60,18 @@ pub(crate) fn select_configured<'a>(
     };
     let seeded = SeededOrdering { seed };
     if let Some(cache) = cache {
-        let ranking = EmbeddingRanking::prepare(input, cache, &cache.model)?;
         return if settings
             .embedding_steps
             .contains(&SelectionStep::SeededOrder)
         {
+            let ranking = EmbeddingRanking::prepare(input, cache, &cache.model)?;
             select_target_first(
                 input,
                 &[&ranking, &seeded],
                 "inventory-similarity-seeded-v1",
             )
         } else {
-            select_target_first(input, &[&ranking], "inventory-similarity-v1")
+            select_vocabulary(inventory, request, cache, &cache.model, limit)
         };
     }
     if settings.steps.contains(&SelectionStep::LexicalTopic) {

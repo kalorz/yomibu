@@ -66,7 +66,7 @@ pub(crate) struct StoryArgs {
     #[arg(long)]
     model: Option<String>,
     /// Override the model for generation.
-    #[arg(long = components::GENERATION_MODEL.name.cli())]
+    #[arg(long = components::GENERATION_MODEL.name.cli(), value_parser = |value: &str| components::GENERATION_MODEL.parse(value))]
     generation_model: Option<String>,
     /// Output format: passage (default) or sentence.
     #[arg(long)]
@@ -101,18 +101,27 @@ pub(crate) struct StoryArgs {
     /// Encoder: lexical-baseline, local, or openai. Does not enable embeddings.
     #[arg(long)]
     embedding_provider: Option<EmbeddingProvider>,
-    #[arg(long = components::EMBEDDING_MODEL.name.cli())]
+    #[arg(long = components::EMBEDDING_MODEL.name.cli(), value_parser = |value: &str| components::EMBEDDING_MODEL.parse(value))]
     embedding_model: Option<String>,
-    #[arg(long = components::EMBEDDING_REVISION.name.cli())]
+    #[arg(long = components::EMBEDDING_REVISION.name.cli(), value_parser = |value: &str| components::EMBEDDING_REVISION.parse(value))]
     embedding_revision: Option<String>,
-    #[arg(long = components::EMBEDDING_DIMENSIONS.name.cli(), value_parser = clap::value_parser!(u16).range(1..=4096))]
-    embedding_dimensions: Option<u16>,
+    #[arg(long = components::EMBEDDING_DIMENSIONS.name.cli(), value_parser = embedding_dimensions)]
+    embedding_dimensions: Option<usize>,
     /// Numeric loopback OpenAI-compatible endpoint for a local encoder.
-    #[arg(long = components::EMBEDDING_ENDPOINT.name.cli())]
+    #[arg(long = components::EMBEDDING_ENDPOINT.name.cli(), value_parser = |value: &str| components::EMBEDDING_ENDPOINT.parse(value))]
     embedding_endpoint: Option<String>,
     /// Authorize hosted embedding calls sending vocabulary and topic text.
     #[arg(long)]
     allow_embedding_call: bool,
+}
+
+fn embedding_dimensions(value: &str) -> Result<usize, &'static str> {
+    let dimensions = components::EMBEDDING_DIMENSIONS.parse(value)?;
+    if (1..=4096).contains(&dimensions) {
+        Ok(dimensions)
+    } else {
+        Err("Embedding dimensions must be between 1 and 4096.")
+    }
 }
 
 impl StoryArgs {
@@ -136,7 +145,7 @@ impl StoryArgs {
             embedding_provider: self.embedding_provider,
             embedding_model: self.embedding_model,
             embedding_revision: self.embedding_revision,
-            embedding_dimensions: self.embedding_dimensions.map(usize::from),
+            embedding_dimensions: self.embedding_dimensions,
             embedding_endpoint: self.embedding_endpoint,
             allow_embedding_call: self.allow_embedding_call.then_some(true),
             ..Default::default()
