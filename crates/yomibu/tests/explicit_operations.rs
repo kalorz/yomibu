@@ -18,6 +18,28 @@ fn load_config(dir: &Path, operation: &Operation, flags: ProcessOverrides) -> Co
     .unwrap()
 }
 
+#[test]
+fn offline_status_and_preview_never_read_the_credential_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let inventory = dir.path().join("inventory.json");
+    std::fs::write(
+        &inventory,
+        include_bytes!("../../../tests/fixtures/story/inventory.json"),
+    )
+    .unwrap();
+    let mut flags = ProcessOverrides::default();
+    flags.application.inventory = Some(inventory);
+    let config = load_config(&dir.path().join("data"), &Operation::Story, flags);
+    let mut credentials = Credentials::default();
+    for key in ["openai", "wanikani"] {
+        credentials.supply_with(key, || panic!("Offline command read the credential store"));
+    }
+    let app = LocalApp::new(config, credentials);
+    assert!(matches!(app.status(), Err(ApplicationError::Cache(_))));
+    assert!(app.preview(std::time::SystemTime::now().into(), 7).is_ok());
+    assert!(!dir.path().join("data").exists());
+}
+
 #[tokio::test]
 async fn offline_preview_and_retrieval_cannot_use_expired_source_content() {
     let dir = tempfile::tempdir().unwrap();

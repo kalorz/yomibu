@@ -1,6 +1,7 @@
 use std::{path::Path, process::Command};
 fn cli(dir: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
+    command.arg("--no-keychain");
     command.env_clear().env("HOME", dir);
     command
 }
@@ -27,6 +28,21 @@ fn bare_help_and_help_command_list_every_command_without_setup_or_writes() {
             assert!(text.contains(command), "{text}");
         }
         assert!(!text.contains("generate-story"));
+        let credential_flags: Vec<_> = text
+            .split_whitespace()
+            .filter(|word| word.starts_with("--") && word.ends_with("-api-key"))
+            .collect();
+        assert_eq!(credential_flags, ["--openai-api-key", "--wanikani-api-key"]);
+        let (_, credentials_help) = text
+            .split_once("\nCredentials:\n")
+            .expect("Missing Credentials help section");
+        assert!(credentials_help.contains("--no-keychain"));
+        assert!(credentials_help.contains("--openai-api-key"));
+        assert!(credentials_help.contains("--wanikani-api-key"));
+        assert!(credentials_help.contains("YOMIBU_OPENAI_API_KEY"));
+        assert!(credentials_help.contains("YOMIBU_WANIKANI_API_KEY"));
+        assert!(!credentials_help.contains("--data-dir"));
+        assert!(!text.contains("--credential-"));
     }
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
@@ -38,27 +54,72 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
         .arg("story")
         .env("WANIKANI_API_TOKEN", "old-secret")
         .env("OPENAI_API_KEY", "old-secret")
+        .envs(
+            [
+                "YOMIBU_WANIKANI_SOURCE_API_KEY",
+                "YOMIBU_OPENAI_STORY_GENERATION_API_KEY",
+                "YOMIBU_HTTP_EMBEDDINGS_API_KEY",
+                "YOMIBU_CREDENTIAL_OPENAI",
+                "YOMIBU_CREDENTIAL_WANIKANI",
+            ]
+            .map(|name| (name, "old-secret")),
+        )
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let text = String::from_utf8(output.stderr).unwrap();
-    assert!(text.contains("--wanikani-source-api-key"));
-    assert!(text.contains("--openai-story-generation-api-key"));
+    assert!(text.contains("--wanikani-api-key"));
+    assert!(text.contains("--openai-api-key"));
     assert!(text.contains("\n  "));
     assert!(text.contains("no write permissions"));
     assert!(!text.contains("old-secret"));
     let output = cli(dir.path())
-        .args(["story", "--wanikani-source-api-key", "flag-secret"])
-        .env("YOMIBU_WANIKANI_SOURCE_API_KEY", "environment-secret")
+        .args(["story", "--wanikani-api-key", "flag-secret"])
+        .env("YOMIBU_WANIKANI_API_KEY", "environment-secret")
         .output()
         .unwrap();
     let text = String::from_utf8(output.stderr).unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert!(!text.contains("--wanikani-source-api-key"));
-    assert!(text.contains("--openai-story-generation-api-key"));
+    assert!(!text.contains("--wanikani-api-key"));
+    assert!(text.contains("--openai-api-key"));
     assert!(!text.contains("secret"));
     assert!(!dir.path().join(".yomibu").exists());
+}
+
+#[test]
+fn missing_private_keys_recommend_configuration_aware_auth() {
+    let dir = tempfile::tempdir().unwrap();
+    for (command, sync, guidance_count) in [("story", true, 2), ("sync", false, 1)] {
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!(
+                "[application]\nsync={sync}\n[application.credentials]\n\"wanikani-source.api-key\"={{provider='supplied',key='wanikani-source.api-key'}}\n\"openai-story-generation.api-key\"={{provider='supplied',key='openai-story-generation.api-key'}}\n"
+            ),
+        )
+        .unwrap();
+        let output = cli(dir.path())
+            .arg("--data-dir")
+            .arg(dir.path())
+            .arg(command)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert!(text.contains("Missing required setup:\n  "), "{text}");
+        assert_eq!(
+            text.matches("On macOS, run yomibu auth to follow configured bindings.")
+                .count(),
+            guidance_count,
+            "{text}"
+        );
+        assert!(!text.contains("yomibu auth openai"), "{text}");
+        assert!(!text.contains("yomibu auth wanikani"), "{text}");
+        assert!(text.contains("automatic sync is disabled"), "{text}");
+        assert!(text.contains("configured source credential slot"), "{text}");
+        assert!(!dir.path().join("wanikani.json.lock").exists());
+    }
 }
 
 #[test]
@@ -74,8 +135,8 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
         "--openai-story-generation-model",
         "--enable",
         "--disable",
-        "--wanikani-source-api-key",
-        "--openai-story-generation-api-key",
+        "--wanikani-api-key",
+        "--openai-api-key",
     ] {
         assert!(text.contains(flag), "{text}");
     }
@@ -83,7 +144,7 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     let output = cli(dir.path())
         .args([
             "story",
-            "--openai-story-generation-api-key",
+            "--openai-api-key",
             "synthetic-secret",
             "--format",
             "日本語\n\u{1b}",

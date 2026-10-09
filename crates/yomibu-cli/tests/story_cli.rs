@@ -20,6 +20,7 @@ fn setup() -> tempfile::TempDir {
 }
 fn cli(dir: &Path, command: &str) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_yomibu"));
+    c.arg("--no-keychain");
     c.env_clear()
         .current_dir(dir)
         .env("YOMIBU_DATA_DIR", dir.join("data"))
@@ -182,6 +183,7 @@ fn story_invocation_authorizes_generation_and_rejects_the_removed_opt_in_flag() 
         vec!["--version"],
     ] {
         let o = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+            .arg("--no-keychain")
             .env_clear()
             .args(args)
             .output()
@@ -248,6 +250,7 @@ fn obsolete_generation_commands_are_removed_without_aliases() {
         "generate-reading",
     ] {
         let out = Command::new(env!("CARGO_BIN_EXE_yomibu"))
+            .arg("--no-keychain")
             .env_clear()
             .args([old, "--help"])
             .output()
@@ -269,12 +272,7 @@ fn impossible_selection_fails_before_embedding_work() {
     request["targets"]["vocabulary"] = json!(["cat", "sleep", "dog"]);
     fs::write(dir.path().join("request.json"), request.to_string()).unwrap();
     let out = cli(dir.path(), "story")
-        .args([
-            "--openai-story-generation-api-key",
-            "unused",
-            "--json",
-            "--verbose",
-        ])
+        .args(["--openai-api-key", "unused", "--json", "--verbose"])
         .args([
             "--dictionary-dir",
             "missing",
@@ -464,7 +462,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
             .arg(&dictionary)
             .args(["--data-dir", "ignored"]);
         if let Some(key) = key {
-            command.env("YOMIBU_OPENAI_STORY_GENERATION_API_KEY", key);
+            command.env("YOMIBU_OPENAI_API_KEY", key);
         }
         let output = command.output().unwrap();
         assert_eq!(output.status.code(), Some(1));
@@ -472,7 +470,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
             stderr.contains(if key.is_none() {
-                "YOMIBU_OPENAI_STORY_GENERATION_API_KEY"
+                "YOMIBU_OPENAI_API_KEY"
             } else {
                 "credential"
             }),

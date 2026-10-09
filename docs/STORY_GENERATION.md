@@ -71,24 +71,30 @@ Existing story, resource and policy flags remain explicit. Repeat `--enable` /
 A same-source enable/disable conflict fails. Mandatory core validation cannot be
 disabled.
 
-Component credentials use `--{component}-api-key` and
-`YOMIBU_{COMPONENT}_API_KEY`: `wanikani-source`, `openai-story-generation`, or
-`http-embeddings`. Values never belong in TOML, reports or Debug output. The CLI
+Provider credentials use `--wanikani-api-key` / `YOMIBU_WANIKANI_API_KEY` and
+`--openai-api-key` / `YOMIBU_OPENAI_API_KEY`. The OpenAI key serves generation and
+hosted embeddings. Values never belong in TOML, reports or Debug output. The CLI
 replaces secret arguments before parsing diagnostics. Components receive keys
 explicitly and never read process inputs or credential stores.
 
 Bindings name only the supported `supplied` provider and either the exact component
 requirement or its shared provider slot: `wanikani` for the source, `openai` for
-text generation and hosted embeddings. Shared inputs are `--credential-openai` /
-`YOMIBU_CREDENTIAL_OPENAI` and `--credential-wanikani` /
-`YOMIBU_CREDENTIAL_WANIKANI`. An explicit component binding or `{ clear = true }`
-removes access to the shared slot. Resolution is component CLI → bound shared CLI
-→ component ENV → bound shared ENV → caller-supplied bound value. A winning blank
-key is missing; it never falls through. Invalid encoding makes credential-dependent
+text generation and hosted embeddings. Provider inputs supply those shared slots.
+A private component binding or `{ clear = true }` removes access to shared inputs.
+For shared bindings, resolution is CLI → ENV → caller-supplied bound value.
+A winning blank key is missing; it never falls through. Invalid encoding makes credential-dependent
 work fail, including stale source refresh and explicit retrieval. Optional story
 embeddings report this failure as a warning and use the configured base selection.
 No other key is tried. There is no cross-provider fallback.
-Keychain is not implemented. WaniKani requires read access, OpenAI generation
+On macOS, `yomibu auth [CREDENTIAL]` saves keys in Keychain. Omit the slot to
+prompt for missing configured credentials; Enter skips any prompt. Shared slots
+are `wanikani` and `openai`; exact component slots allow separate bound keys.
+Disabled integrations are excluded. Generation is required for stories; source
+sync and hosted embeddings are optional during setup. Saved keys are supplied
+lazily after CLI/ENV inputs. `--no-keychain` disables lookup. Normal commands never
+ask for API keys. Other platforms use CLI/ENV inputs. No plaintext fallback.
+
+WaniKani requires read access, OpenAI generation
 requires response creation and model access, and hosted embeddings require
 embedding access.
 

@@ -247,7 +247,7 @@ fn each_operation_validates_its_resources_without_parsing_unused_settings() {
                 dir.path().join("dictionaries")
             ),
             Operation::Retrieval => assert_eq!(config.story.select, 2),
-            Operation::Story => unreachable!(),
+            Operation::Story | Operation::Auth => unreachable!(),
         }
     }
 }

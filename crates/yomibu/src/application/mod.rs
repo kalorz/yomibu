@@ -23,6 +23,7 @@ use yomibu_core::{
 
 #[derive(Debug)]
 pub enum Operation {
+    Auth,
     Story,
     Preview,
     Retrieval,
@@ -40,7 +41,7 @@ impl Operation {
     ) -> bool {
         use crate::configuration::components;
         match self {
-            Self::Story => true,
+            Self::Story | Self::Auth => true,
             Self::Sync => requirement.name == components::SOURCE_KEY.name,
             Self::Retrieval => requirement.name == components::EMBEDDING_KEY.name,
             _ => false,
@@ -49,6 +50,18 @@ impl Operation {
 
     pub(crate) fn uses_setting(&self, name: &str) -> bool {
         use Operation::*;
+        if matches!(self, Auth) {
+            return matches!(
+                name,
+                "enable"
+                    | "disable"
+                    | "application.sync"
+                    | "pipeline.components.source"
+                    | "pipeline.components.generation"
+                    | "pipeline.selection.embeddings"
+                    | "pipeline.embedding.provider"
+            );
+        }
         match name {
             "pipeline.components.source" => matches!(self, Story | Sync),
             "pipeline.components.learning_store" | "application.wanikani_cache" => {

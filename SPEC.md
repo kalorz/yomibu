@@ -283,13 +283,14 @@ full refresh synchronization.
 ### CLI and local files
 
 ```sh
-YOMIBU_WANIKANI_SOURCE_API_KEY=... yomibu sync
+YOMIBU_WANIKANI_API_KEY=... yomibu sync
 yomibu status
 ```
 
 Both accept a global `--data-dir PATH`. The default is `$HOME/.yomibu`; if HOME is
 unavailable or empty, require an explicit directory. API-key flags override prefixed
-environment bindings. Never persist credentials or load them from configuration files.
+environment bindings. The macOS CLI may save credentials in Keychain. Never store
+secret values in configuration files; see [credential setup](docs/STORY_GENERATION.md#configuration-and-optional-work).
 
 ```text
 ~/.yomibu/
