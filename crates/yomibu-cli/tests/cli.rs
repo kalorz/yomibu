@@ -115,6 +115,31 @@ fn status_uses_the_configured_cache_without_validating_unused_story_settings() {
 }
 
 #[test]
+fn pasted_credential_values_in_config_are_rejected_without_echoing_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    fs::write(&config, "[application.credentials]\n\"openai-story-generation.api-key\"=\"synthetic-secret\\n\\u001b日本語\"\n").unwrap();
+    for operation in [vec!["status"], vec!["sync"], vec!["dictionary", "verify"]] {
+        let output = cli()
+            .arg("--data-dir")
+            .arg(dir.path())
+            .args(operation)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!(
+                "error: Invalid configuration at {}; use supported settings and valid TOML.\n",
+                config.display(),
+            )
+        );
+    }
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
 fn empty_account_displays_no_reviews_and_no_assignments() {
     let dir = tempfile::tempdir().unwrap();
     cache(

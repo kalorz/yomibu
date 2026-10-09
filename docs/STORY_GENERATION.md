@@ -84,9 +84,10 @@ text generation and hosted embeddings. Shared inputs are `--credential-openai` /
 `YOMIBU_CREDENTIAL_WANIKANI`. An explicit component binding or `{ clear = true }`
 removes access to the shared slot. Resolution is component CLI → bound shared CLI
 → component ENV → bound shared ENV → caller-supplied bound value. A winning blank
-key is missing; it never falls through. Invalid credential encoding fails when
-that credential is needed, including for a stale-cache refresh. There is no
-cross-provider fallback.
+key is missing; it never falls through. Invalid encoding makes credential-dependent
+work fail, including stale source refresh and explicit retrieval. Optional story
+embeddings report this failure as a warning and use the configured base selection.
+No other key is tried. There is no cross-provider fallback.
 Keychain is not implemented. WaniKani requires read access, OpenAI generation
 requires response creation and model access, and hosted embeddings require
 embedding access.
@@ -100,7 +101,8 @@ without reflecting contents. Known unused fields are pruned before type checking
 consumed lower-precedence inputs must still have valid types.
 Credential bindings follow this rule per requirement: story uses all three,
 sync uses the source, and retrieval uses embeddings. Offline operations ignore
-known binding values; unknown requirements and fields still fail.
+known binding values; unknown requirements and fields still fail. Every binding
+must be a table, even when unused; plain secret values are rejected.
 
 `LocalApp::for_invocation(Invocation { pipeline, story }, operation)` resolves an
 independent snapshot through the same typed application logic as file/CLI loading.

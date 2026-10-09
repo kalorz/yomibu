@@ -687,7 +687,11 @@ async fn no_topic_skips_embeddings_and_the_explicit_retrieval_command_requires_a
 }
 
 #[tokio::test]
-async fn optional_embedding_failure_falls_back_to_builtin_selection_without_hosted_authorization() {
+async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_error() {
+    use yomibu::{
+        application::Secret,
+        configuration::components::{EMBEDDING_KEY, GENERATION_KEY},
+    };
     let dir = tempfile::tempdir().unwrap();
     let inventory = dir.path().join("inventory.json");
     std::fs::write(
@@ -696,33 +700,50 @@ async fn optional_embedding_failure_falls_back_to_builtin_selection_without_host
     )
     .unwrap();
     let server = MockServer::start().await;
-    mount_generation(&server, 1).await;
-    let flags = Settings {
-        inventory: Some(inventory),
-        topic: Some("cat".into()),
-        enable: vec![ModuleId::Embeddings],
-        embedding_provider: Some(yomibu::configuration::EmbeddingProvider::Openai),
-        embedding_model: Some("embedding-model".into()),
-        embedding_revision: Some("pinned".into()),
-        embedding_dimensions: Some(2),
-        ..Default::default()
-    };
-    let app = LocalApp::new(
-        config(dir.path(), flags),
-        supplied_credentials(None, Some("ai".into())),
-    )
-    .with_endpoints(endpoints(&server));
-    let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
-        .await
-        .unwrap();
-    assert_eq!(report.selection.selector_revision, "builtin-v2");
-    assert_eq!(report.warnings.len(), 1);
-    assert!(
-        report.warnings[0]
-            .message
-            .contains("--allow-embedding-call")
-    );
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    mount_generation(&server, 2).await;
+    for authorized in [false, true] {
+        let flags = Settings {
+            inventory: Some(inventory.clone()),
+            topic: Some("cat".into()),
+            enable: vec![ModuleId::Embeddings],
+            embedding_provider: Some(yomibu::configuration::EmbeddingProvider::Openai),
+            embedding_model: Some("embedding-model".into()),
+            embedding_revision: Some("pinned".into()),
+            embedding_dimensions: Some(2),
+            allow_embedding_call: Some(authorized),
+            ..Default::default()
+        };
+        let mut credentials = Credentials::default();
+        credentials.set_cli(GENERATION_KEY, "ai".into());
+        credentials.set_environment(EMBEDDING_KEY, Secret::invalid_encoding());
+        credentials.set_shared_environment("openai", "invalid\nshared".into());
+        let app = LocalApp::new(config(dir.path(), flags), credentials)
+            .with_endpoints(endpoints(&server));
+        let now = SystemTime::now().into();
+        let error = app.prepare_retrieval(now).await.unwrap_err();
+        if authorized {
+            assert!(
+                matches!(error, ApplicationError::Credential(_)),
+                "{error:?}"
+            );
+        } else {
+            assert!(
+                matches!(
+                    error,
+                    ApplicationError::ResourceConfiguration(
+                        "Hosted embeddings require --allow-embedding-call."
+                    )
+                ),
+                "{error:?}"
+            );
+        }
+        let report = unsafe { app.story(now, 1, |_| {}) }.await.unwrap();
+        assert_eq!(report.selection.selector_revision, "builtin-v2");
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].message.contains(&error.to_string()));
+        assert!(!dir.path().join("embeddings.json").exists());
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
 }
 
 #[tokio::test]

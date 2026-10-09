@@ -367,9 +367,21 @@ fn credential_bindings_validate_only_consumed_requirements_but_always_reject_unk
     for invalid in [
         "\"bogus.api-key\"={provider='supplied',key='x'}",
         "\"openai-story-generation.api-key\"={provider='supplied',key='openai',value='synthetic-secret'}",
+        "\"openai-story-generation.api-key\"='synthetic-secret'",
+        "\"openai-story-generation.api-key\"=7",
+        "\"openai-story-generation.api-key\"=[]",
     ] {
         std::fs::write(&path, format!("[application.credentials]\n{invalid}\n")).unwrap();
-        for operation in [Operation::Story, Operation::Status, Operation::Verify] {
+        for operation in [
+            Operation::Story,
+            Operation::Preview,
+            Operation::Retrieval,
+            Operation::Sync,
+            Operation::Status,
+            Operation::Verify,
+            Operation::Analyze("input.json".into()),
+            Operation::Import("bundle".into()),
+        ] {
             let error = load(&operation).unwrap_err();
             assert!(matches!(&error, ConfigError::Invalid { path: invalid } if invalid == &path));
             assert!(!format!("{error:?} {error}").contains("synthetic-secret"));

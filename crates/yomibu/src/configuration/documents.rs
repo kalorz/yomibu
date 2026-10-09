@@ -146,11 +146,11 @@ fn credential_bindings(value: &toml::Value, operation: &Operation) -> Option<tom
         let (requirement, _) = DEFAULT_CREDENTIAL_BINDINGS
             .iter()
             .find(|(requirement, _)| requirement.name.key() == *target)?;
-        if value.as_table().is_some_and(|table| {
-            table
-                .keys()
-                .any(|key| !matches!(key.as_str(), "provider" | "key" | "clear"))
-        }) {
+        if value
+            .as_table()?
+            .keys()
+            .any(|key| !matches!(key.as_str(), "provider" | "key" | "clear"))
+        {
             return None;
         }
         if operation.uses_credential(*requirement) {
