@@ -8,6 +8,33 @@ use yomibu::{
 };
 
 #[test]
+fn module_setup_names_match_the_component_credential_declarations() {
+    use yomibu::configuration::modules::ModuleId;
+    for (module, requirement) in [
+        (ModuleId::Sync, SOURCE_KEY),
+        (ModuleId::Generation, GENERATION_KEY),
+        (ModuleId::Embeddings, EMBEDDING_KEY),
+    ] {
+        let metadata = module.metadata();
+        for setting in [
+            format!("--{}", requirement.name.cli()),
+            requirement.name.environment(),
+        ] {
+            assert!(
+                metadata.settings.contains(&setting.as_str()),
+                "Missing {setting} in {}",
+                metadata.name
+            );
+        }
+        assert!(
+            metadata
+                .guidance
+                .contains(&format!("yomibu auth {}", requirement.name.component))
+        );
+    }
+}
+
+#[test]
 fn component_credentials_follow_precedence_without_cross_component_fallback() {
     let mut credentials = Credentials::default();
     credentials.supply(GENERATION_KEY, "stored-generation".into());

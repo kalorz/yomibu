@@ -18,26 +18,66 @@ pub(super) fn targets() -> Vec<String> {
         .collect()
 }
 
-pub(super) fn select(target: &str) -> Vec<CredentialRequirement> {
-    components::CREDENTIALS
+pub(super) enum Target {
+    Missing(Vec<CredentialRequirement>),
+    Replace(CredentialRequirement),
+}
+
+impl Target {
+    pub(super) fn requirements(&self) -> &[CredentialRequirement] {
+        match self {
+            Self::Missing(requirements) => requirements,
+            Self::Replace(requirement) => std::slice::from_ref(requirement),
+        }
+    }
+}
+
+pub(super) fn select(target: &str) -> Result<Target> {
+    if let Some(&requirement) = components::CREDENTIALS
+        .iter()
+        .find(|requirement| requirement.name.key() == target)
+    {
+        return Ok(Target::Replace(requirement));
+    }
+    let requirements: Vec<_> = components::CREDENTIALS
         .iter()
         .copied()
-        .filter(|requirement| {
-            requirement.name.component == target || requirement.name.key() == target
-        })
-        .collect()
+        .filter(|requirement| requirement.name.component == target)
+        .collect();
+    if requirements.is_empty() {
+        bail!("Unknown credential target.");
+    }
+    Ok(Target::Missing(requirements))
 }
 
 fn pending(
-    requirements: Vec<CredentialRequirement>,
+    target: &Target,
     credentials: &Credentials,
-    replace: bool,
+    warnings: &mut impl Write,
 ) -> Result<Vec<CredentialRequirement>> {
     let mut needs = Vec::new();
-    for requirement in requirements {
-        if replace || credentials.resolve(requirement)?.is_none() {
-            needs.push(requirement);
+    for &requirement in target.requirements() {
+        if matches!(target, Target::Missing(_)) {
+            match credentials.resolve(requirement) {
+                Ok(Some(_)) => continue,
+                Ok(None) => {}
+                Err(error) => writeln!(
+                    warnings,
+                    "warning: {}: {error} Continuing setup.",
+                    requirement.name.key()
+                )?,
+            }
         }
+        if credentials.has_override(requirement) {
+            writeln!(
+                warnings,
+                "warning: {}: CLI/environment input overrides the saved Keychain credential. Omit --{} and unset {} to use it.",
+                requirement.name.key(),
+                requirement.name.cli(),
+                requirement.name.environment()
+            )?;
+        }
+        needs.push(requirement);
     }
     Ok(needs)
 }
@@ -79,9 +119,8 @@ fn save(requirement: CredentialRequirement) -> Result<()> {
     eprintln!("  {}", requirement.description);
     #[cfg(target_os = "macos")]
     {
-        let token =
-            rpassword::prompt_password(format!("{} (Enter to skip): ", requirement.name.option))
-                .map_err(|_| anyhow::anyhow!("Cannot read API key from the terminal."))?;
+        let token = rpassword::prompt_password("API key (Enter to skip): ")
+            .map_err(|_| anyhow::anyhow!("Cannot read API key from the terminal."))?;
         let mut out = io::stdout().lock();
         match api_key(token)? {
             Some(value) => {
@@ -104,12 +143,8 @@ fn save(requirement: CredentialRequirement) -> Result<()> {
     }
 }
 
-pub(super) fn configure(
-    requirements: Vec<CredentialRequirement>,
-    credentials: &Credentials,
-    replace: bool,
-) -> Result<()> {
-    let needs = pending(requirements, credentials, replace)?;
+pub(super) fn configure(target: &Target, credentials: &Credentials) -> Result<()> {
+    let needs = pending(target, credentials, &mut io::stderr().lock())?;
     if needs.is_empty() {
         writeln!(io::stdout().lock(), "No missing credentials to save.")?;
     }
@@ -119,9 +154,9 @@ pub(super) fn configure(
     Ok(())
 }
 
-pub(super) fn install(credentials: &mut Credentials) {
+pub(super) fn install(credentials: &mut Credentials, requirements: &[CredentialRequirement]) {
     if cfg!(target_os = "macos") {
-        for &requirement in components::CREDENTIALS {
+        for &requirement in requirements {
             let (service, account) = identity(requirement);
             credentials.supply_with(requirement, move || {
                 super::keychain::read(&service, account)

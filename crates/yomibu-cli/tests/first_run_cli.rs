@@ -148,9 +148,15 @@ fn hosted_embeddings_request_their_own_key_even_when_openai_has_one() {
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
+    let name = yomibu::configuration::components::EMBEDDING_KEY.name;
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
-        "error: Hosted embeddings need --http-embeddings-api-key or YOMIBU_HTTP_EMBEDDINGS_API_KEY with embedding access. On macOS, run yomibu auth http-embeddings.\n"
+        format!(
+            "error: Hosted embeddings need --{} or {} with embedding access. On macOS, run yomibu auth {}.\n",
+            name.cli(),
+            name.environment(),
+            name.component
+        )
     );
     assert!(!dir.path().join(".yomibu").exists());
 }
@@ -174,24 +180,38 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
         assert!(text.contains(flag), "{text}");
     }
     assert!(text.contains("api.responses.write"));
-    let output = cli(dir.path())
-        .args([
-            "story",
-            "--openai-api-key",
-            "synthetic-secret",
-            "--format",
-            "日本語\n\u{1b}",
-        ])
-        .output()
+    let (_, embeddings) = text
+        .split_once("Embeddings: Improve topic vocabulary selection")
         .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
-    let text = String::from_utf8(output.stderr).unwrap();
-    assert!(text.contains("日本語"));
-    assert!(!text.contains('\u{1b}'));
-    assert!(!text.contains("\n\u{1b}"));
-    assert!(!text.contains("synthetic-secret"));
-    assert!(text.contains("\n\nUsage:"));
+    let embeddings = embeddings.split("OpenAI generation:").next().unwrap();
+    let name = yomibu::configuration::components::EMBEDDING_KEY.name;
+    for guidance in [
+        format!("--{}", name.cli()),
+        name.environment(),
+        format!("yomibu auth {}", name.component),
+    ] {
+        assert!(embeddings.contains(&guidance), "{embeddings}");
+    }
+    for requirement in yomibu::configuration::components::CREDENTIALS {
+        let output = cli(dir.path())
+            .args([
+                "story",
+                &format!("--{}", requirement.name.cli()),
+                "synthetic-secret",
+                "--format",
+                "日本語\n\u{1b}",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert!(text.contains("日本語"));
+        assert!(!text.contains('\u{1b}'));
+        assert!(!text.contains("\n\u{1b}"));
+        assert!(!text.contains("synthetic-secret"));
+        assert!(text.contains("\n\nUsage:"));
+    }
 }
 
 #[test]

@@ -96,6 +96,10 @@ impl Credentials {
     pub fn set_environment(&mut self, requirement: CredentialRequirement, value: Secret) {
         self.environment.insert(requirement.name.key(), value);
     }
+    pub fn has_override(&self, requirement: CredentialRequirement) -> bool {
+        let target = requirement.name.key();
+        self.cli.contains_key(&target) || self.environment.contains_key(&target)
+    }
     pub fn resolve(
         &self,
         requirement: CredentialRequirement,

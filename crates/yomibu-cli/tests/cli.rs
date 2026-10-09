@@ -362,54 +362,59 @@ fn component_model_options_and_provider_keys_have_safe_parser_diagnostics() {
     assert!(help.contains("--openai-model"));
     assert!(help.contains("--http-embeddings-dimensions"));
     assert!(!help.contains("--generation-model"));
-    for args in [
-        vec![
-            "story",
-            "--openai-api-key=synthetic-secret",
-            "--format",
-            "invalid",
-        ],
-        vec![
-            "story",
-            "--openai-api-key",
-            "synthetic-secret",
-            "--openai-api-key",
-            "duplicate-secret",
-        ],
-        vec![
-            "story",
-            "--openai-api-key",
-            "synthetic-secret",
-            "--topic",
-            "猫",
-            "--request",
-            "story.json",
-        ],
-    ] {
-        let output = cli().args(args).output().unwrap();
-        assert_eq!(output.status.code(), Some(2));
-        assert!(output.stdout.is_empty());
-        let error = String::from_utf8(output.stderr).unwrap();
-        assert!(error.starts_with("error:"), "{error}");
-        assert!(error.contains("\n\nUsage: yomibu"), "{error}");
-        assert!(!error.contains("synthetic-secret"), "{error}");
-        assert!(!error.contains("duplicate-secret"), "{error}");
+    for requirement in yomibu::configuration::components::CREDENTIALS {
+        let flag = format!("--{}", requirement.name.cli());
+        for args in [
+            vec![
+                "story",
+                &format!("{flag}=synthetic-secret"),
+                "--format",
+                "invalid",
+            ],
+            vec![
+                "story",
+                &flag,
+                "synthetic-secret",
+                &flag,
+                "duplicate-secret",
+            ],
+            vec![
+                "story",
+                &flag,
+                "synthetic-secret",
+                "--topic",
+                "猫",
+                "--request",
+                "story.json",
+            ],
+        ] {
+            let output = cli().args(args).output().unwrap();
+            assert_eq!(output.status.code(), Some(2));
+            assert!(output.stdout.is_empty());
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(error.starts_with("error:"), "{error}");
+            assert!(error.contains("\n\nUsage: yomibu"), "{error}");
+            assert!(!error.contains("synthetic-secret"), "{error}");
+            assert!(!error.contains("duplicate-secret"), "{error}");
+        }
     }
 }
 
 #[test]
 fn credential_redaction_preserves_help_and_version() {
-    for flag in ["--help", "--version"] {
-        let output = cli()
-            .args(["--openai-api-key=synthetic-secret", flag])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(output.stderr.is_empty());
+    for requirement in yomibu::configuration::components::CREDENTIALS {
+        let key = format!("--{}=synthetic-secret", requirement.name.cli());
+        for flag in ["--help", "--version"] {
+            let output = cli().args([&key, flag]).output().unwrap();
+            assert_eq!(output.status.code(), Some(0));
+            let text = stdout(&output);
+            assert!(!text.contains("synthetic-secret"));
+            if flag == "--help" {
+                assert!(text.contains("Usage: yomibu"));
+            } else {
+                assert_eq!(text, concat!("yomibu ", env!("CARGO_PKG_VERSION"), "\n"));
+            }
+        }
     }
 }
 

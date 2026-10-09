@@ -1,3 +1,4 @@
+use super::modules::ModuleId;
 use serde::Deserialize;
 pub use yomibu_core::capabilities::options::CredentialRequirement;
 
@@ -14,18 +15,16 @@ pub const CREDENTIALS: &[CredentialRequirement] = &[EMBEDDING_KEY, GENERATION_KE
 
 impl super::Configuration {
     pub fn credential_requirements(&self) -> impl Iterator<Item = CredentialRequirement> + '_ {
-        CREDENTIALS
-            .iter()
-            .copied()
-            .filter(|requirement| match requirement.name.component {
-                "wanikani" => self.application.sync,
-                "http-embeddings" => {
-                    self.pipeline.embeddings
-                        && self.pipeline.embedding_provider
-                            == Some(super::EmbeddingProvider::Openai)
-                }
-                _ => true,
-            })
+        CREDENTIALS.iter().copied().filter(|requirement| {
+            if requirement.name == SOURCE_KEY.name {
+                self.enabled(ModuleId::Sync)
+            } else if requirement.name == EMBEDDING_KEY.name {
+                self.enabled(ModuleId::Embeddings)
+                    && self.pipeline.embedding_provider == Some(super::EmbeddingProvider::Openai)
+            } else {
+                true
+            }
+        })
     }
 }
 

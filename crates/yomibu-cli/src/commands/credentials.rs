@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use yomibu::application::{Credentials, Secret};
-use yomibu::configuration::components::CREDENTIALS;
+use yomibu::configuration::components::{CREDENTIALS, CredentialRequirement};
 
 pub(crate) fn arguments() -> impl Iterator<Item = clap::Arg> {
     CREDENTIALS.iter().map(|requirement| {
@@ -65,8 +65,8 @@ pub(crate) fn capture(
     }
     (args, credentials)
 }
-pub(crate) fn environment(credentials: &mut Credentials) {
-    for requirement in CREDENTIALS {
+pub(crate) fn environment(credentials: &mut Credentials, requirements: &[CredentialRequirement]) {
+    for requirement in requirements {
         if let Some(value) = std::env::var_os(requirement.name.environment()) {
             let value = value
                 .into_string()

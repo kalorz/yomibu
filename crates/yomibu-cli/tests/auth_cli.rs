@@ -53,6 +53,59 @@ fn auth_rejects_noninteractive_use_without_exposing_secrets_or_writing_files() {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn exact_auth_warns_about_overrides_and_allows_skipping_in_a_terminal() {
+    use std::{io::Write, process::Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    for flag in [false, true] {
+        let mut command = Command::new("/usr/bin/script");
+        command
+            .args([
+                "-q",
+                "/dev/null",
+                env!("CARGO_BIN_EXE_yomibu"),
+                "auth",
+                "openai.api-key",
+            ])
+            .env_clear()
+            .env("HOME", dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if flag {
+            command.args(["--openai-api-key", "synthetic-secret日本語\n\u{1b}"]);
+        } else {
+            command.env("YOMIBU_OPENAI_API_KEY", "synthetic-secret日本語\n\u{1b}");
+        }
+        let mut child = command.spawn().unwrap();
+        child.stdin.take().unwrap().write_all(b"\n").unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(0));
+        assert!(
+            output.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let text = String::from_utf8(output.stdout)
+            .unwrap()
+            .replace("\r\n", "\n");
+        assert!(text.contains("warning: openai.api-key: CLI/environment input overrides the saved Keychain credential. Omit --openai-api-key and unset YOMIBU_OPENAI_API_KEY to use it.\n"), "{text}");
+        assert!(
+            text.contains("openai.api-key (required for story generation)\n  Story generation:"),
+            "{text}"
+        );
+        assert!(text.contains("API key (Enter to skip): "), "{text}");
+        assert!(
+            text.contains("Skipped openai.api-key; story generation still needs a credential.\n"),
+            "{text}"
+        );
+        assert!(!text.contains("synthetic-secret"), "{text}");
+        assert!(!text.contains('\u{1b}'), "{text}");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+}
+
 #[test]
 fn explicit_only_credentials_do_not_consult_the_system_store() {
     let dir = tempfile::tempdir().unwrap();
