@@ -99,7 +99,10 @@ fn exact_auth_warns_about_overrides_and_allows_skipping_in_a_terminal() {
         );
         assert!(text.contains("warning: openai.api-key: CLI/environment input overrides the saved Keychain credential. Omit --openai-api-key and unset YOMIBU_OPENAI_API_KEY to use it.\n"), "{text}");
         assert!(
-            text.contains("openai.api-key (required for story generation)\n  Story generation:"),
+            text.contains(&format!(
+                "openai.api-key (required for story generation)\n  {}",
+                yomibu::configuration::components::GENERATION_KEY.description
+            )),
             "{text}"
         );
         assert!(text.contains("API key (Enter to skip): "), "{text}");
