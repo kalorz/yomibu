@@ -1,5 +1,4 @@
 pub mod components;
-pub mod credentials;
 mod documents;
 mod invocation;
 pub mod modules;
@@ -123,7 +122,6 @@ pub struct ApplicationSettings {
     pub(crate) dictionary_dir_explicit: bool,
     pub embedding_cache: PathBuf,
     pub allow_embedding_call: bool,
-    pub credential_bindings: credentials::CredentialBindings,
     pub sync: bool,
 }
 #[derive(Debug, Clone)]
@@ -177,7 +175,7 @@ impl Configuration {
             .ok_or(ConfigError::MissingHome)?;
         let explicit = input.config.is_some();
         let path = input.config.unwrap_or_else(|| data_dir.join("config.toml"));
-        let (mut file, bindings) = documents::load(&path, explicit, operation)?;
+        let mut file = documents::load(&path, explicit, operation)?;
         let parent = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -234,8 +232,6 @@ impl Configuration {
         let topic_conflict = !matches!(input.flags.invocation.story.topic, Patch::Inherit)
             || !matches!(env.invocation.story.topic, Patch::Inherit);
         let request = input.flags.request.or(env.request);
-        let credential_bindings = credentials::CredentialBindings::resolve(bindings)
-            .map_err(|_| ConfigError::Invalid { path: path.clone() })?;
         let dictionary_dir = setting!(dictionary_dir);
         let mut resolved = Self {
             application: std::sync::Arc::new(ApplicationSettings {
@@ -247,7 +243,6 @@ impl Configuration {
                 embedding_cache: setting!(embedding_cache)
                     .unwrap_or_else(|| data_dir.join("embeddings.json")),
                 allow_embedding_call: setting!(allow_embedding_call).unwrap_or(false),
-                credential_bindings,
                 sync: if operation.uses_setting("application.sync") {
                     setting!(sync)
                 } else {

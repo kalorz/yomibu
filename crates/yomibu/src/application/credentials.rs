@@ -1,7 +1,4 @@
-use crate::configuration::{
-    components,
-    credentials::{CredentialBindings, CredentialProvider},
-};
+use crate::configuration::components;
 use std::{collections::BTreeMap, sync::OnceLock};
 use yomibu_core::capabilities::options::CredentialRequirement;
 
@@ -75,18 +72,18 @@ impl SuppliedCredential {
     }
 }
 impl Credentials {
-    pub fn supply(&mut self, key: &str, value: Secret) {
+    pub fn supply(&mut self, requirement: CredentialRequirement, value: Secret) {
         self.supplied
-            .insert(key.into(), SuppliedCredential::Value(value));
+            .insert(requirement.name.key(), SuppliedCredential::Value(value));
     }
-    /// Read a bound slot only when needed, caching its value, absence, or error.
+    /// Read a component credential only when needed, caching its value, absence, or error.
     pub fn supply_with(
         &mut self,
-        key: &str,
+        requirement: CredentialRequirement,
         read: impl Fn() -> Result<Option<Secret>, CredentialError> + Send + Sync + 'static,
     ) {
         self.supplied.insert(
-            key.into(),
+            requirement.name.key(),
             SuppliedCredential::Lookup {
                 read: Box::new(read),
                 cached: OnceLock::new(),
@@ -99,30 +96,22 @@ impl Credentials {
     pub fn set_environment(&mut self, requirement: CredentialRequirement, value: Secret) {
         self.environment.insert(requirement.name.key(), value);
     }
-    pub fn set_shared_cli(&mut self, key: &str, value: Secret) {
-        self.cli.insert(key.into(), value);
-    }
-    pub fn set_shared_environment(&mut self, key: &str, value: Secret) {
-        self.environment.insert(key.into(), value);
+    pub fn has_override(&self, requirement: CredentialRequirement) -> bool {
+        let target = requirement.name.key();
+        self.cli.contains_key(&target) || self.environment.contains_key(&target)
     }
     pub fn resolve(
         &self,
         requirement: CredentialRequirement,
-        bindings: &CredentialBindings,
     ) -> Result<Option<&str>, CredentialError> {
         let target = requirement.name.key();
-        let binding = bindings.get(requirement);
         let input = self
             .cli
             .get(&target)
-            .or_else(|| binding.and_then(|binding| self.cli.get(&binding.key)))
-            .or_else(|| self.environment.get(&target))
-            .or_else(|| binding.and_then(|binding| self.environment.get(&binding.key)));
+            .or_else(|| self.environment.get(&target));
         let value = match input {
             Some(value) => Some(value),
-            None => match binding.and_then(|binding| match binding.provider {
-                CredentialProvider::Supplied => self.supplied.get(&binding.key),
-            }) {
+            None => match self.supplied.get(&target) {
                 Some(supplied) => supplied.resolve()?,
                 None => None,
             },
@@ -132,24 +121,14 @@ impl Credentials {
             .transpose()
             .map(|value| value.filter(|value| !value.trim().is_empty()))
     }
-    pub(crate) fn source<'a>(
-        &'a self,
-        bindings: &CredentialBindings,
-    ) -> Result<Option<&'a str>, CredentialError> {
-        self.resolve(components::SOURCE_KEY, bindings)
+    pub(crate) fn source(&self) -> Result<Option<&str>, CredentialError> {
+        self.resolve(components::SOURCE_KEY)
     }
-    pub(crate) fn generation<'a>(
-        &'a self,
-        bindings: &CredentialBindings,
-    ) -> Result<Option<&'a str>, CredentialError> {
-        self.resolve(components::GENERATION_KEY, bindings)
+    pub(crate) fn generation(&self) -> Result<Option<&str>, CredentialError> {
+        self.resolve(components::GENERATION_KEY)
     }
 
-    pub(crate) fn is_missing(
-        &self,
-        requirement: CredentialRequirement,
-        bindings: &CredentialBindings,
-    ) -> bool {
-        matches!(self.resolve(requirement, bindings), Ok(None))
+    pub(crate) fn is_missing(&self, requirement: CredentialRequirement) -> bool {
+        matches!(self.resolve(requirement), Ok(None))
     }
 }

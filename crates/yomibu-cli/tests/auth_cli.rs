@@ -7,7 +7,7 @@ fn cli() -> Command {
 }
 
 #[test]
-fn auth_help_lists_shared_and_private_slots_without_reading_configuration() {
+fn auth_help_lists_component_namespaces_and_credentials_without_reading_configuration() {
     let output = cli().args(["auth", "--help"]).output().unwrap();
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
@@ -15,7 +15,9 @@ fn auth_help_lists_shared_and_private_slots_without_reading_configuration() {
     for slot in [
         "wanikani",
         "openai",
-        "openai-story-generation.api-key",
+        "openai.api-key",
+        "wanikani.api-key",
+        "http-embeddings",
         "http-embeddings.api-key",
     ] {
         assert!(text.contains(slot), "{text}");
@@ -47,6 +49,66 @@ fn auth_rejects_noninteractive_use_without_exposing_secrets_or_writing_files() {
             "error: Credential storage is supported only on macOS; use CLI/environment credentials on this platform.\n"
         };
         assert_eq!(stderr, expected);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn exact_auth_warns_about_overrides_and_allows_skipping_in_a_terminal() {
+    use std::{io::Write, process::Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    for flag in [false, true] {
+        let mut command = Command::new("/usr/bin/script");
+        command
+            .args([
+                "-q",
+                "/dev/null",
+                env!("CARGO_BIN_EXE_yomibu"),
+                "auth",
+                "openai.api-key",
+            ])
+            .env_clear()
+            .env("HOME", dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if flag {
+            command.args(["--openai-api-key", "synthetic-secret日本語\n\u{1b}"]);
+        } else {
+            command.env("YOMIBU_OPENAI_API_KEY", "synthetic-secret日本語\n\u{1b}");
+        }
+        let mut child = command.spawn().unwrap();
+        let mut input = child.stdin.take().unwrap();
+        input.write_all(b"\n").unwrap();
+        let output = child.wait_with_output().unwrap();
+        drop(input);
+        let text = String::from_utf8(output.stdout)
+            .unwrap()
+            .replace("\r\n", "\n");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{text}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(text.contains("warning: openai.api-key: CLI/environment input overrides the saved Keychain credential. Omit --openai-api-key and unset YOMIBU_OPENAI_API_KEY to use it.\n"), "{text}");
+        assert!(
+            text.contains("openai.api-key (required for story generation)\n  Story generation:"),
+            "{text}"
+        );
+        assert!(text.contains("API key (Enter to skip): "), "{text}");
+        assert!(
+            text.contains("Skipped openai.api-key; story generation still needs a credential.\n"),
+            "{text}"
+        );
+        assert!(!text.contains("synthetic-secret"), "{text}");
+        assert!(!text.contains('\u{1b}'), "{text}");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 }

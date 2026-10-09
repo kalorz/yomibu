@@ -15,7 +15,10 @@ use std::{
 };
 use yomibu::{
     application::{Credentials, LocalApp, Operation, ServiceEndpoints},
-    configuration::{Configuration, ConfigurationInput, ProcessOverrides, environment_names},
+    configuration::{
+        Configuration, ConfigurationInput, ProcessOverrides, components::CREDENTIALS,
+        environment_names,
+    },
 };
 
 pub(crate) fn run(
@@ -32,18 +35,25 @@ pub(crate) fn run(
                 bail!("Credential setup cannot be used with --no-keychain.");
             }
             auth::require_interactive(cli.json)?;
-            if let Some(key) = credential {
-                return auth::configure_target(&key);
+            let target = if let Some(target) = credential {
+                auth::select(&target)?
+            } else {
+                auth::Target::Missing(
+                    load_configuration(
+                        cli.data_dir,
+                        cli.config,
+                        ProcessOverrides::default(),
+                        &Operation::Auth,
+                    )?
+                    .credential_requirements()
+                    .collect(),
+                )
+            };
+            credentials::environment(&mut credentials, target.requirements());
+            if matches!(target, auth::Target::Missing(_)) {
+                auth::install(&mut credentials, target.requirements());
             }
-            let config = load_configuration(
-                cli.data_dir,
-                cli.config,
-                ProcessOverrides::default(),
-                &Operation::Auth,
-            )?;
-            credentials::environment(&mut credentials);
-            auth::install(&mut credentials);
-            return auth::configure(&config, &credentials);
+            return auth::configure(&target, &credentials);
         }
         Command::Story(args) => (Operation::Story, args.overrides()),
         Command::PreviewStory(args) => (Operation::Preview, args.overrides()),
@@ -68,9 +78,9 @@ pub(crate) fn run(
         Command::Status => (Operation::Status, ProcessOverrides::default()),
     };
     let config = load_configuration(cli.data_dir, cli.config, flags, &operation)?;
-    credentials::environment(&mut credentials);
+    credentials::environment(&mut credentials, CREDENTIALS);
     if !cli.no_keychain {
-        auth::install(&mut credentials);
+        auth::install(&mut credentials, CREDENTIALS);
     }
     let app = LocalApp::new(config, credentials).with_endpoints(endpoints);
     let clock = SystemTime::now();

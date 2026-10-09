@@ -31,7 +31,7 @@ fn offline_status_and_preview_never_read_the_credential_store() {
     flags.application.inventory = Some(inventory);
     let config = load_config(&dir.path().join("data"), &Operation::Story, flags);
     let mut credentials = Credentials::default();
-    for key in ["openai", "wanikani"] {
+    for &key in yomibu::configuration::components::CREDENTIALS {
         credentials.supply_with(key, || panic!("Offline command read the credential store"));
     }
     let app = LocalApp::new(config, credentials);

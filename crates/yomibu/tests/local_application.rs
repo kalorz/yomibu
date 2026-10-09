@@ -12,6 +12,7 @@ use yomibu::{
     },
     configuration::{
         Configuration, ConfigurationInput, Patch, ProcessOverrides,
+        components::{GENERATION_KEY, SOURCE_KEY},
         modules::{ModuleId, ModuleState},
     },
 };
@@ -373,17 +374,18 @@ async fn invalid_source_credentials_are_ignored_until_a_refresh_needs_them() {
     use yomibu::{application::Secret, configuration::components::SOURCE_KEY};
     let server = MockServer::start().await;
     mount_generation(&server, 4).await;
-    for shared in [false, true] {
+    for cli in [false, true] {
         for (age_hours, sync, succeeds) in [(0, true, true), (2, false, true), (2, true, false)] {
             let dir = tempfile::tempdir().unwrap();
             let completed = write_cache(dir.path());
             let before = std::fs::read(dir.path().join("wanikani.json")).unwrap();
             let mut credentials = supplied_credentials(None, Some("ai".into()));
-            if shared {
-                credentials.set_shared_environment("wanikani", Secret::invalid_encoding());
+            if cli {
+                credentials.set_cli(SOURCE_KEY, Secret::invalid_encoding());
+                credentials.set_environment(SOURCE_KEY, "unused-key".into());
             } else {
                 credentials.set_environment(SOURCE_KEY, Secret::invalid_encoding());
-                credentials.set_shared_environment("wanikani", Secret::new("unused-key".into()));
+                credentials.supply(SOURCE_KEY, "unused-key".into());
             }
             let mut flags = ProcessOverrides::default();
             flags.application.sync = Some(sync);
@@ -713,7 +715,6 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
         let mut credentials = Credentials::default();
         credentials.set_cli(GENERATION_KEY, "ai".into());
         credentials.set_environment(EMBEDDING_KEY, Secret::invalid_encoding());
-        credentials.set_shared_environment("openai", "invalid\nshared".into());
         let app = LocalApp::new(config(dir.path(), flags), credentials)
             .with_endpoints(endpoints(&server));
         let now = SystemTime::now().into();
@@ -1118,10 +1119,10 @@ async fn an_inactive_subscription_retains_its_recorded_free_content_access() {
 fn supplied_credentials(wanikani: Option<String>, openai: Option<String>) -> Credentials {
     let mut credentials = Credentials::default();
     if let Some(value) = wanikani {
-        credentials.supply("wanikani", value.into());
+        credentials.supply(SOURCE_KEY, value.into());
     }
     if let Some(value) = openai {
-        credentials.supply("openai", value.into());
+        credentials.supply(GENERATION_KEY, value.into());
     }
     credentials
 }

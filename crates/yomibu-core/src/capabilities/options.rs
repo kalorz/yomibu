@@ -51,12 +51,18 @@ impl<T: std::str::FromStr> OptionDeclaration<T> {
 #[derive(Debug, Clone, Copy)]
 pub struct CredentialRequirement {
     pub name: OptionName,
+    pub description: &'static str,
 }
 
 impl CredentialRequirement {
-    pub const fn new(component: &'static str, option: &'static str) -> Self {
+    pub const fn new(
+        component: &'static str,
+        option: &'static str,
+        description: &'static str,
+    ) -> Self {
         Self {
             name: OptionName::new(component, option),
+            description,
         }
     }
 }

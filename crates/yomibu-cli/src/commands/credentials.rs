@@ -1,40 +1,17 @@
 use std::ffi::OsString;
 use yomibu::application::{Credentials, Secret};
-use yomibu::configuration::credentials::DEFAULT_CREDENTIAL_BINDINGS;
+use yomibu::configuration::components::{CREDENTIALS, CredentialRequirement};
 
-struct Provider(&'static str);
-impl Provider {
-    fn cli(&self) -> String {
-        format!("{}-api-key", self.0)
-    }
-    fn environment(&self) -> String {
-        format!("YOMIBU_{}_API_KEY", self.0.to_ascii_uppercase())
-    }
-    fn set(&self, credentials: &mut Credentials, value: Secret, cli: bool) {
-        if cli {
-            credentials.set_shared_cli(self.0, value);
-        } else {
-            credentials.set_shared_environment(self.0, value);
-        }
-    }
-}
-fn providers() -> impl Iterator<Item = Provider> {
-    let shared: std::collections::BTreeSet<_> = DEFAULT_CREDENTIAL_BINDINGS
-        .iter()
-        .map(|(_, shared)| *shared)
-        .collect();
-    shared.into_iter().map(Provider)
-}
 pub(crate) fn arguments() -> impl Iterator<Item = clap::Arg> {
-    providers().map(|provider| {
-        clap::Arg::new(provider.cli())
-            .long(provider.cli())
+    CREDENTIALS.iter().map(|requirement| {
+        clap::Arg::new(requirement.name.cli())
+            .long(requirement.name.cli())
             .global(true)
             .help_heading("Credentials")
             .value_name("KEY")
             .help(format!(
                 "Secret credential; env: {}",
-                provider.environment()
+                requirement.name.environment()
             ))
     })
 }
@@ -45,16 +22,15 @@ pub(crate) fn capture(
 ) -> (Vec<OsString>, Credentials) {
     let mut args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     let mut credentials = Credentials::default();
-    let providers: Vec<_> = providers().collect();
     let mut index = 1;
     while index < args.len() {
         let text = args[index].to_string_lossy();
         if text == "--" {
             break;
         }
-        if let Some(provider) = providers.iter().find(|provider| {
-            text == format!("--{}", provider.cli())
-                || text.starts_with(&format!("--{}=", provider.cli()))
+        if let Some(requirement) = CREDENTIALS.iter().find(|requirement| {
+            text == format!("--{}", requirement.name.cli())
+                || text.starts_with(&format!("--{}=", requirement.name.cli()))
         }) {
             if let Some((_, value)) = text.split_once('=') {
                 let secret = if args[index].to_str().is_some() {
@@ -62,8 +38,8 @@ pub(crate) fn capture(
                 } else {
                     Secret::invalid_encoding()
                 };
-                provider.set(&mut credentials, secret, true);
-                args[index] = format!("--{}=[REDACTED]", provider.cli()).into();
+                credentials.set_cli(*requirement, secret);
+                args[index] = format!("--{}=[REDACTED]", requirement.name.cli()).into();
             } else if index + 1 < args.len() {
                 let value = args[index + 1].to_string_lossy();
                 if !value.starts_with('-') {
@@ -72,13 +48,13 @@ pub(crate) fn capture(
                     } else {
                         Secret::invalid_encoding()
                     };
-                    provider.set(&mut credentials, secret, true);
+                    credentials.set_cli(*requirement, secret);
                     args[index + 1] = "[REDACTED]".into();
                     index += 1;
                 } else if !matches!(value.as_ref(), "--help" | "-h" | "--version" | "-V")
-                    && !providers
+                    && !CREDENTIALS
                         .iter()
-                        .any(|provider| value == format!("--{}", provider.cli()))
+                        .any(|requirement| value == format!("--{}", requirement.name.cli()))
                 {
                     // Keep a missing-value diagnostic without exposing a dash-prefixed key.
                     args[index + 1] = "--REDACTED".into();
@@ -89,14 +65,14 @@ pub(crate) fn capture(
     }
     (args, credentials)
 }
-pub(crate) fn environment(credentials: &mut Credentials) {
-    for provider in providers() {
-        if let Some(value) = std::env::var_os(provider.environment()) {
+pub(crate) fn environment(credentials: &mut Credentials, requirements: &[CredentialRequirement]) {
+    for requirement in requirements {
+        if let Some(value) = std::env::var_os(requirement.name.environment()) {
             let value = value
                 .into_string()
                 .map(Secret::new)
                 .unwrap_or_else(|_| Secret::invalid_encoding());
-            provider.set(credentials, value, false);
+            credentials.set_environment(*requirement, value);
         }
     }
 }
@@ -104,10 +80,10 @@ pub(crate) fn environment(credentials: &mut Credentials) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yomibu::configuration::{components, credentials::CredentialBindings};
+    use yomibu::configuration::components;
 
     #[test]
-    fn provider_flags_supply_both_openai_uses_and_keep_wanikani_separate() {
+    fn component_flags_do_not_supply_other_components() {
         let (args, credentials) = capture([
             "yomibu",
             "--openai-api-key",
@@ -124,17 +100,18 @@ mod tests {
             ]
             .map(OsString::from)
         );
-        let bindings = CredentialBindings::default();
-        for requirement in [components::GENERATION_KEY, components::EMBEDDING_KEY] {
-            assert_eq!(
-                credentials.resolve(requirement, &bindings).unwrap(),
-                Some("synthetic-openai")
-            );
-        }
         assert_eq!(
+            credentials.resolve(components::GENERATION_KEY).unwrap(),
+            Some("synthetic-openai")
+        );
+        assert!(
             credentials
-                .resolve(components::SOURCE_KEY, &bindings)
-                .unwrap(),
+                .resolve(components::EMBEDDING_KEY)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            credentials.resolve(components::SOURCE_KEY).unwrap(),
             Some("synthetic-wanikani")
         );
     }

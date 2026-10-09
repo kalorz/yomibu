@@ -50,7 +50,7 @@ impl LocalApp {
     pub async fn sync(&self) -> Result<SyncReport, ApplicationError> {
         let key = self
             .credentials
-            .source(&self.config.application.credential_bindings)?
+            .source()?
             .ok_or_else(|| ApplicationError::Setup {
                 issues: vec![SetupIssue {
                     module: ModuleId::Sync,

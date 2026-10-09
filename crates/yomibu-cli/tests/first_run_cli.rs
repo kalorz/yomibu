@@ -32,7 +32,14 @@ fn bare_help_and_help_command_list_every_command_without_setup_or_writes() {
             .split_whitespace()
             .filter(|word| word.starts_with("--") && word.ends_with("-api-key"))
             .collect();
-        assert_eq!(credential_flags, ["--openai-api-key", "--wanikani-api-key"]);
+        assert_eq!(
+            credential_flags,
+            [
+                "--http-embeddings-api-key",
+                "--openai-api-key",
+                "--wanikani-api-key"
+            ]
+        );
         let (_, credentials_help) = text
             .split_once("\nCredentials:\n")
             .expect("Missing Credentials help section");
@@ -58,7 +65,6 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
             [
                 "YOMIBU_WANIKANI_SOURCE_API_KEY",
                 "YOMIBU_OPENAI_STORY_GENERATION_API_KEY",
-                "YOMIBU_HTTP_EMBEDDINGS_API_KEY",
                 "YOMIBU_CREDENTIAL_OPENAI",
                 "YOMIBU_CREDENTIAL_WANIKANI",
             ]
@@ -88,14 +94,12 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
 }
 
 #[test]
-fn missing_private_keys_recommend_configuration_aware_auth() {
+fn missing_keys_recommend_component_auth_even_when_automatic_sync_is_disabled() {
     let dir = tempfile::tempdir().unwrap();
-    for (command, sync, guidance_count) in [("story", true, 2), ("sync", false, 1)] {
+    for (command, sync) in [("story", true), ("sync", false)] {
         std::fs::write(
             dir.path().join("config.toml"),
-            format!(
-                "[application]\nsync={sync}\n[application.credentials]\n\"wanikani-source.api-key\"={{provider='supplied',key='wanikani-source.api-key'}}\n\"openai-story-generation.api-key\"={{provider='supplied',key='openai-story-generation.api-key'}}\n"
-            ),
+            format!("[application]\nsync={sync}\n"),
         )
         .unwrap();
         let output = cli(dir.path())
@@ -108,18 +112,53 @@ fn missing_private_keys_recommend_configuration_aware_auth() {
         assert!(output.stdout.is_empty());
         let text = String::from_utf8(output.stderr).unwrap();
         assert!(text.contains("Missing required setup:\n  "), "{text}");
-        assert_eq!(
-            text.matches("On macOS, run yomibu auth to follow configured bindings.")
-                .count(),
-            guidance_count,
+        assert!(
+            text.contains("On macOS, run yomibu auth wanikani."),
             "{text}"
         );
-        assert!(!text.contains("yomibu auth openai"), "{text}");
-        assert!(!text.contains("yomibu auth wanikani"), "{text}");
-        assert!(text.contains("automatic sync is disabled"), "{text}");
-        assert!(text.contains("configured source credential slot"), "{text}");
+        if command == "story" {
+            assert!(text.contains("On macOS, run yomibu auth openai."), "{text}");
+        }
         assert!(!dir.path().join("wanikani.json.lock").exists());
     }
+}
+
+#[test]
+fn hosted_embeddings_request_their_own_key_even_when_openai_has_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let output = cli(dir.path())
+        .args([
+            "prepare-retrieval",
+            "--embedding-provider",
+            "openai",
+            "--http-embeddings-model",
+            "synthetic-model",
+            "--http-embeddings-revision",
+            "synthetic-revision",
+            "--http-embeddings-dimensions",
+            "2",
+            "--allow-embedding-call",
+            "--openai-api-key",
+            "synthetic-generation-key",
+            "--inventory",
+        ])
+        .arg(root.join("tests/fixtures/story/inventory.json"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let name = yomibu::configuration::components::EMBEDDING_KEY.name;
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!(
+            "error: Hosted embeddings need --{} or {} with embedding access. On macOS, run yomibu auth {}.\n",
+            name.cli(),
+            name.environment(),
+            name.component
+        )
+    );
+    assert!(!dir.path().join(".yomibu").exists());
 }
 
 #[test]
@@ -132,7 +171,7 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     for flag in [
         "--topic",
         "--model",
-        "--openai-story-generation-model",
+        "--openai-model",
         "--enable",
         "--disable",
         "--wanikani-api-key",
@@ -141,24 +180,38 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
         assert!(text.contains(flag), "{text}");
     }
     assert!(text.contains("api.responses.write"));
-    let output = cli(dir.path())
-        .args([
-            "story",
-            "--openai-api-key",
-            "synthetic-secret",
-            "--format",
-            "日本語\n\u{1b}",
-        ])
-        .output()
+    let (_, embeddings) = text
+        .split_once("Embeddings: Improve topic vocabulary selection")
         .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    assert!(output.stdout.is_empty());
-    let text = String::from_utf8(output.stderr).unwrap();
-    assert!(text.contains("日本語"));
-    assert!(!text.contains('\u{1b}'));
-    assert!(!text.contains("\n\u{1b}"));
-    assert!(!text.contains("synthetic-secret"));
-    assert!(text.contains("\n\nUsage:"));
+    let embeddings = embeddings.split("OpenAI generation:").next().unwrap();
+    let name = yomibu::configuration::components::EMBEDDING_KEY.name;
+    for guidance in [
+        format!("--{}", name.cli()),
+        name.environment(),
+        format!("yomibu auth {}", name.component),
+    ] {
+        assert!(embeddings.contains(&guidance), "{embeddings}");
+    }
+    for requirement in yomibu::configuration::components::CREDENTIALS {
+        let output = cli(dir.path())
+            .args([
+                "story",
+                &format!("--{}", requirement.name.cli()),
+                "synthetic-secret",
+                "--format",
+                "日本語\n\u{1b}",
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert!(text.contains("日本語"));
+        assert!(!text.contains('\u{1b}'));
+        assert!(!text.contains("\n\u{1b}"));
+        assert!(!text.contains("synthetic-secret"));
+        assert!(text.contains("\n\nUsage:"));
+    }
 }
 
 #[test]

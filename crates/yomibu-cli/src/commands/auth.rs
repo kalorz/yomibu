@@ -1,79 +1,85 @@
 use anyhow::{Result, bail};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     io::{self, IsTerminal, Write},
 };
 use yomibu::configuration::components::CredentialRequirement;
 use yomibu::{
     application::{CredentialError, Credentials, Secret},
-    configuration::{
-        Configuration, EmbeddingProvider, components, credentials::DEFAULT_CREDENTIAL_BINDINGS,
-    },
+    configuration::components,
 };
 
-struct Need {
-    key: String,
-    requirements: Vec<CredentialRequirement>,
-}
-impl Need {
-    fn required(&self) -> bool {
-        self.requirements
-            .iter()
-            .any(|requirement| requirement.name == components::GENERATION_KEY.name)
-    }
-}
-
-pub(super) fn slots() -> Vec<String> {
-    DEFAULT_CREDENTIAL_BINDINGS
+pub(super) fn targets() -> Vec<String> {
+    components::CREDENTIALS
         .iter()
-        .flat_map(|(requirement, shared)| [requirement.name.key(), (*shared).into()])
+        .flat_map(|requirement| [requirement.name.component.into(), requirement.name.key()])
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
 }
 
-fn target(key: &str) -> Result<Need> {
-    let requirements: Vec<_> = DEFAULT_CREDENTIAL_BINDINGS
-        .iter()
-        .filter(|(requirement, shared)| requirement.name.key() == key || *shared == key)
-        .map(|(requirement, _)| *requirement)
-        .collect();
-    if requirements.is_empty() {
-        bail!("Unknown credential slot; see yomibu auth --help.");
-    }
-    Ok(Need {
-        key: key.into(),
-        requirements,
-    })
+pub(super) enum Target {
+    Missing(Vec<CredentialRequirement>),
+    Replace(CredentialRequirement),
 }
 
-fn missing_inputs(config: &Configuration, credentials: &Credentials) -> Result<Vec<Need>> {
-    let bindings = &config.application.credential_bindings;
-    let mut needs = BTreeMap::<&str, Vec<CredentialRequirement>>::new();
-    for (requirement, enabled) in [
-        (components::GENERATION_KEY, true),
-        (components::SOURCE_KEY, config.application.sync),
-        (
-            components::EMBEDDING_KEY,
-            config.pipeline.embeddings
-                && config.pipeline.embedding_provider == Some(EmbeddingProvider::Openai),
-        ),
-    ] {
-        if !enabled || credentials.resolve(requirement, bindings)?.is_some() {
-            continue;
+impl Target {
+    pub(super) fn requirements(&self) -> &[CredentialRequirement] {
+        match self {
+            Self::Missing(requirements) => requirements,
+            Self::Replace(requirement) => std::slice::from_ref(requirement),
         }
-        let Some(binding) = bindings.get(requirement) else {
-            continue;
-        };
-        needs.entry(&binding.key).or_default().push(requirement);
     }
-    Ok(needs
-        .into_iter()
-        .map(|(key, requirements)| Need {
-            key: key.into(),
-            requirements,
-        })
-        .collect())
+}
+
+pub(super) fn select(target: &str) -> Result<Target> {
+    if let Some(&requirement) = components::CREDENTIALS
+        .iter()
+        .find(|requirement| requirement.name.key() == target)
+    {
+        return Ok(Target::Replace(requirement));
+    }
+    let requirements: Vec<_> = components::CREDENTIALS
+        .iter()
+        .copied()
+        .filter(|requirement| requirement.name.component == target)
+        .collect();
+    if requirements.is_empty() {
+        bail!("Unknown credential target.");
+    }
+    Ok(Target::Missing(requirements))
+}
+
+fn pending(
+    target: &Target,
+    credentials: &Credentials,
+    warnings: &mut impl Write,
+) -> Result<Vec<CredentialRequirement>> {
+    let mut needs = Vec::new();
+    for &requirement in target.requirements() {
+        if matches!(target, Target::Missing(_)) {
+            match credentials.resolve(requirement) {
+                Ok(Some(_)) => continue,
+                Ok(None) => {}
+                Err(error) => writeln!(
+                    warnings,
+                    "warning: {}: {error} Continuing setup.",
+                    requirement.name.key()
+                )?,
+            }
+        }
+        if credentials.has_override(requirement) {
+            writeln!(
+                warnings,
+                "warning: {}: CLI/environment input overrides the saved Keychain credential. Omit --{} and unset {} to use it.",
+                requirement.name.key(),
+                requirement.name.cli(),
+                requirement.name.environment()
+            )?;
+        }
+        needs.push(requirement);
+    }
+    Ok(needs)
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -102,23 +108,15 @@ pub(super) fn require_interactive(json: bool) -> Result<()> {
     Ok(())
 }
 
-fn save(need: &Need) -> Result<()> {
-    let kind = if need.required() {
+fn save(requirement: CredentialRequirement) -> Result<()> {
+    let required = requirement.name == components::GENERATION_KEY.name;
+    let kind = if required {
         "required for story generation"
     } else {
         "optional"
     };
-    eprintln!("{} ({kind})", need.key);
-    for requirement in &need.requirements {
-        let purpose = if requirement.name == components::SOURCE_KEY.name {
-            "WaniKani synchronization: read access, no write permissions"
-        } else if requirement.name == components::GENERATION_KEY.name {
-            "Story generation: OpenAI response creation and model access"
-        } else {
-            "Hosted embeddings: OpenAI embedding access"
-        };
-        eprintln!("  {purpose}");
-    }
+    eprintln!("{} ({kind})", requirement.name.key());
+    eprintln!("  {}", requirement.description);
     #[cfg(target_os = "macos")]
     {
         let token = rpassword::prompt_password("API key (Enter to skip): ")
@@ -126,16 +124,16 @@ fn save(need: &Need) -> Result<()> {
         let mut out = io::stdout().lock();
         match api_key(token)? {
             Some(value) => {
-                let (service, account) = identity(&need.key);
+                let (service, account) = identity(requirement);
                 super::keychain::write(&service, account, &value)?;
-                writeln!(out, "Saved {} in macOS Keychain.", need.key)
+                writeln!(out, "Saved {} in macOS Keychain.", requirement.name.key())
             }
-            None if need.required() => writeln!(
+            None if required => writeln!(
                 out,
                 "Skipped {}; story generation still needs a credential.",
-                need.key
+                requirement.name.key()
             ),
-            None => writeln!(out, "Skipped {}.", need.key),
+            None => writeln!(out, "Skipped {}.", requirement.name.key()),
         }?;
         Ok(())
     }
@@ -145,26 +143,22 @@ fn save(need: &Need) -> Result<()> {
     }
 }
 
-pub(super) fn configure(config: &Configuration, credentials: &Credentials) -> Result<()> {
-    let needs = missing_inputs(config, credentials)?;
+pub(super) fn configure(target: &Target, credentials: &Credentials) -> Result<()> {
+    let needs = pending(target, credentials, &mut io::stderr().lock())?;
     if needs.is_empty() {
         writeln!(io::stdout().lock(), "No missing credentials to save.")?;
     }
-    for need in needs {
-        save(&need)?;
+    for requirement in needs {
+        save(requirement)?;
     }
     Ok(())
 }
 
-pub(super) fn configure_target(key: &str) -> Result<()> {
-    save(&target(key)?)
-}
-
-pub(super) fn install(credentials: &mut Credentials) {
+pub(super) fn install(credentials: &mut Credentials, requirements: &[CredentialRequirement]) {
     if cfg!(target_os = "macos") {
-        for key in slots() {
-            let (service, account) = identity(&key);
-            credentials.supply_with(&key, move || {
+        for &requirement in requirements {
+            let (service, account) = identity(requirement);
+            credentials.supply_with(requirement, move || {
                 super::keychain::read(&service, account)
                     .map(|value| value.map(Secret::from))
                     .map_err(|_| CredentialError::StoreUnavailable)
@@ -173,10 +167,10 @@ pub(super) fn install(credentials: &mut Credentials) {
     }
 }
 
-fn identity(key: &str) -> (String, &'static str) {
+fn identity(requirement: CredentialRequirement) -> (String, &'static str) {
     (
-        format!("yomibu:{}", key.strip_suffix(".api-key").unwrap_or(key)),
-        "api-key",
+        format!("yomibu:{}", requirement.name.component),
+        requirement.name.option,
     )
 }
 

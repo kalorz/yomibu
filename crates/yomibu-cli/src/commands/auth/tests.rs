@@ -1,7 +1,7 @@
 use super::*;
 use yomibu::{
     application::Operation,
-    configuration::{ConfigurationInput, ProcessOverrides},
+    configuration::{Configuration, ConfigurationInput, ProcessOverrides},
 };
 
 fn configuration(application: &str, pipeline: &str, environment: &[(&str, &str)]) -> Configuration {
@@ -26,19 +26,30 @@ fn configuration(application: &str, pipeline: &str, environment: &[(&str, &str)]
 }
 
 #[test]
-fn setup_deduplicates_shared_slots_and_promotes_required_uses() {
+fn setup_honors_environment_controls_and_keeps_component_keys_separate() {
     let config = configuration(
         "",
-        "[pipeline.selection]\nembeddings=true\n[pipeline.embedding]\nprovider='openai'\n",
-        &[],
+        "[pipeline.embedding]\nprovider='openai'\n",
+        &[("YOMIBU_DISABLE", "sync"), ("YOMIBU_ENABLE", "embeddings")],
     );
-    let needs = missing_inputs(&config, &Credentials::default()).unwrap();
-    assert_eq!(needs.len(), 2);
-    assert_eq!(needs[0].key, "openai");
-    assert!(needs[0].required());
-    assert_eq!(needs[0].requirements.len(), 2);
-    assert_eq!(needs[1].key, "wanikani");
-    assert!(!needs[1].required());
+    let needs = pending(
+        &Target::Missing(config.credential_requirements().collect()),
+        &Credentials::default(),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    let keys: Vec<_> = needs.iter().map(|need| need.name.key()).collect();
+    assert_eq!(keys, ["http-embeddings.api-key", "openai.api-key"]);
+    let mut credentials = Credentials::default();
+    credentials.supply(components::GENERATION_KEY, "generation-only".into());
+    let needs = pending(
+        &Target::Missing(config.credential_requirements().collect()),
+        &credentials,
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(needs.len(), 1);
+    assert_eq!(needs[0].name, components::EMBEDDING_KEY.name);
 }
 
 #[test]
@@ -49,85 +60,167 @@ fn disabled_or_local_integrations_do_not_request_credentials() {
         (true, "lexical-baseline"),
     ] {
         let config = configuration(
-            "[application]\nsync=false\n[application.credentials]\n\"http-embeddings.api-key\"={provider='supplied',key='http-embeddings.api-key'}\n",
+            "[application]\nsync=false\n",
             &format!(
                 "[pipeline.selection]\nembeddings={enabled}\n[pipeline.embedding]\nprovider='{provider}'\n"
             ),
             &[],
         );
         let mut credentials = Credentials::default();
-        for key in ["wanikani", "http-embeddings.api-key"] {
-            credentials.supply_with(key, || {
+        for requirement in [components::SOURCE_KEY, components::EMBEDDING_KEY] {
+            credentials.supply_with(requirement, || {
                 panic!("Disabled or local integration read a credential")
             });
         }
-        let needs = missing_inputs(&config, &credentials).unwrap();
+        let needs = pending(
+            &Target::Missing(config.credential_requirements().collect()),
+            &credentials,
+            &mut Vec::new(),
+        )
+        .unwrap();
         assert_eq!(needs.len(), 1);
-        assert_eq!(needs[0].key, "openai");
+        assert_eq!(needs[0].name, components::GENERATION_KEY.name);
     }
 }
 
 #[test]
-fn setup_honors_environment_enable_and_disable_controls() {
-    let config = configuration(
-        "[application.credentials]\n\"http-embeddings.api-key\"={provider='supplied',key='http-embeddings.api-key'}\n",
-        "[pipeline.embedding]\nprovider='openai'\n",
-        &[("YOMIBU_DISABLE", "sync"), ("YOMIBU_ENABLE", "embeddings")],
-    );
-    let needs = missing_inputs(&config, &Credentials::default()).unwrap();
-    let keys: Vec<_> = needs.iter().map(|need| need.key.as_str()).collect();
-    assert_eq!(keys, ["http-embeddings.api-key", "openai"]);
-    assert!(!needs[0].required());
-    assert!(needs[1].required());
-}
-
-#[test]
-fn setup_skips_environment_and_stored_keys_and_propagates_store_failure() {
-    let config = configuration("", "", &[]);
+fn namespace_skips_present_keys_while_exact_target_allows_replacement() {
     let mut credentials = Credentials::default();
-    credentials.set_environment(components::GENERATION_KEY, "synthetic-env".into());
-    credentials.supply_with("openai", || panic!("Environment override read the store"));
-    credentials.supply_with("wanikani", || Ok(Some("synthetic-stored".into())));
-    assert!(missing_inputs(&config, &credentials).unwrap().is_empty());
-    credentials.supply_with("wanikani", || Err(CredentialError::StoreUnavailable));
-    assert_eq!(
-        missing_inputs(&config, &credentials)
-            .err()
+    credentials.supply_with(components::GENERATION_KEY, || {
+        panic!("Unselected component read the store")
+    });
+    let selected = select("http-embeddings").unwrap();
+    let missing = pending(&selected, &credentials, &mut Vec::new()).unwrap();
+    assert_eq!(missing.len(), 1);
+    assert_eq!(missing[0].name, components::EMBEDDING_KEY.name);
+    credentials.set_environment(components::EMBEDDING_KEY, "synthetic-env".into());
+    assert!(
+        pending(&selected, &credentials, &mut Vec::new())
             .unwrap()
-            .to_string(),
-        CredentialError::StoreUnavailable.to_string()
+            .is_empty()
     );
-}
-
-#[test]
-fn private_binding_never_uses_shared_credentials() {
-    let config = configuration(
-        "[application]\nsync=false\n[application.credentials]\n\"openai-story-generation.api-key\"={provider='supplied',key='openai-story-generation.api-key'}\n",
-        "",
-        &[],
+    credentials.supply_with(components::SOURCE_KEY, || {
+        Err(CredentialError::StoreUnavailable)
+    });
+    assert_eq!(
+        pending(&select("wanikani").unwrap(), &credentials, &mut Vec::new())
+            .unwrap()
+            .len(),
+        1
     );
-    let mut credentials = Credentials::default();
-    credentials.set_shared_environment("openai", "synthetic-shared-env".into());
-    credentials.supply_with("openai", || panic!("Private binding read the shared store"));
-    let needs = missing_inputs(&config, &credentials).unwrap();
-    assert_eq!(needs.len(), 1);
-    assert_eq!(needs[0].key, "openai-story-generation.api-key");
-    credentials.supply(
-        "openai-story-generation.api-key",
-        "synthetic-private".into(),
+    assert_eq!(
+        pending(
+            &select("wanikani.api-key").unwrap(),
+            &credentials,
+            &mut Vec::new()
+        )
+        .unwrap()
+        .len(),
+        1
     );
-    assert!(missing_inputs(&config, &credentials).unwrap().is_empty());
+    assert_eq!(
+        pending(
+            &select("http-embeddings.api-key").unwrap(),
+            &credentials,
+            &mut Vec::new()
+        )
+        .unwrap()
+        .len(),
+        1
+    );
+    assert!(select("http").is_err());
 }
 
 #[test]
 fn blank_override_does_not_fall_back_to_a_stored_key_during_setup() {
-    let config = configuration("[application]\nsync=false\n", "", &[]);
     let mut credentials = Credentials::default();
-    credentials.set_shared_environment("openai", "".into());
-    credentials.supply_with("openai", || panic!("Blank override read the store"));
-    let needs = missing_inputs(&config, &credentials).unwrap();
+    credentials.set_environment(components::GENERATION_KEY, "".into());
+    credentials.supply_with(components::GENERATION_KEY, || {
+        panic!("Blank override read the store")
+    });
+    let needs = pending(&select("openai").unwrap(), &credentials, &mut Vec::new()).unwrap();
     assert_eq!(needs.len(), 1);
-    assert_eq!(needs[0].key, "openai");
+}
+
+#[test]
+fn replacement_warns_about_explicit_overrides_without_reading_the_store_or_exposing_keys() {
+    for cli in [false, true] {
+        for value in [
+            Secret::from("synthetic-secret\n\u{1b}"),
+            Secret::from(""),
+            Secret::invalid_encoding(),
+        ] {
+            let mut credentials = Credentials::default();
+            credentials.supply_with(components::GENERATION_KEY, || {
+                panic!("Replacement read the store")
+            });
+            if cli {
+                credentials.set_cli(components::GENERATION_KEY, value);
+            } else {
+                credentials.set_environment(components::GENERATION_KEY, value);
+            }
+            let mut warnings = Vec::new();
+            let needs = pending(
+                &select("openai.api-key").unwrap(),
+                &credentials,
+                &mut warnings,
+            )
+            .unwrap();
+            assert_eq!(needs.len(), 1);
+            assert_eq!(
+                String::from_utf8(warnings).unwrap(),
+                "warning: openai.api-key: CLI/environment input overrides the saved Keychain credential. Omit --openai-api-key and unset YOMIBU_OPENAI_API_KEY to use it.\n"
+            );
+            let mut warnings = Vec::new();
+            pending(
+                &select("wanikani.api-key").unwrap(),
+                &credentials,
+                &mut warnings,
+            )
+            .unwrap();
+            assert!(warnings.is_empty());
+        }
+    }
+}
+
+#[test]
+fn a_failed_credential_lookup_does_not_block_other_setup() {
+    for error in [
+        CredentialError::InvalidEncoding,
+        CredentialError::StoreUnavailable,
+    ] {
+        let mut credentials = Credentials::default();
+        match error {
+            CredentialError::InvalidEncoding => {
+                credentials.set_environment(components::EMBEDDING_KEY, Secret::invalid_encoding())
+            }
+            CredentialError::StoreUnavailable => {
+                credentials.supply_with(components::EMBEDDING_KEY, move || Err(error))
+            }
+        }
+        let mut warnings = Vec::new();
+        let needs = pending(
+            &Target::Missing(components::CREDENTIALS.to_vec()),
+            &credentials,
+            &mut warnings,
+        )
+        .unwrap();
+        let warnings = String::from_utf8(warnings).unwrap();
+        assert!(
+            warnings.starts_with(&format!(
+                "warning: http-embeddings.api-key: {error} Continuing setup.\n"
+            )),
+            "{warnings}"
+        );
+        assert_eq!(
+            needs.iter().map(|need| need.name.key()).collect::<Vec<_>>(),
+            [
+                "http-embeddings.api-key",
+                "openai.api-key",
+                "wanikani.api-key"
+            ]
+        );
+    }
 }
 
 #[test]
@@ -146,20 +239,18 @@ fn empty_input_skips_and_invalid_keys_are_rejected_without_exposing_them() {
 }
 
 #[test]
-fn keychain_names_preserve_shared_and_component_boundaries() {
-    for (slot, service) in [
-        ("openai", "yomibu:openai"),
-        ("wanikani", "yomibu:wanikani"),
-        (
-            "openai-story-generation.api-key",
-            "yomibu:openai-story-generation",
-        ),
-        ("http-embeddings.api-key", "yomibu:http-embeddings"),
+fn keychain_names_follow_component_and_credential_names() {
+    for (requirement, service) in [
+        (components::EMBEDDING_KEY, "yomibu:http-embeddings"),
+        (components::GENERATION_KEY, "yomibu:openai"),
+        (components::SOURCE_KEY, "yomibu:wanikani"),
     ] {
-        assert_eq!(identity(slot), (service.into(), "api-key"));
-        assert_eq!(target(slot).unwrap().key, slot);
+        assert_eq!(identity(requirement), (service.into(), "api-key"));
+        assert_eq!(
+            select(&requirement.name.key()).unwrap().requirements()[0].name,
+            requirement.name
+        );
     }
-    assert!(target("unknown").is_err());
 }
 
 #[test]
@@ -169,7 +260,11 @@ fn auth_configuration_ignores_story_inputs_and_unused_model_options() {
         "[pipeline]\nmodel=7\n[pipeline.selection]\nsteps=[]\nembeddings=true\n[pipeline.embedding]\nprovider='openai'\n",
         &[],
     );
-    let needs = missing_inputs(&config, &Credentials::default()).unwrap();
-    assert_eq!(needs.len(), 1);
-    assert_eq!(needs[0].requirements.len(), 2);
+    let needs = pending(
+        &Target::Missing(config.credential_requirements().collect()),
+        &Credentials::default(),
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(needs.len(), 2);
 }

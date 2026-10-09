@@ -1,12 +1,8 @@
-use super::{
-    ConfigError, Patch, ProcessOverrides,
-    credentials::{CredentialBinding, DEFAULT_CREDENTIAL_BINDINGS},
-};
+use super::{ConfigError, ProcessOverrides};
 use crate::application::Operation;
-use std::{collections::BTreeMap, io::Read, path::Path};
+use std::{io::Read, path::Path};
 
 const APPLICATION: &[&str] = &[
-    "application.credentials",
     "application.sync",
     "application.inventory",
     "application.wanikani_cache",
@@ -29,7 +25,7 @@ const PIPELINE: &[&str] = &[
     "pipeline.assessment.enabled",
     "pipeline.model",
     "pipeline.knowledge_policy",
-    "pipeline.options.openai-story-generation.model",
+    "pipeline.options.openai.model",
     "pipeline.embedding.provider",
     "pipeline.options.http-embeddings.model",
     "pipeline.options.http-embeddings.revision",
@@ -50,10 +46,9 @@ pub(super) fn load(
     path: &Path,
     explicit: bool,
     operation: &Operation,
-) -> Result<(ProcessOverrides, BTreeMap<String, Patch<CredentialBinding>>), ConfigError> {
+) -> Result<ProcessOverrides, ConfigError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut input = ProcessOverrides::default();
-    let mut bindings = toml::Table::new();
     for (path, explicit, fields, scope) in [
         (path.to_owned(), explicit, APPLICATION, "application"),
         (
@@ -68,12 +63,7 @@ pub(super) fn load(
             continue;
         }
         let invalid = || ConfigError::Invalid { path: path.clone() };
-        let mut table = prune(read(&path, explicit)?, "", fields, operation).ok_or_else(invalid)?;
-        if let Some(toml::Value::Table(application)) = table.get_mut("application")
-            && let Some(value) = application.remove("credentials")
-        {
-            bindings = credential_bindings(value, operation).ok_or_else(invalid)?;
-        }
+        let table = prune(read(&path, explicit)?, "", fields, operation).ok_or_else(invalid)?;
         let source: ProcessOverrides = table.try_into().map_err(|_| invalid())?;
         match scope {
             "application" => input.application = source.application,
@@ -81,10 +71,7 @@ pub(super) fn load(
             _ => input.invocation.story = source.invocation.story,
         }
     }
-    let bindings = toml::Value::Table(bindings)
-        .try_into()
-        .map_err(|_| ConfigError::Invalid { path: path.into() })?;
-    Ok((input, bindings))
+    Ok(input)
 }
 
 fn prune(
@@ -104,7 +91,7 @@ fn prune(
             format!("{prefix}.{key}")
         };
         if fields.contains(&path.as_str()) {
-            if path == "application.credentials" || operation.uses_setting(&path) {
+            if operation.uses_setting(&path) {
                 if matches!(
                     path.as_str(),
                     "application.inventory"
@@ -132,29 +119,6 @@ fn prune(
         }
     }
     Some(out)
-}
-
-fn credential_bindings(value: toml::Value, operation: &Operation) -> Option<toml::Table> {
-    let toml::Value::Table(table) = value else {
-        return None;
-    };
-    let mut bindings = toml::Table::new();
-    for (target, value) in table {
-        let (requirement, _) = DEFAULT_CREDENTIAL_BINDINGS
-            .iter()
-            .find(|(requirement, _)| requirement.name.key() == target)?;
-        if value
-            .as_table()?
-            .keys()
-            .any(|key| !matches!(key.as_str(), "provider" | "key" | "clear"))
-        {
-            return None;
-        }
-        if operation.uses_credential(*requirement) {
-            bindings.insert(target, value);
-        }
-    }
-    Some(bindings)
 }
 
 fn read(path: &Path, explicit: bool) -> Result<toml::Table, ConfigError> {
