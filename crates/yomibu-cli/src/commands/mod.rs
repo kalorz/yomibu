@@ -15,7 +15,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use yomibu::{
-    application::{Credentials, LocalApp, Operation, ServiceEndpoints},
+    application::{Credentials, LocalApp, Operation, ServiceEndpoints, source_cache_path},
     configuration::{
         Configuration, ConfigurationInput, ProcessOverrides, components, environment_names,
     },
@@ -83,6 +83,11 @@ pub(crate) fn run(
     if !cli.no_keychain {
         auth::install(&mut credentials, &requirements);
     }
+    let store = config
+        .pipeline
+        .components
+        .learning_store
+        .open(source_cache_path(&config));
     let app = LocalApp::new(config, credentials).with_endpoints(endpoints);
     let clock = SystemTime::now();
     let seed = clock
@@ -97,7 +102,7 @@ pub(crate) fn run(
             let mut progress_error = None;
             // Managed roots follow the importer's immutable-generation contract.
             let report = runtime()?.block_on(unsafe {
-                app.story(clock.into(), seed, |event| {
+                app.story(&store, clock.into(), seed, |event| {
                     if cli.verbose {
                         let result = if cli.json {
                             output::story::write_progress(&mut err, &event)

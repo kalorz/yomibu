@@ -10,6 +10,7 @@ use yomibu_components::{
     sudachi_dictionary::{DictionaryError, installation::InstallationError},
     wanikani_source as wanikani,
 };
+use yomibu_core::capabilities::LearningStore;
 use yomibu_core::domain::{
     embedding::EmbeddingError, inventory::InventoryError, story::StoryError,
 };
@@ -58,6 +59,8 @@ pub enum ApplicationError {
     Cache(#[from] cache::CacheError),
     #[error(transparent)]
     Persistence(#[from] cache::WriteError),
+    #[error(transparent)]
+    InMemoryStore(#[from] yomibu_components::in_memory_learning_store::InMemoryStoreError),
     #[error(transparent)]
     Source(#[from] wanikani::Error),
     #[error(transparent)]
@@ -143,23 +146,31 @@ impl LocalApp {
         })
     }
 
+    /// Generate a story using the supplied source store.
+    ///
     /// # Safety
     /// Selected managed dictionaries must satisfy
     /// [`SudachiAnalyzer::load`](yomibu_components::sudachi_dictionary::SudachiAnalyzer::load)
     /// for this future's duration.
-    pub async unsafe fn story(
+    pub async unsafe fn story<Store: LearningStore>(
         &self,
+        store: &Store,
         now: DateTime<Utc>,
         seed: u64,
         emit: impl FnMut(ProgressEvent),
-    ) -> Result<StoryRunReport, ApplicationError> {
+    ) -> Result<StoryRunReport, ApplicationError>
+    where
+        ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
+    {
         let mut progress = RunProgress::new(&self.config, emit);
         let started = progress.start(Step::Inputs);
         let request = inputs::read_request(&self.config)?;
         request.validate_shape()?;
         request.validate_selection_limit(self.config.story.select)?;
         let manual = inputs::read_manual(self.config.application.inventory.as_deref())?;
-        let cached = source::read_cache(&self.config, manual.is_none())?;
+        let store =
+            (manual.is_none() || self.config.application.wanikani_cache.is_some()).then_some(store);
+        let cached = store.map(source::load_cache).transpose()?.flatten();
         let usable = cached.as_ref().is_some_and(|data| {
             source::usable_cache(data, &self.config.pipeline.knowledge_policy, now)
         });
@@ -181,7 +192,7 @@ impl LocalApp {
             &self.config,
             &self.credentials,
             &self.endpoints.wanikani,
-            manual.is_some(),
+            store,
             cached,
             now,
             &mut progress,
@@ -190,7 +201,7 @@ impl LocalApp {
         let started = progress.start(Step::Knowledge);
         let inventory = inputs::prepare_inventory(
             &self.config.pipeline.knowledge_policy,
-            source.as_ref(),
+            source.as_deref(),
             manual,
             now,
         )?;

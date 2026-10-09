@@ -45,7 +45,7 @@ pub trait SourceSyncWriter {
     /// Validate and atomically publish a complete source version for the same
     /// account. Backend errors must distinguish failure before replacement from
     /// uncertain durability after replacement; an error need not mean rollback.
-    fn replace(self, data: WaniKaniSyncData) -> Result<Persistence, Self::Error>;
+    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<Persistence, Self::Error>;
 }
 
 /// A physical store of coherent source material and learner progress.
@@ -61,6 +61,12 @@ pub trait LearningStore {
 
     /// Read one immutable, validated version, independent of later replacements.
     fn load(&self) -> Result<Arc<WaniKaniSyncData>, Self::ReadError>;
+
+    /// True only for absence, never unreadable or invalid stored data.
+    fn is_missing(&self, error: &Self::ReadError) -> bool;
+
+    /// True only when another writer holds the reservation.
+    fn is_locked(&self, error: &Self::WriteError) -> bool;
 
     /// Reserve a writer without waiting. Files may create a directory and lock
     /// file here. A failure must not replace existing source data.

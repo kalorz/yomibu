@@ -42,6 +42,14 @@ impl LearningStore for FileLearningStore {
         self.load_snapshot().map(Arc::new)
     }
 
+    fn is_missing(&self, error: &Self::ReadError) -> bool {
+        matches!(error, cache::CacheError::Missing { .. })
+    }
+
+    fn is_locked(&self, error: &Self::WriteError) -> bool {
+        matches!(error, cache::WriteError::Locked)
+    }
+
     fn begin_sync(&self) -> Result<Self::Writer, Self::WriteError> {
         cache::SyncGuard::acquire_path(&self.path).map(|guard| FileSyncWriter { guard })
     }
@@ -56,17 +64,8 @@ pub struct FileSyncWriter {
 impl SourceSyncWriter for FileSyncWriter {
     type Error = cache::WriteError;
 
-    fn replace(self, data: WaniKaniSyncData) -> Result<Persistence, Self::Error> {
-        self.replace_snapshot(&data)
-    }
-}
-
-impl FileSyncWriter {
-    pub fn replace_snapshot(
-        self,
-        data: &WaniKaniSyncData,
-    ) -> Result<Persistence, cache::WriteError> {
-        self.guard.replace(data)?;
+    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<Persistence, Self::Error> {
+        self.guard.replace(&data)?;
         Ok(Persistence::Durable)
     }
 }

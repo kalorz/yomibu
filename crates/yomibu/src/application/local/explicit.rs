@@ -26,7 +26,7 @@ impl LocalApp {
         let source = source::read_cache(&self.config, manual.is_none())?;
         let inventory = inputs::prepare_inventory(
             &self.config.pipeline.knowledge_policy,
-            source.as_ref(),
+            source.as_deref(),
             manual,
             now,
         )?;
@@ -71,7 +71,7 @@ impl LocalApp {
             .begin_sync()?;
         let data = source.fetch().await?;
         let summary = crate::reports::summary::summarize(&data)?;
-        let persistence = writer.replace(data)?;
+        let persistence = writer.replace(data.into())?;
         Ok(SyncReport {
             summary,
             persistence,
@@ -87,7 +87,7 @@ impl LocalApp {
         let source = source::read_cache(&self.config, manual.is_none())?;
         let inventory = inputs::prepare_inventory(
             &self.config.pipeline.knowledge_policy,
-            source.as_ref(),
+            source.as_deref(),
             manual,
             now,
         )?;

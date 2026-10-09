@@ -120,9 +120,10 @@ async fn story_checks_request_before_inventory_but_offline_operations_check_inve
     let config = load_config(&data, &Operation::Story, flags);
     let app = LocalApp::new(config, Credentials::default());
     let now = std::time::SystemTime::now().into();
+    let store = yomibu_components::file_learning_store::FileLearningStore::new(&data);
     // SAFETY: Invalid inputs stop the workflow before dictionary loading.
     assert!(matches!(
-        unsafe { app.story(now, 1, |_| {}) }.await,
+        unsafe { app.story(&store, now, 1, |_| {},) }.await,
         Err(ApplicationError::InvalidJson {
             kind: "story request",
             ..
