@@ -34,8 +34,8 @@ fn auth_rejects_noninteractive_use_without_exposing_secrets_or_writing_files() {
             command.arg(target);
         }
         let output = command
-            .args(["--credential-openai", "synthetic-secret\n\u{1b}"])
-            .env("YOMIBU_CREDENTIAL_WANIKANI", "synthetic-env-secret")
+            .args(["--openai-api-key", "synthetic-secret\n\u{1b}"])
+            .env("YOMIBU_WANIKANI_API_KEY", "synthetic-env-secret")
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(1));

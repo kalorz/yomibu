@@ -23,7 +23,7 @@ def main():
     rows = []
     environment = {name: value for name, value in os.environ.items()
                    if not name.startswith("YOMIBU_") or name in
-                   {"YOMIBU_HTTP_EMBEDDINGS_API_KEY", "YOMIBU_CREDENTIAL_OPENAI"}}
+                   {"YOMIBU_OPENAI_API_KEY"}}
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         inventory = root / "inventory.json"

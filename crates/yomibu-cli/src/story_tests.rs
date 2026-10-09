@@ -33,7 +33,7 @@ async fn child(
         "story".into(),
         "--seed".into(),
         "7".into(),
-        "--openai-story-generation-api-key".into(),
+        "--openai-api-key".into(),
         "flag-ai-key".into(),
     ];
     args.extend(options.iter().map(|value| (*value).to_owned()));
@@ -59,12 +59,9 @@ async fn child_with_args(
         ])
         .env("STORY_TEST_BASE_URL", server.uri())
         .env("STORY_TEST_ARGS", serde_json::to_string(&args).unwrap())
-        .env(
-            "YOMIBU_OPENAI_STORY_GENERATION_API_KEY",
-            "environment-ai-key",
-        );
+        .env("YOMIBU_OPENAI_API_KEY", "environment-ai-key");
     if wk_key {
-        command.env("YOMIBU_WANIKANI_SOURCE_API_KEY", "synthetic-wk-key");
+        command.env("YOMIBU_WANIKANI_API_KEY", "synthetic-wk-key");
     }
     let mut output = tokio::task::spawn_blocking(move || command.output().unwrap())
         .await

@@ -35,10 +35,7 @@ pub static MODULES: &[ModuleMetadata] = &[
         id: ModuleId::Sync,
         name: "WaniKani sync",
         purpose: "Refresh source progress",
-        settings: &[
-            "--wanikani-source-api-key",
-            "YOMIBU_WANIKANI_SOURCE_API_KEY",
-        ],
+        settings: &["--wanikani-api-key", "YOMIBU_WANIKANI_API_KEY"],
         guidance: "Use a WaniKani API key with read access and no write permissions. On macOS, run yomibu auth wanikani.",
         controllable: true,
         default_enabled: true,
@@ -61,10 +58,7 @@ pub static MODULES: &[ModuleMetadata] = &[
         id: ModuleId::Generation,
         name: "OpenAI generation",
         purpose: "Create an experimental Japanese reading",
-        settings: &[
-            "--openai-story-generation-api-key",
-            "YOMIBU_OPENAI_STORY_GENERATION_API_KEY",
-        ],
+        settings: &["--openai-api-key", "YOMIBU_OPENAI_API_KEY"],
         guidance: "Use an OpenAI key with response creation (api.responses.write) and access to the selected model. On macOS, run yomibu auth openai.",
         controllable: false,
         default_enabled: true,

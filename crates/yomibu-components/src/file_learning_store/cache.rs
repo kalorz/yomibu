@@ -25,7 +25,7 @@ pub enum CacheError {
         source: ValidationError,
     },
     #[error(
-        "No cache at {path}; run yomibu sync with YOMIBU_WANIKANI_SOURCE_API_KEY set, or select an existing cache with --data-dir PATH."
+        "No cache at {path}; run yomibu sync with YOMIBU_WANIKANI_API_KEY set, or select an existing cache with --data-dir PATH."
     )]
     Missing { path: PathBuf },
     #[error("Cannot read cache at {path}; check the path and file permissions.")]

@@ -57,7 +57,7 @@ pub(super) async fn prepare_embeddings(
                 ));
             }
             let key = credentials.resolve(crate::configuration::components::EMBEDDING_KEY, &config.application.credential_bindings)?.ok_or(ApplicationError::ResourceConfiguration(
-                "Hosted embeddings need --http-embeddings-api-key or YOMIBU_HTTP_EMBEDDINGS_API_KEY with embedding access.",
+                "Hosted embeddings need --openai-api-key or YOMIBU_OPENAI_API_KEY with embedding access.",
             ))?;
             prepare_cache(
                 &HttpEmbedder::openai(key, identity)?,

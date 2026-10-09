@@ -283,7 +283,7 @@ full refresh synchronization.
 ### CLI and local files
 
 ```sh
-YOMIBU_WANIKANI_SOURCE_API_KEY=... yomibu sync
+YOMIBU_WANIKANI_API_KEY=... yomibu sync
 yomibu status
 ```
 

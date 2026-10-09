@@ -55,7 +55,7 @@ python3 scripts/compare_story_retrieval.py target/debug/yomibu \
   --embedding-provider local --http-embeddings-endpoint http://127.0.0.1:11434/v1/ \
   --http-embeddings-model MODEL --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS
 
-# Explicit paid/data-transmitting comparison; supply YOMIBU_HTTP_EMBEDDINGS_API_KEY:
+# Explicit paid/data-transmitting comparison; supply YOMIBU_OPENAI_API_KEY:
 python3 scripts/compare_story_retrieval.py target/debug/yomibu \
   --embedding-provider openai --http-embeddings-model MODEL \
   --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS --allow-embedding-call

@@ -272,12 +272,7 @@ fn impossible_selection_fails_before_embedding_work() {
     request["targets"]["vocabulary"] = json!(["cat", "sleep", "dog"]);
     fs::write(dir.path().join("request.json"), request.to_string()).unwrap();
     let out = cli(dir.path(), "story")
-        .args([
-            "--openai-story-generation-api-key",
-            "unused",
-            "--json",
-            "--verbose",
-        ])
+        .args(["--openai-api-key", "unused", "--json", "--verbose"])
         .args([
             "--dictionary-dir",
             "missing",
@@ -467,7 +462,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
             .arg(&dictionary)
             .args(["--data-dir", "ignored"]);
         if let Some(key) = key {
-            command.env("YOMIBU_OPENAI_STORY_GENERATION_API_KEY", key);
+            command.env("YOMIBU_OPENAI_API_KEY", key);
         }
         let output = command.output().unwrap();
         assert_eq!(output.status.code(), Some(1));
@@ -475,7 +470,7 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
             stderr.contains(if key.is_none() {
-                "YOMIBU_OPENAI_STORY_GENERATION_API_KEY"
+                "YOMIBU_OPENAI_API_KEY"
             } else {
                 "credential"
             }),
