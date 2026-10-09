@@ -19,6 +19,10 @@ pub fn credentials() -> impl Iterator<Item = OptionKey<Secret>> {
     settings().filter_map(Setting::secret)
 }
 
+pub fn options() -> impl Iterator<Item = Setting> {
+    settings().filter(|setting| setting.secret().is_none())
+}
+
 pub fn credential_guidance(key: OptionKey<Secret>) -> String {
     format!(
         "{} Supply --{} or {}. On macOS, run yomibu auth {}.",

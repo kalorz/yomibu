@@ -90,7 +90,7 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
     ] {
         let environment = BTreeMap::from([(name.into(), "wrong-type".into())]);
         assert!(
-            matches!(load(environment.clone()), Err(ConfigError::Environment { name: invalid }) if invalid == name)
+            matches!(load(environment.clone()), Err(ConfigError::Environment { name: invalid } | ConfigError::ComponentEnvironment { name: invalid, .. }) if invalid == name)
         );
         assert!(
             load_config(
@@ -129,14 +129,18 @@ fn component_validators_apply_to_file_and_environment_but_skip_unused_operations
                     dimensions.into(),
                 )])
             };
+            let error = load_config(
+                dir.path(),
+                &Operation::Retrieval,
+                ProcessOverrides::default(),
+                environment.clone(),
+            )
+            .unwrap_err();
             assert!(
-                load_config(
-                    dir.path(),
-                    &Operation::Retrieval,
-                    ProcessOverrides::default(),
-                    environment.clone()
-                )
-                .is_err()
+                error
+                    .to_string()
+                    .contains("Embedding dimensions must be between 1 and 4096."),
+                "{error}"
             );
             assert!(
                 load_config(
@@ -148,6 +152,36 @@ fn component_validators_apply_to_file_and_environment_but_skip_unused_operations
                 .is_ok()
             );
         }
+    }
+}
+
+#[test]
+fn auth_reads_credential_selection_but_ignores_component_tuning() {
+    use yomibu::configuration::components::{EMBEDDING_KEY, GENERATION_KEY, SOURCE_KEY};
+    let dir = tempfile::tempdir().unwrap();
+    for (provider, sync, hosted) in [("local", false, false), ("openai", true, true)] {
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!("[application]\nsync={sync}\n"),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("default-pipeline.toml"), format!(
+            "[pipeline.selection]\nembeddings=true\n[pipeline.embedding]\nprovider='{provider}'\n[pipeline.options.http-embeddings]\ndimensions=0\nmodel=42\n[pipeline.options.openai]\nmodel=42\n"
+        )).unwrap();
+        let config = load_config(
+            dir.path(),
+            &Operation::Auth,
+            ProcessOverrides::default(),
+            BTreeMap::from([("YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS".into(), "invalid".into())]),
+        )
+        .unwrap();
+        let required: Vec<_> = config
+            .credential_requirements()
+            .map(|key| key.name)
+            .collect();
+        assert!(required.contains(&GENERATION_KEY.name));
+        assert_eq!(required.contains(&EMBEDDING_KEY.name), hosted);
+        assert_eq!(required.contains(&SOURCE_KEY.name), sync);
     }
 }
 
@@ -596,6 +630,8 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
     for input in [
         r#"{"pipeline":{"credentials":{}}}"#,
         r#"{"pipeline":{"options":{"openai":{"api-key":"secret"}}}}"#,
+        r#"{"pipeline":{"options":{"unknown":{"model":"test"}}}}"#,
+        r#"{"pipeline":{"options":{"openai":{"unknown":"test"}}}}"#,
         r#"{"story":{"inventory":"input.json"}}"#,
     ] {
         assert!(serde_json::from_str::<Invocation>(input).is_err());

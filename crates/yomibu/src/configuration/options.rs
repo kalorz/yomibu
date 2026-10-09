@@ -19,8 +19,8 @@ impl OptionOverrides {
         self.insert(key.name, Patch::Clear)
     }
     pub fn insert(&mut self, name: OptionName, value: Patch<Value>) -> Result<(), OptionError> {
-        let setting = components::settings()
-            .find(|setting| setting.name() == name && setting.secret().is_none())
+        let setting = components::options()
+            .find(|setting| setting.name() == name)
             .ok_or(OptionError::Invalid {
                 name,
                 reason: "Unknown option or credential in non-secret settings.",
@@ -36,7 +36,7 @@ impl OptionOverrides {
         options: &mut Options,
         operation: &Operation,
     ) -> Result<(), ConfigError> {
-        for setting in components::settings().filter(|s| s.secret().is_none()) {
+        for setting in components::options() {
             if !operation.uses_setting(&path(setting)) {
                 continue;
             }

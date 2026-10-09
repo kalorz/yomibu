@@ -50,13 +50,14 @@ impl Operation {
             );
         }
         if let Some(option) = name.strip_prefix("pipeline.options.") {
-            return if option.starts_with(&format!(
-                "{}.",
-                yomibu_components::openai_story_generation::ID
-            )) {
-                matches!(self, Story | Preview)
-            } else {
-                matches!(self, Story | Preview | Retrieval)
+            return match option.split_once('.').map(|(component, _)| component) {
+                Some(yomibu_components::openai_story_generation::ID) => {
+                    matches!(self, Story | Preview)
+                }
+                Some(yomibu_components::http_embeddings::ID) => {
+                    matches!(self, Story | Preview | Retrieval)
+                }
+                _ => false,
             };
         }
         match name {
@@ -83,6 +84,23 @@ impl Operation {
             | "pipeline.selection.embedding_steps" => matches!(self, Story | Preview),
             "application.cache_max_age_seconds" => matches!(self, Story),
             _ => matches!(self, Story | Preview | Retrieval),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Operation;
+
+    #[test]
+    fn component_options_apply_only_to_operations_that_use_the_component() {
+        for operation in [Operation::Story, Operation::Preview, Operation::Retrieval] {
+            assert!(!operation.uses_setting("pipeline.options.unregistered.value"));
+            assert!(operation.uses_setting("pipeline.options.http-embeddings.dimensions"));
+            assert_eq!(
+                operation.uses_setting("pipeline.options.openai.model"),
+                !matches!(operation, Operation::Retrieval)
+            );
         }
     }
 }

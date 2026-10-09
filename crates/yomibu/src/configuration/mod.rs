@@ -157,8 +157,18 @@ pub enum ConfigError {
     Read { path: PathBuf },
     #[error("Invalid configuration at {path}; use supported settings and valid TOML.")]
     Invalid { path: PathBuf },
+    #[error("Invalid configuration at {path}: {error}")]
+    ComponentFile {
+        path: PathBuf,
+        error: components::OptionError,
+    },
     #[error("Invalid value for {name}; check its format in yomibu help story.")]
     Environment { name: String },
+    #[error("Invalid value for {name}: {error}")]
+    ComponentEnvironment {
+        name: String,
+        error: components::OptionError,
+    },
     #[error("Cannot both enable and disable {module} in the same configuration source.")]
     ConflictingControl { module: &'static str },
     #[error("{0}")]
@@ -232,7 +242,7 @@ impl Configuration {
         let request = input.flags.request.or(env.request);
         let dictionary_dir = setting!(dictionary_dir);
         let mut options = components::Options::default();
-        for setting in components::settings().filter(|s| s.secret().is_none()) {
+        for setting in components::options() {
             options.clear(setting)?;
         }
         let mut resolved = Self {
@@ -283,16 +293,16 @@ impl Configuration {
         resolved.validate(operation, topic_conflict)?;
         Ok(resolved)
     }
-    pub fn generation(&self) -> Result<StoryGenerationOptions, ConfigError> {
+    pub fn generation(&self) -> Result<StoryGenerationOptions, components::OptionError> {
         use yomibu_components::openai_story_generation as openai;
-        Ok(openai::generation_options(
+        openai::generation_options(
             self.pipeline.options.for_component(&openai::COMPONENT),
             StoryGenerationOptions {
                 model: self.pipeline.model.clone(),
                 format: self.story.format,
                 candidate_count: self.story.candidates,
             },
-        )?)
+        )
     }
 
     pub fn enabled(&self, id: ModuleId) -> bool {
@@ -311,19 +321,18 @@ fn environment_settings(
 ) -> Result<ProcessOverrides, ConfigError> {
     let mut input = ProcessOverrides::default();
     for (name, text) in environment {
-        if let Some(setting) =
-            components::settings().find(|s| s.secret().is_none() && s.name().environment() == name)
-        {
+        if let Some(setting) = components::options().find(|s| s.name().environment() == name) {
             if operation.uses_setting(&options::path(setting)) {
-                let value = setting
+                setting
                     .parse(&text)
-                    .map_err(|_| ConfigError::Environment { name: name.clone() })?;
-                input
-                    .invocation
-                    .pipeline
-                    .options
-                    .insert(setting.name(), Patch::Set(value))
-                    .map_err(|_| ConfigError::Environment { name })?;
+                    .and_then(|value| {
+                        input
+                            .invocation
+                            .pipeline
+                            .options
+                            .insert(setting.name(), Patch::Set(value))
+                    })
+                    .map_err(|error| ConfigError::ComponentEnvironment { name, error })?;
             }
             continue;
         }
@@ -409,10 +418,6 @@ pub fn environment_names() -> Vec<String> {
     ENVIRONMENT_SETTINGS
         .iter()
         .map(|name| (*name).into())
-        .chain(
-            components::settings()
-                .filter(|s| s.secret().is_none())
-                .map(|s| s.name().environment()),
-        )
+        .chain(components::options().map(|s| s.name().environment()))
         .collect()
 }

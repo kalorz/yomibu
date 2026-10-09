@@ -81,14 +81,21 @@ impl<T> OptionKey<T> {
         self.validator = Some(validator);
         self
     }
-    pub const fn default(mut self, value: &'static str) -> Self {
-        self.default = Some(value);
-        self
-    }
     fn check(self, value: &T) -> Result<(), OptionError> {
         self.validator
             .map_or(Ok(()), |validate| validate(value))
             .map_err(|reason| self.name.invalid(reason))
+    }
+}
+impl<T: OptionType> OptionKey<T> {
+    /// ```compile_fail
+    /// use yomibu_core::component::{credentials::Secret, options::OptionKey};
+    /// let key = OptionKey::<Secret>::new("test", "api-key", "API key");
+    /// key.default("secret");
+    /// ```
+    pub const fn default(mut self, value: &'static str) -> Self {
+        self.default = Some(value);
+        self
     }
 }
 impl<T: std::str::FromStr> OptionKey<T> {
@@ -197,11 +204,8 @@ impl Setting {
         let text = match self {
             Self::String(key) => key.default,
             Self::Integer(key) => key.default,
-            Self::Secret(key) => key.default,
+            Self::Secret(_) => None,
         };
-        if self.secret().is_some() && text.is_some() {
-            return Err(self.name().invalid("Credentials cannot have defaults."));
-        }
         text.map(|text| self.parse(text)).transpose()
     }
 }

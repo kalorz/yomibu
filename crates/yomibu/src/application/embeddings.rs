@@ -14,6 +14,7 @@ use yomibu_components::{
 };
 use yomibu_core::{
     capabilities::Embedder,
+    component::options::OptionError,
     domain::{
         embedding::{EmbeddingCache, EmbeddingModelIdentity},
         inventory::LearnerInventory,
@@ -177,11 +178,8 @@ pub(super) async fn prepare_optional<F: FnMut(ProgressEvent)>(
                 ModuleId::Embeddings,
                 match error {
                     ApplicationError::ResourceConfiguration(_)
-                    | ApplicationError::Options(_)
-                    | ApplicationError::MissingCredential(_)
-                    | ApplicationError::HttpEmbeddingBuild(http_embeddings::BuildError::Options(
-                        _,
-                    )) => ModuleState::NotConfigured,
+                    | ApplicationError::Options(OptionError::Missing { .. })
+                    | ApplicationError::MissingCredential(_) => ModuleState::NotConfigured,
                     _ => ModuleState::Unavailable {
                         error: error.to_string(),
                     },

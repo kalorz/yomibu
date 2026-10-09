@@ -687,6 +687,69 @@ async fn no_topic_skips_embeddings_and_the_explicit_retrieval_command_requires_a
 }
 
 #[tokio::test]
+async fn invalid_component_options_report_unavailable_instead_of_missing_setup() {
+    use yomibu_components::http_embeddings as http;
+    use yomibu_core::component::options::OptionKey;
+
+    let dir = tempfile::tempdir().unwrap();
+    let inventory = dir.path().join("inventory.json");
+    std::fs::write(
+        &inventory,
+        include_bytes!("../../../tests/fixtures/story/inventory.json"),
+    )
+    .unwrap();
+    let server = MockServer::start().await;
+    mount_generation(&server, 2).await;
+    for name in [http::MODEL.name, http::ENDPOINT.name] {
+        let mut flags = ProcessOverrides {
+            enable: vec![ModuleId::Embeddings],
+            ..Default::default()
+        };
+        flags.application.inventory = Some(inventory.clone());
+        flags.invocation.story.topic = Patch::Set("cat".into());
+        flags.invocation.pipeline.embedding.provider =
+            Patch::Set(yomibu::configuration::EmbeddingProvider::Local);
+        let mut config = config(dir.path(), flags);
+        config
+            .pipeline
+            .options
+            .set(http::MODEL, "test-model".into())
+            .unwrap();
+        config
+            .pipeline
+            .options
+            .set(http::REVISION, "pinned".into())
+            .unwrap();
+        config.pipeline.options.set(http::DIMENSIONS, 2).unwrap();
+        config
+            .pipeline
+            .options
+            .set(
+                OptionKey::<usize>::new(name.component, name.option, "Wrong type"),
+                1,
+            )
+            .unwrap();
+        let app = LocalApp::new(config, supplied_credentials(None, Some("ai".into())))
+            .with_endpoints(endpoints(&server));
+        let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+            .await
+            .unwrap();
+        let state = &report
+            .modules
+            .iter()
+            .find(|module| module.metadata.id == ModuleId::Embeddings)
+            .unwrap()
+            .state;
+        assert!(
+            matches!(state, ModuleState::Unavailable { error } if error.contains("Wrong component option type")),
+            "{state:?}"
+        );
+        assert_eq!(report.warnings.len(), 1);
+        assert!(!dir.path().join("embeddings.json").exists());
+    }
+}
+
+#[tokio::test]
 async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_error() {
     use yomibu::{
         application::Secret,

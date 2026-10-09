@@ -1,5 +1,5 @@
 use clap::{CommandFactory, FromArgMatches};
-use commands::args::{Cli, Command};
+use commands::args::Cli;
 use std::{
     io::{self, Write},
     process::ExitCode,
@@ -29,22 +29,10 @@ fn entry(
     let mut command = Cli::command()
         .args(commands::options::arguments(true))
         .mut_subcommand("story", |command| command.after_help(guidance));
-    for name in ["story", "preview-story", "prepare-retrieval"] {
-        command = command.mut_subcommand(name, |command| {
-            command.args(commands::options::arguments(false))
-        });
-    }
-    let cli = match command.try_get_matches_from_mut(args).and_then(|matches| {
-        let mut cli = Cli::from_arg_matches(&matches)?;
-        if let Some(
-            Command::Story(args) | Command::PreviewStory(args) | Command::PrepareRetrieval(args),
-        ) = &mut cli.command
-            && let Some((_, matches)) = matches.subcommand()
-        {
-            args.options = commands::options::read(matches)?;
-        }
-        Ok(cli)
-    }) {
+    let cli = match command
+        .try_get_matches_from_mut(args)
+        .and_then(|matches| Cli::from_arg_matches(&matches))
+    {
         Ok(cli) => cli,
         Err(mut error) => {
             if error.use_stderr() {

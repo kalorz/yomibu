@@ -1,8 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 use yomibu::configuration::{
-    EmbeddingProvider, KnowledgePolicy, OptionOverrides, ProcessOverrides, StoryFormat,
-    modules::ModuleId,
+    EmbeddingProvider, KnowledgePolicy, ProcessOverrides, StoryFormat, modules::ModuleId,
 };
 
 #[derive(Parser)]
@@ -69,8 +68,8 @@ pub(crate) struct StoryArgs {
     /// Optional scene or subject. Otherwise create a scene around familiar words.
     #[arg(long, conflicts_with = "request")]
     topic: Option<String>,
-    #[arg(skip)]
-    pub options: OptionOverrides,
+    #[command(flatten)]
+    options: super::options::ComponentArgs,
     /// Advanced story request JSON with optional topic and explicit targets.
     #[arg(long, value_name = "PATH")]
     request: Option<PathBuf>,
@@ -131,7 +130,7 @@ impl StoryArgs {
         app.allow_embedding_call = self.allow_embedding_call.then_some(true);
         let pipeline = &mut input.invocation.pipeline;
         pipeline.model = self.model;
-        pipeline.options = self.options;
+        pipeline.options = self.options.0;
         pipeline.knowledge_policy = self.knowledge_policy;
         pipeline.embedding.provider = self.embedding_provider.into();
         let story = &mut input.invocation.story;

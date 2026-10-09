@@ -55,6 +55,88 @@ fn bare_help_and_help_command_list_every_command_without_setup_or_writes() {
 }
 
 #[test]
+fn component_configuration_errors_explain_validation_without_echoing_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("日本語\n\u{1b}");
+    std::fs::create_dir(&data).unwrap();
+    let path = data.join("default-pipeline.toml");
+    for file in [false, true] {
+        for value in ["0", "synthetic-private\n\u{1b}"] {
+            let mut command = cli(dir.path());
+            command
+                .arg("--data-dir")
+                .arg(&data)
+                .arg("prepare-retrieval");
+            let text = if file {
+                let literal = if value == "0" {
+                    "0".into()
+                } else {
+                    serde_json::to_string(value).unwrap()
+                };
+                format!("[pipeline.options.http-embeddings]\ndimensions={literal}\n")
+            } else {
+                command.env("YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS", value);
+                String::new()
+            };
+            std::fs::write(&path, text).unwrap();
+            let output = command.output().unwrap();
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stdout.is_empty());
+            let error = String::from_utf8(output.stderr).unwrap();
+            assert!(
+                error.starts_with("error: ") && error.ends_with('\n'),
+                "{error}"
+            );
+            assert_eq!(error.lines().count(), 1, "{error}");
+            assert!(error.contains("http-embeddings.dimensions"), "{error}");
+            if value == "0" {
+                assert!(
+                    error.contains("Embedding dimensions must be between 1 and 4096."),
+                    "{error}"
+                );
+            }
+            if file {
+                assert!(error.contains("日本語\\n\\u{1b}"), "{error}");
+            } else {
+                assert!(
+                    error.contains("YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS"),
+                    "{error}"
+                );
+            }
+            assert!(!error.contains("synthetic-private"));
+            assert!(!error.contains('\u{1b}'));
+        }
+    }
+}
+
+#[test]
+fn missing_inventory_setup_names_the_available_inputs_without_listing_tuning_flags() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = cli(dir.path())
+        .args([
+            "story",
+            "--disable",
+            "sync",
+            "--openai-api-key",
+            "synthetic-key",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let text = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        text.starts_with("error: Missing required setup:\n  Learner vocabulary:\n    "),
+        "{text}"
+    );
+    assert!(text.contains("--inventory"), "{text}");
+    assert!(text.contains("--enable sync"), "{text}");
+    assert!(!text.contains("--openai-model"));
+    assert!(!text.contains("synthetic-key"));
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings() {
     let dir = tempfile::tempdir().unwrap();
     let output = cli(dir.path())
@@ -220,6 +302,10 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
         assert!(text.contains(flag), "{text}");
     }
     assert!(text.contains("api.responses.write"));
+    let (_, assessment) = text
+        .split_once("Sudachi assessment: Check available vocabulary evidence")
+        .unwrap();
+    assert!(assessment.contains("--dictionary-dir"), "{assessment}");
     let (_, embeddings) = text
         .split_once("Embeddings: Improve topic vocabulary selection")
         .unwrap();

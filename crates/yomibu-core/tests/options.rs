@@ -83,7 +83,7 @@ fn ordinary_options_reject_credential_values_without_reflecting_them() {
     let error = KEY.setting().parse(token).unwrap_err();
     assert!(!format!("{error:?} {error}").contains(token));
     assert!(!format!("{:?}", Secret::from(token)).contains(token));
-    assert!(KEY.default(token).setting().default_value().is_err());
+    assert!(KEY.setting().default_value().unwrap().is_none());
 }
 
 #[test]
