@@ -4,11 +4,11 @@ knowledge_policy = "lesson-started" # alternative: "recorded-pass"
 model = "gpt-6-luna"                # shared text-model fallback
 
 [pipeline.components]
-source = "wanikani-source"
+source = "wanikani"
 learning_store = "file-learning-store"
 embedding_cache = "file-embedding-cache"
 preparation = "story-prompt-preparation"
-generation = "openai-story-generation"
+generation = "openai"
 analysis = "sudachi-dictionary"
 assessment = "japanese-constraint-checks"
 
@@ -19,7 +19,7 @@ embeddings = false
 # Empty/repeated steps are invalid. Core target finalization is always mandatory.
 # Enablement permits optional preparation; hosted calls need application authorization.
 
-[pipeline.options.openai-story-generation]
+[pipeline.options.openai]
 # model = "gpt-6-luna" # optional override; otherwise inherit pipeline.model
 # model = { clear = true }
 # Credential: --openai-api-key / YOMIBU_OPENAI_API_KEY
@@ -36,7 +36,7 @@ embeddings = false
 # dimensions = 768              # 1..=4096; match the selected model
 # endpoint = "http://127.0.0.1:11434/v1/" # computed local endpoint, numeric loopback only
 # These optional options accept { clear = true }; identity fields are independent.
-# Credential: --openai-api-key / YOMIBU_OPENAI_API_KEY
+# Credential: --http-embeddings-api-key / YOMIBU_HTTP_EMBEDDINGS_API_KEY
 # No persistent storage is chosen or owned by the embedder.
 
 [pipeline.assessment]

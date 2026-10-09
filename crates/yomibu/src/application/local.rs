@@ -153,7 +153,7 @@ impl LocalApp {
         self.validate_story_setup(needs_source, &mut progress.modules)?;
         let client = self.config.pipeline.components.generation.client(
             self.credentials
-                .generation(&self.config.application.credential_bindings)?
+                .generation()?
                 .ok_or_else(|| ApplicationError::Setup {
                     issues: vec![SetupIssue {
                         module: ModuleId::Generation,
@@ -249,15 +249,13 @@ impl LocalApp {
                     ModuleId::Sync => {
                         module.required = needs_source && self.config.enabled(ModuleId::Sync);
                         module.required
-                            && self.credentials.is_missing(
-                                crate::configuration::components::SOURCE_KEY,
-                                &self.config.application.credential_bindings,
-                            )
+                            && self
+                                .credentials
+                                .is_missing(crate::configuration::components::SOURCE_KEY)
                     }
-                    ModuleId::Generation => self.credentials.is_missing(
-                        crate::configuration::components::GENERATION_KEY,
-                        &self.config.application.credential_bindings,
-                    ),
+                    ModuleId::Generation => self
+                        .credentials
+                        .is_missing(crate::configuration::components::GENERATION_KEY),
                     _ => false,
                 };
                 missing.then_some(SetupIssue {

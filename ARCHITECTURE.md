@@ -36,7 +36,7 @@ The application wires default selection steps and prepares embedding evidence be
 optional fallback remains application policy.
 
 The CLI captures environment values, drives the runtime and renders results.
-The application resolves scoped settings and immutable invocation overrides, binds
+The application resolves scoped settings, immutable invocation overrides and
 credentials, constructs components through explicit typed mappings, prepares resources,
 and applies refresh, authorization and optional-work policies. Constructors do no I/O.
 Pure calculations and file operations are synchronous; network calls use the caller's

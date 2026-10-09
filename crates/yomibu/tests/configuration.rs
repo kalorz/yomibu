@@ -78,7 +78,7 @@ fn unknown_fields_in_loaded_unused_pipeline_scopes_are_rejected() {
         "[pipeline.options.http-embeddings]\nunknown='synthetic-secret'",
         "[pipeline.components]\nunknown='synthetic-secret'",
         "[pipeline.selection]\nunknown='synthetic-secret'",
-        "\"application.credentials\"={\"openai-story-generation.api-key\"={clear=true}}",
+        "\"application.credentials\"={\"openai.api-key\"={clear=true}}",
         "\"pipeline.options\"={}",
     ] {
         std::fs::write(&path, text).unwrap();
@@ -115,15 +115,14 @@ fn configuration_errors_preserve_diagnostic_order_without_reflecting_contents() 
     assert!(!format!("{error:?} {error}").contains("synthetic-secret"));
     assert!(error.to_string().contains("config.toml"));
     std::fs::write(&pipeline, "[pipeline]\nmodel=7\n").unwrap();
-    std::fs::write(&config, "[application.credentials]\n\"openai-story-generation.api-key\"={provider='unknown',key='openai'}\n").unwrap();
+    assert!(matches!(load(), Err(ConfigError::Invalid { path }) if path == config));
+    std::fs::write(&config, "").unwrap();
     assert!(matches!(load(), Err(ConfigError::Invalid { path }) if path == pipeline));
     std::fs::remove_file(&pipeline).unwrap();
     let story = dir.path().join("default-story.toml");
     std::fs::write(&story, "[story]\ncandidates='wrong-type'\n").unwrap();
     assert!(matches!(load(), Err(ConfigError::Invalid { path }) if path == story));
     std::fs::remove_file(&story).unwrap();
-    assert!(matches!(load(), Err(ConfigError::Invalid { path }) if path == config));
-    std::fs::write(&config, "[application.credentials]\n\"openai-story-generation.api-key\"={provider='supplied',key='unrelated'}\n").unwrap();
     assert!(
         matches!(load(), Err(ConfigError::Environment { name }) if name == "YOMIBU_CANDIDATES")
     );
@@ -137,7 +136,11 @@ fn scoped_defaults_resolve_component_options_and_file_relative_resources() {
         "[application]\ninventory = 'inventory.json'\n",
     )
     .unwrap();
-    std::fs::write(dir.path().join("default-pipeline.toml"), "[pipeline]\nmodel = 'shared'\n[pipeline.options.openai-story-generation]\nmodel = 'generation'\n").unwrap();
+    std::fs::write(
+        dir.path().join("default-pipeline.toml"),
+        "[pipeline]\nmodel = 'shared'\n[pipeline.options.openai]\nmodel = 'generation'\n",
+    )
+    .unwrap();
     std::fs::write(
         dir.path().join("default-story.toml"),
         "[story]\nselect = 8\nseed = 7\nformat = 'sentence'\n",
@@ -150,7 +153,7 @@ fn scoped_defaults_resolve_component_options_and_file_relative_resources() {
         &Operation::Story,
         flags,
         BTreeMap::from([(
-            "YOMIBU_OPENAI_STORY_GENERATION_MODEL".into(),
+            "YOMIBU_OPENAI_MODEL".into(),
             "environment-generation".into(),
         )]),
     )
@@ -257,7 +260,11 @@ fn resolves_each_model_setting_before_job_fallback_and_paths_relative_to_config(
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("config.toml");
     std::fs::write(&file, "[application]\ninventory='inventory.json'\n").unwrap();
-    std::fs::write(dir.path().join("default-pipeline.toml"), "[pipeline]\nmodel='file-default'\n[pipeline.options.openai-story-generation]\nmodel='file-generation'\n").unwrap();
+    std::fs::write(
+        dir.path().join("default-pipeline.toml"),
+        "[pipeline]\nmodel='file-default'\n[pipeline.options.openai]\nmodel='file-generation'\n",
+    )
+    .unwrap();
     let env = BTreeMap::from([("YOMIBU_MODEL".into(), "environment-default".into())]);
     let mut flags = ProcessOverrides::default();
     flags.invocation.pipeline.model = Some("flag-default".into());
@@ -338,7 +345,11 @@ fn module_controls_override_saved_choices_but_conflicts_remain_errors() {
 #[test]
 fn flags_override_environment_and_environment_overrides_file_for_each_setting() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("default-pipeline.toml"),"[pipeline]\nmodel='file-model'\n[pipeline.options.openai-story-generation]\nmodel='file-generation'\n").unwrap();
+    std::fs::write(
+        dir.path().join("default-pipeline.toml"),
+        "[pipeline]\nmodel='file-model'\n[pipeline.options.openai]\nmodel='file-generation'\n",
+    )
+    .unwrap();
     std::fs::write(dir.path().join("default-story.toml"), "[story]\nselect=2\n").unwrap();
     let mut flags = ProcessOverrides::default();
     flags.invocation.pipeline.options.generation.model = Patch::Set("flag-generation".into());
@@ -347,10 +358,7 @@ fn flags_override_environment_and_environment_overrides_file_for_each_setting() 
         &Operation::Story,
         flags,
         BTreeMap::from([
-            (
-                "YOMIBU_OPENAI_STORY_GENERATION_MODEL".into(),
-                "env-generation".into(),
-            ),
+            ("YOMIBU_OPENAI_MODEL".into(), "env-generation".into()),
             ("YOMIBU_SELECT".into(), "3".into()),
         ]),
     )
@@ -360,10 +368,9 @@ fn flags_override_environment_and_environment_overrides_file_for_each_setting() 
 }
 
 #[test]
-fn component_choices_and_credential_bindings_belong_to_separate_scopes() {
+fn component_choices_belong_to_pipeline_scope() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("config.toml"), "[application.credentials]\n\"openai-story-generation.api-key\"={provider='supplied',key='openai'}\n\"http-embeddings.api-key\"={clear=true}\n").unwrap();
-    std::fs::write(dir.path().join("default-pipeline.toml"), "[pipeline.components]\nsource='wanikani-source'\nlearning_store='file-learning-store'\nembedding_cache='file-embedding-cache'\npreparation='story-prompt-preparation'\ngeneration='openai-story-generation'\nanalysis='sudachi-dictionary'\nassessment='japanese-constraint-checks'\n").unwrap();
+    std::fs::write(dir.path().join("default-pipeline.toml"), "[pipeline.components]\nsource='wanikani'\nlearning_store='file-learning-store'\nembedding_cache='file-embedding-cache'\npreparation='story-prompt-preparation'\ngeneration='openai'\nanalysis='sudachi-dictionary'\nassessment='japanese-constraint-checks'\n").unwrap();
     let load = || {
         load_config(
             dir.path(),
@@ -373,62 +380,26 @@ fn component_choices_and_credential_bindings_belong_to_separate_scopes() {
         )
     };
     assert!(load().is_ok());
-    for invalid in [
-        "[application.components]\nsource='wanikani-source'",
-        "[application.credentials]\n\"openai-story-generation.api-key\"={provider='supplied',key='wanikani'}",
-        "[application.credentials]\n\"openai-story-generation.api-key\"={provider='keychain',key='openai'}",
-        "[application.credentials]\n\"openai-story-generation.api-key\"={provider='supplied',key='openai',value='synthetic-secret'}",
-    ] {
-        std::fs::write(dir.path().join("config.toml"), invalid).unwrap();
-        let error = load().unwrap_err();
-        assert!(!format!("{error:?}").contains("synthetic-secret"));
-    }
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "[application.components]\nsource='wanikani'",
+    )
+    .unwrap();
+    assert!(load().is_err());
 }
 
 #[test]
-fn credential_bindings_validate_only_consumed_requirements_but_always_reject_unknown_paths() {
+fn credential_bindings_are_rejected_for_every_operation() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
-    let load = |operation: &Operation| {
-        load_config(
-            dir.path(),
-            operation,
-            ProcessOverrides::default(),
-            BTreeMap::new(),
+    for value in ["{provider='supplied',key='openai'}", "'synthetic-secret'"] {
+        std::fs::write(
+            &path,
+            format!("[application.credentials]\n\"openai.api-key\"={value}\n"),
         )
-    };
-    for (requirement, used_by_sync, used_by_retrieval) in [
-        ("wanikani-source.api-key", true, false),
-        ("openai-story-generation.api-key", false, false),
-        ("http-embeddings.api-key", false, true),
-    ] {
-        std::fs::write(&path, format!("[application.credentials]\n\"{requirement}\"={{provider='supplied',key='unrelated'}}\n")).unwrap();
-        for (operation, used) in [
-            (Operation::Status, false),
-            (Operation::Story, true),
-            (Operation::Sync, used_by_sync),
-            (Operation::Retrieval, used_by_retrieval),
-            (Operation::Preview, false),
-            (Operation::Verify, false),
-            (Operation::Analyze("input.json".into()), false),
-            (Operation::Import("bundle".into()), false),
-        ] {
-            match load(&operation) {
-                Err(ConfigError::Invalid { path: invalid }) if used => assert_eq!(invalid, path),
-                Ok(_) if !used => {}
-                result => panic!("{operation:?}, {requirement}: {result:?}"),
-            }
-        }
-    }
-    for invalid in [
-        "\"bogus.api-key\"={provider='supplied',key='x'}",
-        "\"openai-story-generation.api-key\"={provider='supplied',key='openai',value='synthetic-secret'}",
-        "\"openai-story-generation.api-key\"='synthetic-secret'",
-        "\"openai-story-generation.api-key\"=7",
-        "\"openai-story-generation.api-key\"=[]",
-    ] {
-        std::fs::write(&path, format!("[application.credentials]\n{invalid}\n")).unwrap();
+        .unwrap();
         for operation in [
+            Operation::Auth,
             Operation::Story,
             Operation::Preview,
             Operation::Retrieval,
@@ -438,7 +409,13 @@ fn credential_bindings_validate_only_consumed_requirements_but_always_reject_unk
             Operation::Analyze("input.json".into()),
             Operation::Import("bundle".into()),
         ] {
-            let error = load(&operation).unwrap_err();
+            let error = load_config(
+                dir.path(),
+                &operation,
+                ProcessOverrides::default(),
+                BTreeMap::new(),
+            )
+            .unwrap_err();
             assert!(matches!(&error, ConfigError::Invalid { path: invalid } if invalid == &path));
             assert!(!format!("{error:?} {error}").contains("synthetic-secret"));
         }
@@ -511,9 +488,9 @@ fn invalid_compositions_unknown_paths_and_secrets_are_static_errors_even_when_di
         "[pipeline.selection]\nsteps=['embedding-rank']",
         "[pipeline.selection]\nembeddings=false\nembedding_steps=[]",
         "[pipeline.components]\ngeneration='unknown'",
-        "[pipeline.options.openai-story-generation]\napi-key='synthetic-secret'",
+        "[pipeline.options.openai]\napi-key='synthetic-secret'",
         "[pipeline]\nresources={inventory='input.json'}",
-        "[pipeline.options.openai-story-generation]\nmodel={clear=false}",
+        "[pipeline.options.openai]\nmodel={clear=false}",
     ] {
         std::fs::write(dir.path().join("default-pipeline.toml"), text).unwrap();
         let error = load_config(
@@ -532,7 +509,7 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
     use yomibu::configuration::Invocation;
     for input in [
         r#"{"pipeline":{"credentials":{}}}"#,
-        r#"{"pipeline":{"options":{"openai-story-generation":{"api-key":"secret"}}}}"#,
+        r#"{"pipeline":{"options":{"openai":{"api-key":"secret"}}}}"#,
         r#"{"story":{"inventory":"input.json"}}"#,
     ] {
         assert!(serde_json::from_str::<Invocation>(input).is_err());
@@ -542,7 +519,10 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
     flags.invocation.pipeline.model = Some("shared".into());
     flags.invocation.pipeline.options.generation.model = Patch::Set("specific".into());
     let config = load_config(dir.path(), &Operation::Story, flags, BTreeMap::new()).unwrap();
-    let input:Invocation=serde_json::from_str(r#"{"pipeline":{"model":"new-shared","options":{"openai-story-generation":{"model":{"clear":true}}}}}"#).unwrap();
+    let input: Invocation = serde_json::from_str(
+        r#"{"pipeline":{"model":"new-shared","options":{"openai":{"model":{"clear":true}}}}}"#,
+    )
+    .unwrap();
     let changed = config.for_invocation(input, &Operation::Story).unwrap();
     assert_eq!(changed.generation().model, "new-shared");
     assert_eq!(config.generation().model, "specific");

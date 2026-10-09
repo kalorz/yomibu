@@ -22,7 +22,11 @@ pub const DIMENSIONS: OptionDeclaration<usize> =
     OptionDeclaration::new("http-embeddings", "dimensions");
 pub const ENDPOINT: OptionDeclaration<String> =
     OptionDeclaration::new("http-embeddings", "endpoint");
-pub const API_KEY: CredentialRequirement = CredentialRequirement::new("http-embeddings", "api-key");
+pub const API_KEY: CredentialRequirement = CredentialRequirement::new(
+    "http-embeddings",
+    "api-key",
+    "Hosted embeddings: OpenAI embedding access",
+);
 
 pub struct HttpEmbedder {
     http: reqwest::Client,

@@ -42,7 +42,7 @@ pub struct SelectionOverrides {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ComponentOptions {
-    #[serde(rename = "openai-story-generation")]
+    #[serde(rename = "openai")]
     pub generation: GenerationOptions,
     #[serde(rename = "http-embeddings")]
     pub embeddings: EmbeddingOptions,

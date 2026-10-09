@@ -35,19 +35,6 @@ pub enum Operation {
 }
 
 impl Operation {
-    pub(crate) fn uses_credential(
-        &self,
-        requirement: crate::configuration::components::CredentialRequirement,
-    ) -> bool {
-        use crate::configuration::components;
-        match self {
-            Self::Story | Self::Auth => true,
-            Self::Sync => requirement.name == components::SOURCE_KEY.name,
-            Self::Retrieval => requirement.name == components::EMBEDDING_KEY.name,
-            _ => false,
-        }
-    }
-
     pub(crate) fn uses_setting(&self, name: &str) -> bool {
         use Operation::*;
         if matches!(self, Auth) {
@@ -74,7 +61,7 @@ impl Operation {
             "pipeline.components.preparation"
             | "pipeline.components.generation"
             | "pipeline.model"
-            | "pipeline.options.openai-story-generation.model"
+            | "pipeline.options.openai.model"
             | "story.format"
             | "story.candidates"
             | "story.seed"

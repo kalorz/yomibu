@@ -270,7 +270,7 @@ async fn sentence_assessment_with_a_real_dictionary_reports_available_evidence_a
             dictionary.to_str().unwrap(),
             "--format",
             "sentence",
-            "--openai-story-generation-model",
+            "--openai-model",
             "chosen-model",
             "--json",
         ],

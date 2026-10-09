@@ -14,7 +14,11 @@ use yomibu_core::domain::source::{Subject, UnavailableSubject, ValidationError, 
 
 const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
 pub const API_KEY: yomibu_core::capabilities::options::CredentialRequirement =
-    yomibu_core::capabilities::options::CredentialRequirement::new("wanikani-source", "api-key");
+    yomibu_core::capabilities::options::CredentialRequirement::new(
+        "wanikani",
+        "api-key",
+        "WaniKani synchronization: read access, no write permissions",
+    );
 
 /// Sanitized retrieval failures; transport URLs, response bodies, and credentials
 /// are deliberately omitted from both messages and underlying error chains.

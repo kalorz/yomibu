@@ -32,18 +32,24 @@ pub(crate) fn run(
                 bail!("Credential setup cannot be used with --no-keychain.");
             }
             auth::require_interactive(cli.json)?;
-            if let Some(key) = credential {
-                return auth::configure_target(&key);
-            }
-            let config = load_configuration(
-                cli.data_dir,
-                cli.config,
-                ProcessOverrides::default(),
-                &Operation::Auth,
-            )?;
+            let replace = credential
+                .as_ref()
+                .is_some_and(|target| target.contains('.'));
+            let requirements = if let Some(target) = credential {
+                auth::select(&target)
+            } else {
+                load_configuration(
+                    cli.data_dir,
+                    cli.config,
+                    ProcessOverrides::default(),
+                    &Operation::Auth,
+                )?
+                .credential_requirements()
+                .collect()
+            };
             credentials::environment(&mut credentials);
             auth::install(&mut credentials);
-            return auth::configure(&config, &credentials);
+            return auth::configure(requirements, &credentials, replace);
         }
         Command::Story(args) => (Operation::Story, args.overrides()),
         Command::PreviewStory(args) => (Operation::Preview, args.overrides()),

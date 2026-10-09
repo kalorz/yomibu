@@ -56,8 +56,8 @@ pub(super) async fn prepare_embeddings(
                     "Hosted embeddings require --allow-embedding-call.",
                 ));
             }
-            let key = credentials.resolve(crate::configuration::components::EMBEDDING_KEY, &config.application.credential_bindings)?.ok_or(ApplicationError::ResourceConfiguration(
-                "Hosted embeddings need --openai-api-key or YOMIBU_OPENAI_API_KEY with embedding access.",
+            let key = credentials.resolve(crate::configuration::components::EMBEDDING_KEY)?.ok_or(ApplicationError::ResourceConfiguration(
+                "Hosted embeddings need --http-embeddings-api-key or YOMIBU_HTTP_EMBEDDINGS_API_KEY with embedding access. On macOS, run yomibu auth http-embeddings.",
             ))?;
             prepare_cache(
                 &HttpEmbedder::openai(key, identity)?,

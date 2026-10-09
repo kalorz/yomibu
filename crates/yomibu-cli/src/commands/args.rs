@@ -36,8 +36,8 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Save credentials in macOS Keychain; without a target, prompt for missing configured credentials.
     Auth {
-        /// Shared provider slot or exact component credential slot. Enter skips any prompt.
-        #[arg(value_name = "CREDENTIAL", value_parser = clap::builder::PossibleValuesParser::new(super::auth::slots()))]
+        /// Component namespace for missing credentials, or exact credential to set or replace. Enter skips.
+        #[arg(value_name = "CREDENTIAL", value_parser = clap::builder::PossibleValuesParser::new(super::auth::targets()))]
         credential: Option<String>,
     },
     /// Generate a passage of 3–5 short sentences with one AI request.

@@ -97,7 +97,7 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
         return Ok(previous);
     }
     let key = if config.enabled(ModuleId::Sync) {
-        credentials.source(&config.application.credential_bindings)?
+        credentials.source()?
     } else {
         None
     };

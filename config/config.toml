@@ -11,15 +11,3 @@ allow_embedding_call = false
 # embedding_cache = "embeddings.json"   # computed: <data-dir>/embeddings.json
 # Optional paths accept { clear = true } to restore implicit behavior.
 # Explicit paths affect missing-resource diagnostics and inventory merging.
-
-# Values come from provider CLI/ENV inputs or the supplied provider.
-# Shared inputs: --openai-api-key / YOMIBU_OPENAI_API_KEY and
-# --wanikani-api-key / YOMIBU_WANIKANI_API_KEY. Never store keys here.
-[application.credentials]
-"wanikani-source.api-key" = { provider = "supplied", key = "wanikani" }
-"openai-story-generation.api-key" = { provider = "supplied", key = "openai" }
-"http-embeddings.api-key" = { provider = "supplied", key = "openai" }
-# Private binding alternative (caller-supplied exact component slot):
-# "http-embeddings.api-key" = { provider = "supplied", key = "http-embeddings.api-key" }
-# Remove a credential binding:
-# "http-embeddings.api-key" = { clear = true }

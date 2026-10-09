@@ -47,9 +47,9 @@ Missing implicit files are empty; a missing explicit config or another read erro
 fails. Each document is bounded to 64 KiB of UTF-8. Application paths are relative
 to the config directory; CLI/ENV paths use the working directory.
 
-Application settings own resources, sync policy, hosted-call authorization and
-credential bindings. Pipeline settings own component choices (including source
-and storage), component options and selection ordering. Story settings own topic,
+Application settings own resources, sync policy and hosted-call authorization.
+Pipeline settings own component choices (including source and storage), component
+options and selection ordering. Story settings own topic,
 targets, seed, limit, format and candidate count.
 
 Ordinary precedence is CLI → ENV → saved defaults → built-ins, independently per
@@ -62,8 +62,7 @@ ENV clear sentinel. Empty strings do not mean clear.
 
 The generation component's optional model resolves independently, then falls back
 to `pipeline.model` (`--model`). Thus a saved generation model beats a CLI shared
-model. `--openai-story-generation-model` and
-`YOMIBU_OPENAI_STORY_GENERATION_MODEL` are generated from the component declaration.
+model. `--openai-model` and `YOMIBU_OPENAI_MODEL` come from the component declaration.
 HTTP encoder options use `--http-embeddings-{model,revision,dimensions,endpoint}`
 and matching uppercase `YOMIBU_HTTP_EMBEDDINGS_…` names. Names never use Rust types.
 Existing story, resource and policy flags remain explicit. Repeat `--enable` /
@@ -71,28 +70,25 @@ Existing story, resource and policy flags remain explicit. Repeat `--enable` /
 A same-source enable/disable conflict fails. Mandatory core validation cannot be
 disabled.
 
-Provider credentials use `--wanikani-api-key` / `YOMIBU_WANIKANI_API_KEY` and
-`--openai-api-key` / `YOMIBU_OPENAI_API_KEY`. The OpenAI key serves generation and
-hosted embeddings. Values never belong in TOML, reports or Debug output. The CLI
-replaces secret arguments before parsing diagnostics. Components receive keys
-explicitly and never read process inputs or credential stores.
+Credentials belong to components. Names generate `--<component>-<credential>` and
+`YOMIBU_<COMPONENT>_<CREDENTIAL>` inputs. The components are `openai`, `wanikani`,
+and `http-embeddings`, each declaring `api-key`. Hosted embeddings need their own
+key; generation's key is never reused automatically.
 
-Bindings name only the supported `supplied` provider and either the exact component
-requirement or its shared provider slot: `wanikani` for the source, `openai` for
-text generation and hosted embeddings. Provider inputs supply those shared slots.
-A private component binding or `{ clear = true }` removes access to shared inputs.
-For shared bindings, resolution is CLI → ENV → caller-supplied bound value.
-A winning blank key is missing; it never falls through. Invalid encoding makes credential-dependent
-work fail, including stale source refresh and explicit retrieval. Optional story
-embeddings report this failure as a warning and use the configured base selection.
-No other key is tried. There is no cross-provider fallback.
-On macOS, `yomibu auth [CREDENTIAL]` saves keys in Keychain. Omit the slot to
-prompt for missing configured credentials; Enter skips any prompt. Shared slots
-are `wanikani` and `openai`; exact component slots allow separate bound keys.
-Disabled integrations are excluded. Generation is required for stories; source
-sync and hosted embeddings are optional during setup. Saved keys are supplied
-lazily after CLI/ENV inputs. `--no-keychain` disables lookup. Normal commands never
-ask for API keys. Other platforms use CLI/ENV inputs. No plaintext fallback.
+Resolution is CLI → ENV → supplied value (Keychain on macOS). A winning blank key
+is missing and never falls through. Invalid encoding fails credential-dependent
+work; optional story embeddings warn and use the configured base selection.
+Values never belong in TOML, reports or Debug output. CLI diagnostics redact keys.
+Components receive credentials explicitly.
+
+On macOS, `yomibu auth` prompts for missing credentials of enabled integrations.
+`yomibu auth http-embeddings` prompts for that component's missing credentials,
+even before enabling it. `yomibu auth http-embeddings.api-key` sets or replaces
+that key. Enter skips any prompt. Generation is required for stories; sync and
+hosted embeddings are optional during setup.
+Keychain uses service `yomibu:<component>` and account `<credential>`.
+Reads are lazy. `--no-keychain` disables lookup. Normal commands never ask for keys.
+Other platforms use CLI/ENV inputs. No plaintext fallback.
 
 WaniKani requires read access, OpenAI generation
 requires response creation and model access, and hosted embeddings require
@@ -105,16 +101,11 @@ analyzer/checks; dictionary commands use its dictionary resources. They ignore
 story and text-generation settings. Unknown paths and malformed loaded TOML fail
 without reflecting contents. Known unused fields are pruned before type checking;
 consumed lower-precedence inputs must still have valid types.
-Credential bindings follow this rule per requirement: story uses all three,
-sync uses the source, and retrieval uses embeddings. Offline operations ignore
-known binding values; unknown requirements and fields still fail. Every binding
-must be a table, even when unused; plain secret values are rejected.
 
 `LocalApp::for_invocation(Invocation { pipeline, story }, operation)` resolves an
 independent snapshot through the same typed application logic as file/CLI loading.
 It shares immutable resource settings and credentials. Request overrides cannot
-choose resource paths, authorization or credential bindings. No shared current
-pipeline is mutated.
+choose resource paths or authorization. No shared current pipeline is mutated.
 
 Default selection is `lexical-topic` then `seeded-order` (`builtin-v2`).
 `seeded-order` alone uses `seeded-only-v1`. Embedding selection is `embedding-rank`

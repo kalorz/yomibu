@@ -7,7 +7,7 @@ fn cli() -> Command {
 }
 
 #[test]
-fn auth_help_lists_shared_and_private_slots_without_reading_configuration() {
+fn auth_help_lists_component_namespaces_and_credentials_without_reading_configuration() {
     let output = cli().args(["auth", "--help"]).output().unwrap();
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
@@ -15,7 +15,9 @@ fn auth_help_lists_shared_and_private_slots_without_reading_configuration() {
     for slot in [
         "wanikani",
         "openai",
-        "openai-story-generation.api-key",
+        "openai.api-key",
+        "wanikani.api-key",
+        "http-embeddings",
         "http-embeddings.api-key",
     ] {
         assert!(text.contains(slot), "{text}");
