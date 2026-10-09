@@ -67,6 +67,7 @@ impl StoryPreparer for TestPreparer {
     }
 }
 
+#[derive(Default)]
 struct TestGenerator {
     calls: AtomicUsize,
     fail: bool,
@@ -90,20 +91,7 @@ impl CandidateGenerator for TestGenerator {
                 text: "猫。".into(),
                 sentence_spans: std::iter::once(0..6).collect(),
             }],
-            GenerationProvenance {
-                provider: "test",
-                requested_model: request.options.model.clone(),
-                returned_model: "test".into(),
-                requested_tier: "test",
-                returned_tier: None,
-                prompt_revision: "test-v1",
-                request_sha256: "test".into(),
-                request_bytes: 0,
-                response_id: "test".into(),
-                request_id: None,
-                request_count: 1,
-                usage: None,
-            },
+            generation_provenance(&request.options.model, "test-v1"),
             request.options.format,
             request.options.candidate_count,
         )
@@ -123,6 +111,40 @@ fn inputs() -> (LearnerInventory, StoryRequest) {
     (inventory, request)
 }
 
+fn sentence_options() -> StoryGenerationOptions {
+    StoryGenerationOptions {
+        model: "test-only-model".into(),
+        candidate_count: 1,
+        format: StoryFormat::Sentence,
+    }
+}
+
+fn generation_provenance(model: &str, revision: &'static str) -> GenerationProvenance {
+    GenerationProvenance {
+        provider: "test",
+        requested_model: model.into(),
+        returned_model: "test".into(),
+        requested_tier: "test",
+        returned_tier: None,
+        prompt_revision: revision,
+        request_sha256: "test".into(),
+        request_bytes: 0,
+        response_id: "test".into(),
+        request_id: None,
+        request_count: 1,
+        usage: None,
+    }
+}
+
+fn passing_evaluation(text: &str, basis: EvaluationBasis) -> Evaluation {
+    let pass = || Check {
+        state: CheckState::Completed(CheckOutcome::Pass),
+        findings: vec![],
+        coverage: "test",
+    };
+    Evaluation::new(text, basis, pass(), pass(), pass(), pass(), pass()).unwrap()
+}
+
 #[tokio::test]
 async fn supplied_preparer_binds_trimmed_selection_and_executes_matching_generator_once() {
     let result = {
@@ -135,11 +157,7 @@ async fn supplied_preparer_binds_trimmed_selection_and_executes_matching_generat
             &inventory,
             &request,
             selection,
-            StoryGenerationOptions {
-                model: "test-only-model".into(),
-                candidate_count: 1,
-                format: StoryFormat::Sentence,
-            },
+            sentence_options(),
         )
         .unwrap();
         assert_eq!(plan.selection().selected.len(), 1);
@@ -150,15 +168,9 @@ async fn supplied_preparer_binds_trimmed_selection_and_executes_matching_generat
             &inventory
         ));
         assert!(std::ptr::eq(plan.assessment_inputs().request(), &request));
-        let generator = TestGenerator {
-            calls: AtomicUsize::new(0),
-            fail: false,
-        };
-        let analyzer = TestAnalyzer {
-            calls: RefCell::new(vec![]),
-            replace_text: false,
-        };
-        let assessor = TestAssessor(RefCell::new(vec![]));
+        let generator = TestGenerator::default();
+        let analyzer = TestAnalyzer::default();
+        let assessor = TestAssessor::default();
         let result = yomibu::application::story::generate_story_with(
             &plan, &generator, &analyzer, &assessor,
         )
@@ -196,22 +208,15 @@ async fn supplied_generator_failure_stays_typed_and_is_not_retried() {
         &inventory,
         &request,
         selection,
-        StoryGenerationOptions {
-            model: "test-only-model".into(),
-            candidate_count: 1,
-            format: StoryFormat::Sentence,
-        },
+        sentence_options(),
     )
     .unwrap();
     let generator = TestGenerator {
-        calls: AtomicUsize::new(0),
         fail: true,
+        ..Default::default()
     };
-    let analyzer = TestAnalyzer {
-        calls: RefCell::new(vec![]),
-        replace_text: false,
-    };
-    let assessor = TestAssessor(RefCell::new(vec![]));
+    let analyzer = TestAnalyzer::default();
+    let assessor = TestAssessor::default();
     assert!(matches!(
         yomibu::application::story::generate_story_with(&plan, &generator, &analyzer, &assessor)
             .await,
@@ -252,10 +257,7 @@ fn default_assessor_can_use_supplied_morphology_without_a_dictionary() {
         yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 1, 7)
             .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
-    let analyzer = TestAnalyzer {
-        calls: RefCell::new(vec![]),
-        replace_text: false,
-    };
+    let analyzer = TestAnalyzer::default();
     let result = assess_candidate("猫。", &inputs, &analyzer, &JapaneseConstraintChecks);
     let CandidateAssessment::Completed {
         analysis,
@@ -286,6 +288,7 @@ struct AnalysisFailure;
 #[error("test assessment failed")]
 struct AssessmentFailure;
 
+#[derive(Default)]
 struct TestAnalyzer {
     calls: RefCell<Vec<String>>,
     replace_text: bool,
@@ -342,6 +345,7 @@ impl SentenceAnalyzer for TestAnalyzer {
     }
 }
 
+#[derive(Default)]
 struct TestAssessor(RefCell<Vec<String>>);
 impl StoryAssessor for TestAssessor {
     type Error = AssessmentFailure;
@@ -359,21 +363,10 @@ impl StoryAssessor for TestAssessor {
         if analysis.sentence.text() == "鳥。" {
             return Err(AssessmentFailure);
         }
-        let pass = || Check {
-            state: CheckState::Completed(CheckOutcome::Pass),
-            findings: vec![],
-            coverage: "test",
-        };
-        let evaluation = Evaluation::new(
+        let evaluation = passing_evaluation(
             analysis.sentence.text(),
             EvaluationBasis::FullLearnerInventory,
-            pass(),
-            pass(),
-            pass(),
-            pass(),
-            pass(),
-        )
-        .unwrap();
+        );
         Ok(StoryFindings::new(
             analysis.sentence.text(),
             evaluation,
@@ -400,11 +393,8 @@ fn supplied_evidence_and_assessor_run_once_per_sentence_and_retain_independent_t
             yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 1, 7)
                 .unwrap();
         let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
-        let analyzer = TestAnalyzer {
-            calls: RefCell::new(vec![]),
-            replace_text: false,
-        };
-        let assessor = TestAssessor(RefCell::new(vec![]));
+        let analyzer = TestAnalyzer::default();
+        let assessor = TestAssessor::default();
         let passages = vec![
             GeneratedPassage {
                 text: "猫。犬。鳥。".into(),
@@ -470,10 +460,10 @@ fn mismatched_analysis_is_rejected_before_judgment_and_absent_capabilities_are_n
             .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
     let analyzer = TestAnalyzer {
-        calls: RefCell::new(vec![]),
         replace_text: true,
+        ..Default::default()
     };
-    let assessor = TestAssessor(RefCell::new(vec![]));
+    let assessor = TestAssessor::default();
     let passages = [GeneratedPassage {
         text: "猫。".into(),
         sentence_spans: std::iter::once(0..6).collect(),
@@ -505,21 +495,7 @@ impl StoryAssessor for OtherSentenceAssessor {
         _: &'a SentenceAnalysis<'_>,
         _: &StoryAssessmentInputs<'_>,
     ) -> Result<StoryFindings<'a>, Self::Error> {
-        let pass = || Check {
-            state: CheckState::Completed(CheckOutcome::Pass),
-            findings: vec![],
-            coverage: "test",
-        };
-        let evaluation = Evaluation::new(
-            "犬。",
-            EvaluationBasis::FullLearnerInventory,
-            pass(),
-            pass(),
-            pass(),
-            pass(),
-            pass(),
-        )
-        .unwrap();
+        let evaluation = passing_evaluation("犬。", EvaluationBasis::FullLearnerInventory);
         Ok(StoryFindings::new("犬。", evaluation, vec![], vec![]).unwrap())
     }
 }
@@ -531,10 +507,7 @@ fn findings_for_a_different_sentence_cannot_be_attached_to_original_analysis() {
         yomibu::application::selection::select_builtin_vocabulary(&inventory, &request, 1, 7)
             .unwrap();
     let inputs = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
-    let analyzer = TestAnalyzer {
-        calls: RefCell::new(vec![]),
-        replace_text: false,
-    };
+    let analyzer = TestAnalyzer::default();
     let result = yomibu_core::pipeline::assessment::assess_candidate(
         "猫。",
         &inputs,
@@ -596,21 +569,7 @@ impl StoryAssessor for InvalidFindings {
                 Self::WrongBasis => basis = EvaluationBasis::ExplicitWordUses,
             }
         }
-        let pass = || Check {
-            state: CheckState::Completed(CheckOutcome::Pass),
-            findings: vec![],
-            coverage: "test",
-        };
-        let evaluation = Evaluation::new(
-            analysis.sentence.text(),
-            basis,
-            pass(),
-            pass(),
-            pass(),
-            pass(),
-            pass(),
-        )
-        .unwrap();
+        let evaluation = passing_evaluation(analysis.sentence.text(), basis);
         Ok(StoryFindings::new(analysis.sentence.text(), evaluation, targets, vec![]).unwrap())
     }
 }
@@ -635,10 +594,7 @@ fn inconsistent_assessor_outputs_fail_the_sentence_without_losing_other_evidence
         InvalidFindings::ContradictoryState,
         InvalidFindings::WrongBasis,
     ] {
-        let analyzer = TestAnalyzer {
-            calls: RefCell::new(vec![]),
-            replace_text: false,
-        };
+        let analyzer = TestAnalyzer::default();
         let results = assess_passages(&passages, &inputs, Some((&analyzer, &assessor)));
         assert!(
             matches!(
@@ -734,20 +690,7 @@ impl CandidateGenerator for WrongShapeGenerator {
                     sentence_spans: (0..sentences).map(|i| i * 6..(i + 1) * 6).collect(),
                 })
                 .collect(),
-            GenerationProvenance {
-                provider: "test",
-                requested_model: "test".into(),
-                returned_model: "test".into(),
-                requested_tier: "test",
-                returned_tier: None,
-                prompt_revision: "test",
-                request_sha256: "test".into(),
-                request_bytes: 0,
-                response_id: "test".into(),
-                request_id: None,
-                request_count: 1,
-                usage: None,
-            },
+            generation_provenance("test", "test"),
             self.format,
             self.count,
         )
@@ -773,8 +716,7 @@ async fn generated_count_and_format_must_match_the_bound_options_before_assessme
             selection,
             StoryGenerationOptions {
                 format: expected,
-                candidate_count: 1,
-                model: "test-only-model".into(),
+                ..sentence_options()
             },
         )
         .unwrap();
@@ -783,11 +725,8 @@ async fn generated_count_and_format_must_match_the_bound_options_before_assessme
             count,
             calls: AtomicUsize::new(0),
         };
-        let analyzer = TestAnalyzer {
-            calls: RefCell::new(vec![]),
-            replace_text: false,
-        };
-        let assessor = TestAssessor(RefCell::new(vec![]));
+        let analyzer = TestAnalyzer::default();
+        let assessor = TestAssessor::default();
         let result = yomibu::application::story::generate_story_with(
             &plan, &generator, &analyzer, &assessor,
         )

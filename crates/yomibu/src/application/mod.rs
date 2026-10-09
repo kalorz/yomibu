@@ -50,20 +50,29 @@ impl Operation {
     pub(crate) fn uses_setting(&self, name: &str) -> bool {
         use Operation::*;
         match name {
-            "source" => matches!(self, Story | Sync),
-            "learning_store" => matches!(self, Story | Preview | Retrieval | Sync | Status),
-            "embedding_cache_component" => matches!(self, Story | Preview | Retrieval),
-            "preparation" | "generation_component" => matches!(self, Story | Preview),
-            "analysis" => matches!(self, Story | Analyze(_) | Import(_) | Verify),
-            "assessment_component" => matches!(self, Story | Analyze(_)),
-            "wanikani_cache" => matches!(self, Story | Preview | Retrieval | Sync | Status),
-            "dictionary_dir" => matches!(self, Story | Analyze(_) | Import(_) | Verify),
-            "model" | "generation_model" | "format" | "candidates" | "seed" => {
-                matches!(self, Story | Preview)
+            "pipeline.components.source" => matches!(self, Story | Sync),
+            "pipeline.components.learning_store" | "application.wanikani_cache" => {
+                matches!(self, Story | Preview | Retrieval | Sync | Status)
             }
-            "cache_max_age_seconds" => matches!(self, Story),
-            "enable" | "disable" | "sync" | "embeddings" | "assessment" | "steps"
-            | "embedding_steps" => matches!(self, Story | Preview),
+            "pipeline.components.analysis" | "application.dictionary_dir" => {
+                matches!(self, Story | Analyze(_) | Import(_) | Verify)
+            }
+            "pipeline.components.assessment" => matches!(self, Story | Analyze(_)),
+            "pipeline.components.preparation"
+            | "pipeline.components.generation"
+            | "pipeline.model"
+            | "pipeline.options.openai-story-generation.model"
+            | "story.format"
+            | "story.candidates"
+            | "story.seed"
+            | "enable"
+            | "disable"
+            | "application.sync"
+            | "pipeline.selection.embeddings"
+            | "pipeline.assessment.enabled"
+            | "pipeline.selection.steps"
+            | "pipeline.selection.embedding_steps" => matches!(self, Story | Preview),
+            "application.cache_max_age_seconds" => matches!(self, Story),
             _ => matches!(self, Story | Preview | Retrieval),
         }
     }

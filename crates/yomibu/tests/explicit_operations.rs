@@ -1,8 +1,22 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::Path};
 use yomibu::{
-    application::{ApplicationError, Credentials, LocalApp},
-    configuration::{Configuration, ConfigurationInput, Settings},
+    application::{ApplicationError, Credentials, LocalApp, Operation},
+    configuration::{Configuration, ConfigurationInput, Patch, ProcessOverrides},
 };
+
+fn load_config(dir: &Path, operation: &Operation, flags: ProcessOverrides) -> Configuration {
+    Configuration::load(
+        ConfigurationInput {
+            data_dir: Some(dir.into()),
+            config: None,
+            home: None,
+            environment: BTreeMap::new(),
+            flags,
+        },
+        operation,
+    )
+    .unwrap()
+}
 
 #[tokio::test]
 async fn offline_preview_and_retrieval_cannot_use_expired_source_content() {
@@ -17,20 +31,10 @@ async fn offline_preview_and_retrieval_cannot_use_expired_source_content() {
         serde_json::to_vec(&cache).unwrap(),
     )
     .unwrap();
-    let config = Configuration::load(
-        ConfigurationInput {
-            data_dir: Some(dir.path().into()),
-            config: None,
-            home: None,
-            environment: BTreeMap::new(),
-            flags: Settings {
-                embedding_provider: Some(yomibu::configuration::EmbeddingProvider::LexicalBaseline),
-                ..Default::default()
-            },
-        },
-        &yomibu::application::Operation::Story,
-    )
-    .unwrap();
+    let mut flags = ProcessOverrides::default();
+    flags.invocation.pipeline.embedding.provider =
+        Patch::Set(yomibu::configuration::EmbeddingProvider::LexicalBaseline);
+    let config = load_config(dir.path(), &Operation::Story, flags);
     let app = LocalApp::new(config, Credentials::default());
     assert!(matches!(
         app.preview(std::time::SystemTime::now().into(), 1),
@@ -54,21 +58,10 @@ async fn offline_preview_uses_manual_inventory_and_explicit_sync_requires_a_key(
         include_bytes!("../../../tests/fixtures/story/inventory.json"),
     )
     .unwrap();
-    let config = Configuration::load(
-        ConfigurationInput {
-            data_dir: Some(dir.path().join("data")),
-            config: None,
-            home: None,
-            environment: BTreeMap::new(),
-            flags: Settings {
-                inventory: Some(inventory),
-                generation_model: Some("chosen".into()),
-                ..Default::default()
-            },
-        },
-        &yomibu::application::Operation::Story,
-    )
-    .unwrap();
+    let mut flags = ProcessOverrides::default();
+    flags.application.inventory = Some(inventory);
+    flags.invocation.pipeline.options.generation.model = Patch::Set("chosen".into());
+    let config = load_config(&dir.path().join("data"), &Operation::Story, flags);
     let app = LocalApp::new(config, Credentials::default());
     let preview = app.preview(std::time::SystemTime::now().into(), 7).unwrap();
     assert!(preview.request.topic.is_none());
@@ -90,21 +83,12 @@ async fn story_checks_request_before_inventory_but_offline_operations_check_inve
     std::fs::write(&inventory, "{").unwrap();
     std::fs::write(&request, "{").unwrap();
     let data = dir.path().join("data");
-    let config = Configuration::load(
-        ConfigurationInput {
-            data_dir: Some(data.clone()),
-            config: None,
-            home: None,
-            environment: BTreeMap::new(),
-            flags: Settings {
-                inventory: Some(inventory),
-                request: Some(request),
-                ..Default::default()
-            },
-        },
-        &yomibu::application::Operation::Story,
-    )
-    .unwrap();
+    let mut flags = ProcessOverrides {
+        request: Some(request),
+        ..Default::default()
+    };
+    flags.application.inventory = Some(inventory);
+    let config = load_config(&data, &Operation::Story, flags);
     let app = LocalApp::new(config, Credentials::default());
     let now = std::time::SystemTime::now().into();
     // SAFETY: Invalid inputs stop the workflow before dictionary loading.
@@ -151,17 +135,7 @@ fn saved_selection_and_story_targets_drive_the_existing_preview_workflow() {
         "[story]\ntopic={clear=true}\nseed=7\n[story.targets]\nvocabulary=['cat']\ngrammar=[]\n",
     )
     .unwrap();
-    let config = Configuration::load(
-        ConfigurationInput {
-            data_dir: Some(dir.path().into()),
-            config: None,
-            home: None,
-            environment: BTreeMap::new(),
-            flags: Settings::default(),
-        },
-        &yomibu::application::Operation::Preview,
-    )
-    .unwrap();
+    let config = load_config(dir.path(), &Operation::Preview, ProcessOverrides::default());
     let report = LocalApp::new(config, Credentials::default())
         .preview(std::time::SystemTime::now().into(), 42)
         .unwrap();
@@ -190,17 +164,7 @@ fn typed_invocations_replace_defaults_without_mutating_the_application() {
         "[story]\ntopic='cat'\nseed=7\n[story.targets]\nvocabulary=['cat']\ngrammar=[]\n",
     )
     .unwrap();
-    let config = Configuration::load(
-        ConfigurationInput {
-            data_dir: Some(dir.path().into()),
-            config: None,
-            home: None,
-            environment: BTreeMap::new(),
-            flags: Settings::default(),
-        },
-        &yomibu::application::Operation::Preview,
-    )
-    .unwrap();
+    let config = load_config(dir.path(), &Operation::Preview, ProcessOverrides::default());
     let app = LocalApp::new(config, Credentials::default());
     let mut request = Invocation::default();
     request.story.topic = Patch::Clear;
@@ -242,21 +206,12 @@ fn request_file_topic_omission_inherits_but_null_clears_saved_topic() {
             format!("{{\"version\":1,\"targets\":{{\"vocabulary\":[],\"grammar\":[]}}{topic}}}"),
         )
         .unwrap();
-        let config = Configuration::load(
-            ConfigurationInput {
-                data_dir: Some(dir.path().into()),
-                config: None,
-                home: None,
-                environment: BTreeMap::new(),
-                flags: Settings {
-                    inventory: Some(dir.path().join("inventory.json")),
-                    request: Some(request),
-                    ..Default::default()
-                },
-            },
-            &yomibu::application::Operation::Preview,
-        )
-        .unwrap();
+        let mut flags = ProcessOverrides {
+            request: Some(request),
+            ..Default::default()
+        };
+        flags.application.inventory = Some(dir.path().join("inventory.json"));
+        let config = load_config(dir.path(), &Operation::Preview, flags);
         let preview = LocalApp::new(config, Credentials::default())
             .preview(std::time::SystemTime::now().into(), 7)
             .unwrap();
@@ -282,21 +237,10 @@ fn missing_optional_embeddings_fall_back_to_the_configured_selector() {
         "[pipeline.selection]\nsteps=['seeded-order']\nembeddings=true\n",
     )
     .unwrap();
-    let config = Configuration::load(
-        ConfigurationInput {
-            data_dir: Some(dir.path().into()),
-            config: None,
-            home: None,
-            environment: BTreeMap::new(),
-            flags: Settings {
-                inventory: Some(inventory),
-                topic: Some("cat".into()),
-                ..Default::default()
-            },
-        },
-        &yomibu::application::Operation::Preview,
-    )
-    .unwrap();
+    let mut flags = ProcessOverrides::default();
+    flags.application.inventory = Some(inventory);
+    flags.invocation.story.topic = Patch::Set("cat".into());
+    let config = load_config(dir.path(), &Operation::Preview, flags);
     let preview = LocalApp::new(config, Credentials::default())
         .preview(std::time::SystemTime::now().into(), 7)
         .unwrap();

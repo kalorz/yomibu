@@ -55,8 +55,10 @@ macro_rules! parse_setting {
         impl std::str::FromStr for $type {
             type Err = &'static str;
             fn from_str(value: &str) -> Result<Self, Self::Err> {
-                serde_json::from_value(serde_json::Value::String(value.into()))
-                    .map_err(|_| $message)
+                Self::deserialize(
+                    serde::de::value::StrDeserializer::<serde::de::value::Error>::new(value),
+                )
+                .map_err(|_| $message)
             }
         }
     };
@@ -71,47 +73,30 @@ parse_setting!(
     "Choose a supported module shown in yomibu help story."
 );
 
-/// Typed process-input capture. Persisted documents use the scoped schemas.
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct ProcessOverrides {
+    pub application: ApplicationOverrides,
+    #[serde(flatten)]
+    pub invocation: Invocation,
+    #[serde(skip)]
+    pub request: Option<PathBuf>,
+    #[serde(skip)]
+    pub enable: Vec<ModuleId>,
+    #[serde(skip)]
+    pub disable: Vec<ModuleId>,
+}
+
+#[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Settings {
-    pub source: Option<components::Source>,
-    pub learning_store: Option<components::LearningStore>,
-    pub embedding_cache_component: Option<components::EmbeddingCache>,
-    pub preparation: Option<components::Preparation>,
-    pub generation_component: Option<components::Generation>,
-    pub analysis: Option<components::Analysis>,
-    pub assessment_component: Option<components::Assessment>,
-    pub credential_bindings: BTreeMap<String, Patch<credentials::CredentialBinding>>,
-    pub sync: Option<bool>,
-    pub embeddings: Option<bool>,
-    pub assessment: Option<bool>,
-    pub steps: Option<Vec<SelectionStep>>,
-    pub embedding_steps: Option<Vec<SelectionStep>>,
-    pub vocabulary_targets: Option<Vec<String>>,
-    pub grammar_targets: Option<Vec<String>>,
-    pub model: Option<String>,
-    pub generation_model: Option<String>,
+pub struct ApplicationOverrides {
     pub inventory: Option<PathBuf>,
     pub wanikani_cache: Option<PathBuf>,
-    pub knowledge_policy: Option<KnowledgePolicy>,
-    pub request: Option<PathBuf>,
-    pub topic: Option<String>,
-    pub select: Option<usize>,
-    pub seed: Option<u64>,
-    pub format: Option<StoryFormat>,
-    pub candidates: Option<usize>,
     pub cache_max_age_seconds: Option<u64>,
     pub dictionary_dir: Option<PathBuf>,
     pub embedding_cache: Option<PathBuf>,
-    pub embedding_provider: Option<EmbeddingProvider>,
-    pub embedding_model: Option<String>,
-    pub embedding_revision: Option<String>,
-    pub embedding_dimensions: Option<usize>,
-    pub embedding_endpoint: Option<String>,
     pub allow_embedding_call: Option<bool>,
-    pub enable: Vec<ModuleId>,
-    pub disable: Vec<ModuleId>,
+    pub sync: Option<bool>,
 }
 
 pub struct ConfigurationInput {
@@ -119,7 +104,7 @@ pub struct ConfigurationInput {
     pub config: Option<PathBuf>,
     pub home: Option<PathBuf>,
     pub environment: BTreeMap<String, String>,
-    pub flags: Settings,
+    pub flags: ProcessOverrides,
 }
 
 #[derive(Debug, Clone)]
@@ -192,16 +177,16 @@ impl Configuration {
             .ok_or(ConfigError::MissingHome)?;
         let explicit = input.config.is_some();
         let path = input.config.unwrap_or_else(|| data_dir.join("config.toml"));
-        let mut file = documents::load(&path, explicit, operation)?;
+        let (mut file, bindings) = documents::load(&path, explicit, operation)?;
         let parent = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| std::path::Path::new("."));
         for value in [
-            &mut file.inventory,
-            &mut file.wanikani_cache,
-            &mut file.dictionary_dir,
-            &mut file.embedding_cache,
+            &mut file.application.inventory,
+            &mut file.application.wanikani_cache,
+            &mut file.application.dictionary_dir,
+            &mut file.application.embedding_cache,
         ]
         .into_iter()
         .flatten()
@@ -212,12 +197,14 @@ impl Configuration {
         }
         let mut env = environment_settings(input.environment, operation)?;
         if operation.uses_setting("enable") {
-            for source in [&mut file, &mut env, &mut input.flags] {
+            for source in [&mut env, &mut input.flags] {
                 for id in source.enable.iter().chain(&source.disable) {
                     let setting = match id {
-                        ModuleId::Sync => &mut source.sync,
-                        ModuleId::Embeddings => &mut source.embeddings,
-                        ModuleId::Assessment => &mut source.assessment,
+                        ModuleId::Sync => &mut source.application.sync,
+                        ModuleId::Embeddings => {
+                            &mut source.invocation.pipeline.selection.embeddings
+                        }
+                        ModuleId::Assessment => &mut source.invocation.pipeline.assessment.enabled,
                         ModuleId::Knowledge | ModuleId::Generation => {
                             return Err(ConfigError::InvalidSetting(
                                 "Only sync, embeddings, and assessment can be enabled or disabled.",
@@ -237,17 +224,18 @@ impl Configuration {
             ($field:ident) => {
                 input
                     .flags
+                    .application
                     .$field
                     .take()
-                    .or(env.$field.take())
-                    .or(file.$field.take())
+                    .or(env.application.$field.take())
+                    .or(file.application.$field.take())
             };
         }
-        let topic_conflict = input.flags.topic.is_some() || env.topic.is_some();
-        let request = setting!(request);
-        let credential_bindings =
-            credentials::CredentialBindings::resolve(std::mem::take(&mut file.credential_bindings))
-                .map_err(|_| ConfigError::Invalid { path: path.clone() })?;
+        let topic_conflict = !matches!(input.flags.invocation.story.topic, Patch::Inherit)
+            || !matches!(env.invocation.story.topic, Patch::Inherit);
+        let request = input.flags.request.or(env.request);
+        let credential_bindings = credentials::CredentialBindings::resolve(bindings)
+            .map_err(|_| ConfigError::Invalid { path: path.clone() })?;
         let dictionary_dir = setting!(dictionary_dir);
         let mut resolved = Self {
             application: std::sync::Arc::new(ApplicationSettings {
@@ -260,7 +248,7 @@ impl Configuration {
                     .unwrap_or_else(|| data_dir.join("embeddings.json")),
                 allow_embedding_call: setting!(allow_embedding_call).unwrap_or(false),
                 credential_bindings,
-                sync: if operation.uses_setting("sync") {
+                sync: if operation.uses_setting("application.sync") {
                     setting!(sync)
                 } else {
                     None
@@ -296,8 +284,8 @@ impl Configuration {
                 grammar_targets: Vec::new(),
             },
         };
-        for source in [file, env, input.flags] {
-            resolved.apply(source.into_invocation(), operation);
+        for source in [file.invocation, env.invocation, input.flags.invocation] {
+            resolved.apply(source, operation);
         }
         resolved.validate(operation, topic_conflict)?;
         Ok(resolved)
@@ -326,70 +314,74 @@ impl Configuration {
 fn environment_settings(
     environment: BTreeMap<String, String>,
     operation: &Operation,
-) -> Result<Settings, ConfigError> {
-    let mut values = serde_json::Map::new();
+) -> Result<ProcessOverrides, ConfigError> {
+    let mut input = ProcessOverrides::default();
     for (name, text) in environment {
-        let field = if let Some((_, field)) = component_fields()
-            .into_iter()
-            .find(|(option, _)| option.environment() == name)
-        {
-            field.to_owned()
-        } else if ENVIRONMENT_SETTINGS.contains(&name.as_str()) {
-            name.trim_start_matches("YOMIBU_").to_ascii_lowercase()
-        } else {
-            continue;
-        };
-        if !operation.uses_setting(&field) {
-            continue;
+        macro_rules! set {
+            ($scope:ident.$($field:ident).+) => {
+                set!(concat!(stringify!($scope), $(".", stringify!($field)),+),
+                    $scope.$($field).+, text.parse::<_>())
+            };
+            ($option:ident => $target:expr) => {
+                set!(&format!("pipeline.options.{}", components::$option.name.key()),
+                    $target, components::$option.parse(&text))
+            };
+            ($path:expr, $target:expr, $value:expr) => {
+                if operation.uses_setting($path) {
+                    $target = Some($value.map_err(|_| ConfigError::Environment { name: name.clone() })?).into();
+                }
+            };
         }
-        let value = match field.as_str() {
-            "select" | "seed" | "candidates" | "cache_max_age_seconds" => serde_json::Value::from(
-                text.parse::<u64>()
-                    .map_err(|_| ConfigError::Environment { name: name.clone() })?,
-            ),
-            "generation_model"
-            | "embedding_model"
-            | "embedding_revision"
-            | "embedding_dimensions"
-            | "embedding_endpoint" => {
-                let value = match field.as_str() {
-                    "generation_model" => components::GENERATION_MODEL
-                        .parse(&text)
-                        .map(serde_json::Value::from),
-                    "embedding_model" => components::EMBEDDING_MODEL
-                        .parse(&text)
-                        .map(serde_json::Value::from),
-                    "embedding_revision" => components::EMBEDDING_REVISION
-                        .parse(&text)
-                        .map(serde_json::Value::from),
-                    "embedding_dimensions" => components::EMBEDDING_DIMENSIONS
-                        .parse(&text)
-                        .map(serde_json::Value::from),
-                    _ => components::EMBEDDING_ENDPOINT
-                        .parse(&text)
-                        .map(serde_json::Value::from),
-                };
-                value.map_err(|_| ConfigError::Environment { name: name.clone() })?
+        let application = &mut input.application;
+        let pipeline = &mut input.invocation.pipeline;
+        let story = &mut input.invocation.story;
+        match name.as_str() {
+            "YOMIBU_MODEL" => set!(pipeline.model),
+            "YOMIBU_INVENTORY" => set!(application.inventory),
+            "YOMIBU_WANIKANI_CACHE" => set!(application.wanikani_cache),
+            "YOMIBU_KNOWLEDGE_POLICY" => set!(pipeline.knowledge_policy),
+            "YOMIBU_REQUEST" => set!("request", input.request, text.parse::<PathBuf>()),
+            "YOMIBU_TOPIC" => set!(story.topic),
+            "YOMIBU_SELECT" => set!(story.select),
+            "YOMIBU_SEED" => set!(story.seed),
+            "YOMIBU_FORMAT" => set!(story.format),
+            "YOMIBU_CANDIDATES" => set!(story.candidates),
+            "YOMIBU_CACHE_MAX_AGE_SECONDS" => set!(application.cache_max_age_seconds),
+            "YOMIBU_DICTIONARY_DIR" => set!(application.dictionary_dir),
+            "YOMIBU_EMBEDDING_CACHE" => set!(application.embedding_cache),
+            "YOMIBU_EMBEDDING_PROVIDER" => set!(pipeline.embedding.provider),
+            "YOMIBU_ALLOW_EMBEDDING_CALL" => set!(application.allow_embedding_call),
+            "YOMIBU_ENABLE" | "YOMIBU_DISABLE" if operation.uses_setting("enable") => {
+                let modules = text
+                    .split(',')
+                    .map(|id| id.trim().parse())
+                    .collect::<Result<_, _>>()
+                    .map_err(|_| ConfigError::Environment { name: name.clone() })?;
+                if name == "YOMIBU_ENABLE" {
+                    input.enable = modules;
+                } else {
+                    input.disable = modules;
+                }
             }
-            "allow_embedding_call" => serde_json::Value::from(
-                text.parse::<bool>()
-                    .map_err(|_| ConfigError::Environment { name: name.clone() })?,
-            ),
-            "enable" | "disable" => serde_json::Value::from(
-                text.split(',')
-                    .map(|s| s.trim().to_owned())
-                    .collect::<Vec<_>>(),
-            ),
-            _ => serde_json::Value::from(text),
-        };
-        let mut single = serde_json::Map::new();
-        single.insert(field.clone(), value.clone());
-        serde_json::from_value::<Settings>(single.into())
-            .map_err(|_| ConfigError::Environment { name })?;
-        values.insert(field, value);
+            name if name == components::GENERATION_MODEL.name.environment() => {
+                set!(GENERATION_MODEL => pipeline.options.generation.model)
+            }
+            name if name == components::EMBEDDING_MODEL.name.environment() => {
+                set!(EMBEDDING_MODEL => pipeline.options.embeddings.model)
+            }
+            name if name == components::EMBEDDING_REVISION.name.environment() => {
+                set!(EMBEDDING_REVISION => pipeline.options.embeddings.revision)
+            }
+            name if name == components::EMBEDDING_DIMENSIONS.name.environment() => {
+                set!(EMBEDDING_DIMENSIONS => pipeline.options.embeddings.dimensions)
+            }
+            name if name == components::EMBEDDING_ENDPOINT.name.environment() => {
+                set!(EMBEDDING_ENDPOINT => pipeline.options.embeddings.endpoint)
+            }
+            _ => {}
+        }
     }
-    serde_json::from_value(values.into())
-        .map_err(|_| ConfigError::InvalidSetting("Invalid environment configuration."))
+    Ok(input)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -422,26 +414,20 @@ impl SelectionSettings {
     }
 }
 
-fn component_fields() -> [(yomibu_core::capabilities::options::OptionName, &'static str); 5] {
-    [
-        (components::GENERATION_MODEL.name, "generation_model"),
-        (components::EMBEDDING_MODEL.name, "embedding_model"),
-        (components::EMBEDDING_REVISION.name, "embedding_revision"),
-        (
-            components::EMBEDDING_DIMENSIONS.name,
-            "embedding_dimensions",
-        ),
-        (components::EMBEDDING_ENDPOINT.name, "embedding_endpoint"),
-    ]
-}
 pub fn environment_names() -> Vec<String> {
     ENVIRONMENT_SETTINGS
         .iter()
         .map(|name| (*name).into())
         .chain(
-            component_fields()
-                .into_iter()
-                .map(|(option, _)| option.environment()),
+            [
+                components::GENERATION_MODEL.name,
+                components::EMBEDDING_MODEL.name,
+                components::EMBEDDING_REVISION.name,
+                components::EMBEDDING_DIMENSIONS.name,
+                components::EMBEDDING_ENDPOINT.name,
+            ]
+            .into_iter()
+            .map(|option| option.environment()),
         )
         .collect()
 }

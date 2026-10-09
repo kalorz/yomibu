@@ -13,7 +13,7 @@ use std::{
 };
 use yomibu::{
     application::{Credentials, LocalApp, Operation, ServiceEndpoints},
-    configuration::{Configuration, ConfigurationInput, Settings, environment_names},
+    configuration::{Configuration, ConfigurationInput, ProcessOverrides, environment_names},
 };
 
 pub(crate) fn run(
@@ -25,36 +25,27 @@ pub(crate) fn run(
         return Ok(());
     };
     let (operation, flags) = match command {
-        Command::Story(args) => (Operation::Story, args.settings()),
-        Command::PreviewStory(args) => (Operation::Preview, args.settings()),
-        Command::PrepareRetrieval(args) => (Operation::Retrieval, args.settings()),
+        Command::Story(args) => (Operation::Story, args.overrides()),
+        Command::PreviewStory(args) => (Operation::Preview, args.overrides()),
+        Command::PrepareRetrieval(args) => (Operation::Retrieval, args.overrides()),
         Command::Analyze { dictionary, input } => {
-            (Operation::Analyze(input), dictionary.settings())
+            (Operation::Analyze(input), dictionary.overrides())
         }
-        Command::Dictionary {
-            command:
+        Command::Dictionary { command } => {
+            let (operation, dictionary_dir) = match command {
                 DictionaryCommand::Import {
                     bundle,
                     dictionary_dir,
-                },
-        } => (
-            Operation::Import(bundle),
-            Settings {
-                dictionary_dir,
-                ..Default::default()
-            },
-        ),
-        Command::Dictionary {
-            command: DictionaryCommand::Verify { dictionary_dir },
-        } => (
-            Operation::Verify,
-            Settings {
-                dictionary_dir,
-                ..Default::default()
-            },
-        ),
-        Command::Sync => (Operation::Sync, Settings::default()),
-        Command::Status => (Operation::Status, Settings::default()),
+                } => (Operation::Import(bundle), dictionary_dir),
+                DictionaryCommand::Verify { dictionary_dir } => (Operation::Verify, dictionary_dir),
+            };
+            (
+                operation,
+                args::DictionaryArgs { dictionary_dir }.overrides(),
+            )
+        }
+        Command::Sync => (Operation::Sync, ProcessOverrides::default()),
+        Command::Status => (Operation::Status, ProcessOverrides::default()),
     };
     let environment: BTreeMap<_, _> = environment_names()
         .into_iter()

@@ -11,12 +11,12 @@ use yomibu::{
         progress::{ProgressEvent, Step},
     },
     configuration::{
-        Configuration, ConfigurationInput, Settings,
+        Configuration, ConfigurationInput, Patch, ProcessOverrides,
         modules::{ModuleId, ModuleState},
     },
 };
 
-fn config(dir: &std::path::Path, flags: Settings) -> Configuration {
+fn config(dir: &std::path::Path, flags: ProcessOverrides) -> Configuration {
     Configuration::load(
         ConfigurationInput {
             data_dir: Some(dir.into()),
@@ -54,7 +54,10 @@ fn assert_completed_steps(events: &[ProgressEvent]) {
 async fn missing_setup_is_aggregated_before_network_or_writes_and_secrets_are_redacted() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("fresh");
-    let app = LocalApp::new(config(&data, Settings::default()), Credentials::default());
+    let app = LocalApp::new(
+        config(&data, ProcessOverrides::default()),
+        Credentials::default(),
+    );
     let error = unsafe { app.story(SystemTime::now().into(), 7, |_| {}) }
         .await
         .unwrap_err();
@@ -82,7 +85,7 @@ async fn disabling_sync_without_knowledge_reports_the_missing_inventory_instead_
     let app = LocalApp::new(
         config(
             &data,
-            Settings {
+            ProcessOverrides {
                 disable: vec![ModuleId::Sync],
                 ..Default::default()
             },
@@ -147,7 +150,7 @@ async fn two_keys_generate_once_without_optional_resources_and_the_second_run_us
     mount_generation(&server, 2).await;
     let dir = tempfile::tempdir().unwrap();
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(Some("synthetic-wk".into()), Some("synthetic-ai".into())),
     )
     .with_endpoints(ServiceEndpoints {
@@ -249,7 +252,7 @@ async fn cache_is_fresh_until_the_one_hour_boundary_then_refreshes() {
     mount_source(&server).await;
     mount_generation(&server, 2).await;
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -271,7 +274,7 @@ async fn cache_from_a_future_completion_time_is_refreshed() {
     mount_source(&server).await;
     mount_generation(&server, 1).await;
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -307,7 +310,7 @@ async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lo
         mount_source(&server).await;
         mount_generation(&server, 1).await;
         let app = LocalApp::new(
-            config(dir.path(), Settings::default()),
+            config(dir.path(), ProcessOverrides::default()),
             supplied_credentials(Some("wk".into()), Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
@@ -340,9 +343,9 @@ async fn usable_old_cache_needs_no_source_key_and_disabled_sync_never_initialize
     let server = MockServer::start().await;
     mount_generation(&server, 2).await;
     for (flags, key) in [
-        (Settings::default(), None),
+        (ProcessOverrides::default(), None),
         (
-            Settings {
+            ProcessOverrides {
                 disable: vec![ModuleId::Sync],
                 ..Default::default()
             },
@@ -382,17 +385,10 @@ async fn invalid_source_credentials_are_ignored_until_a_refresh_needs_them() {
                 credentials.set_environment(SOURCE_KEY, Secret::invalid_encoding());
                 credentials.set_shared_environment("wanikani", Secret::new("unused-key".into()));
             }
-            let app = LocalApp::new(
-                config(
-                    dir.path(),
-                    Settings {
-                        sync: Some(sync),
-                        ..Default::default()
-                    },
-                ),
-                credentials,
-            )
-            .with_endpoints(endpoints(&server));
+            let mut flags = ProcessOverrides::default();
+            flags.application.sync = Some(sync);
+            let app = LocalApp::new(config(dir.path(), flags), credentials)
+                .with_endpoints(endpoints(&server));
             let result =
                 unsafe { app.story(completed + chrono::Duration::hours(age_hours), 1, |_| {}) }
                     .await;
@@ -433,7 +429,7 @@ async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_pr
             mount_generation(&server, 1).await;
         }
         let app = LocalApp::new(
-            config(dir.path(), Settings::default()),
+            config(dir.path(), ProcessOverrides::default()),
             supplied_credentials(Some("wk".into()), Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
@@ -462,7 +458,7 @@ async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
     let server = MockServer::start().await;
     mount_generation(&server, 1).await;
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -496,7 +492,7 @@ async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
     )
     .unwrap();
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -520,18 +516,17 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
         )
         .unwrap();
         let missing = dir.path().join("missing");
+        let mut flags = ProcessOverrides::default();
+        flags.application.inventory = Some(inventory);
         let mut input = ConfigurationInput {
             data_dir: Some(dir.path().into()),
-            flags: Settings {
-                inventory: Some(inventory),
-                ..Default::default()
-            },
+            flags,
             config: None,
             home: None,
             environment: BTreeMap::new(),
         };
         match source {
-            "flag" => input.flags.dictionary_dir = Some(missing),
+            "flag" => input.flags.application.dictionary_dir = Some(missing),
             "environment" => {
                 input.environment.insert(
                     "YOMIBU_DICTIONARY_DIR".into(),
@@ -596,19 +591,20 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
     let server = MockServer::start().await;
     mount_generation(&server, 2).await;
     for assessment in [true, false] {
-        let flags = Settings {
-            inventory: Some(inventory.clone()),
-            topic: Some("cat".into()),
-            embedding_provider: Some(yomibu::configuration::EmbeddingProvider::LexicalBaseline),
+        let mut flags = ProcessOverrides {
             enable: vec![ModuleId::Embeddings],
             disable: if assessment {
                 Vec::new()
             } else {
                 vec![ModuleId::Assessment]
             },
-            dictionary_dir: Some(dir.path().join("managed")),
             ..Default::default()
         };
+        flags.application.inventory = Some(inventory.clone());
+        flags.application.dictionary_dir = Some(dir.path().join("managed"));
+        flags.invocation.story.topic = Patch::Set("cat".into());
+        flags.invocation.pipeline.embedding.provider =
+            Patch::Set(yomibu::configuration::EmbeddingProvider::LexicalBaseline);
         let app = LocalApp::new(
             config(dir.path(), flags),
             supplied_credentials(None, Some("ai".into())),
@@ -656,11 +652,11 @@ async fn no_topic_skips_embeddings_and_the_explicit_retrieval_command_requires_a
     .unwrap();
     let server = MockServer::start().await;
     mount_generation(&server, 1).await;
-    let flags = Settings {
-        inventory: Some(inventory),
+    let mut flags = ProcessOverrides {
         enable: vec![ModuleId::Embeddings],
         ..Default::default()
     };
+    flags.application.inventory = Some(inventory);
     let app = LocalApp::new(
         config(dir.path(), flags),
         supplied_credentials(None, Some("ai".into())),
@@ -702,17 +698,18 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
     let server = MockServer::start().await;
     mount_generation(&server, 2).await;
     for authorized in [false, true] {
-        let flags = Settings {
-            inventory: Some(inventory.clone()),
-            topic: Some("cat".into()),
+        let mut flags = ProcessOverrides {
             enable: vec![ModuleId::Embeddings],
-            embedding_provider: Some(yomibu::configuration::EmbeddingProvider::Openai),
-            embedding_model: Some("embedding-model".into()),
-            embedding_revision: Some("pinned".into()),
-            embedding_dimensions: Some(2),
-            allow_embedding_call: Some(authorized),
             ..Default::default()
         };
+        flags.application.inventory = Some(inventory.clone());
+        flags.application.allow_embedding_call = Some(authorized);
+        flags.invocation.story.topic = Patch::Set("cat".into());
+        flags.invocation.pipeline.embedding.provider =
+            Patch::Set(yomibu::configuration::EmbeddingProvider::Openai);
+        flags.invocation.pipeline.options.embeddings.model = Patch::Set("embedding-model".into());
+        flags.invocation.pipeline.options.embeddings.revision = Patch::Set("pinned".into());
+        flags.invocation.pipeline.options.embeddings.dimensions = Patch::Set(2);
         let mut credentials = Credentials::default();
         credentials.set_cli(GENERATION_KEY, "ai".into());
         credentials.set_environment(EMBEDDING_KEY, Secret::invalid_encoding());
@@ -755,12 +752,11 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
         include_bytes!("../../../tests/fixtures/story/inventory.json"),
     )
     .unwrap();
-    let flags = Settings {
-        inventory: Some(inventory.clone()),
-        topic: Some("cat".into()),
-        embedding_provider: Some(yomibu::configuration::EmbeddingProvider::LexicalBaseline),
-        ..Default::default()
-    };
+    let mut flags = ProcessOverrides::default();
+    flags.application.inventory = Some(inventory.clone());
+    flags.invocation.story.topic = Patch::Set("cat".into());
+    flags.invocation.pipeline.embedding.provider =
+        Patch::Set(yomibu::configuration::EmbeddingProvider::LexicalBaseline);
     LocalApp::new(config(dir.path(), flags), Credentials::default())
         .prepare_retrieval(std::time::SystemTime::now().into())
         .await
@@ -768,17 +764,15 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
     let before = std::fs::read(dir.path().join("embeddings.json")).unwrap();
     let server = MockServer::start().await;
     mount_generation(&server, 1).await;
+    let mut flags = ProcessOverrides {
+        enable: vec![ModuleId::Embeddings],
+        ..Default::default()
+    };
+    flags.application.inventory = Some(inventory);
+    flags.invocation.story.topic = Patch::Set("cat".into());
+    flags.invocation.pipeline.options.embeddings.model = Patch::Set("another-model".into());
     let app = LocalApp::new(
-        config(
-            dir.path(),
-            Settings {
-                inventory: Some(inventory),
-                topic: Some("cat".into()),
-                embedding_model: Some("another-model".into()),
-                enable: vec![ModuleId::Embeddings],
-                ..Default::default()
-            },
-        ),
+        config(dir.path(), flags),
         supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -851,22 +845,18 @@ async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentia
     let cache_path = dir.path().join("embeddings.json");
     EmbeddingCacheFile::new(&cache_path).save(&cache).unwrap();
     let before = std::fs::read(&cache_path).unwrap();
-    let app = LocalApp::new(
-        config(
-            dir.path(),
-            Settings {
-                inventory: Some(inventory_path),
-                request: Some(request_path.clone()),
-                embedding_provider: Some(EmbeddingProvider::Openai),
-                embedding_model: Some(cache.model.model.clone()),
-                embedding_revision: Some(cache.model.revision.clone()),
-                embedding_dimensions: Some(2),
-                enable: vec![ModuleId::Embeddings],
-                ..Default::default()
-            },
-        ),
-        Credentials::default(),
-    );
+    let mut flags = ProcessOverrides {
+        request: Some(request_path.clone()),
+        enable: vec![ModuleId::Embeddings],
+        ..Default::default()
+    };
+    flags.application.inventory = Some(inventory_path);
+    flags.invocation.pipeline.embedding.provider = Patch::Set(EmbeddingProvider::Openai);
+    flags.invocation.pipeline.options.embeddings.model = Patch::Set(cache.model.model.clone());
+    flags.invocation.pipeline.options.embeddings.revision =
+        Patch::Set(cache.model.revision.clone());
+    flags.invocation.pipeline.options.embeddings.dimensions = Patch::Set(2);
+    let app = LocalApp::new(config(dir.path(), flags), Credentials::default());
     let now = SystemTime::now().into();
     let reused = app.prepare_retrieval(now).await.unwrap();
     assert_eq!(
@@ -924,14 +914,10 @@ async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_p
     let server = MockServer::start().await;
     mount_source(&server).await;
     mount_generation(&server, 1).await;
+    let mut flags = ProcessOverrides::default();
+    flags.application.wanikani_cache = Some(cache.clone());
     let app = LocalApp::new(
-        config(
-            &dir.path().join("data"),
-            Settings {
-                wanikani_cache: Some(cache.clone()),
-                ..Default::default()
-            },
-        ),
+        config(&dir.path().join("data"), flags),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -945,15 +931,11 @@ async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_p
     assert!(!dir.path().join("data/wanikani.json").exists());
     let inventory = dir.path().join("inventory.json");
     std::fs::write(&inventory, r#"{"version":1,"vocabulary":[{"id":"","written_form":"猫","readings":[],"meanings":[],"direct_object":null}],"grammar_declarations":[],"grammar_bindings":[]}"#).unwrap();
+    let mut flags = ProcessOverrides::default();
+    flags.application.inventory = Some(inventory);
+    flags.application.wanikani_cache = Some(dir.path().join("absent/wanikani.json"));
     let app = LocalApp::new(
-        config(
-            &dir.path().join("absent"),
-            Settings {
-                inventory: Some(inventory),
-                wanikani_cache: Some(dir.path().join("absent/wanikani.json")),
-                ..Default::default()
-            },
-        ),
+        config(&dir.path().join("absent"), flags),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -978,7 +960,7 @@ async fn invalid_request_files_are_rejected_before_automatic_sync_or_writes() {
         let app = LocalApp::new(
             config(
                 &data,
-                Settings {
+                ProcessOverrides {
                     request: Some(request.clone()),
                     ..Default::default()
                 },
@@ -1007,7 +989,7 @@ async fn refreshed_expired_access_is_rejected_before_replacing_a_usable_cache() 
     let server = MockServer::start().await;
     mount_source_with_user(&server, &user.to_string()).await;
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -1029,7 +1011,7 @@ async fn concurrent_story_runs_refresh_once_and_keep_a_complete_usable_cache() {
     mount_source(&server).await;
     mount_generation(&server, 2).await;
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -1073,7 +1055,7 @@ async fn freshness_is_rechecked_under_the_lock_after_another_writer_refreshes() 
     let server = MockServer::start().await;
     mount_generation(&server, 1).await;
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
@@ -1124,7 +1106,7 @@ async fn an_inactive_subscription_retains_its_recorded_free_content_access() {
     let server = MockServer::start().await;
     mount_generation(&server, 1).await;
     let app = LocalApp::new(
-        config(dir.path(), Settings::default()),
+        config(dir.path(), ProcessOverrides::default()),
         supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));

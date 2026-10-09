@@ -111,20 +111,20 @@ impl Configuration {
             };
         }
         macro_rules! component {
-            ($field:ident,$setting:literal) => {
-                if operation.uses_setting($setting) {
+            ($field:ident) => {
+                if operation.uses_setting(concat!("pipeline.components.", stringify!($field))) {
                     set!(overrides.components.$field, pipeline.components.$field);
                 }
             };
         }
-        component!(source, "source");
-        component!(learning_store, "learning_store");
-        component!(embedding_cache, "embedding_cache_component");
-        component!(preparation, "preparation");
-        component!(generation, "generation_component");
-        component!(analysis, "analysis");
-        component!(assessment, "assessment_component");
-        if operation.uses_setting("knowledge_policy")
+        component!(source);
+        component!(learning_store);
+        component!(embedding_cache);
+        component!(preparation);
+        component!(generation);
+        component!(analysis);
+        component!(assessment);
+        if operation.uses_setting("pipeline.knowledge_policy")
             && let Some(value) = overrides.knowledge_policy
         {
             pipeline.knowledge_policy.wanikani = match value {
@@ -136,7 +136,7 @@ impl Configuration {
                 }
             };
         }
-        if operation.uses_setting("model") {
+        if operation.uses_setting("pipeline.model") {
             set!(overrides.model, pipeline.model);
             overrides
                 .options
@@ -147,7 +147,7 @@ impl Configuration {
             set!(input.story.candidates, story.candidates);
             input.story.seed.apply(&mut story.seed);
         }
-        if operation.uses_setting("steps") {
+        if operation.uses_setting("pipeline.selection.steps") {
             set!(overrides.selection.steps, pipeline.selection.steps);
             set!(
                 overrides.selection.embedding_steps,
@@ -156,7 +156,7 @@ impl Configuration {
             set!(overrides.selection.embeddings, pipeline.embeddings);
             set!(overrides.assessment.enabled, pipeline.assessment);
         }
-        if operation.uses_setting("embedding_provider") {
+        if operation.uses_setting("pipeline.embedding.provider") {
             overrides
                 .embedding
                 .provider
@@ -184,7 +184,7 @@ impl Configuration {
                 Patch::Set(value) => pipeline.embedding_endpoint = value,
             }
         }
-        if operation.uses_setting("topic") {
+        if operation.uses_setting("story.topic") {
             input.story.topic.apply(&mut story.topic);
             set!(input.story.select, story.select);
             set!(input.story.targets.vocabulary, story.vocabulary_targets);
@@ -196,78 +196,22 @@ impl Configuration {
         operation: &Operation,
         topic_override: bool,
     ) -> Result<(), ConfigError> {
-        if operation.uses_setting("model") {
+        if operation.uses_setting("pipeline.model") {
             yomibu_components::openai_story_generation::validate_options(&self.generation()).map_err(|_|ConfigError::InvalidSetting("Choose a nonblank text model and a positive candidate count that fits the output budget."))?;
         }
-        if operation.uses_setting("select") && !(1..=16).contains(&self.story.select) {
+        if operation.uses_setting("story.select") && !(1..=16).contains(&self.story.select) {
             return Err(ConfigError::InvalidSetting(
                 "--select must be between 1 and 16.",
             ));
         }
-        if operation.uses_setting("steps") {
+        if operation.uses_setting("pipeline.selection.steps") {
             self.pipeline.selection.validate()?;
         }
-        if operation.uses_setting("topic") && topic_override && self.story.request.is_some() {
+        if operation.uses_setting("story.topic") && topic_override && self.story.request.is_some() {
             return Err(ConfigError::InvalidSetting(
                 "--topic and --request conflict; put the topic in the request file.",
             ));
         }
         Ok(())
-    }
-}
-
-impl super::Settings {
-    pub(super) fn into_invocation(self) -> Invocation {
-        fn optional<T>(value: Option<T>) -> Patch<T> {
-            value.map(Patch::Set).unwrap_or_default()
-        }
-        Invocation {
-            pipeline: PipelineOverrides {
-                components: ComponentOverrides {
-                    source: self.source,
-                    learning_store: self.learning_store,
-                    embedding_cache: self.embedding_cache_component,
-                    preparation: self.preparation,
-                    generation: self.generation_component,
-                    analysis: self.analysis,
-                    assessment: self.assessment_component,
-                },
-                knowledge_policy: self.knowledge_policy,
-                model: self.model,
-                selection: SelectionOverrides {
-                    steps: self.steps,
-                    embedding_steps: self.embedding_steps,
-                    embeddings: self.embeddings,
-                },
-                options: ComponentOptions {
-                    generation: GenerationOptions {
-                        model: optional(self.generation_model),
-                    },
-                    embeddings: EmbeddingOptions {
-                        model: optional(self.embedding_model),
-                        revision: optional(self.embedding_revision),
-                        dimensions: optional(self.embedding_dimensions),
-                        endpoint: optional(self.embedding_endpoint),
-                    },
-                },
-                embedding: EmbeddingOverrides {
-                    provider: optional(self.embedding_provider),
-                },
-                assessment: AssessmentOverrides {
-                    enabled: self.assessment,
-                },
-            },
-            story: StoryOverrides {
-                topic: optional(self.topic),
-                seed: optional(self.seed),
-                select: self.select,
-                format: self.format,
-                candidates: self.candidates,
-                targets: TargetOverrides {
-                    vocabulary: self.vocabulary_targets,
-                    grammar: self.grammar_targets,
-                },
-            },
-        }
     }
 }

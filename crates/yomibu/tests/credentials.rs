@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use yomibu::{
     application::Credentials,
-    configuration::{Configuration, ConfigurationInput, Settings, components},
+    configuration::{Configuration, ConfigurationInput, ProcessOverrides, components},
 };
 
 #[test]
@@ -13,7 +13,7 @@ fn credentials_are_explicitly_shared_and_a_blank_override_does_not_fall_through(
             config: None,
             home: None,
             environment: BTreeMap::new(),
-            flags: Settings::default(),
+            flags: ProcessOverrides::default(),
         },
         &yomibu::application::Operation::Story,
     )
@@ -64,7 +64,7 @@ fn credential_bindings_control_sharing_and_input_precedence_without_cross_compon
                 config: None,
                 home: None,
                 environment: BTreeMap::new(),
-                flags: Settings::default(),
+                flags: ProcessOverrides::default(),
             },
             &yomibu::application::Operation::Story,
         )

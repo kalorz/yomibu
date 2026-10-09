@@ -1,7 +1,8 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 use yomibu::configuration::{
-    EmbeddingProvider, KnowledgePolicy, Settings, StoryFormat, components, modules::ModuleId,
+    EmbeddingProvider, KnowledgePolicy, ProcessOverrides, StoryFormat, components,
+    modules::ModuleId,
 };
 
 #[derive(Parser)]
@@ -125,31 +126,35 @@ fn embedding_dimensions(value: &str) -> Result<usize, &'static str> {
 }
 
 impl StoryArgs {
-    pub fn settings(self) -> Settings {
-        Settings {
-            topic: self.topic,
+    pub fn overrides(self) -> ProcessOverrides {
+        let mut input = ProcessOverrides {
             request: self.request,
-            model: self.model,
-            generation_model: self.generation_model,
-            format: self.format,
-            candidates: self.candidates.map(std::num::NonZeroUsize::get),
             enable: self.enable,
             disable: self.disable,
-            inventory: self.inventory,
-            wanikani_cache: self.wanikani_cache,
-            knowledge_policy: self.knowledge_policy,
-            select: self.select.map(usize::from),
-            seed: self.seed,
-            dictionary_dir: self.dictionary.dictionary_dir,
-            embedding_cache: self.embedding_cache,
-            embedding_provider: self.embedding_provider,
-            embedding_model: self.embedding_model,
-            embedding_revision: self.embedding_revision,
-            embedding_dimensions: self.embedding_dimensions,
-            embedding_endpoint: self.embedding_endpoint,
-            allow_embedding_call: self.allow_embedding_call.then_some(true),
             ..Default::default()
-        }
+        };
+        let app = &mut input.application;
+        app.inventory = self.inventory;
+        app.wanikani_cache = self.wanikani_cache;
+        app.dictionary_dir = self.dictionary.dictionary_dir;
+        app.embedding_cache = self.embedding_cache;
+        app.allow_embedding_call = self.allow_embedding_call.then_some(true);
+        let pipeline = &mut input.invocation.pipeline;
+        pipeline.model = self.model;
+        pipeline.options.generation.model = self.generation_model.into();
+        pipeline.knowledge_policy = self.knowledge_policy;
+        pipeline.embedding.provider = self.embedding_provider.into();
+        pipeline.options.embeddings.model = self.embedding_model.into();
+        pipeline.options.embeddings.revision = self.embedding_revision.into();
+        pipeline.options.embeddings.dimensions = self.embedding_dimensions.into();
+        pipeline.options.embeddings.endpoint = self.embedding_endpoint.into();
+        let story = &mut input.invocation.story;
+        story.topic = self.topic.into();
+        story.format = self.format;
+        story.candidates = self.candidates.map(std::num::NonZeroUsize::get);
+        story.select = self.select.map(usize::from);
+        story.seed = self.seed.into();
+        input
     }
 }
 #[derive(Args, Default)]
@@ -159,11 +164,10 @@ pub(crate) struct DictionaryArgs {
     pub dictionary_dir: Option<PathBuf>,
 }
 impl DictionaryArgs {
-    pub fn settings(self) -> Settings {
-        Settings {
-            dictionary_dir: self.dictionary_dir,
-            ..Default::default()
-        }
+    pub fn overrides(self) -> ProcessOverrides {
+        let mut input = ProcessOverrides::default();
+        input.application.dictionary_dir = self.dictionary_dir;
+        input
     }
 }
 #[derive(Subcommand)]

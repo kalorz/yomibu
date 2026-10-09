@@ -36,3 +36,8 @@ impl<T> Patch<T> {
         }
     }
 }
+impl<T> From<Option<T>> for Patch<T> {
+    fn from(value: Option<T>) -> Self {
+        value.map(Self::Set).unwrap_or_default()
+    }
+}
