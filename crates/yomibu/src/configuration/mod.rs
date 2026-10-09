@@ -233,9 +233,7 @@ impl Configuration {
         let dictionary_dir = setting!(dictionary_dir);
         let mut options = components::Options::default();
         for setting in components::settings().filter(|s| s.secret().is_none()) {
-            if operation.uses_setting(&options::path(setting)) {
-                options.clear(setting)?;
-            }
+            options.clear(setting)?;
         }
         let mut resolved = Self {
             application: std::sync::Arc::new(ApplicationSettings {

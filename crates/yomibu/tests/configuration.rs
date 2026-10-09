@@ -29,6 +29,39 @@ fn load_config(
 }
 
 #[test]
+fn status_configuration_keeps_defaults_for_a_later_local_retrieval_invocation() {
+    use yomibu::configuration::{EmbeddingProvider, Invocation};
+    use yomibu_components::http_embeddings as http;
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = load_config(
+        dir.path(),
+        &Operation::Status,
+        ProcessOverrides::default(),
+        BTreeMap::new(),
+    )
+    .unwrap();
+    let mut invocation = Invocation::default();
+    invocation.pipeline.embedding.provider = Patch::Set(EmbeddingProvider::Local);
+    let options = &mut invocation.pipeline.options;
+    options.set(http::MODEL, "test-model".into()).unwrap();
+    options.set(http::REVISION, "pinned".into()).unwrap();
+    options.set(http::DIMENSIONS, 2).unwrap();
+
+    let retrieval = config
+        .for_invocation(invocation, &Operation::Retrieval)
+        .unwrap();
+    let options = retrieval.pipeline.options.for_component(&http::COMPONENT);
+    assert_eq!(
+        options.required(http::ENDPOINT).unwrap(),
+        "http://127.0.0.1:11434/v1/"
+    );
+    let identity = http::model_identity(options, "local").unwrap();
+    assert!(http::HttpEmbedder::local(options, identity).is_ok());
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn consumed_lower_precedence_values_must_have_valid_types() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("default-story.toml");
