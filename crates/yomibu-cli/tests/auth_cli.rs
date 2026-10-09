@@ -79,17 +79,24 @@ fn exact_auth_warns_about_overrides_and_allows_skipping_in_a_terminal() {
             command.env("YOMIBU_OPENAI_API_KEY", "synthetic-secret日本語\n\u{1b}");
         }
         let mut child = command.spawn().unwrap();
-        child.stdin.take().unwrap().write_all(b"\n").unwrap();
+        let mut input = child.stdin.take().unwrap();
+        input.write_all(b"\n").unwrap();
         let output = child.wait_with_output().unwrap();
-        assert_eq!(output.status.code(), Some(0));
+        drop(input);
+        let text = String::from_utf8(output.stdout)
+            .unwrap()
+            .replace("\r\n", "\n");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "{text}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert!(
             output.stderr.is_empty(),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
-        let text = String::from_utf8(output.stdout)
-            .unwrap()
-            .replace("\r\n", "\n");
         assert!(text.contains("warning: openai.api-key: CLI/environment input overrides the saved Keychain credential. Omit --openai-api-key and unset YOMIBU_OPENAI_API_KEY to use it.\n"), "{text}");
         assert!(
             text.contains("openai.api-key (required for story generation)\n  Story generation:"),
