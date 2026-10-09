@@ -42,6 +42,7 @@ pub(crate) fn run(
                 &Operation::Auth,
             )?;
             credentials::environment(&mut credentials);
+            auth::install(&mut credentials);
             return auth::configure(&config, &credentials);
         }
         Command::Story(args) => (Operation::Story, args.overrides()),

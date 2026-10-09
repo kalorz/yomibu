@@ -17,17 +17,10 @@ pub(super) fn read(service: &str, account: &str) -> Result<Option<String>> {
     }
 }
 
+#[cfg(target_os = "macos")]
 pub(super) fn write(service: &str, account: &str, value: &str) -> Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        let entry = entry(service, account).map_err(|_| unavailable())?;
-        entry.set_password(value).map_err(|_| unavailable())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (service, account, value);
-        Err(unavailable())
-    }
+    let entry = entry(service, account).map_err(|_| unavailable())?;
+    entry.set_password(value).map_err(|_| unavailable())
 }
 
 fn unavailable() -> anyhow::Error {
