@@ -1,5 +1,11 @@
 //! Volatile storage sharing immutable versions across explicitly cloned handles.
 
+pub const COMPONENT: yomibu_core::capabilities::options::Component =
+    yomibu_core::capabilities::options::Component {
+        id: "in-memory-learning-store",
+        settings: &[],
+    };
+
 use std::sync::{
     Arc, RwLock,
     atomic::{AtomicBool, Ordering},

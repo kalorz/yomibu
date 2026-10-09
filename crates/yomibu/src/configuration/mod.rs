@@ -2,18 +2,18 @@ pub mod components;
 mod documents;
 mod invocation;
 pub mod modules;
+mod options;
 mod patch;
 use self::modules::ModuleId;
 use crate::application::Operation;
 pub use invocation::*;
+pub use options::OptionOverrides;
 pub use patch::Patch;
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 use yomibu_core::domain::knowledge::LearnerKnowledgePolicy;
 pub use yomibu_core::domain::story::StoryFormat;
 use yomibu_core::domain::story::StoryGenerationOptions;
-
-const DEFAULT_EMBEDDING_ENDPOINT: &str = "http://127.0.0.1:11434/v1/";
 
 pub const ENVIRONMENT_SETTINGS: &[&str] = &[
     "YOMIBU_MODEL",
@@ -130,12 +130,8 @@ pub struct PipelineSettings {
     pub selection: SelectionSettings,
     pub knowledge_policy: LearnerKnowledgePolicy,
     pub model: String,
-    pub generation_model: Option<String>,
+    pub options: components::Options,
     pub embedding_provider: Option<EmbeddingProvider>,
-    pub embedding_model: Option<String>,
-    pub embedding_revision: Option<String>,
-    pub embedding_dimensions: Option<usize>,
-    pub embedding_endpoint: String,
     pub embeddings: bool,
     pub assessment: bool,
 }
@@ -233,6 +229,14 @@ impl Configuration {
             || !matches!(env.invocation.story.topic, Patch::Inherit);
         let request = input.flags.request.or(env.request);
         let dictionary_dir = setting!(dictionary_dir);
+        let mut options = components::Options::default();
+        for setting in components::settings().filter(|s| s.secret().is_none()) {
+            if operation.uses_setting(&options::path(setting)) {
+                options
+                    .clear(setting)
+                    .map_err(ConfigError::InvalidSetting)?;
+            }
+        }
         let mut resolved = Self {
             application: std::sync::Arc::new(ApplicationSettings {
                 inventory: setting!(inventory),
@@ -259,12 +263,8 @@ impl Configuration {
                 },
                 knowledge_policy: LearnerKnowledgePolicy::default(),
                 model: StoryGenerationOptions::default().model,
-                generation_model: None,
+                options,
                 embedding_provider: None,
-                embedding_model: None,
-                embedding_revision: None,
-                embedding_dimensions: None,
-                embedding_endpoint: DEFAULT_EMBEDDING_ENDPOINT.into(),
                 embeddings: ModuleId::Embeddings.metadata().default_enabled,
                 assessment: ModuleId::Assessment.metadata().default_enabled,
             },
@@ -280,21 +280,24 @@ impl Configuration {
             },
         };
         for source in [file.invocation, env.invocation, input.flags.invocation] {
-            resolved.apply(source, operation);
+            resolved.apply(source, operation)?;
         }
         resolved.validate(operation, topic_conflict)?;
         Ok(resolved)
     }
-    pub fn generation(&self) -> StoryGenerationOptions {
-        StoryGenerationOptions {
+    pub fn generation(&self) -> Result<StoryGenerationOptions, ConfigError> {
+        Ok(StoryGenerationOptions {
             model: self
                 .pipeline
-                .generation_model
-                .clone()
+                .options
+                .for_component(&yomibu_components::openai_story_generation::COMPONENT)
+                .get(components::GENERATION_MODEL)
+                .map_err(ConfigError::InvalidSetting)?
+                .cloned()
                 .unwrap_or_else(|| self.pipeline.model.clone()),
             format: self.story.format,
             candidate_count: self.story.candidates,
-        }
+        })
     }
     pub fn enabled(&self, id: ModuleId) -> bool {
         match id {
@@ -312,14 +315,26 @@ fn environment_settings(
 ) -> Result<ProcessOverrides, ConfigError> {
     let mut input = ProcessOverrides::default();
     for (name, text) in environment {
+        if let Some(setting) =
+            components::settings().find(|s| s.secret().is_none() && s.name().environment() == name)
+        {
+            if operation.uses_setting(&options::path(setting)) {
+                let value = setting
+                    .parse(&text)
+                    .map_err(|_| ConfigError::Environment { name: name.clone() })?;
+                input
+                    .invocation
+                    .pipeline
+                    .options
+                    .insert(setting.name(), Patch::Set(value))
+                    .map_err(|_| ConfigError::Environment { name })?;
+            }
+            continue;
+        }
         macro_rules! set {
             ($scope:ident.$($field:ident).+) => {
                 set!(concat!(stringify!($scope), $(".", stringify!($field)),+),
                     $scope.$($field).+, text.parse::<_>())
-            };
-            ($option:ident => $target:expr) => {
-                set!(&format!("pipeline.options.{}", components::$option.name.key()),
-                    $target, components::$option.parse(&text))
             };
             ($path:expr, $target:expr, $value:expr) => {
                 if operation.uses_setting($path) {
@@ -357,21 +372,6 @@ fn environment_settings(
                 } else {
                     input.disable = modules;
                 }
-            }
-            name if name == components::GENERATION_MODEL.name.environment() => {
-                set!(GENERATION_MODEL => pipeline.options.generation.model)
-            }
-            name if name == components::EMBEDDING_MODEL.name.environment() => {
-                set!(EMBEDDING_MODEL => pipeline.options.embeddings.model)
-            }
-            name if name == components::EMBEDDING_REVISION.name.environment() => {
-                set!(EMBEDDING_REVISION => pipeline.options.embeddings.revision)
-            }
-            name if name == components::EMBEDDING_DIMENSIONS.name.environment() => {
-                set!(EMBEDDING_DIMENSIONS => pipeline.options.embeddings.dimensions)
-            }
-            name if name == components::EMBEDDING_ENDPOINT.name.environment() => {
-                set!(EMBEDDING_ENDPOINT => pipeline.options.embeddings.endpoint)
             }
             _ => {}
         }
@@ -414,15 +414,9 @@ pub fn environment_names() -> Vec<String> {
         .iter()
         .map(|name| (*name).into())
         .chain(
-            [
-                components::GENERATION_MODEL.name,
-                components::EMBEDDING_MODEL.name,
-                components::EMBEDDING_REVISION.name,
-                components::EMBEDDING_DIMENSIONS.name,
-                components::EMBEDDING_ENDPOINT.name,
-            ]
-            .into_iter()
-            .map(|option| option.environment()),
+            components::settings()
+                .filter(|s| s.secret().is_none())
+                .map(|s| s.name().environment()),
         )
         .collect()
 }

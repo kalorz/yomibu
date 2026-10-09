@@ -13,12 +13,18 @@ use thiserror::Error;
 use yomibu_core::domain::source::{Subject, UnavailableSubject, ValidationError, WaniKaniSyncData};
 
 const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
-pub const API_KEY: yomibu_core::capabilities::options::CredentialRequirement =
-    yomibu_core::capabilities::options::CredentialRequirement::new(
-        "wanikani",
-        "api-key",
-        "WaniKani synchronization: read access, no write permissions",
-    );
+use yomibu_core::capabilities::options::{Component, OptionKey, Secret};
+
+pub const ID: &str = "wanikani";
+pub const API_KEY: OptionKey<Secret> = OptionKey::new(
+    ID,
+    "api-key",
+    "WaniKani synchronization: read access, no write permissions",
+);
+pub const COMPONENT: Component = Component {
+    id: ID,
+    settings: &[API_KEY.setting()],
+};
 
 /// Sanitized retrieval failures; transport URLs, response bodies, and credentials
 /// are deliberately omitted from both messages and underlying error chains.

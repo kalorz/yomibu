@@ -47,6 +47,8 @@ pub struct SetupIssue {
 #[derive(Debug, thiserror::Error)]
 pub enum ApplicationError {
     #[error(transparent)]
+    Configuration(#[from] crate::configuration::ConfigError),
+    #[error(transparent)]
     Credential(#[from] super::CredentialError),
     #[error("Missing required setup.")]
     Setup { issues: Vec<SetupIssue> },
@@ -218,7 +220,7 @@ impl LocalApp {
             &inventory,
             &request,
             selection,
-            self.config.generation(),
+            self.config.generation()?,
         )?;
         let selection = SelectionReport::from_selection(plan.selection(), seed);
         progress.finish(Step::Selection, started);

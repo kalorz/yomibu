@@ -200,7 +200,7 @@ fn a_failed_credential_lookup_does_not_block_other_setup() {
         }
         let mut warnings = Vec::new();
         let needs = pending(
-            &Target::Missing(components::CREDENTIALS.to_vec()),
+            &Target::Missing(components::credentials().collect()),
             &credentials,
             &mut warnings,
         )

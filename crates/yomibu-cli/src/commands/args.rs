@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 use yomibu::configuration::{
-    EmbeddingProvider, KnowledgePolicy, ProcessOverrides, StoryFormat, components,
+    EmbeddingProvider, KnowledgePolicy, OptionOverrides, ProcessOverrides, StoryFormat,
     modules::ModuleId,
 };
 
@@ -69,15 +69,14 @@ pub(crate) struct StoryArgs {
     /// Optional scene or subject. Otherwise create a scene around familiar words.
     #[arg(long, conflicts_with = "request")]
     topic: Option<String>,
+    #[arg(skip)]
+    pub options: OptionOverrides,
     /// Advanced story request JSON with optional topic and explicit targets.
     #[arg(long, value_name = "PATH")]
     request: Option<PathBuf>,
     /// Shared text-model fallback; env: YOMIBU_MODEL.
     #[arg(long)]
     model: Option<String>,
-    /// Override the model for generation.
-    #[arg(long = components::GENERATION_MODEL.name.cli(), value_parser = |value: &str| components::GENERATION_MODEL.parse(value))]
-    generation_model: Option<String>,
     /// Output format: passage (default) or sentence.
     #[arg(long)]
     format: Option<StoryFormat>,
@@ -111,27 +110,9 @@ pub(crate) struct StoryArgs {
     /// Encoder: lexical-baseline, local, or openai. Does not enable embeddings.
     #[arg(long)]
     embedding_provider: Option<EmbeddingProvider>,
-    #[arg(long = components::EMBEDDING_MODEL.name.cli(), value_parser = |value: &str| components::EMBEDDING_MODEL.parse(value))]
-    embedding_model: Option<String>,
-    #[arg(long = components::EMBEDDING_REVISION.name.cli(), value_parser = |value: &str| components::EMBEDDING_REVISION.parse(value))]
-    embedding_revision: Option<String>,
-    #[arg(long = components::EMBEDDING_DIMENSIONS.name.cli(), value_parser = embedding_dimensions)]
-    embedding_dimensions: Option<usize>,
-    /// Numeric loopback OpenAI-compatible endpoint for a local encoder.
-    #[arg(long = components::EMBEDDING_ENDPOINT.name.cli(), value_parser = |value: &str| components::EMBEDDING_ENDPOINT.parse(value))]
-    embedding_endpoint: Option<String>,
     /// Authorize hosted embedding calls sending vocabulary and topic text.
     #[arg(long)]
     allow_embedding_call: bool,
-}
-
-fn embedding_dimensions(value: &str) -> Result<usize, &'static str> {
-    let dimensions = components::EMBEDDING_DIMENSIONS.parse(value)?;
-    if (1..=4096).contains(&dimensions) {
-        Ok(dimensions)
-    } else {
-        Err("Embedding dimensions must be between 1 and 4096.")
-    }
 }
 
 impl StoryArgs {
@@ -150,13 +131,9 @@ impl StoryArgs {
         app.allow_embedding_call = self.allow_embedding_call.then_some(true);
         let pipeline = &mut input.invocation.pipeline;
         pipeline.model = self.model;
-        pipeline.options.generation.model = self.generation_model.into();
+        pipeline.options = self.options;
         pipeline.knowledge_policy = self.knowledge_policy;
         pipeline.embedding.provider = self.embedding_provider.into();
-        pipeline.options.embeddings.model = self.embedding_model.into();
-        pipeline.options.embeddings.revision = self.embedding_revision.into();
-        pipeline.options.embeddings.dimensions = self.embedding_dimensions.into();
-        pipeline.options.embeddings.endpoint = self.embedding_endpoint.into();
         let story = &mut input.invocation.story;
         story.topic = self.topic.into();
         story.format = self.format;

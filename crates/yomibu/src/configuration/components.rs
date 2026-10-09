@@ -1,6 +1,9 @@
 use super::modules::ModuleId;
 use serde::Deserialize;
-pub use yomibu_core::capabilities::options::CredentialRequirement;
+pub use yomibu_components::{COMPONENTS, settings};
+pub use yomibu_core::capabilities::options::{
+    OptionKey, OptionType, Options, Secret, Setting, Value,
+};
 
 pub use yomibu_components::{
     http_embeddings::{
@@ -11,11 +14,13 @@ pub use yomibu_components::{
     wanikani_source::API_KEY as SOURCE_KEY,
 };
 
-pub const CREDENTIALS: &[CredentialRequirement] = &[EMBEDDING_KEY, GENERATION_KEY, SOURCE_KEY];
+pub fn credentials() -> impl Iterator<Item = OptionKey<Secret>> {
+    settings().filter_map(Setting::secret)
+}
 
 impl super::Configuration {
-    pub fn credential_requirements(&self) -> impl Iterator<Item = CredentialRequirement> + '_ {
-        CREDENTIALS.iter().copied().filter(|requirement| {
+    pub fn credential_requirements(&self) -> impl Iterator<Item = OptionKey<Secret>> + '_ {
+        credentials().filter(|requirement| {
             if requirement.name == SOURCE_KEY.name {
                 self.enabled(ModuleId::Sync)
             } else if requirement.name == EMBEDDING_KEY.name {

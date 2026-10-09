@@ -1,7 +1,9 @@
 use std::{collections::BTreeMap, path::Path};
 use yomibu::{
     application::{ApplicationError, Credentials, LocalApp, Operation},
-    configuration::{Configuration, ConfigurationInput, Patch, ProcessOverrides},
+    configuration::{
+        Configuration, ConfigurationInput, Patch, ProcessOverrides, components::GENERATION_MODEL,
+    },
 };
 
 fn load_config(dir: &Path, operation: &Operation, flags: ProcessOverrides) -> Configuration {
@@ -31,7 +33,7 @@ fn offline_status_and_preview_never_read_the_credential_store() {
     flags.application.inventory = Some(inventory);
     let config = load_config(&dir.path().join("data"), &Operation::Story, flags);
     let mut credentials = Credentials::default();
-    for &key in yomibu::configuration::components::CREDENTIALS {
+    for key in yomibu::configuration::components::credentials() {
         credentials.supply_with(key, || panic!("Offline command read the credential store"));
     }
     let app = LocalApp::new(config, credentials);
@@ -82,7 +84,12 @@ async fn offline_preview_uses_manual_inventory_and_explicit_sync_requires_a_key(
     .unwrap();
     let mut flags = ProcessOverrides::default();
     flags.application.inventory = Some(inventory);
-    flags.invocation.pipeline.options.generation.model = Patch::Set("chosen".into());
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(GENERATION_MODEL, "chosen".into())
+        .unwrap();
     let config = load_config(&dir.path().join("data"), &Operation::Story, flags);
     let app = LocalApp::new(config, Credentials::default());
     let preview = app.preview(std::time::SystemTime::now().into(), 7).unwrap();

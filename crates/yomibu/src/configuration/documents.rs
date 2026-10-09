@@ -25,12 +25,7 @@ const PIPELINE: &[&str] = &[
     "pipeline.assessment.enabled",
     "pipeline.model",
     "pipeline.knowledge_policy",
-    "pipeline.options.openai.model",
     "pipeline.embedding.provider",
-    "pipeline.options.http-embeddings.model",
-    "pipeline.options.http-embeddings.revision",
-    "pipeline.options.http-embeddings.dimensions",
-    "pipeline.options.http-embeddings.endpoint",
 ];
 const STORY: &[&str] = &[
     "story.targets.vocabulary",
@@ -49,12 +44,21 @@ pub(super) fn load(
 ) -> Result<ProcessOverrides, ConfigError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut input = ProcessOverrides::default();
+    let paths: Vec<_> = super::components::settings()
+        .filter(|s| s.secret().is_none())
+        .map(super::options::path)
+        .collect();
+    let pipeline: Vec<_> = PIPELINE
+        .iter()
+        .copied()
+        .chain(paths.iter().map(String::as_str))
+        .collect();
     for (path, explicit, fields, scope) in [
         (path.to_owned(), explicit, APPLICATION, "application"),
         (
             parent.join("default-pipeline.toml"),
             false,
-            PIPELINE,
+            pipeline.as_slice(),
             "pipeline",
         ),
         (parent.join("default-story.toml"), false, STORY, "story"),

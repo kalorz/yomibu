@@ -13,20 +13,37 @@ use yomibu_core::{
     },
 };
 
-use yomibu_core::capabilities::options::{CredentialRequirement, OptionDeclaration};
+use yomibu_core::capabilities::options::{Component, OptionKey, Secret};
 
-pub const MODEL: OptionDeclaration<String> = OptionDeclaration::new("http-embeddings", "model");
-pub const REVISION: OptionDeclaration<String> =
-    OptionDeclaration::new("http-embeddings", "revision");
-pub const DIMENSIONS: OptionDeclaration<usize> =
-    OptionDeclaration::new("http-embeddings", "dimensions");
-pub const ENDPOINT: OptionDeclaration<String> =
-    OptionDeclaration::new("http-embeddings", "endpoint");
-pub const API_KEY: CredentialRequirement = CredentialRequirement::new(
-    "http-embeddings",
-    "api-key",
-    "Hosted embeddings: OpenAI embedding access",
-);
+pub const ID: &str = "http-embeddings";
+pub const MODEL: OptionKey<String> = OptionKey::new(ID, "model", "Embedding model.");
+pub const REVISION: OptionKey<String> = OptionKey::new(ID, "revision", "Pinned encoder revision.");
+pub const DIMENSIONS: OptionKey<usize> =
+    OptionKey::new(ID, "dimensions", "Embedding dimensions (1..=4096).").validate(|value| {
+        if (1..=4096).contains(value) {
+            Ok(())
+        } else {
+            Err("Embedding dimensions must be between 1 and 4096.")
+        }
+    });
+pub const ENDPOINT: OptionKey<String> = OptionKey::new(
+    ID,
+    "endpoint",
+    "Numeric loopback OpenAI-compatible endpoint for a local encoder.",
+)
+.default("http://127.0.0.1:11434/v1/");
+pub const API_KEY: OptionKey<Secret> =
+    OptionKey::new(ID, "api-key", "Hosted embeddings: OpenAI embedding access");
+pub const COMPONENT: Component = Component {
+    id: ID,
+    settings: &[
+        MODEL.setting(),
+        REVISION.setting(),
+        DIMENSIONS.setting(),
+        ENDPOINT.setting(),
+        API_KEY.setting(),
+    ],
+};
 
 pub struct HttpEmbedder {
     http: reqwest::Client,

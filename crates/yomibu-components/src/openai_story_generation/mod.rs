@@ -18,14 +18,20 @@ use yomibu_core::domain::{
 
 const BASE_URL: &str = "https://api.openai.com/v1/";
 const OUTPUT_TOKENS_PER_CANDIDATE: usize = 512;
-pub const MODEL: yomibu_core::capabilities::options::OptionDeclaration<String> =
-    yomibu_core::capabilities::options::OptionDeclaration::new("openai", "model");
-pub const API_KEY: yomibu_core::capabilities::options::CredentialRequirement =
-    yomibu_core::capabilities::options::CredentialRequirement::new(
-        "openai",
-        "api-key",
-        "Story generation: OpenAI response creation and model access",
-    );
+use yomibu_core::capabilities::options::{Component, OptionKey, Secret};
+
+pub const ID: &str = "openai";
+pub const MODEL: OptionKey<String> =
+    OptionKey::new(ID, "model", "Override the model for generation.");
+pub const API_KEY: OptionKey<Secret> = OptionKey::new(
+    ID,
+    "api-key",
+    "Story generation: OpenAI response creation and model access",
+);
+pub const COMPONENT: Component = Component {
+    id: ID,
+    settings: &[MODEL.setting(), API_KEY.setting()],
+};
 
 const MAX_RESPONSE_BODY_BYTES: usize = 65536;
 

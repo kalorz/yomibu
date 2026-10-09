@@ -1,5 +1,11 @@
 //! Fit selected vocabulary to the story budget and prepare the OpenAI request.
 
+pub const COMPONENT: yomibu_core::capabilities::options::Component =
+    yomibu_core::capabilities::options::Component {
+        id: "story-prompt-preparation",
+        settings: &[],
+    };
+
 use crate::openai_story_generation::{PreparationError, PreparedRequest, validate_options};
 use yomibu_core::capabilities::StoryPreparer;
 use yomibu_core::domain::story::{

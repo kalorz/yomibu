@@ -1,51 +1,13 @@
 use crate::configuration::components;
 use std::{collections::BTreeMap, sync::OnceLock};
-use yomibu_core::capabilities::options::CredentialRequirement;
-
-#[derive(Clone)]
-pub struct Secret(Option<String>);
-impl Secret {
-    pub fn new(value: String) -> Self {
-        Self(Some(value))
-    }
-    pub fn invalid_encoding() -> Self {
-        Self(None)
-    }
-    pub fn expose(&self) -> Result<&str, CredentialError> {
-        self.0.as_deref().ok_or(CredentialError::InvalidEncoding)
-    }
-}
-impl From<String> for Secret {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-impl From<&str> for Secret {
-    fn from(value: &str) -> Self {
-        Self::new(value.into())
-    }
-}
-#[derive(Debug, Clone, Copy, thiserror::Error)]
-pub enum CredentialError {
-    #[error("Invalid credential input; supply a UTF-8 credential.")]
-    InvalidEncoding,
-    #[error(
-        "Cannot access the credential store; unlock it or supply a CLI/environment credential."
-    )]
-    StoreUnavailable,
-}
-
-impl std::fmt::Debug for Secret {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("[REDACTED]")
-    }
-}
+pub use yomibu_core::capabilities::options::{CredentialError, Secret};
+use yomibu_core::capabilities::options::{OptionKey, OptionName};
 
 #[derive(Default, Debug)]
 pub struct Credentials {
-    cli: BTreeMap<String, Secret>,
-    environment: BTreeMap<String, Secret>,
-    supplied: BTreeMap<String, SuppliedCredential>,
+    cli: BTreeMap<OptionName, Secret>,
+    environment: BTreeMap<OptionName, Secret>,
+    supplied: BTreeMap<OptionName, SuppliedCredential>,
 }
 enum SuppliedCredential {
     Value(Secret),
@@ -72,39 +34,36 @@ impl SuppliedCredential {
     }
 }
 impl Credentials {
-    pub fn supply(&mut self, requirement: CredentialRequirement, value: Secret) {
+    pub fn supply(&mut self, requirement: OptionKey<Secret>, value: Secret) {
         self.supplied
-            .insert(requirement.name.key(), SuppliedCredential::Value(value));
+            .insert(requirement.name, SuppliedCredential::Value(value));
     }
     /// Read a component credential only when needed, caching its value, absence, or error.
     pub fn supply_with(
         &mut self,
-        requirement: CredentialRequirement,
+        requirement: OptionKey<Secret>,
         read: impl Fn() -> Result<Option<Secret>, CredentialError> + Send + Sync + 'static,
     ) {
         self.supplied.insert(
-            requirement.name.key(),
+            requirement.name,
             SuppliedCredential::Lookup {
                 read: Box::new(read),
                 cached: OnceLock::new(),
             },
         );
     }
-    pub fn set_cli(&mut self, requirement: CredentialRequirement, value: Secret) {
-        self.cli.insert(requirement.name.key(), value);
+    pub fn set_cli(&mut self, requirement: OptionKey<Secret>, value: Secret) {
+        self.cli.insert(requirement.name, value);
     }
-    pub fn set_environment(&mut self, requirement: CredentialRequirement, value: Secret) {
-        self.environment.insert(requirement.name.key(), value);
+    pub fn set_environment(&mut self, requirement: OptionKey<Secret>, value: Secret) {
+        self.environment.insert(requirement.name, value);
     }
-    pub fn has_override(&self, requirement: CredentialRequirement) -> bool {
-        let target = requirement.name.key();
+    pub fn has_override(&self, requirement: OptionKey<Secret>) -> bool {
+        let target = requirement.name;
         self.cli.contains_key(&target) || self.environment.contains_key(&target)
     }
-    pub fn resolve(
-        &self,
-        requirement: CredentialRequirement,
-    ) -> Result<Option<&str>, CredentialError> {
-        let target = requirement.name.key();
+    pub fn resolve(&self, requirement: OptionKey<Secret>) -> Result<Option<&str>, CredentialError> {
+        let target = requirement.name;
         let input = self
             .cli
             .get(&target)
@@ -128,7 +87,7 @@ impl Credentials {
         self.resolve(components::GENERATION_KEY)
     }
 
-    pub(crate) fn is_missing(&self, requirement: CredentialRequirement) -> bool {
+    pub(crate) fn is_missing(&self, requirement: OptionKey<Secret>) -> bool {
         matches!(self.resolve(requirement), Ok(None))
     }
 }

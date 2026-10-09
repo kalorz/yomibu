@@ -114,7 +114,7 @@ impl LocalApp {
             &inventory,
             &request,
             selection,
-            self.config.generation(),
+            self.config.generation()?,
         )?;
         let (selection, provider_request) = plan.into_parts();
         let selection = SelectionReport::from_selection(&selection, seed);

@@ -49,6 +49,16 @@ impl Operation {
                     | "pipeline.embedding.provider"
             );
         }
+        if let Some(option) = name.strip_prefix("pipeline.options.") {
+            return if option.starts_with(&format!(
+                "{}.",
+                yomibu_components::openai_story_generation::ID
+            )) {
+                matches!(self, Story | Preview)
+            } else {
+                matches!(self, Story | Preview | Retrieval)
+            };
+        }
         match name {
             "pipeline.components.source" => matches!(self, Story | Sync),
             "pipeline.components.learning_store" | "application.wanikani_cache" => {
@@ -61,7 +71,6 @@ impl Operation {
             "pipeline.components.preparation"
             | "pipeline.components.generation"
             | "pipeline.model"
-            | "pipeline.options.openai.model"
             | "story.format"
             | "story.candidates"
             | "story.seed"

@@ -192,13 +192,15 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     ] {
         assert!(embeddings.contains(&guidance), "{embeddings}");
     }
-    for requirement in yomibu::configuration::components::CREDENTIALS {
+    for (requirement, invalid_option) in yomibu::configuration::components::credentials()
+        .flat_map(|key| ["--format", "--http-embeddings-dimensions"].map(|flag| (key, flag)))
+    {
         let output = cli(dir.path())
             .args([
                 "story",
                 &format!("--{}", requirement.name.cli()),
                 "synthetic-secret",
-                "--format",
+                invalid_option,
                 "日本語\n\u{1b}",
             ])
             .output()
@@ -209,6 +211,7 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
         assert!(text.contains("日本語"));
         assert!(!text.contains('\u{1b}'));
         assert!(!text.contains("\n\u{1b}"));
+        assert!(text.contains("\\n\\u{1b}"), "{text}");
         assert!(!text.contains("synthetic-secret"));
         assert!(text.contains("\n\nUsage:"));
     }

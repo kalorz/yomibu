@@ -7,7 +7,8 @@ use crate::configuration::modules::{ModuleId, ModuleState};
 use crate::configuration::{Configuration, EmbeddingProvider};
 use crate::reports::run::Warning;
 use yomibu_components::{
-    embedding_vocabulary_selection::prepare_embedding_inputs, http_embeddings::HttpEmbedder,
+    embedding_vocabulary_selection::prepare_embedding_inputs,
+    http_embeddings::{self, HttpEmbedder},
     lexical_embeddings::LexicalEmbedder,
 };
 use yomibu_core::{
@@ -44,7 +45,18 @@ pub(super) async fn prepare_embeddings(
         }
         Some(EmbeddingProvider::Local) => {
             prepare_cache(
-                &HttpEmbedder::local(&config.pipeline.embedding_endpoint, identity)?,
+                &HttpEmbedder::local(
+                    config
+                        .pipeline
+                        .options
+                        .for_component(&http_embeddings::COMPONENT)
+                        .get(http_embeddings::ENDPOINT)
+                        .map_err(ApplicationError::ResourceConfiguration)?
+                        .ok_or(ApplicationError::ResourceConfiguration(
+                            "Missing embedding endpoint.",
+                        ))?,
+                    identity,
+                )?,
                 &inputs,
                 previous.as_ref(),
             )
@@ -106,6 +118,19 @@ fn embedding_model(
     config: &Configuration,
     previous: Option<&EmbeddingCache>,
 ) -> Result<EmbeddingModelIdentity, ApplicationError> {
+    let options = config
+        .pipeline
+        .options
+        .for_component(&http_embeddings::COMPONENT);
+    let model = options
+        .get(http_embeddings::MODEL)
+        .map_err(ApplicationError::ResourceConfiguration)?;
+    let revision = options
+        .get(http_embeddings::REVISION)
+        .map_err(ApplicationError::ResourceConfiguration)?;
+    let dimensions = options
+        .get(http_embeddings::DIMENSIONS)
+        .map_err(ApplicationError::ResourceConfiguration)?;
     let identity = match config.pipeline.embedding_provider {
         Some(EmbeddingProvider::LexicalBaseline) => LexicalEmbedder::new().model_identity().clone(),
         Some(provider) => EmbeddingModelIdentity {
@@ -114,19 +139,19 @@ fn embedding_model(
                 EmbeddingProvider::Openai => "openai",
                 EmbeddingProvider::LexicalBaseline => "local-baseline",
             }.into(),
-            model: config.pipeline.embedding_model.clone().ok_or(
+            model: model.cloned().ok_or(
                 ApplicationError::ResourceConfiguration("Supply --http-embeddings-model.")
             )?,
-            revision: config.pipeline.embedding_revision.clone().ok_or(
+            revision: revision.cloned().ok_or(
                 ApplicationError::ResourceConfiguration("Supply --http-embeddings-revision with a pinned encoder revision.")
             )?,
-            dimensions: config.pipeline.embedding_dimensions.ok_or(
+            dimensions: dimensions.copied().ok_or(
                 ApplicationError::ResourceConfiguration("Supply --http-embeddings-dimensions.")
             )?,
             encoding_revision: "plain-v1".into(),
         },
-        None if config.pipeline.embedding_model.is_some() || config.pipeline.embedding_revision.is_some()
-            || config.pipeline.embedding_dimensions.is_some() => {
+        None if model.is_some() || revision.is_some()
+            || dimensions.is_some() => {
             return Err(ApplicationError::ResourceConfiguration(
                 "Select --embedding-provider when supplying embedding model settings.",
             ));

@@ -12,7 +12,9 @@ use yomibu::{
     },
     configuration::{
         Configuration, ConfigurationInput, Patch, ProcessOverrides,
-        components::{GENERATION_KEY, SOURCE_KEY},
+        components::{
+            EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_REVISION, GENERATION_KEY, SOURCE_KEY,
+        },
         modules::{ModuleId, ModuleState},
     },
 };
@@ -709,9 +711,24 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
         flags.invocation.story.topic = Patch::Set("cat".into());
         flags.invocation.pipeline.embedding.provider =
             Patch::Set(yomibu::configuration::EmbeddingProvider::Openai);
-        flags.invocation.pipeline.options.embeddings.model = Patch::Set("embedding-model".into());
-        flags.invocation.pipeline.options.embeddings.revision = Patch::Set("pinned".into());
-        flags.invocation.pipeline.options.embeddings.dimensions = Patch::Set(2);
+        flags
+            .invocation
+            .pipeline
+            .options
+            .set(EMBEDDING_MODEL, "embedding-model".into())
+            .unwrap();
+        flags
+            .invocation
+            .pipeline
+            .options
+            .set(EMBEDDING_REVISION, "pinned".into())
+            .unwrap();
+        flags
+            .invocation
+            .pipeline
+            .options
+            .set(EMBEDDING_DIMENSIONS, 2)
+            .unwrap();
         let mut credentials = Credentials::default();
         credentials.set_cli(GENERATION_KEY, "ai".into());
         credentials.set_environment(EMBEDDING_KEY, Secret::invalid_encoding());
@@ -771,7 +788,12 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
     };
     flags.application.inventory = Some(inventory);
     flags.invocation.story.topic = Patch::Set("cat".into());
-    flags.invocation.pipeline.options.embeddings.model = Patch::Set("another-model".into());
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_MODEL, "another-model".into())
+        .unwrap();
     let app = LocalApp::new(
         config(dir.path(), flags),
         supplied_credentials(None, Some("ai".into())),
@@ -853,10 +875,24 @@ async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentia
     };
     flags.application.inventory = Some(inventory_path);
     flags.invocation.pipeline.embedding.provider = Patch::Set(EmbeddingProvider::Openai);
-    flags.invocation.pipeline.options.embeddings.model = Patch::Set(cache.model.model.clone());
-    flags.invocation.pipeline.options.embeddings.revision =
-        Patch::Set(cache.model.revision.clone());
-    flags.invocation.pipeline.options.embeddings.dimensions = Patch::Set(2);
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_MODEL, cache.model.model.clone())
+        .unwrap();
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_REVISION, cache.model.revision.clone())
+        .unwrap();
+    flags
+        .invocation
+        .pipeline
+        .options
+        .set(EMBEDDING_DIMENSIONS, 2)
+        .unwrap();
     let app = LocalApp::new(config(dir.path(), flags), Credentials::default());
     let now = SystemTime::now().into();
     let reused = app.prepare_retrieval(now).await.unwrap();

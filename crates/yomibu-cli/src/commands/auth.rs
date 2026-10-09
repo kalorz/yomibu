@@ -3,15 +3,14 @@ use std::{
     collections::BTreeSet,
     io::{self, IsTerminal, Write},
 };
-use yomibu::configuration::components::CredentialRequirement;
+use yomibu::configuration::components::OptionKey;
 use yomibu::{
     application::{CredentialError, Credentials, Secret},
     configuration::components,
 };
 
 pub(super) fn targets() -> Vec<String> {
-    components::CREDENTIALS
-        .iter()
+    components::credentials()
         .flat_map(|requirement| [requirement.name.component.into(), requirement.name.key()])
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -19,12 +18,12 @@ pub(super) fn targets() -> Vec<String> {
 }
 
 pub(super) enum Target {
-    Missing(Vec<CredentialRequirement>),
-    Replace(CredentialRequirement),
+    Missing(Vec<OptionKey<Secret>>),
+    Replace(OptionKey<Secret>),
 }
 
 impl Target {
-    pub(super) fn requirements(&self) -> &[CredentialRequirement] {
+    pub(super) fn requirements(&self) -> &[OptionKey<Secret>] {
         match self {
             Self::Missing(requirements) => requirements,
             Self::Replace(requirement) => std::slice::from_ref(requirement),
@@ -33,15 +32,12 @@ impl Target {
 }
 
 pub(super) fn select(target: &str) -> Result<Target> {
-    if let Some(&requirement) = components::CREDENTIALS
-        .iter()
-        .find(|requirement| requirement.name.key() == target)
+    if let Some(requirement) =
+        components::credentials().find(|requirement| requirement.name.key() == target)
     {
         return Ok(Target::Replace(requirement));
     }
-    let requirements: Vec<_> = components::CREDENTIALS
-        .iter()
-        .copied()
+    let requirements: Vec<_> = components::credentials()
         .filter(|requirement| requirement.name.component == target)
         .collect();
     if requirements.is_empty() {
@@ -54,7 +50,7 @@ fn pending(
     target: &Target,
     credentials: &Credentials,
     warnings: &mut impl Write,
-) -> Result<Vec<CredentialRequirement>> {
+) -> Result<Vec<OptionKey<Secret>>> {
     let mut needs = Vec::new();
     for &requirement in target.requirements() {
         if matches!(target, Target::Missing(_)) {
@@ -108,7 +104,7 @@ pub(super) fn require_interactive(json: bool) -> Result<()> {
     Ok(())
 }
 
-fn save(requirement: CredentialRequirement) -> Result<()> {
+fn save(requirement: OptionKey<Secret>) -> Result<()> {
     let required = requirement.name == components::GENERATION_KEY.name;
     let kind = if required {
         "required for story generation"
@@ -154,7 +150,7 @@ pub(super) fn configure(target: &Target, credentials: &Credentials) -> Result<()
     Ok(())
 }
 
-pub(super) fn install(credentials: &mut Credentials, requirements: &[CredentialRequirement]) {
+pub(super) fn install(credentials: &mut Credentials, requirements: &[OptionKey<Secret>]) {
     if cfg!(target_os = "macos") {
         for &requirement in requirements {
             let (service, account) = identity(requirement);
@@ -167,7 +163,7 @@ pub(super) fn install(credentials: &mut Credentials, requirements: &[CredentialR
     }
 }
 
-fn identity(requirement: CredentialRequirement) -> (String, &'static str) {
+fn identity(requirement: OptionKey<Secret>) -> (String, &'static str) {
     (
         format!("yomibu:{}", requirement.name.component),
         requirement.name.option,

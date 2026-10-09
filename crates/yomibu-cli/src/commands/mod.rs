@@ -2,6 +2,7 @@ pub(crate) mod args;
 mod auth;
 pub(crate) mod credentials;
 mod keychain;
+pub(crate) mod options;
 use crate::{
     commands::args::{Cli, Command, DictionaryCommand},
     output,
@@ -16,8 +17,7 @@ use std::{
 use yomibu::{
     application::{Credentials, LocalApp, Operation, ServiceEndpoints},
     configuration::{
-        Configuration, ConfigurationInput, ProcessOverrides, components::CREDENTIALS,
-        environment_names,
+        Configuration, ConfigurationInput, ProcessOverrides, components, environment_names,
     },
 };
 
@@ -78,9 +78,10 @@ pub(crate) fn run(
         Command::Status => (Operation::Status, ProcessOverrides::default()),
     };
     let config = load_configuration(cli.data_dir, cli.config, flags, &operation)?;
-    credentials::environment(&mut credentials, CREDENTIALS);
+    let requirements: Vec<_> = components::credentials().collect();
+    credentials::environment(&mut credentials, &requirements);
     if !cli.no_keychain {
-        auth::install(&mut credentials, CREDENTIALS);
+        auth::install(&mut credentials, &requirements);
     }
     let app = LocalApp::new(config, credentials).with_endpoints(endpoints);
     let clock = SystemTime::now();

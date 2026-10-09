@@ -1,3 +1,9 @@
+pub const COMPONENT: yomibu_core::capabilities::options::Component =
+    yomibu_core::capabilities::options::Component {
+        id: "japanese-constraint-checks",
+        settings: &[],
+    };
+
 mod assessment;
 mod lexical;
 mod morphology;
