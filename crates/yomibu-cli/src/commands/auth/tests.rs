@@ -4,7 +4,7 @@ use yomibu::{
     configuration::{ConfigurationInput, ProcessOverrides},
 };
 
-fn configuration(application: &str, pipeline: &str) -> Configuration {
+fn configuration(application: &str, pipeline: &str, environment: &[(&str, &str)]) -> Configuration {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("config.toml"), application).unwrap();
     std::fs::write(dir.path().join("default-pipeline.toml"), pipeline).unwrap();
@@ -14,7 +14,10 @@ fn configuration(application: &str, pipeline: &str) -> Configuration {
             data_dir: Some(dir.path().into()),
             config: None,
             home: None,
-            environment: BTreeMap::new(),
+            environment: environment
+                .iter()
+                .map(|(name, value)| ((*name).into(), (*value).into()))
+                .collect(),
             flags: ProcessOverrides::default(),
         },
         &Operation::Auth,
@@ -27,6 +30,7 @@ fn setup_deduplicates_shared_slots_and_promotes_required_uses() {
     let config = configuration(
         "",
         "[pipeline.selection]\nembeddings=true\n[pipeline.embedding]\nprovider='openai'\n",
+        &[],
     );
     let needs = missing_inputs(&config, &Credentials::default()).unwrap();
     assert_eq!(needs.len(), 2);
@@ -49,6 +53,7 @@ fn disabled_or_local_integrations_do_not_request_credentials() {
             &format!(
                 "[pipeline.selection]\nembeddings={enabled}\n[pipeline.embedding]\nprovider='{provider}'\n"
             ),
+            &[],
         );
         let mut credentials = Credentials::default();
         for key in ["wanikani", "http-embeddings.api-key"] {
@@ -63,8 +68,22 @@ fn disabled_or_local_integrations_do_not_request_credentials() {
 }
 
 #[test]
+fn setup_honors_environment_enable_and_disable_controls() {
+    let config = configuration(
+        "[application.credentials]\n\"http-embeddings.api-key\"={provider='supplied',key='http-embeddings.api-key'}\n",
+        "[pipeline.embedding]\nprovider='openai'\n",
+        &[("YOMIBU_DISABLE", "sync"), ("YOMIBU_ENABLE", "embeddings")],
+    );
+    let needs = missing_inputs(&config, &Credentials::default()).unwrap();
+    let keys: Vec<_> = needs.iter().map(|need| need.key.as_str()).collect();
+    assert_eq!(keys, ["http-embeddings.api-key", "openai"]);
+    assert!(!needs[0].required());
+    assert!(needs[1].required());
+}
+
+#[test]
 fn setup_skips_environment_and_stored_keys_and_propagates_store_failure() {
-    let config = configuration("", "");
+    let config = configuration("", "", &[]);
     let mut credentials = Credentials::default();
     credentials.set_environment(components::GENERATION_KEY, "synthetic-env".into());
     credentials.supply_with("openai", || panic!("Environment override read the store"));
@@ -85,6 +104,7 @@ fn private_binding_never_uses_shared_credentials() {
     let config = configuration(
         "[application]\nsync=false\n[application.credentials]\n\"openai-story-generation.api-key\"={provider='supplied',key='openai-story-generation.api-key'}\n",
         "",
+        &[],
     );
     let mut credentials = Credentials::default();
     credentials.set_shared_environment("openai", "synthetic-shared-env".into());
@@ -101,7 +121,7 @@ fn private_binding_never_uses_shared_credentials() {
 
 #[test]
 fn blank_override_does_not_fall_back_to_a_stored_key_during_setup() {
-    let config = configuration("[application]\nsync=false\n", "");
+    let config = configuration("[application]\nsync=false\n", "", &[]);
     let mut credentials = Credentials::default();
     credentials.set_shared_environment("openai", "".into());
     credentials.supply_with("openai", || panic!("Blank override read the store"));
@@ -147,6 +167,7 @@ fn auth_configuration_ignores_story_inputs_and_unused_model_options() {
     let config = configuration(
         "[application]\nsync=false\n",
         "[pipeline]\nmodel=7\n[pipeline.selection]\nsteps=[]\nembeddings=true\n[pipeline.embedding]\nprovider='openai'\n",
+        &[],
     );
     let needs = missing_inputs(&config, &Credentials::default()).unwrap();
     assert_eq!(needs.len(), 1);

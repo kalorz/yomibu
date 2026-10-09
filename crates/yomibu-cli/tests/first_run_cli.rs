@@ -88,6 +88,41 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
 }
 
 #[test]
+fn missing_private_keys_recommend_configuration_aware_auth() {
+    let dir = tempfile::tempdir().unwrap();
+    for (command, sync, guidance_count) in [("story", true, 2), ("sync", false, 1)] {
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!(
+                "[application]\nsync={sync}\n[application.credentials]\n\"wanikani-source.api-key\"={{provider='supplied',key='wanikani-source.api-key'}}\n\"openai-story-generation.api-key\"={{provider='supplied',key='openai-story-generation.api-key'}}\n"
+            ),
+        )
+        .unwrap();
+        let output = cli(dir.path())
+            .arg("--data-dir")
+            .arg(dir.path())
+            .arg(command)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let text = String::from_utf8(output.stderr).unwrap();
+        assert!(text.contains("Missing required setup:\n  "), "{text}");
+        assert_eq!(
+            text.matches("On macOS, run yomibu auth to follow configured bindings.")
+                .count(),
+            guidance_count,
+            "{text}"
+        );
+        assert!(!text.contains("yomibu auth openai"), "{text}");
+        assert!(!text.contains("yomibu auth wanikani"), "{text}");
+        assert!(text.contains("automatic sync is disabled"), "{text}");
+        assert!(text.contains("configured source credential slot"), "{text}");
+        assert!(!dir.path().join("wanikani.json.lock").exists());
+    }
+}
+
+#[test]
 fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     let dir = tempfile::tempdir().unwrap();
     let help = cli(dir.path()).args(["help", "story"]).output().unwrap();

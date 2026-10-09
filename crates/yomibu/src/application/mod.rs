@@ -53,7 +53,9 @@ impl Operation {
         if matches!(self, Auth) {
             return matches!(
                 name,
-                "application.sync"
+                "enable"
+                    | "disable"
+                    | "application.sync"
                     | "pipeline.components.source"
                     | "pipeline.components.generation"
                     | "pipeline.selection.embeddings"
