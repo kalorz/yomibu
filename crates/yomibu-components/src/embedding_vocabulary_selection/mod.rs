@@ -1,8 +1,7 @@
-pub const COMPONENT: yomibu_core::capabilities::options::Component =
-    yomibu_core::capabilities::options::Component {
-        id: "embedding-vocabulary-selection",
-        settings: &[],
-    };
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "embedding-vocabulary-selection",
+    settings: &[],
+};
 
 use std::collections::BTreeMap;
 use yomibu_core::{

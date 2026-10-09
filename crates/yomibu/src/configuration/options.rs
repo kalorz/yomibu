@@ -1,8 +1,8 @@
 use super::{ConfigError, Operation, Patch, components};
-use components::{OptionKey, OptionType, Options, Setting, Value};
+use components::{OptionError, OptionKey, OptionType, Options, Setting, Value};
 use serde::{Deserialize, Deserializer, de::Error};
 use std::collections::BTreeMap;
-use yomibu_core::capabilities::options::OptionName;
+use yomibu_core::component::options::OptionName;
 
 #[derive(Debug, Default)]
 pub struct OptionOverrides(BTreeMap<OptionName, Patch<Value>>);
@@ -12,16 +12,19 @@ impl OptionOverrides {
     /// let mut options = OptionOverrides::default();
     /// options.set(EMBEDDING_DIMENSIONS, "not an integer".to_string());
     /// ```
-    pub fn set<T: OptionType>(&mut self, key: OptionKey<T>, value: T) -> Result<(), &'static str> {
+    pub fn set<T: OptionType>(&mut self, key: OptionKey<T>, value: T) -> Result<(), OptionError> {
         self.insert(key.name, Patch::Set(value.value()))
     }
-    pub fn clear<T>(&mut self, key: OptionKey<T>) -> Result<(), &'static str> {
+    pub fn clear<T>(&mut self, key: OptionKey<T>) -> Result<(), OptionError> {
         self.insert(key.name, Patch::Clear)
     }
-    pub fn insert(&mut self, name: OptionName, value: Patch<Value>) -> Result<(), &'static str> {
+    pub fn insert(&mut self, name: OptionName, value: Patch<Value>) -> Result<(), OptionError> {
         let setting = components::settings()
             .find(|setting| setting.name() == name && setting.secret().is_none())
-            .ok_or("Unknown option or credential in non-secret settings.")?;
+            .ok_or(OptionError::Invalid {
+                name,
+                reason: "Unknown option or credential in non-secret settings.",
+            })?;
         if let Patch::Set(value) = &value {
             setting.check(value)?;
         }
@@ -41,8 +44,7 @@ impl OptionOverrides {
                 Some(Patch::Set(value)) => options.insert(setting, value),
                 Some(Patch::Clear) => options.clear(setting),
                 _ => Ok(()),
-            }
-            .map_err(ConfigError::InvalidSetting)?;
+            }?;
         }
         Ok(())
     }

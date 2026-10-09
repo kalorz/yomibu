@@ -13,7 +13,11 @@ use yomibu_core::{
     },
 };
 
-use yomibu_core::capabilities::options::{Component, OptionKey, Secret};
+use yomibu_core::component::{
+    Component,
+    credentials::Secret,
+    options::{ComponentOptions, OptionError, OptionKey},
+};
 
 pub const ID: &str = "http-embeddings";
 pub const MODEL: OptionKey<String> = OptionKey::new(ID, "model", "Embedding model.");
@@ -33,7 +37,7 @@ pub const ENDPOINT: OptionKey<String> = OptionKey::new(
 )
 .default("http://127.0.0.1:11434/v1/");
 pub const API_KEY: OptionKey<Secret> =
-    OptionKey::new(ID, "api-key", "Hosted embeddings: OpenAI embedding access");
+    OptionKey::new(ID, "api-key", "Use an OpenAI key with embedding access.");
 pub const COMPONENT: Component = Component {
     id: ID,
     settings: &[
@@ -45,6 +49,33 @@ pub const COMPONENT: Component = Component {
     ],
 };
 
+pub fn model_identity(
+    options: ComponentOptions<'_>,
+    provider: &str,
+) -> Result<EmbeddingModelIdentity, OptionError> {
+    Ok(EmbeddingModelIdentity {
+        provider: provider.into(),
+        model: options.required(MODEL)?.clone(),
+        revision: options.required(REVISION)?.clone(),
+        dimensions: *options.required(DIMENSIONS)?,
+        encoding_revision: "plain-v1".into(),
+    })
+}
+
+pub fn has_model_options(options: ComponentOptions<'_>) -> Result<bool, OptionError> {
+    Ok(options.get(MODEL)?.is_some()
+        || options.get(REVISION)?.is_some()
+        || options.get(DIMENSIONS)?.is_some())
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BuildError {
+    #[error(transparent)]
+    Options(#[from] OptionError),
+    #[error(transparent)]
+    Embedding(#[from] EmbeddingError),
+}
+
 pub struct HttpEmbedder {
     http: reqwest::Client,
     endpoint: Url,
@@ -54,8 +85,11 @@ impl HttpEmbedder {
     pub fn openai(key: &str, model: EmbeddingModelIdentity) -> Result<Self, EmbeddingError> {
         Self::build("https://api.openai.com/v1/", Some(key), model)
     }
-    pub fn local(base: &str, model: EmbeddingModelIdentity) -> Result<Self, EmbeddingError> {
-        Self::build(base, None, model)
+    pub fn local(
+        options: ComponentOptions<'_>,
+        model: EmbeddingModelIdentity,
+    ) -> Result<Self, BuildError> {
+        Ok(Self::build(options.required(ENDPOINT)?, None, model)?)
     }
     fn build(
         base: &str,

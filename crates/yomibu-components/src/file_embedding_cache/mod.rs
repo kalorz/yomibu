@@ -1,9 +1,8 @@
 //! Explicit bounded cache reads and complete atomic publication; no environment lookup.
-pub const COMPONENT: yomibu_core::capabilities::options::Component =
-    yomibu_core::capabilities::options::Component {
-        id: "file-embedding-cache",
-        settings: &[],
-    };
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "file-embedding-cache",
+    settings: &[],
+};
 
 use std::{
     io::{self, Read},

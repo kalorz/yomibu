@@ -1,8 +1,9 @@
 use super::modules::ModuleId;
 use serde::Deserialize;
 pub use yomibu_components::{COMPONENTS, settings};
-pub use yomibu_core::capabilities::options::{
-    OptionKey, OptionType, Options, Secret, Setting, Value,
+pub use yomibu_core::component::credentials::Secret;
+pub use yomibu_core::component::options::{
+    OptionError, OptionKey, OptionType, Options, Setting, Value,
 };
 
 pub use yomibu_components::{
@@ -16,6 +17,16 @@ pub use yomibu_components::{
 
 pub fn credentials() -> impl Iterator<Item = OptionKey<Secret>> {
     settings().filter_map(Setting::secret)
+}
+
+pub fn credential_guidance(key: OptionKey<Secret>) -> String {
+    format!(
+        "{} Supply --{} or {}. On macOS, run yomibu auth {}.",
+        key.description,
+        key.name.cli(),
+        key.name.environment(),
+        key.name.component
+    )
 }
 
 impl super::Configuration {

@@ -33,12 +33,7 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
         let mut message = String::from("Missing required setup:\n");
         for issue in issues {
             let module = issue.module.metadata();
-            message.push_str(&format!(
-                "  {}: {}\n    {}\n",
-                module.name,
-                module.settings.join(" or "),
-                module.guidance
-            ));
+            message.push_str(&format!("  {}:\n    {}\n", module.name, module.guidance));
         }
         return anyhow!("{}", message.trim_end());
     }

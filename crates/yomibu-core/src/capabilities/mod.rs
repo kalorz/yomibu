@@ -6,7 +6,6 @@
 use crate::domain::source::WaniKaniSyncData;
 use std::{error::Error, sync::Arc};
 
-pub mod options;
 mod story;
 pub use story::{CandidateGenerator, SentenceAnalyzer, StoryAssessor, StoryPreparer};
 

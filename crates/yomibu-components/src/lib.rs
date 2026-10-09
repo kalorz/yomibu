@@ -12,7 +12,7 @@ pub mod story_prompt_preparation;
 pub mod sudachi_dictionary;
 pub mod wanikani_source;
 
-pub const COMPONENTS: &[yomibu_core::capabilities::options::Component] = &[
+pub const COMPONENTS: &[yomibu_core::component::Component] = &[
     embedding_vocabulary_selection::COMPONENT,
     file_embedding_cache::COMPONENT,
     file_learning_store::COMPONENT,
@@ -27,7 +27,7 @@ pub const COMPONENTS: &[yomibu_core::capabilities::options::Component] = &[
     wanikani_source::COMPONENT,
 ];
 
-pub fn settings() -> impl Iterator<Item = yomibu_core::capabilities::options::Setting> {
+pub fn settings() -> impl Iterator<Item = yomibu_core::component::options::Setting> {
     COMPONENTS
         .iter()
         .flat_map(|component| component.settings)

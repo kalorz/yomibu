@@ -12,19 +12,20 @@ use std::time::{Duration, SystemTime};
 use thiserror::Error;
 use yomibu_core::domain::source::{Subject, UnavailableSubject, ValidationError, WaniKaniSyncData};
 
-const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
-use yomibu_core::capabilities::options::{Component, OptionKey, Secret};
+use yomibu_core::component::{Component, credentials::Secret, options::OptionKey};
 
 pub const ID: &str = "wanikani";
 pub const API_KEY: OptionKey<Secret> = OptionKey::new(
     ID,
     "api-key",
-    "WaniKani synchronization: read access, no write permissions",
+    "Use a WaniKani API key with read access and no write permissions.",
 );
 pub const COMPONENT: Component = Component {
     id: ID,
     settings: &[API_KEY.setting()],
 };
+
+const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Sanitized retrieval failures; transport URLs, response bodies, and credentials
 /// are deliberately omitted from both messages and underlying error chains.

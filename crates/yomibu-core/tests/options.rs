@@ -1,4 +1,8 @@
-use yomibu_core::capabilities::options::{Component, OptionKey, Options, Secret, Setting, Value};
+use yomibu_core::component::{
+    Component,
+    credentials::Secret,
+    options::{OptionKey, Options, Setting, Value},
+};
 
 const MODEL: OptionKey<String> = OptionKey::new("test", "model", "Model");
 const SIZE: OptionKey<usize> = OptionKey::new("test", "size", "Size").validate(|value| {
@@ -60,10 +64,9 @@ fn typed_keys_parse_validate_and_read_from_shared_scoped_options() {
 }
 
 #[test]
-fn values_are_per_invocation_and_secret_values_are_redacted() {
+fn values_are_per_invocation() {
     let mut options = Options::default();
     options.set(MODEL, "first".into()).unwrap();
-    options.set(KEY, Secret::from("synthetic-private")).unwrap();
     let mut next = options.clone();
     next.set(MODEL, "second".into()).unwrap();
     assert_eq!(
@@ -71,10 +74,46 @@ fn values_are_per_invocation_and_secret_values_are_redacted() {
         Some("first")
     );
     assert_eq!(next.get(MODEL).unwrap().map(String::as_str), Some("second"));
-    assert_eq!(
-        next.get(KEY).unwrap().unwrap().expose().unwrap(),
-        "synthetic-private"
-    );
-    assert!(!format!("{next:?}").contains("synthetic-private"));
     assert!(matches!(KEY.setting(), Setting::Secret(_)));
+}
+
+#[test]
+fn ordinary_options_reject_credential_values_without_reflecting_them() {
+    let token = "synthetic-private";
+    let error = KEY.setting().parse(token).unwrap_err();
+    assert!(!format!("{error:?} {error}").contains(token));
+    assert!(!format!("{:?}", Secret::from(token)).contains(token));
+    assert!(KEY.default(token).setting().default_value().is_err());
+}
+
+#[test]
+fn required_reads_name_missing_settings_and_keep_scope_and_type_checks() {
+    use yomibu_core::component::options::OptionError;
+    let mut values = Options::default();
+    let error = values.for_component(&COMPONENT).required(SIZE).unwrap_err();
+    assert!(matches!(error, OptionError::Missing { name, .. } if name == SIZE.name));
+    assert_eq!(error.to_string(), "Supply --test-size. Size");
+    assert!(
+        values
+            .for_component(&COMPONENT)
+            .get(SIZE)
+            .unwrap()
+            .is_none()
+    );
+
+    values.set(SIZE, 4).unwrap();
+    const OTHER: OptionKey<usize> = OptionKey::new("other", "size", "Other size");
+    values.set(OTHER, 7).unwrap();
+    let options = values.for_component(&COMPONENT);
+    let size: &usize = options.required(SIZE).unwrap();
+    assert_eq!(*size, 4);
+    assert!(matches!(
+        options.required(OTHER),
+        Err(OptionError::Invalid { .. })
+    ));
+    let wrong_type = OptionKey::<String>::new("test", "size", "Wrong type");
+    assert!(matches!(
+        options.required(wrong_type),
+        Err(OptionError::Invalid { .. })
+    ));
 }

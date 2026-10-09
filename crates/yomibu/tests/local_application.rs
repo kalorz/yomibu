@@ -700,8 +700,13 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
     )
     .unwrap();
     let server = MockServer::start().await;
-    mount_generation(&server, 2).await;
-    for authorized in [false, true] {
+    mount_generation(&server, 3).await;
+    for (authorized, credential) in [
+        (false, Some(Secret::invalid_encoding())),
+        (true, Some(Secret::invalid_encoding())),
+        (true, None),
+    ] {
+        let missing = credential.is_none();
         let mut flags = ProcessOverrides {
             enable: vec![ModuleId::Embeddings],
             ..Default::default()
@@ -731,12 +736,19 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
             .unwrap();
         let mut credentials = Credentials::default();
         credentials.set_cli(GENERATION_KEY, "ai".into());
-        credentials.set_environment(EMBEDDING_KEY, Secret::invalid_encoding());
+        if let Some(credential) = credential {
+            credentials.set_environment(EMBEDDING_KEY, credential);
+        }
         let app = LocalApp::new(config(dir.path(), flags), credentials)
             .with_endpoints(endpoints(&server));
         let now = SystemTime::now().into();
         let error = app.prepare_retrieval(now).await.unwrap_err();
-        if authorized {
+        if missing {
+            assert!(
+                matches!(error, ApplicationError::MissingCredential(_)),
+                "{error:?}"
+            );
+        } else if authorized {
             assert!(
                 matches!(error, ApplicationError::Credential(_)),
                 "{error:?}"
@@ -755,10 +767,21 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
         let report = unsafe { app.story(now, 1, |_| {}) }.await.unwrap();
         assert_eq!(report.selection.selector_revision, "builtin-v2");
         assert_eq!(report.warnings.len(), 1);
+        let state = &report
+            .modules
+            .iter()
+            .find(|report| report.metadata.id == ModuleId::Embeddings)
+            .unwrap()
+            .state;
+        if missing || !authorized {
+            assert!(matches!(state, ModuleState::NotConfigured));
+        } else {
+            assert!(matches!(state, ModuleState::Unavailable { .. }));
+        }
         assert!(report.warnings[0].message.contains(&error.to_string()));
         assert!(!dir.path().join("embeddings.json").exists());
     }
-    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
 }
 
 #[tokio::test]

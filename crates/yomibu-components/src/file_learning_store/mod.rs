@@ -1,9 +1,8 @@
 //! File-backed storage with validated atomic replacement.
-pub const COMPONENT: yomibu_core::capabilities::options::Component =
-    yomibu_core::capabilities::options::Component {
-        id: "file-learning-store",
-        settings: &[],
-    };
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "file-learning-store",
+    settings: &[],
+};
 
 pub mod cache;
 

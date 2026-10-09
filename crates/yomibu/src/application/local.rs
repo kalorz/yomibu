@@ -47,9 +47,15 @@ pub struct SetupIssue {
 #[derive(Debug, thiserror::Error)]
 pub enum ApplicationError {
     #[error(transparent)]
+    HttpEmbeddingBuild(#[from] yomibu_components::http_embeddings::BuildError),
+    #[error(transparent)]
+    Options(#[from] crate::configuration::components::OptionError),
+    #[error(transparent)]
     Configuration(#[from] crate::configuration::ConfigError),
     #[error(transparent)]
     Credential(#[from] super::CredentialError),
+    #[error("{}", crate::configuration::components::credential_guidance(*.0))]
+    MissingCredential(crate::configuration::components::OptionKey<super::Secret>),
     #[error("Missing required setup.")]
     Setup { issues: Vec<SetupIssue> },
     #[error(transparent)]

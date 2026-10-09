@@ -1,8 +1,7 @@
-pub const COMPONENT: yomibu_core::capabilities::options::Component =
-    yomibu_core::capabilities::options::Component {
-        id: "japanese-constraint-checks",
-        settings: &[],
-    };
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "japanese-constraint-checks",
+    settings: &[],
+};
 
 mod assessment;
 mod lexical;

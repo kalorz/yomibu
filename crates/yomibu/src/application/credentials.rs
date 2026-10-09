@@ -1,7 +1,7 @@
 use crate::configuration::components;
 use std::{collections::BTreeMap, sync::OnceLock};
-pub use yomibu_core::capabilities::options::{CredentialError, Secret};
-use yomibu_core::capabilities::options::{OptionKey, OptionName};
+pub use yomibu_core::component::credentials::{CredentialError, Secret};
+use yomibu_core::component::options::{OptionKey, OptionName};
 
 #[derive(Default, Debug)]
 pub struct Credentials {

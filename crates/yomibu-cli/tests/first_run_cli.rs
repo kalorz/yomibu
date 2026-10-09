@@ -77,7 +77,8 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
     let text = String::from_utf8(output.stderr).unwrap();
     assert!(text.contains("--wanikani-api-key"));
     assert!(text.contains("--openai-api-key"));
-    assert!(text.contains("\n  "));
+    assert!(text.contains("Missing required setup:\n  WaniKani sync:\n    "));
+    assert!(!text.contains("--openai-model"));
     assert!(text.contains("no write permissions"));
     assert!(!text.contains("old-secret"));
     let output = cli(dir.path())
@@ -152,12 +153,51 @@ fn hosted_embeddings_request_their_own_key_even_when_openai_has_one() {
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
         format!(
-            "error: Hosted embeddings need --{} or {} with embedding access. On macOS, run yomibu auth {}.\n",
+            "error: Use an OpenAI key with embedding access. Supply --{} or {}. On macOS, run yomibu auth {}.\n",
             name.cli(),
             name.environment(),
             name.component
         )
     );
+    assert!(!dir.path().join(".yomibu").exists());
+}
+
+#[test]
+fn missing_embedding_options_report_the_declared_setting_without_echoing_values() {
+    use yomibu::configuration::components::{
+        EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_REVISION,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut command = cli(dir.path());
+    command
+        .args([
+            "prepare-retrieval",
+            "--embedding-provider",
+            "openai",
+            "--inventory",
+        ])
+        .arg(root.join("tests/fixtures/story/inventory.json"));
+    for setting in [
+        EMBEDDING_MODEL.setting(),
+        EMBEDDING_REVISION.setting(),
+        EMBEDDING_DIMENSIONS.setting(),
+    ] {
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!(
+                "error: Supply --{}. {}\n",
+                setting.name().cli(),
+                setting.description()
+            )
+        );
+        command
+            .arg(format!("--{}", setting.name().cli()))
+            .arg("日本語\n\u{1b}");
+    }
     assert!(!dir.path().join(".yomibu").exists());
 }
 

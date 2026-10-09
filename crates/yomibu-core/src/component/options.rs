@@ -1,3 +1,4 @@
+use super::{Component, credentials::Secret};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -25,6 +26,26 @@ impl OptionName {
 
     pub fn key(self) -> String {
         format!("{}.{}", self.component, self.option)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum OptionError {
+    #[error("Supply --{flag}. {description}", flag = .name.cli())]
+    Missing {
+        name: OptionName,
+        description: &'static str,
+    },
+    #[error("Invalid {option}: {reason}", option = .name.key())]
+    Invalid {
+        name: OptionName,
+        reason: &'static str,
+    },
+}
+
+impl OptionName {
+    fn invalid(self, reason: &'static str) -> OptionError {
+        OptionError::Invalid { name: self, reason }
     }
 }
 
@@ -64,15 +85,17 @@ impl<T> OptionKey<T> {
         self.default = Some(value);
         self
     }
-    fn check(self, value: &T) -> Result<(), &'static str> {
-        self.validator.map_or(Ok(()), |validate| validate(value))
+    fn check(self, value: &T) -> Result<(), OptionError> {
+        self.validator
+            .map_or(Ok(()), |validate| validate(value))
+            .map_err(|reason| self.name.invalid(reason))
     }
 }
 impl<T: std::str::FromStr> OptionKey<T> {
-    pub fn parse(self, text: &str) -> Result<T, &'static str> {
+    pub fn parse(self, text: &str) -> Result<T, OptionError> {
         let value = text
             .parse()
-            .map_err(|_| "Invalid component option value.")?;
+            .map_err(|_| self.name.invalid("Invalid component option value."))?;
         self.check(&value)?;
         Ok(value)
     }
@@ -89,8 +112,6 @@ pub enum Setting {
 pub enum Value {
     String(String),
     Integer(usize),
-    #[serde(skip)]
-    Secret(Secret),
 }
 
 mod sealed {
@@ -128,7 +149,11 @@ macro_rules! option_type {
 }
 option_type!(String, String);
 option_type!(usize, Integer);
-option_type!(Secret, Secret);
+impl OptionKey<Secret> {
+    pub const fn setting(self) -> Setting {
+        Setting::Secret(self)
+    }
+}
 
 impl Setting {
     pub fn name(self) -> OptionName {
@@ -152,68 +177,57 @@ impl Setting {
             None
         }
     }
-    pub fn parse(self, text: &str) -> Result<Value, &'static str> {
+    pub fn parse(self, text: &str) -> Result<Value, OptionError> {
         match self {
             Self::String(key) => key.parse(text).map(Value::String),
             Self::Integer(key) => key.parse(text).map(Value::Integer),
-            Self::Secret(key) => key.parse(text).map(Value::Secret),
+            Self::Secret(key) => Err(key
+                .name
+                .invalid("Credentials cannot be stored in ordinary options.")),
         }
     }
-    pub fn check(self, value: &Value) -> Result<(), &'static str> {
+    pub fn check(self, value: &Value) -> Result<(), OptionError> {
         match (self, value) {
             (Self::String(key), Value::String(value)) => key.check(value),
             (Self::Integer(key), Value::Integer(value)) => key.check(value),
-            (Self::Secret(key), Value::Secret(value)) => key.check(value),
-            _ => Err("Wrong component option type."),
+            _ => Err(self.name().invalid("Wrong component option type.")),
         }
     }
-    pub fn default_value(self) -> Result<Option<Value>, &'static str> {
+    pub fn default_value(self) -> Result<Option<Value>, OptionError> {
         let text = match self {
             Self::String(key) => key.default,
             Self::Integer(key) => key.default,
             Self::Secret(key) => key.default,
         };
         if self.secret().is_some() && text.is_some() {
-            return Err("Credentials cannot have defaults.");
+            return Err(self.name().invalid("Credentials cannot have defaults."));
         }
         text.map(|text| self.parse(text)).transpose()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Component {
-    pub id: &'static str,
-    pub settings: &'static [Setting],
-}
-impl Component {
-    pub fn setting(self, name: &str) -> Option<Setting> {
-        self.settings
-            .iter()
-            .copied()
-            .find(|setting| setting.name().option == name)
     }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Options(BTreeMap<OptionName, Value>);
 impl Options {
-    pub fn get<T: OptionType>(&self, key: OptionKey<T>) -> Result<Option<&T>, &'static str> {
+    pub fn get<T: OptionType>(&self, key: OptionKey<T>) -> Result<Option<&T>, OptionError> {
         self.0
             .get(&key.name)
-            .map(|value| T::read(value).ok_or("Wrong component option type."))
+            .map(|value| {
+                T::read(value).ok_or_else(|| key.name.invalid("Wrong component option type."))
+            })
             .transpose()
     }
-    pub fn set<T: OptionType>(&mut self, key: OptionKey<T>, value: T) -> Result<(), &'static str> {
+    pub fn set<T: OptionType>(&mut self, key: OptionKey<T>, value: T) -> Result<(), OptionError> {
         key.check(&value)?;
         self.0.insert(key.name, value.value());
         Ok(())
     }
-    pub fn insert(&mut self, setting: Setting, value: Value) -> Result<(), &'static str> {
+    pub fn insert(&mut self, setting: Setting, value: Value) -> Result<(), OptionError> {
         setting.check(&value)?;
         self.0.insert(setting.name(), value);
         Ok(())
     }
-    pub fn clear(&mut self, setting: Setting) -> Result<(), &'static str> {
+    pub fn clear(&mut self, setting: Setting) -> Result<(), OptionError> {
         self.0.remove(&setting.name());
         if let Some(value) = setting.default_value()? {
             self.insert(setting, value)?;
@@ -233,61 +247,24 @@ pub struct ComponentOptions<'a> {
     options: &'a Options,
 }
 impl<'a> ComponentOptions<'a> {
-    pub fn get<T: OptionType>(self, key: OptionKey<T>) -> Result<Option<&'a T>, &'static str> {
+    pub fn required<T: OptionType>(self, key: OptionKey<T>) -> Result<&'a T, OptionError> {
+        self.get(key)?.ok_or(OptionError::Missing {
+            name: key.name,
+            description: key.description,
+        })
+    }
+
+    pub fn get<T: OptionType>(self, key: OptionKey<T>) -> Result<Option<&'a T>, OptionError> {
         if key.name.component != self.component.id
             || !self
                 .component
                 .setting(key.name.option)
                 .is_some_and(T::matches)
         {
-            return Err("Option does not belong to this component or has the wrong type.");
+            return Err(key
+                .name
+                .invalid("Option does not belong to this component or has the wrong type."));
         }
         self.options.get(key)
-    }
-}
-
-#[derive(Clone)]
-pub struct Secret(Option<String>);
-impl Secret {
-    pub fn new(value: String) -> Self {
-        Self(Some(value))
-    }
-    pub fn invalid_encoding() -> Self {
-        Self(None)
-    }
-    pub fn expose(&self) -> Result<&str, CredentialError> {
-        self.0.as_deref().ok_or(CredentialError::InvalidEncoding)
-    }
-}
-impl From<String> for Secret {
-    fn from(value: String) -> Self {
-        Self::new(value)
-    }
-}
-impl From<&str> for Secret {
-    fn from(value: &str) -> Self {
-        Self::new(value.into())
-    }
-}
-#[derive(Debug, Clone, Copy, thiserror::Error)]
-pub enum CredentialError {
-    #[error("Invalid credential input; supply a UTF-8 credential.")]
-    InvalidEncoding,
-    #[error(
-        "Cannot access the credential store; unlock it or supply a CLI/environment credential."
-    )]
-    StoreUnavailable,
-}
-
-impl std::fmt::Debug for Secret {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("[REDACTED]")
-    }
-}
-
-impl std::str::FromStr for Secret {
-    type Err = std::convert::Infallible;
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Ok(value.into())
     }
 }

@@ -1,8 +1,7 @@
-pub const COMPONENT: yomibu_core::capabilities::options::Component =
-    yomibu_core::capabilities::options::Component {
-        id: "lexical-embeddings",
-        settings: &[],
-    };
+pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component::Component {
+    id: "lexical-embeddings",
+    settings: &[],
+};
 
 use sha2::{Digest, Sha256};
 use yomibu_core::{

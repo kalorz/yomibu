@@ -149,6 +149,8 @@ pub struct StorySettings {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    #[error(transparent)]
+    Options(#[from] components::OptionError),
     #[error("HOME is unavailable; supply --data-dir PATH.")]
     MissingHome,
     #[error("Cannot read configuration at {path}; check the path and permissions.")]
@@ -232,9 +234,7 @@ impl Configuration {
         let mut options = components::Options::default();
         for setting in components::settings().filter(|s| s.secret().is_none()) {
             if operation.uses_setting(&options::path(setting)) {
-                options
-                    .clear(setting)
-                    .map_err(ConfigError::InvalidSetting)?;
+                options.clear(setting)?;
             }
         }
         let mut resolved = Self {
@@ -286,19 +286,17 @@ impl Configuration {
         Ok(resolved)
     }
     pub fn generation(&self) -> Result<StoryGenerationOptions, ConfigError> {
-        Ok(StoryGenerationOptions {
-            model: self
-                .pipeline
-                .options
-                .for_component(&yomibu_components::openai_story_generation::COMPONENT)
-                .get(components::GENERATION_MODEL)
-                .map_err(ConfigError::InvalidSetting)?
-                .cloned()
-                .unwrap_or_else(|| self.pipeline.model.clone()),
-            format: self.story.format,
-            candidate_count: self.story.candidates,
-        })
+        use yomibu_components::openai_story_generation as openai;
+        Ok(openai::generation_options(
+            self.pipeline.options.for_component(&openai::COMPONENT),
+            StoryGenerationOptions {
+                model: self.pipeline.model.clone(),
+                format: self.story.format,
+                candidate_count: self.story.candidates,
+            },
+        )?)
     }
+
     pub fn enabled(&self, id: ModuleId) -> bool {
         match id {
             ModuleId::Knowledge | ModuleId::Generation => true,
