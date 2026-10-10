@@ -10,10 +10,9 @@ use crate::reports::run::Warning;
 use yomibu_components::{
     embedding_vocabulary_selection::prepare_embedding_inputs,
     http_embeddings::{self, HttpEmbedder},
-    lexical_embeddings::LexicalEmbedder,
+    lexical_embeddings::{self, LexicalEmbedder},
 };
 use yomibu_core::{
-    capabilities::Embedder,
     component::options::OptionError,
     domain::{
         embedding::{EmbeddingCache, EmbeddingModelIdentity},
@@ -120,7 +119,7 @@ fn embedding_model(
         .options
         .for_component(&http_embeddings::COMPONENT);
     let identity = match config.pipeline.embedding_provider {
-        Some(EmbeddingProvider::LexicalBaseline) => LexicalEmbedder::new().model_identity().clone(),
+        Some(EmbeddingProvider::LexicalBaseline) => lexical_embeddings::model_identity(),
         Some(provider) => http_embeddings::model_identity(options, match provider {
             EmbeddingProvider::Local => "local",
             EmbeddingProvider::Openai => "openai",
@@ -140,13 +139,26 @@ fn embedding_model(
     Ok(identity)
 }
 
-pub(super) async fn prepare_optional<F: FnMut(ProgressEvent)>(
+pub(super) fn validate_supplied<'a>(
     config: &Configuration,
-    credentials: &super::Credentials,
     inventory: &LearnerInventory,
     request: &StoryRequest,
+    cache: Option<&'a EmbeddingCache>,
+) -> Result<&'a EmbeddingCache, ApplicationError> {
+    let cache = cache.ok_or(ApplicationError::ResourceConfiguration(
+        "No embedding cache supplied.",
+    ))?;
+    let model = embedding_model(config, Some(cache))?;
+    let inputs = prepare_embedding_inputs(inventory, request)?;
+    cache.vectors(&model, &inputs)?;
+    Ok(cache)
+}
+
+pub(super) fn start_optional<F: FnMut(ProgressEvent)>(
+    config: &Configuration,
+    request: &StoryRequest,
     progress: &mut RunProgress<F>,
-) -> Option<EmbeddingCache> {
+) -> Option<std::time::Instant> {
     if !config.enabled(ModuleId::Embeddings) {
         progress.skip(Step::Embeddings, "Embeddings disabled");
         return None;
@@ -161,33 +173,29 @@ pub(super) async fn prepare_optional<F: FnMut(ProgressEvent)>(
         progress.skip(Step::Embeddings, "No topic");
         return None;
     }
-    let started = progress.start(Step::Embeddings);
-    let result = prepare_embeddings(config, credentials, inventory, request).await;
-    progress.finish(Step::Embeddings, started);
-    match result {
-        Ok(cache) => {
-            progress.state(ModuleId::Embeddings, ModuleState::Available);
-            Some(cache)
-        }
-        Err(error) => {
-            progress.warnings.push(Warning::embedding_fallback(
-                &error,
-                &config.pipeline.selection,
-            ));
-            progress.state(
-                ModuleId::Embeddings,
-                match error {
-                    ApplicationError::ResourceConfiguration(_)
-                    | ApplicationError::Options(OptionError::Missing { .. })
-                    | ApplicationError::MissingCredential(_) => ModuleState::NotConfigured,
-                    _ => ModuleState::Unavailable {
-                        error: error.to_string(),
-                    },
-                },
-            );
-            None
-        }
-    }
+    Some(progress.start(Step::Embeddings))
+}
+
+pub(super) fn report_fallback<F: FnMut(ProgressEvent)>(
+    config: &Configuration,
+    error: &ApplicationError,
+    progress: &mut RunProgress<F>,
+) {
+    progress.warnings.push(Warning::embedding_fallback(
+        error,
+        &config.pipeline.selection,
+    ));
+    progress.state(
+        ModuleId::Embeddings,
+        match error {
+            ApplicationError::ResourceConfiguration(_)
+            | ApplicationError::Options(OptionError::Missing { .. })
+            | ApplicationError::MissingCredential(_) => ModuleState::NotConfigured,
+            _ => ModuleState::Unavailable {
+                error: error.to_string(),
+            },
+        },
+    );
 }
 
 pub(super) fn load_optional(

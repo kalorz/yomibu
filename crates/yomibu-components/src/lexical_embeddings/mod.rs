@@ -9,6 +9,16 @@ use yomibu_core::{
     domain::embedding::{EmbeddingError, EmbeddingInput, EmbeddingModelIdentity, validate_vector},
 };
 
+pub fn model_identity() -> EmbeddingModelIdentity {
+    EmbeddingModelIdentity {
+        provider: "local-baseline".into(),
+        model: "lexical-hash".into(),
+        revision: "1".into(),
+        dimensions: 512,
+        encoding_revision: "tokens-v1".into(),
+    }
+}
+
 /// A comparison baseline, not a semantic model and never an automatic fallback.
 pub struct LexicalEmbedder {
     model: EmbeddingModelIdentity,
@@ -21,13 +31,7 @@ impl Default for LexicalEmbedder {
 impl LexicalEmbedder {
     pub fn new() -> Self {
         Self {
-            model: EmbeddingModelIdentity {
-                provider: "local-baseline".into(),
-                model: "lexical-hash".into(),
-                revision: "1".into(),
-                dimensions: 512,
-                encoding_revision: "tokens-v1".into(),
-            },
+            model: model_identity(),
         }
     }
 }

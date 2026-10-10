@@ -129,6 +129,9 @@ an optional initialized Sudachi analyzer. An optional mutable WaniKani client
 permits refresh only with a supplied store. Without that client, usable cached
 data still participates, but fetching is prohibited. Supplied calls never consult
 application WaniKani credentials or endpoints.
+Supplied calls borrow prepared embedding evidence. Missing or incompatible evidence
+warns and uses base selection when embeddings are enabled with a topic.
+They never read embedding cache paths or acquire vectors; callers prepare and persist them.
 An absent analyzer skips analysis without consulting dictionary paths; disabled assessment
 ignores the analyzer. Initialization retains the [dictionary lifetime contract](DICTIONARY.md#file-stability-contract).
 

@@ -20,15 +20,16 @@ use yomibu::{
         progress::{ProgressEvent, Step},
     },
     configuration::{
-        Configuration, ConfigurationInput, Invocation, Patch, ProcessOverrides,
+        Configuration, ConfigurationInput, EmbeddingProvider, Invocation, Patch, ProcessOverrides,
         components::{
-            EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_REVISION, GENERATION_KEY,
-            GENERATION_MODEL, SOURCE_KEY,
+            EMBEDDING_DIMENSIONS, EMBEDDING_ENDPOINT, EMBEDDING_KEY, EMBEDDING_MODEL,
+            EMBEDDING_REVISION, GENERATION_KEY, GENERATION_MODEL, SOURCE_KEY,
         },
         modules::{ModuleId, ModuleState},
     },
 };
 use yomibu_components::{
+    embedding_vocabulary_selection::prepare_embedding_inputs,
     file_learning_store::FileLearningStore,
     in_memory_learning_store::InMemoryLearningStore,
     openai_story_generation::{Client, ProviderError},
@@ -38,6 +39,7 @@ use yomibu_core::{
     capabilities::{LearningStore, SourceSyncWriter},
     domain::{
         candidate::CandidateAssessment,
+        embedding::{EmbeddingCache, EmbeddingModelIdentity},
         evaluation::EvaluationBasis,
         inventory::LearnerInventory,
         source::WaniKaniSyncData,
@@ -187,6 +189,50 @@ async fn mount_generation(server: &MockServer, count: u64) {
     Mock::given(method("POST")).and(path("/v1/responses")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"synthetic", "model":"returned", "status":"completed", "output":[{"type":"message", "role":"assistant", "status":"completed", "content":[{"type":"output_text", "text":json!({"candidates":[{"sentences":["猫です。","寝ます。","朝です。"]}]}).to_string()}]}]}))).expect(count).mount(server).await;
 }
 
+fn embedding_fixture() -> (StoryInputs, EmbeddingCache) {
+    let manual = LearnerInventory::from_manual(
+        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
+    )
+    .unwrap();
+    let request =
+        serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
+    let inputs = prepare_embedding_inputs(&manual, &request).unwrap();
+    let cache = EmbeddingCache::from_vectors(
+        EmbeddingModelIdentity {
+            provider: "openai".into(),
+            model: "synthetic-model".into(),
+            revision: "pinned".into(),
+            dimensions: 2,
+            encoding_revision: "plain-v1".into(),
+        },
+        &inputs,
+        vec![vec![1., 0.]; inputs.len()],
+    )
+    .unwrap();
+    (
+        StoryInputs {
+            request,
+            manual: Some(manual),
+        },
+        cache,
+    )
+}
+
+fn embedding_flags() -> ProcessOverrides {
+    let mut flags = ProcessOverrides {
+        enable: vec![ModuleId::Embeddings],
+        ..Default::default()
+    };
+    flags.invocation.pipeline.embedding.provider = Patch::Set(EmbeddingProvider::Openai);
+    let options = &mut flags.invocation.pipeline.options;
+    options
+        .set(EMBEDDING_MODEL, "synthetic-model".into())
+        .unwrap();
+    options.set(EMBEDDING_REVISION, "pinned".into()).unwrap();
+    options.set(EMBEDDING_DIMENSIONS, 2).unwrap();
+    flags
+}
+
 #[tokio::test]
 async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabled_assessment() {
     let analyzer = test_dictionary::load_analyzer();
@@ -195,14 +241,22 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
     mount_generation(&server, 3).await;
     let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
     let lookups = Arc::new(AtomicUsize::new(0));
-    let observed = Arc::clone(&lookups);
     let mut credentials = Credentials::default();
-    credentials.supply_with(GENERATION_KEY, move || {
-        observed.fetch_add(1, Ordering::SeqCst);
-        Err(CredentialError::StoreUnavailable)
-    });
-    let mut flags = ProcessOverrides::default();
+    for key in [GENERATION_KEY, EMBEDDING_KEY] {
+        let observed = Arc::clone(&lookups);
+        credentials.supply_with(key, move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Err(CredentialError::StoreUnavailable)
+        });
+    }
+    let (_, mut cache) = embedding_fixture();
+    for entry in &mut cache.entries[..3] {
+        entry.vector = vec![0., 1.];
+    }
+    let mut flags = embedding_flags();
     flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
+    flags.application.embedding_cache = Some(dir.path().into());
+    flags.application.allow_embedding_call = Some(true);
     let app =
         LocalApp::new(config(dir.path(), flags), credentials).with_endpoints(ServiceEndpoints {
             openai: "unusable endpoint".into(),
@@ -223,27 +277,31 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
             .set(GENERATION_MODEL, model.into())
             .unwrap();
         invocation.pipeline.assessment.enabled = Some(!disabled);
-        invocation.story.select = Some(2);
+        invocation.story.select = Some(3);
         let app = app.for_invocation(invocation, &Operation::Story).unwrap();
-        let manual = LearnerInventory::from_manual(
-            serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json"))
-                .unwrap(),
+        let (inputs, _) = embedding_fixture();
+        let plan = yomibu::application::story::plan_generation(
+            inputs.manual.as_ref().unwrap(),
+            &inputs.request,
+            &cache,
+            &cache.model,
+            3,
+            yomibu_core::domain::story::StoryGenerationOptions {
+                model: model.into(),
+                ..Default::default()
+            },
         )
         .unwrap();
-        let request =
-            serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json"))
-                .unwrap();
+        let expected_body = plan.prepared_request().body_utf8().as_bytes().to_vec();
         let mut events = Vec::new();
         let report = app
             .story_with_inputs::<InMemoryLearningStore>(
-                StoryInputs {
-                    request,
-                    manual: Some(manual),
-                },
+                inputs,
                 None,
                 None,
                 &client,
                 Some(&analyzer),
+                Some(&cache),
                 SystemTime::now().into(),
                 7,
                 |event| events.push(event),
@@ -255,11 +313,20 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
         assert_eq!(requests.len(), index + 1);
         assert_eq!(requests[index].method.as_str(), "POST");
         assert_eq!(requests[index].url.path(), "/v1/responses");
+        assert_eq!(requests[index].body, expected_body);
         let body: serde_json::Value = serde_json::from_slice(&requests[index].body).unwrap();
         assert_eq!(body["model"], model);
         assert_eq!(report.generated.provenance().requested_model, model);
         assert_eq!(report.generated.provenance().request_count, 1);
-        assert_eq!(report.selection.vocabulary_ids, ["sleep", "cat"]);
+        assert_eq!(report.selection.vocabulary_ids, ["sleep", "cat", "walk"]);
+        assert_eq!(
+            report.selection.selector_revision,
+            "inventory-similarity-v1"
+        );
+        assert_eq!(
+            report.selection.embedding_model.as_ref(),
+            Some(&cache.model)
+        );
         assert_eq!(
             report.generated.passages()[0].text,
             "猫です。寝ます。朝です。"
@@ -309,6 +376,199 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
 }
 
 #[tokio::test]
+async fn supplied_embedding_evidence_is_checked_against_inputs_and_configuration_only_when_used() {
+    use yomibu::configuration::SelectionStep;
+    let dir = tempfile::tempdir().unwrap();
+    let server = MockServer::start().await;
+    let cases = [
+        "version",
+        "vector",
+        "incomplete",
+        "document",
+        "query",
+        "model",
+        "revision",
+        "dimensions",
+        "encoding",
+        "provider",
+        "partial",
+        "none",
+        "inferred",
+        "local",
+        "disabled",
+        "no-topic",
+    ];
+    mount_generation(&server, cases.len() as u64).await;
+    Mock::given(path("/v1/embeddings"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+    let lookups = Arc::new(AtomicUsize::new(0));
+    for case in cases {
+        let (mut inputs, mut cache) = embedding_fixture();
+        let mut flags = embedding_flags();
+        flags.application.embedding_cache = Some(dir.path().join("absent/embeddings.json"));
+        flags.application.allow_embedding_call = Some(true);
+        flags.invocation.pipeline.selection.steps = Some(vec![SelectionStep::SeededOrder]);
+        flags.invocation.pipeline.selection.embedding_steps = Some(vec![
+            SelectionStep::EmbeddingRank,
+            SelectionStep::SeededOrder,
+        ]);
+        flags
+            .invocation
+            .pipeline
+            .options
+            .set(EMBEDDING_ENDPOINT, endpoints(&server).openai)
+            .unwrap();
+        let mut config = config(dir.path(), flags);
+        match case {
+            "version" | "disabled" | "no-topic" => cache.version = 0,
+            "vector" => cache.entries[0].vector[0] = f32::NAN,
+            "incomplete" => {
+                cache.entries.pop();
+            }
+            "document" => {
+                inputs.manual.as_mut().unwrap().vocabulary[0].meanings = vec!["changed".into()]
+            }
+            "query" => {
+                inputs.request.topic =
+                    Some(yomibu_core::domain::story::StoryTopic::new("changed".into()).unwrap())
+            }
+            "model" => cache.model.model = "another-model".into(),
+            "revision" => cache.model.revision = "another-revision".into(),
+            "dimensions" => {
+                cache.model.dimensions = 3;
+                for entry in &mut cache.entries {
+                    entry.vector.push(0.);
+                }
+            }
+            "encoding" => cache.model.encoding_revision = "another-encoding".into(),
+            "provider" => cache.model.provider = "local".into(),
+            "partial" => config.pipeline.embedding_provider = None,
+            "inferred" => {
+                config.pipeline.embedding_provider = None;
+                config.pipeline.options = Default::default();
+            }
+            "local" => {
+                config.pipeline.embedding_provider = Some(EmbeddingProvider::Local);
+                cache.model.provider = "local".into();
+            }
+            _ => {}
+        }
+        if case == "disabled" {
+            config.pipeline.embeddings = false;
+        }
+        if case == "no-topic" {
+            inputs.request.topic = None;
+        }
+        let mut credentials = Credentials::default();
+        let observed = Arc::clone(&lookups);
+        credentials.supply_with(EMBEDDING_KEY, move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Err(CredentialError::StoreUnavailable)
+        });
+        let app = LocalApp::new(config, credentials);
+        let mut events = Vec::new();
+        let report = app
+            .story_with_inputs::<InMemoryLearningStore>(
+                inputs,
+                None,
+                None,
+                &client,
+                None,
+                (case != "none").then_some(&cache),
+                SystemTime::now().into(),
+                7,
+                |event| events.push(event),
+            )
+            .await
+            .unwrap();
+        let available = matches!(case, "inferred" | "local");
+        let skipped = matches!(case, "disabled" | "no-topic");
+        assert_eq!(
+            report.selection.selector_revision,
+            if available {
+                "inventory-similarity-seeded-v1"
+            } else {
+                "seeded-only-v1"
+            },
+            "{case}"
+        );
+        assert_eq!(
+            report.selection.embedding_model.is_some(),
+            available,
+            "{case}"
+        );
+        assert_eq!(
+            report.warnings.len(),
+            usize::from(!available && !skipped),
+            "{case}"
+        );
+        let state = &report
+            .modules
+            .iter()
+            .find(|m| m.metadata.id == ModuleId::Embeddings)
+            .unwrap()
+            .state;
+        let status = match case {
+            "inferred" | "local" => "available",
+            "disabled" => "disabled",
+            "no-topic" => "skipped",
+            "partial" | "none" => "not_configured",
+            _ => "unavailable",
+        };
+        assert_eq!(
+            serde_json::to_value(state).unwrap()["status"],
+            status,
+            "{case}"
+        );
+        if let Some(warning) = report.warnings.first() {
+            let diagnostic = match case {
+                "version" | "vector" => "Invalid embedding data",
+                "partial" => "Select --embedding-provider",
+                "none" => "No embedding cache supplied",
+                _ => "Embedding cache is missing or stale",
+            };
+            assert!(
+                warning.message.starts_with(diagnostic),
+                "{case}: {:?}",
+                report.warnings
+            );
+            assert_eq!(warning.module, ModuleId::Embeddings);
+            assert!(warning.message.ends_with("Using seeded-only-v1 selection."));
+            if let ModuleState::Unavailable { error } = state {
+                assert_eq!(
+                    warning.message,
+                    format!("{error} Using seeded-only-v1 selection.")
+                );
+            }
+        }
+        assert_completed_steps(&events);
+        assert_eq!(
+            events.iter().any(|event| matches!(
+                event,
+                ProgressEvent::Started {
+                    step: Step::Embeddings
+                }
+            )),
+            !skipped
+        );
+    }
+    assert_eq!(lookups.load(Ordering::SeqCst), 0);
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|r| r.url.path() == "/v1/responses")
+    );
+    assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+}
+
+#[tokio::test]
 async fn supplied_source_none_reports_missing_knowledge_without_credential_lookup() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("fresh");
@@ -343,6 +603,7 @@ async fn supplied_source_none_reports_missing_knowledge_without_credential_looku
                 None,
                 &client,
                 None,
+                None,
                 SystemTime::now().into(),
                 7,
                 |_| {},
@@ -358,7 +619,7 @@ async fn supplied_source_none_reports_missing_knowledge_without_credential_looku
 }
 
 #[tokio::test]
-async fn supplied_source_client_refreshes_repeatedly_without_application_acquisition() {
+async fn supplied_source_refresh_reuses_client_and_invalidates_prepared_embedding_evidence() {
     source_stores!(dir, store, {
         let server = MockServer::start().await;
         mount_source(&server, 2).await;
@@ -374,23 +635,41 @@ async fn supplied_source_client_refreshes_repeatedly_without_application_acquisi
             observed.fetch_add(1, Ordering::SeqCst);
             Err(CredentialError::StoreUnavailable)
         });
-        let mut flags = ProcessOverrides::default();
+        let (_, cache) = embedding_fixture();
+        let mut flags = embedding_flags();
         flags.application.cache_max_age_seconds = Some(0);
-        let app = LocalApp::new(config(dir.path(), flags), credentials).with_endpoints(
-            ServiceEndpoints {
-                wanikani: "unusable endpoint".into(),
-                openai: "unusable endpoint".into(),
-            },
+        let config = config(dir.path(), flags);
+        let mut previous = source_fixture();
+        for assignment in &mut previous.assignments {
+            if assignment.subject_id == 3 {
+                assignment.hidden = true;
+            }
+        }
+        assert!(
+            LearnerInventory::from_wanikani(&previous, &config.pipeline.knowledge_policy)
+                .unwrap()
+                .vocabulary
+                .is_empty()
         );
+        store
+            .begin_sync()
+            .unwrap()
+            .replace(previous.into())
+            .unwrap();
+        let app = LocalApp::new(config, credentials).with_endpoints(ServiceEndpoints {
+            wanikani: "unusable endpoint".into(),
+            openai: "unusable endpoint".into(),
+        });
         for call in 1..=2 {
             let mut events = Vec::new();
             let report = app
                 .story_with_inputs(
-                    source_story_inputs(),
+                    embedding_fixture().0,
                     Some(&store),
                     Some(&mut source_client),
                     &client,
                     None,
+                    Some(&cache),
                     SystemTime::now().into(),
                     7,
                     |event| events.push(event),
@@ -406,7 +685,25 @@ async fn supplied_source_client_refreshes_repeatedly_without_application_acquisi
                 report.generated.passages()[0].text,
                 "猫です。寝ます。朝です。"
             );
-            assert!(report.warnings.is_empty());
+            assert!(
+                report
+                    .selection
+                    .vocabulary_ids
+                    .contains(&"wanikani:3".into())
+            );
+            assert_eq!(report.selection.selector_revision, "builtin-v2");
+            assert_eq!(report.warnings.len(), 1);
+            let missing = yomibu_core::domain::embedding::EmbeddingError::Missing;
+            assert_eq!(
+                report.warnings[0].message,
+                format!("{missing} Using built-in selection.")
+            );
+            let embedding = report
+                .modules
+                .iter()
+                .find(|m| m.metadata.id == ModuleId::Embeddings)
+                .unwrap();
+            assert!(matches!(embedding.state, ModuleState::Unavailable { .. }));
             assert_completed_steps(&events);
             store.begin_sync().unwrap();
         }
@@ -533,6 +830,7 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
                 use_store.then_some(&store),
                 use_client.then_some(&mut source_client),
                 &client,
+                None,
                 None,
                 now,
                 1,
@@ -702,6 +1000,7 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
                 Some(&mut source_client),
                 &client,
                 None,
+                None,
                 SystemTime::now().into(),
                 1,
                 |_| {},
@@ -750,6 +1049,7 @@ async fn cancelling_supplied_source_refresh_preserves_data_and_releases_the_writ
             Some(&store),
             Some(&mut source_client),
             &client,
+            None,
             None,
             completed + chrono::Duration::hours(2),
             7,
@@ -1129,6 +1429,7 @@ async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_pr
                     Some(&store),
                     Some(&mut source_client),
                     &client,
+                    None,
                     None,
                     now,
                     1,
@@ -1662,65 +1963,25 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
 
 #[tokio::test]
 async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentials() {
-    use yomibu::configuration::EmbeddingProvider;
-    use yomibu_components::embedding_vocabulary_selection::prepare_embedding_inputs;
     use yomibu_components::file_embedding_cache::EmbeddingCacheFile;
-    use yomibu_core::domain::{
-        embedding::{EmbeddingCache, EmbeddingModelIdentity},
-        inventory::LearnerInventory,
-        story::StoryRequest,
-    };
+    let (StoryInputs { request, manual }, cache) = embedding_fixture();
+    let inventory = manual.unwrap();
     let dir = tempfile::tempdir().unwrap();
     let inventory_path = dir.path().join("inventory.json");
-    let inventory_bytes = include_bytes!("../../../tests/fixtures/story/inventory.json");
-    std::fs::write(&inventory_path, inventory_bytes).unwrap();
-    let inventory =
-        LearnerInventory::from_manual(serde_json::from_slice(inventory_bytes).unwrap()).unwrap();
+    std::fs::write(
+        &inventory_path,
+        include_bytes!("../../../tests/fixtures/story/inventory.json"),
+    )
+    .unwrap();
     let request_path = dir.path().join("request.json");
     let request_bytes = include_bytes!("../../../tests/fixtures/story/request.json");
     std::fs::write(&request_path, request_bytes).unwrap();
-    let request: StoryRequest = serde_json::from_slice(request_bytes).unwrap();
-    let inputs = prepare_embedding_inputs(&inventory, &request).unwrap();
-    let cache = EmbeddingCache::from_vectors(
-        EmbeddingModelIdentity {
-            provider: "openai".into(),
-            model: "synthetic-model".into(),
-            revision: "pinned".into(),
-            dimensions: 2,
-            encoding_revision: "plain-v1".into(),
-        },
-        &inputs,
-        vec![vec![1., 0.]; inputs.len()],
-    )
-    .unwrap();
     let cache_path = dir.path().join("embeddings.json");
     EmbeddingCacheFile::new(&cache_path).save(&cache).unwrap();
     let before = std::fs::read(&cache_path).unwrap();
-    let mut flags = ProcessOverrides {
-        request: Some(request_path.clone()),
-        enable: vec![ModuleId::Embeddings],
-        ..Default::default()
-    };
+    let mut flags = embedding_flags();
+    flags.request = Some(request_path.clone());
     flags.application.inventory = Some(inventory_path);
-    flags.invocation.pipeline.embedding.provider = Patch::Set(EmbeddingProvider::Openai);
-    flags
-        .invocation
-        .pipeline
-        .options
-        .set(EMBEDDING_MODEL, cache.model.model.clone())
-        .unwrap();
-    flags
-        .invocation
-        .pipeline
-        .options
-        .set(EMBEDDING_REVISION, cache.model.revision.clone())
-        .unwrap();
-    flags
-        .invocation
-        .pipeline
-        .options
-        .set(EMBEDDING_DIMENSIONS, 2)
-        .unwrap();
     let app = LocalApp::new(config(dir.path(), flags), Credentials::default());
     let now = SystemTime::now().into();
     let reused = app.prepare_retrieval(now).await.unwrap();
@@ -1728,6 +1989,36 @@ async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentia
         serde_json::to_value(reused).unwrap(),
         serde_json::to_value(&cache).unwrap()
     );
+    let server = MockServer::start().await;
+    mount_generation(&server, 1).await;
+    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+    let mut events = Vec::new();
+    let supplied = app
+        .story_with_inputs::<InMemoryLearningStore>(
+            StoryInputs {
+                request,
+                manual: Some(inventory),
+            },
+            None,
+            None,
+            &client,
+            None,
+            None,
+            now,
+            7,
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
+    assert_eq!(supplied.selection.selector_revision, "builtin-v2");
+    assert!(supplied.selection.embedding_model.is_none());
+    assert_eq!(supplied.warnings.len(), 1);
+    assert_eq!(
+        supplied.warnings[0].message,
+        "No embedding cache supplied. Using built-in selection."
+    );
+    assert_completed_steps(&events);
+    assert_eq!(std::fs::read(&cache_path).unwrap(), before);
     let preview = app.preview(now, 7).unwrap();
     assert_eq!(preview.selection.embedding_model, Some(cache.model));
     assert!(preview.warnings.is_empty());
@@ -1931,6 +2222,7 @@ async fn supplied_source_freshness_is_rechecked_under_the_lock_after_another_wri
                 Some(&store),
                 Some(&mut source_client),
                 &client,
+                None,
                 None,
                 now,
                 1,
