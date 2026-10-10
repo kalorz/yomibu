@@ -1,4 +1,5 @@
-// Dictionaries are absent or incomplete in these isolated tests; none is mapped.
+#[path = "../../../tests/support/dictionary.rs"]
+mod test_dictionary;
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 use wiremock::{
@@ -24,6 +25,8 @@ use yomibu_components::{
 use yomibu_core::{
     capabilities::{LearningStore, SourceSyncWriter},
     domain::{
+        candidate::CandidateAssessment,
+        evaluation::EvaluationBasis,
         inventory::LearnerInventory,
         source::WaniKaniSyncData,
         story::{StoryError, StoryRequest},
@@ -172,6 +175,96 @@ async fn mount_generation(server: &MockServer, count: u64) {
 }
 
 #[tokio::test]
+async fn supplied_analyzer_is_reused_without_local_loading_and_disabled_assessment_skips_it() {
+    let analyzer = test_dictionary::load_analyzer();
+    let dir = tempfile::tempdir().unwrap();
+    let server = MockServer::start().await;
+    mount_generation(&server, 3).await;
+    for disabled in [false, false, true] {
+        let mut flags = ProcessOverrides::default();
+        flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
+        flags.invocation.story.select = Some(2);
+        if disabled {
+            flags.disable.push(ModuleId::Assessment);
+        }
+        let app = LocalApp::new(
+            config(dir.path(), flags),
+            supplied_credentials(None, Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        let manual = LearnerInventory::from_manual(
+            serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        let request =
+            serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json"))
+                .unwrap();
+        let mut events = Vec::new();
+        let report = app
+            .story_with_inputs::<InMemoryLearningStore>(
+                StoryInputs {
+                    request,
+                    manual: Some(manual),
+                },
+                None,
+                Some(&analyzer),
+                SystemTime::now().into(),
+                7,
+                |event| events.push(event),
+            )
+            .await
+            .unwrap();
+        assert_eq!(report.selection.vocabulary_ids, ["sleep", "cat"]);
+        assert_eq!(
+            report.generated.passages()[0].text,
+            "猫です。寝ます。朝です。"
+        );
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        assert_eq!(report.assessments[0].sentences.len(), 3);
+        for sentence in &report.assessments[0].sentences {
+            match &sentence.assessment.assessment {
+                CandidateAssessment::NotRun if disabled => {}
+                CandidateAssessment::Completed {
+                    analysis,
+                    evaluation,
+                } if !disabled => {
+                    assert_eq!(evaluation.basis, EvaluationBasis::FullLearnerInventory);
+                    assert!(!analysis.units.is_empty());
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        let state = &report
+            .modules
+            .iter()
+            .find(|m| m.metadata.id == ModuleId::Assessment)
+            .unwrap()
+            .state;
+        assert!(matches!(
+            (disabled, state),
+            (true, ModuleState::Disabled) | (false, ModuleState::Available)
+        ));
+        assert_completed_steps(&events);
+        if disabled {
+            assert!(
+                matches!(events.last(), Some(ProgressEvent::Skipped { step: Step::Assessment, reason }) if reason == "Assessment disabled")
+            );
+        } else {
+            assert!(matches!(
+                events.last(),
+                Some(ProgressEvent::Completed {
+                    step: Step::Assessment,
+                    ..
+                })
+            ));
+        }
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+}
+
+#[tokio::test]
 async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participation() {
     let dir = tempfile::tempdir().unwrap();
     let store = InMemoryLearningStore::new();
@@ -184,6 +277,7 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
             ..Default::default()
         };
         flags.application.inventory = Some(dir.path().join("missing-inventory.json"));
+        flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
         flags.application.wanikani_cache = (!use_store).then(|| dir.path().join("missing-cache"));
         let app = LocalApp::new(
             config(dir.path(), flags),
@@ -209,17 +303,17 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
             request.targets.grammar.clear();
         }
         let mut events = Vec::new();
-        let report = unsafe {
-            app.story_with_inputs(
+        let report = app
+            .story_with_inputs(
                 StoryInputs { request, manual },
                 use_store.then_some(&store),
+                None,
                 now,
                 1,
                 |event| events.push(event),
             )
-        }
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         assert_eq!(
             report.generated.passages()[0].text,
             "猫です。寝ます。朝です。"
@@ -235,6 +329,34 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
             assert_eq!(&selected[..2], ["sleep", "cat"]);
         }
         assert_completed_steps(&events);
+        assert!(
+            matches!(events.last(), Some(ProgressEvent::Skipped { step: Step::Assessment, reason }) if reason == "No analyzer supplied")
+        );
+        assert!(
+            !report
+                .warnings
+                .iter()
+                .any(|warning| warning.module == ModuleId::Assessment)
+        );
+        assert!(matches!(
+            report
+                .modules
+                .iter()
+                .find(|m| m.metadata.id == ModuleId::Assessment)
+                .unwrap()
+                .state,
+            ModuleState::NotConfigured
+        ));
+        assert!(
+            report
+                .assessments
+                .iter()
+                .flat_map(|passage| &passage.sentences)
+                .all(|sentence| matches!(
+                    sentence.assessment.assessment,
+                    CandidateAssessment::NotRun
+                ))
+        );
         assert_eq!(
             events
                 .iter()
@@ -327,17 +449,17 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
         } else {
             None
         };
-        let error = unsafe {
-            app.story_with_inputs(
+        let error = app
+            .story_with_inputs(
                 StoryInputs { request, manual },
                 (!matches!(invalid, InvalidInput::MissingKnowledge)).then_some(&store),
+                None,
                 SystemTime::now().into(),
                 1,
                 |_| {},
             )
-        }
-        .await
-        .unwrap_err();
+            .await
+            .unwrap_err();
         assert_eq!(store.1.get(), 0, "{invalid:?}: {error:?}");
         assert_eq!(lookups.load(Ordering::SeqCst), 0, "{invalid:?}");
         assert!(
@@ -773,7 +895,6 @@ async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
 #[tokio::test]
 async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment() {
     let server = MockServer::start().await;
-    mount_generation(&server, 5).await;
     for source in ["flag", "environment", "file", "default", "broken_default"] {
         let dir = tempfile::tempdir().unwrap();
         let store = FileLearningStore::new(dir.path());
@@ -816,6 +937,38 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
             supplied_credentials(None, Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
+        if source == "flag" {
+            Mock::given(method("POST"))
+                .and(path("/v1/responses"))
+                .respond_with(ResponseTemplate::new(401))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let mut events = Vec::new();
+            let error = unsafe {
+                app.story(&store, SystemTime::now().into(), 1, |event| {
+                    events.push(event)
+                })
+            }
+            .await
+            .unwrap_err();
+            assert!(matches!(error, ApplicationError::Generation(_)));
+            // Local acquisition starts Assessment before opening the dictionary.
+            assert!(!events.iter().any(|event| matches!(
+                event,
+                ProgressEvent::Started {
+                    step: Step::Assessment
+                } | ProgressEvent::Completed {
+                    step: Step::Assessment,
+                    ..
+                } | ProgressEvent::Skipped {
+                    step: Step::Assessment,
+                    ..
+                }
+            )));
+            server.reset().await;
+            mount_generation(&server, 5).await;
+        }
         let report = unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }
             .await
             .unwrap();

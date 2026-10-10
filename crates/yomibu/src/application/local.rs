@@ -7,14 +7,15 @@ use yomibu_components::{
     file_embedding_cache::EmbeddingCacheFileError,
     file_learning_store::cache,
     openai_story_generation as openai,
-    sudachi_dictionary::{DictionaryError, installation::InstallationError},
+    sudachi_dictionary::{DictionaryError, SudachiAnalyzer, installation::InstallationError},
     wanikani_source as wanikani,
 };
 use yomibu_core::capabilities::LearningStore;
 use yomibu_core::domain::{
+    candidate::GeneratedCandidates,
     embedding::EmbeddingError,
     inventory::{InventoryError, LearnerInventory},
-    story::{StoryError, StoryRequest},
+    story::{StoryAssessmentInputs, StoryError, StoryPassageAssessment, StoryRequest},
 };
 use yomibu_core::pipeline::story::prepare_story;
 mod explicit;
@@ -176,30 +177,34 @@ impl LocalApp {
         let manual = inputs::read_manual(self.config.application.inventory.as_deref())?;
         let store =
             (manual.is_none() || self.config.application.wanikani_cache.is_some()).then_some(store);
-        unsafe {
-            self.execute_story(
-                StoryInputs { request, manual },
-                store,
-                now,
-                seed,
-                progress,
-                started,
-            )
-            .await
-        }
+        self.execute_story(
+            StoryInputs { request, manual },
+            store,
+            now,
+            seed,
+            progress,
+            started,
+            |generated, inputs, progress| {
+                // SAFETY: story's caller guarantees verified, unchanged dictionary
+                // bytes for this future. The local analyzer is dropped inside this
+                // callback, so its entire lifetime is covered by that guarantee.
+                unsafe {
+                    assessment::assess_local_optional(&self.config, generated, inputs, progress)
+                }
+            },
+        )
+        .await
     }
 
-    /// Generate from supplied inputs without reading configured request/inventory paths.
+    /// Generate from supplied inputs without reading configured request, inventory,
+    /// or dictionary paths. Reuse an initialized analyzer across calls; `None`
+    /// skips analysis. Disabled assessment ignores the supplied analyzer.
     /// `Some(store)` participates in source preparation; `None` excludes source data.
-    ///
-    /// # Safety
-    /// Selected managed dictionaries must satisfy
-    /// [`SudachiAnalyzer::load`](yomibu_components::sudachi_dictionary::SudachiAnalyzer::load)
-    /// for this future's duration.
-    pub async unsafe fn story_with_inputs<Store: LearningStore>(
+    pub async fn story_with_inputs<Store: LearningStore>(
         &self,
         inputs: StoryInputs,
         store: Option<&Store>,
+        analyzer: Option<&SudachiAnalyzer>,
         now: DateTime<Utc>,
         seed: u64,
         emit: impl FnMut(ProgressEvent),
@@ -219,10 +224,18 @@ impl LocalApp {
                 }],
             });
         }
-        unsafe {
-            self.execute_story(inputs, store, now, seed, progress, started)
-                .await
-        }
+        self.execute_story(
+            inputs,
+            store,
+            now,
+            seed,
+            progress,
+            started,
+            |generated, inputs, progress| {
+                assessment::assess_optional(&self.config, generated, inputs, analyzer, progress)
+            },
+        )
+        .await
     }
 
     fn validate_story_request(&self, request: &StoryRequest) -> Result<(), ApplicationError> {
@@ -231,14 +244,23 @@ impl LocalApp {
         Ok(())
     }
 
-    async unsafe fn execute_story<Store: LearningStore>(
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep invocation inputs and deferred assessment explicit."
+    )]
+    async fn execute_story<Store: LearningStore, F: FnMut(ProgressEvent)>(
         &self,
         inputs: StoryInputs,
         store: Option<&Store>,
         now: DateTime<Utc>,
         seed: u64,
-        mut progress: RunProgress<impl FnMut(ProgressEvent)>,
+        mut progress: RunProgress<F>,
         started: std::time::Instant,
+        assess: impl FnOnce(
+            &GeneratedCandidates,
+            &StoryAssessmentInputs<'_>,
+            &mut RunProgress<F>,
+        ) -> Vec<StoryPassageAssessment<super::story::DefaultCandidateError>>,
     ) -> Result<StoryRunReport, ApplicationError>
     where
         ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
@@ -324,14 +346,7 @@ impl LocalApp {
         let started = progress.start(Step::Generation);
         let generated = plan.generate(&client).await?;
         progress.finish(Step::Generation, started);
-        let assessments = unsafe {
-            assessment::assess_optional(
-                &self.config,
-                &generated,
-                plan.assessment_inputs(),
-                &mut progress,
-            )
-        };
+        let assessments = assess(&generated, plan.assessment_inputs(), &mut progress);
         Ok(progress.into_story_report(request, selection, generated, assessments))
     }
 
