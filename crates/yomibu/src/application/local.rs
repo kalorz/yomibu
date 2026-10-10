@@ -12,7 +12,9 @@ use yomibu_components::{
 };
 use yomibu_core::capabilities::LearningStore;
 use yomibu_core::domain::{
-    embedding::EmbeddingError, inventory::InventoryError, story::StoryError,
+    embedding::EmbeddingError,
+    inventory::{InventoryError, LearnerInventory},
+    story::{StoryError, StoryRequest},
 };
 use yomibu_core::pipeline::story::prepare_story;
 mod explicit;
@@ -39,6 +41,11 @@ pub struct LocalApp {
     config: Configuration,
     credentials: std::sync::Arc<Credentials>,
     endpoints: std::sync::Arc<ServiceEndpoints>,
+}
+
+pub struct StoryInputs {
+    pub request: StoryRequest,
+    pub manual: Option<LearnerInventory>,
 }
 
 #[derive(Debug)]
@@ -146,7 +153,7 @@ impl LocalApp {
         })
     }
 
-    /// Generate a story using the supplied source store.
+    /// Load local story inputs and generate using the selected source store.
     ///
     /// # Safety
     /// Selected managed dictionaries must satisfy
@@ -165,11 +172,78 @@ impl LocalApp {
         let mut progress = RunProgress::new(&self.config, emit);
         let started = progress.start(Step::Inputs);
         let request = inputs::read_request(&self.config)?;
-        request.validate_shape()?;
-        request.validate_selection_limit(self.config.story.select)?;
+        self.validate_story_request(&request)?;
         let manual = inputs::read_manual(self.config.application.inventory.as_deref())?;
         let store =
             (manual.is_none() || self.config.application.wanikani_cache.is_some()).then_some(store);
+        unsafe {
+            self.execute_story(
+                StoryInputs { request, manual },
+                store,
+                now,
+                seed,
+                progress,
+                started,
+            )
+            .await
+        }
+    }
+
+    /// Generate from supplied inputs without reading configured request/inventory paths.
+    /// `Some(store)` participates in source preparation; `None` excludes source data.
+    ///
+    /// # Safety
+    /// Selected managed dictionaries must satisfy
+    /// [`SudachiAnalyzer::load`](yomibu_components::sudachi_dictionary::SudachiAnalyzer::load)
+    /// for this future's duration.
+    pub async unsafe fn story_with_inputs<Store: LearningStore>(
+        &self,
+        inputs: StoryInputs,
+        store: Option<&Store>,
+        now: DateTime<Utc>,
+        seed: u64,
+        emit: impl FnMut(ProgressEvent),
+    ) -> Result<StoryRunReport, ApplicationError>
+    where
+        ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
+    {
+        let mut progress = RunProgress::new(&self.config, emit);
+        let started = progress.start(Step::Inputs);
+        self.validate_story_request(&inputs.request)?;
+        if let Some(manual) = &inputs.manual {
+            manual.validate()?;
+        } else if store.is_none() {
+            return Err(ApplicationError::Setup {
+                issues: vec![SetupIssue {
+                    module: ModuleId::Knowledge,
+                }],
+            });
+        }
+        unsafe {
+            self.execute_story(inputs, store, now, seed, progress, started)
+                .await
+        }
+    }
+
+    fn validate_story_request(&self, request: &StoryRequest) -> Result<(), ApplicationError> {
+        request.validate_shape()?;
+        request.validate_selection_limit(self.config.story.select)?;
+        Ok(())
+    }
+
+    async unsafe fn execute_story<Store: LearningStore>(
+        &self,
+        inputs: StoryInputs,
+        store: Option<&Store>,
+        now: DateTime<Utc>,
+        seed: u64,
+        mut progress: RunProgress<impl FnMut(ProgressEvent)>,
+        started: std::time::Instant,
+    ) -> Result<StoryRunReport, ApplicationError>
+    where
+        ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
+    {
+        let StoryInputs { request, manual } = inputs;
         let cached = store.map(source::load_cache).transpose()?.flatten();
         let usable = cached.as_ref().is_some_and(|data| {
             source::usable_cache(data, &self.config.pipeline.knowledge_policy, now)

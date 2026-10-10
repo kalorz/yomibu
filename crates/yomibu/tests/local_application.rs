@@ -7,11 +7,11 @@ use wiremock::{
 };
 use yomibu::{
     application::{
-        ApplicationError, Credentials, LocalApp, ServiceEndpoints,
+        ApplicationError, Credentials, LocalApp, Operation, ServiceEndpoints, StoryInputs,
         progress::{ProgressEvent, Step},
     },
     configuration::{
-        Configuration, ConfigurationInput, Patch, ProcessOverrides,
+        Configuration, ConfigurationInput, Invocation, Patch, ProcessOverrides,
         components::{
             EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_REVISION, GENERATION_KEY, SOURCE_KEY,
         },
@@ -23,7 +23,11 @@ use yomibu_components::{
 };
 use yomibu_core::{
     capabilities::{LearningStore, SourceSyncWriter},
-    domain::source::WaniKaniSyncData,
+    domain::{
+        inventory::LearnerInventory,
+        source::WaniKaniSyncData,
+        story::{StoryError, StoryRequest},
+    },
 };
 
 macro_rules! source_stores {
@@ -165,6 +169,191 @@ async fn mount_source_with_user(server: &MockServer, user: &str) {
 
 async fn mount_generation(server: &MockServer, count: u64) {
     Mock::given(method("POST")).and(path("/v1/responses")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"synthetic", "model":"returned", "status":"completed", "output":[{"type":"message", "role":"assistant", "status":"completed", "content":[{"type":"output_text", "text":json!({"candidates":[{"sentences":["猫です。","寝ます。","朝です。"]}]}).to_string()}]}]}))).expect(count).mount(server).await;
+}
+
+#[tokio::test]
+async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = InMemoryLearningStore::new();
+    let now = seed_store(&store) + chrono::Duration::minutes(10);
+    let server = MockServer::start().await;
+    mount_generation(&server, 3).await;
+    for (use_manual, use_store) in [(true, false), (true, true), (false, true)] {
+        let mut flags = ProcessOverrides {
+            request: Some(dir.path().join("missing-request.json")),
+            ..Default::default()
+        };
+        flags.application.inventory = Some(dir.path().join("missing-inventory.json"));
+        flags.application.wanikani_cache = (!use_store).then(|| dir.path().join("missing-cache"));
+        let app = LocalApp::new(
+            config(dir.path(), flags),
+            supplied_credentials(None, Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        let mut invocation = Invocation::default();
+        invocation.story.select = Some(16);
+        invocation.story.seed = Patch::Set(7);
+        let app = app.for_invocation(invocation, &Operation::Story).unwrap();
+        let manual = use_manual.then(|| {
+            LearnerInventory::from_manual(
+                serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json"))
+                    .unwrap(),
+            )
+            .unwrap()
+        });
+        let mut request: StoryRequest =
+            serde_json::from_slice(include_bytes!("../../../tests/fixtures/story/request.json"))
+                .unwrap();
+        if !use_manual {
+            request.targets.vocabulary.clear();
+            request.targets.grammar.clear();
+        }
+        let mut events = Vec::new();
+        let report = unsafe {
+            app.story_with_inputs(
+                StoryInputs { request, manual },
+                use_store.then_some(&store),
+                now,
+                1,
+                |event| events.push(event),
+            )
+        }
+        .await
+        .unwrap();
+        assert_eq!(
+            report.generated.passages()[0].text,
+            "猫です。寝ます。朝です。"
+        );
+        assert_eq!(report.selection.seed, 7);
+        let selected = &report.selection.vocabulary_ids;
+        assert_eq!(
+            selected.iter().any(|id| id.starts_with("wanikani:")),
+            use_store
+        );
+        if use_manual {
+            assert_eq!(report.request.targets.vocabulary, ["sleep", "cat"]);
+            assert_eq!(&selected[..2], ["sleep", "cat"]);
+        }
+        assert_completed_steps(&events);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, ProgressEvent::Started { step: Step::Inputs }))
+                .count(),
+            1
+        );
+    }
+    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+}
+
+#[tokio::test]
+async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
+    use std::{
+        cell::Cell,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+    use yomibu_components::in_memory_learning_store::{InMemoryStoreError, InMemorySyncWriter};
+
+    #[derive(Debug)]
+    enum InvalidInput {
+        RequestVersion,
+        SelectionLimit,
+        ManualInventory,
+        MissingKnowledge,
+    }
+
+    struct ObservedStore(InMemoryLearningStore, Cell<usize>);
+    impl LearningStore for ObservedStore {
+        type ReadError = InMemoryStoreError;
+        type WriteError = InMemoryStoreError;
+        type Writer = InMemorySyncWriter;
+        fn load(&self) -> Result<Arc<WaniKaniSyncData>, Self::ReadError> {
+            self.1.set(self.1.get() + 1);
+            self.0.load()
+        }
+        fn begin_sync(&self) -> Result<Self::Writer, Self::WriteError> {
+            self.1.set(self.1.get() + 1);
+            self.0.begin_sync()
+        }
+        fn is_missing(&self, error: &Self::ReadError) -> bool {
+            self.0.is_missing(error)
+        }
+        fn is_locked(&self, error: &Self::WriteError) -> bool {
+            self.0.is_locked(error)
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let server = MockServer::start().await;
+    for invalid in [
+        InvalidInput::RequestVersion,
+        InvalidInput::SelectionLimit,
+        InvalidInput::ManualInventory,
+        InvalidInput::MissingKnowledge,
+    ] {
+        let store = ObservedStore(InMemoryLearningStore::new(), Cell::new(0));
+        let lookups = Arc::new(AtomicUsize::new(0));
+        let mut credentials = Credentials::default();
+        for key in yomibu::configuration::components::credentials() {
+            let lookups = Arc::clone(&lookups);
+            credentials.supply_with(key, move || {
+                lookups.fetch_add(1, Ordering::SeqCst);
+                Ok(Some("synthetic".into()))
+            });
+        }
+        let app = LocalApp::new(config(dir.path(), ProcessOverrides::default()), credentials)
+            .with_endpoints(endpoints(&server));
+        let mut invocation = Invocation::default();
+        invocation.story.select = Some(match invalid {
+            InvalidInput::SelectionLimit => 1,
+            _ => 16,
+        });
+        let app = app.for_invocation(invocation, &Operation::Story).unwrap();
+        let mut request: StoryRequest =
+            serde_json::from_slice(include_bytes!("../../../tests/fixtures/story/request.json"))
+                .unwrap();
+        if matches!(invalid, InvalidInput::RequestVersion) {
+            request.version = 0;
+        }
+        let manual = if matches!(invalid, InvalidInput::ManualInventory) {
+            let mut manual = LearnerInventory::from_manual(
+                serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json"))
+                    .unwrap(),
+            )
+            .unwrap();
+            manual.vocabulary[0].id.clear();
+            Some(manual)
+        } else {
+            None
+        };
+        let error = unsafe {
+            app.story_with_inputs(
+                StoryInputs { request, manual },
+                (!matches!(invalid, InvalidInput::MissingKnowledge)).then_some(&store),
+                SystemTime::now().into(),
+                1,
+                |_| {},
+            )
+        }
+        .await
+        .unwrap_err();
+        assert_eq!(store.1.get(), 0, "{invalid:?}: {error:?}");
+        assert_eq!(lookups.load(Ordering::SeqCst), 0, "{invalid:?}");
+        assert!(
+            server.received_requests().await.unwrap().is_empty(),
+            "{invalid:?}"
+        );
+        assert!(store.0.load().is_err(), "{invalid:?}");
+        assert!(match invalid {
+            InvalidInput::RequestVersion | InvalidInput::SelectionLimit =>
+                matches!(error, ApplicationError::Story(StoryError::Invalid(_))),
+            InvalidInput::ManualInventory => matches!(error, ApplicationError::Inventory(_)),
+            InvalidInput::MissingKnowledge => matches!(error, ApplicationError::Setup { issues }
+                if issues.len() == 1 && issues[0].module == ModuleId::Knowledge),
+        });
+    }
+    assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
 }
 
 #[tokio::test]

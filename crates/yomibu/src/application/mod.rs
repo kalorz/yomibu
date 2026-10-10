@@ -7,7 +7,7 @@ pub use credentials::{CredentialError, Credentials, Secret};
 mod embeddings;
 mod inputs;
 mod local;
-pub use local::{ApplicationError, LocalApp, ServiceEndpoints, SetupIssue};
+pub use local::{ApplicationError, LocalApp, ServiceEndpoints, SetupIssue, StoryInputs};
 pub mod input_file;
 pub mod progress;
 pub mod selection;
