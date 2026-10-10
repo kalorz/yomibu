@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Code Review"
+  short_description: "Independent review with Claude Opus 5.5"
+  default_prompt: "Use $claude-code-review to independently review the current code changes."
