@@ -122,8 +122,11 @@ be prepared only under application policy; optional failure warns and falls back
 to the configured base sequence. Preview only reads caches. Explicit retrieval
 prepares evidence regardless of optional enablement. See [retrieval](RETRIEVAL.md).
 Sync and optional assessment default on. Disabled work does no resource I/O.
-Assessment still initializes after generation, keeps dictionary lifetimes, warns
+Local story assessment initializes after generation, keeps dictionary lifetimes, warns
 on optional failures and preserves generated text and NotRun behavior.
+`LocalApp::story_with_inputs` safely borrows an initialized Sudachi analyzer.
+`None` skips analysis without consulting dictionary paths; disabled assessment
+ignores the analyzer. Initialization retains the [dictionary lifetime contract](DICTIONARY.md#file-stability-contract).
 
 ## Topic and vocabulary
 
