@@ -180,6 +180,10 @@ impl LocalApp {
         self.execute_story(
             StoryInputs { request, manual },
             store,
+            source::SourceClient::Local {
+                credentials: &self.credentials,
+                endpoint: &self.endpoints.wanikani,
+            },
             None,
             now,
             seed,
@@ -201,7 +205,9 @@ impl LocalApp {
     /// or dictionary paths. Reuse an initialized analyzer across calls; `None`
     /// skips analysis. Disabled assessment ignores the supplied analyzer.
     /// `Some(store)` participates in source preparation; `None` excludes source data.
-    /// The supplied client owns generation credentials and endpoint; this call
+    /// `source_client` permits refresh through that mutable client; `None` forbids
+    /// fetching. Application WaniKani credentials and endpoint are never consulted.
+    /// `client` owns generation credentials and endpoint; this call
     /// resolves model and generation options from its invocation configuration.
     #[expect(
         clippy::too_many_arguments,
@@ -211,6 +217,7 @@ impl LocalApp {
         &self,
         inputs: StoryInputs,
         store: Option<&Store>,
+        source_client: Option<&mut wanikani::Client>,
         client: &openai::Client,
         analyzer: Option<&SudachiAnalyzer>,
         now: DateTime<Utc>,
@@ -235,6 +242,10 @@ impl LocalApp {
         self.execute_story(
             inputs,
             store,
+            source_client.map_or(
+                source::SourceClient::Unavailable,
+                source::SourceClient::Supplied,
+            ),
             Some(client),
             now,
             seed,
@@ -261,6 +272,7 @@ impl LocalApp {
         &self,
         inputs: StoryInputs,
         store: Option<&Store>,
+        source_client: source::SourceClient<'_>,
         supplied_client: Option<&openai::Client>,
         now: DateTime<Utc>,
         seed: u64,
@@ -283,6 +295,7 @@ impl LocalApp {
         let needs_source = manual.is_none() && !usable;
         self.validate_story_setup(
             needs_source,
+            &source_client,
             supplied_client.is_none(),
             &mut progress.modules,
         )?;
@@ -307,8 +320,7 @@ impl LocalApp {
         progress.finish(Step::Inputs, started);
         let source = source::prepare_source(
             &self.config,
-            &self.credentials,
-            &self.endpoints.wanikani,
+            source_client,
             store,
             cached,
             now,
@@ -374,6 +386,7 @@ impl LocalApp {
     fn validate_story_setup(
         &self,
         needs_source: bool,
+        source_client: &source::SourceClient<'_>,
         needs_local_generation: bool,
         modules: &mut [ModuleReport],
     ) -> Result<(), ApplicationError> {
@@ -381,13 +394,21 @@ impl LocalApp {
             .iter_mut()
             .filter_map(|module| {
                 let missing = match module.metadata.id {
-                    ModuleId::Knowledge => needs_source && !self.config.enabled(ModuleId::Sync),
+                    ModuleId::Knowledge => {
+                        needs_source
+                            && (!self.config.enabled(ModuleId::Sync)
+                                || matches!(source_client, source::SourceClient::Unavailable))
+                    }
                     ModuleId::Sync => {
-                        module.required = needs_source && self.config.enabled(ModuleId::Sync);
+                        module.required = needs_source
+                            && self.config.enabled(ModuleId::Sync)
+                            && !matches!(source_client, source::SourceClient::Unavailable);
                         module.required
-                            && self
-                                .credentials
-                                .is_missing(crate::configuration::components::SOURCE_KEY)
+                            && match source_client {
+                                source::SourceClient::Local { credentials, .. } => credentials
+                                    .is_missing(crate::configuration::components::SOURCE_KEY),
+                                _ => false,
+                            }
                     }
                     ModuleId::Generation => {
                         needs_local_generation
