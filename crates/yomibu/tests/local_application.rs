@@ -249,7 +249,7 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
     flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
     flags.application.embedding_cache = Some(dir.path().into());
     flags.application.allow_embedding_call = Some(true);
-    let base = config(dir.path(), flags);
+    let base = Configuration::from_overrides(dir.path().into(), flags, &Operation::Story).unwrap();
     for (index, (model, disabled)) in [
         ("first-model", false),
         ("second-model", false),

@@ -176,7 +176,7 @@ pub enum ConfigError {
 }
 
 impl Configuration {
-    pub fn load(mut input: ConfigurationInput, operation: &Operation) -> Result<Self, ConfigError> {
+    pub fn load(input: ConfigurationInput, operation: &Operation) -> Result<Self, ConfigError> {
         let data_dir = input
             .data_dir
             .or_else(|| input.home.map(|home| home.join(".yomibu")))
@@ -201,9 +201,36 @@ impl Configuration {
                 *value = parent.join(&*value);
             }
         }
-        let mut env = environment_settings(input.environment, operation)?;
+        let env = environment_settings(input.environment, operation)?;
+        Self::resolve(data_dir, file, env, input.flags, operation)
+    }
+
+    /// Resolve built-in defaults and typed overrides without I/O or ambient discovery.
+    /// `data_dir` supplies path defaults; it need not exist and is never inspected.
+    /// Relative override paths are kept as supplied.
+    pub fn from_overrides(
+        data_dir: PathBuf,
+        overrides: ProcessOverrides,
+        operation: &Operation,
+    ) -> Result<Self, ConfigError> {
+        Self::resolve(
+            data_dir,
+            ProcessOverrides::default(),
+            ProcessOverrides::default(),
+            overrides,
+            operation,
+        )
+    }
+
+    fn resolve(
+        data_dir: PathBuf,
+        mut file: ProcessOverrides,
+        mut env: ProcessOverrides,
+        mut flags: ProcessOverrides,
+        operation: &Operation,
+    ) -> Result<Self, ConfigError> {
         if operation.uses_setting("enable") {
-            for source in [&mut env, &mut input.flags] {
+            for source in [&mut env, &mut flags] {
                 for id in source.enable.iter().chain(&source.disable) {
                     let setting = match id {
                         ModuleId::Sync => &mut source.application.sync,
@@ -228,8 +255,7 @@ impl Configuration {
         }
         macro_rules! setting {
             ($field:ident) => {
-                input
-                    .flags
+                flags
                     .application
                     .$field
                     .take()
@@ -237,9 +263,9 @@ impl Configuration {
                     .or(file.application.$field.take())
             };
         }
-        let topic_conflict = !matches!(input.flags.invocation.story.topic, Patch::Inherit)
+        let topic_conflict = !matches!(flags.invocation.story.topic, Patch::Inherit)
             || !matches!(env.invocation.story.topic, Patch::Inherit);
-        let request = input.flags.request.or(env.request);
+        let request = flags.request.or(env.request);
         let dictionary_dir = setting!(dictionary_dir);
         let mut options = components::Options::default();
         for setting in components::options() {
@@ -287,7 +313,7 @@ impl Configuration {
                 grammar_targets: Vec::new(),
             },
         };
-        for source in [file.invocation, env.invocation, input.flags.invocation] {
+        for source in [file.invocation, env.invocation, flags.invocation] {
             resolved.apply(source, operation)?;
         }
         resolved.validate(operation, topic_conflict)?;
