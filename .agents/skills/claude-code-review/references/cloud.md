@@ -15,6 +15,15 @@ CA trust configuration. Allow the required
 [Anthropic hosts](https://code.claude.com/docs/en/network-config), including
 `api.anthropic.com`, `claude.ai`, `platform.claude.com`, and `downloads.claude.ai`.
 
+For Yomibu's custom installation, run activation and each review in the same
+shell:
+
+```bash
+cd /workspace/yomibu
+source /workspace/.yomibu-cloud/activate.sh
+python3 .agents/skills/claude-code-review/scripts/review.py --repo .
+```
+
 In current Codex Cloud, supply one credential through Network secrets:
 
 - Subscription: generate a token yourself with `claude setup-token`; use key
