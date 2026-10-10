@@ -180,6 +180,7 @@ impl LocalApp {
         self.execute_story(
             StoryInputs { request, manual },
             store,
+            None,
             now,
             seed,
             progress,
@@ -200,10 +201,17 @@ impl LocalApp {
     /// or dictionary paths. Reuse an initialized analyzer across calls; `None`
     /// skips analysis. Disabled assessment ignores the supplied analyzer.
     /// `Some(store)` participates in source preparation; `None` excludes source data.
+    /// The supplied client owns generation credentials and endpoint; this call
+    /// resolves model and generation options from its invocation configuration.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep supplied resources and per-call inputs explicit."
+    )]
     pub async fn story_with_inputs<Store: LearningStore>(
         &self,
         inputs: StoryInputs,
         store: Option<&Store>,
+        client: &openai::Client,
         analyzer: Option<&SudachiAnalyzer>,
         now: DateTime<Utc>,
         seed: u64,
@@ -227,6 +235,7 @@ impl LocalApp {
         self.execute_story(
             inputs,
             store,
+            Some(client),
             now,
             seed,
             progress,
@@ -252,6 +261,7 @@ impl LocalApp {
         &self,
         inputs: StoryInputs,
         store: Option<&Store>,
+        supplied_client: Option<&openai::Client>,
         now: DateTime<Utc>,
         seed: u64,
         mut progress: RunProgress<F>,
@@ -271,17 +281,28 @@ impl LocalApp {
             source::usable_cache(data, &self.config.pipeline.knowledge_policy, now)
         });
         let needs_source = manual.is_none() && !usable;
-        self.validate_story_setup(needs_source, &mut progress.modules)?;
-        let client = self.config.pipeline.components.generation.client(
-            self.credentials
-                .generation()?
-                .ok_or_else(|| ApplicationError::Setup {
-                    issues: vec![SetupIssue {
-                        module: ModuleId::Generation,
-                    }],
-                })?,
-            &self.endpoints.openai,
+        self.validate_story_setup(
+            needs_source,
+            supplied_client.is_none(),
+            &mut progress.modules,
         )?;
+        let local_client;
+        let client = match supplied_client {
+            Some(client) => client,
+            None => {
+                local_client = self.config.pipeline.components.generation.client(
+                    self.credentials
+                        .generation()?
+                        .ok_or_else(|| ApplicationError::Setup {
+                            issues: vec![SetupIssue {
+                                module: ModuleId::Generation,
+                            }],
+                        })?,
+                    &self.endpoints.openai,
+                )?;
+                &local_client
+            }
+        };
         progress.state(ModuleId::Generation, ModuleState::Available);
         progress.finish(Step::Inputs, started);
         let source = source::prepare_source(
@@ -344,7 +365,7 @@ impl LocalApp {
         let selection = SelectionReport::from_selection(plan.selection(), seed);
         progress.finish(Step::Selection, started);
         let started = progress.start(Step::Generation);
-        let generated = plan.generate(&client).await?;
+        let generated = plan.generate(client).await?;
         progress.finish(Step::Generation, started);
         let assessments = assess(&generated, plan.assessment_inputs(), &mut progress);
         Ok(progress.into_story_report(request, selection, generated, assessments))
@@ -353,6 +374,7 @@ impl LocalApp {
     fn validate_story_setup(
         &self,
         needs_source: bool,
+        needs_local_generation: bool,
         modules: &mut [ModuleReport],
     ) -> Result<(), ApplicationError> {
         let issues: Vec<_> = modules
@@ -367,9 +389,12 @@ impl LocalApp {
                                 .credentials
                                 .is_missing(crate::configuration::components::SOURCE_KEY)
                     }
-                    ModuleId::Generation => self
-                        .credentials
-                        .is_missing(crate::configuration::components::GENERATION_KEY),
+                    ModuleId::Generation => {
+                        needs_local_generation
+                            && self
+                                .credentials
+                                .is_missing(crate::configuration::components::GENERATION_KEY)
+                    }
                     _ => false,
                 };
                 missing.then_some(SetupIssue {
