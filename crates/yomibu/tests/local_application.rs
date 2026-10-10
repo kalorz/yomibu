@@ -1,26 +1,37 @@
 #[path = "../../../tests/support/dictionary.rs"]
 mod test_dictionary;
 use serde_json::json;
-use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::SystemTime,
+};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
 };
 use yomibu::{
     application::{
-        ApplicationError, Credentials, LocalApp, Operation, ServiceEndpoints, StoryInputs,
+        ApplicationError, CredentialError, Credentials, LocalApp, Operation, ServiceEndpoints,
+        StoryInputs,
         progress::{ProgressEvent, Step},
     },
     configuration::{
         Configuration, ConfigurationInput, Invocation, Patch, ProcessOverrides,
         components::{
-            EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_REVISION, GENERATION_KEY, SOURCE_KEY,
+            EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_REVISION, GENERATION_KEY,
+            GENERATION_MODEL, SOURCE_KEY,
         },
         modules::{ModuleId, ModuleState},
     },
 };
 use yomibu_components::{
-    file_learning_store::FileLearningStore, in_memory_learning_store::InMemoryLearningStore,
+    file_learning_store::FileLearningStore,
+    in_memory_learning_store::InMemoryLearningStore,
+    openai_story_generation::{Client, ProviderError},
 };
 use yomibu_core::{
     capabilities::{LearningStore, SourceSyncWriter},
@@ -175,23 +186,43 @@ async fn mount_generation(server: &MockServer, count: u64) {
 }
 
 #[tokio::test]
-async fn supplied_analyzer_is_reused_without_local_loading_and_disabled_assessment_skips_it() {
+async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabled_assessment() {
     let analyzer = test_dictionary::load_analyzer();
     let dir = tempfile::tempdir().unwrap();
     let server = MockServer::start().await;
     mount_generation(&server, 3).await;
-    for disabled in [false, false, true] {
-        let mut flags = ProcessOverrides::default();
-        flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
-        flags.invocation.story.select = Some(2);
-        if disabled {
-            flags.disable.push(ModuleId::Assessment);
-        }
-        let app = LocalApp::new(
-            config(dir.path(), flags),
-            supplied_credentials(None, Some("ai".into())),
-        )
-        .with_endpoints(endpoints(&server));
+    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+    let lookups = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&lookups);
+    let mut credentials = Credentials::default();
+    credentials.supply_with(GENERATION_KEY, move || {
+        observed.fetch_add(1, Ordering::SeqCst);
+        Err(CredentialError::StoreUnavailable)
+    });
+    let mut flags = ProcessOverrides::default();
+    flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
+    let app =
+        LocalApp::new(config(dir.path(), flags), credentials).with_endpoints(ServiceEndpoints {
+            openai: "unusable endpoint".into(),
+            ..endpoints(&server)
+        });
+    for (index, (model, disabled)) in [
+        ("first-model", false),
+        ("second-model", false),
+        ("second-model", true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut invocation = Invocation::default();
+        invocation
+            .pipeline
+            .options
+            .set(GENERATION_MODEL, model.into())
+            .unwrap();
+        invocation.pipeline.assessment.enabled = Some(!disabled);
+        invocation.story.select = Some(2);
+        let app = app.for_invocation(invocation, &Operation::Story).unwrap();
         let manual = LearnerInventory::from_manual(
             serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json"))
                 .unwrap(),
@@ -208,6 +239,7 @@ async fn supplied_analyzer_is_reused_without_local_loading_and_disabled_assessme
                     manual: Some(manual),
                 },
                 None,
+                &client,
                 Some(&analyzer),
                 SystemTime::now().into(),
                 7,
@@ -215,6 +247,15 @@ async fn supplied_analyzer_is_reused_without_local_loading_and_disabled_assessme
             )
             .await
             .unwrap();
+        assert_eq!(lookups.load(Ordering::SeqCst), 0);
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), index + 1);
+        assert_eq!(requests[index].method.as_str(), "POST");
+        assert_eq!(requests[index].url.path(), "/v1/responses");
+        let body: serde_json::Value = serde_json::from_slice(&requests[index].body).unwrap();
+        assert_eq!(body["model"], model);
+        assert_eq!(report.generated.provenance().requested_model, model);
+        assert_eq!(report.generated.provenance().request_count, 1);
         assert_eq!(report.selection.vocabulary_ids, ["sleep", "cat"]);
         assert_eq!(
             report.generated.passages()[0].text,
@@ -265,12 +306,125 @@ async fn supplied_analyzer_is_reused_without_local_loading_and_disabled_assessme
 }
 
 #[tokio::test]
+async fn supplied_client_preserves_required_source_setup_and_credential_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("fresh");
+    let store = FileLearningStore::new(&data);
+    let server = MockServer::start().await;
+    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+    for (sync, source_key, missing) in [
+        (true, Ok(None), Some(ModuleId::Sync)),
+        (false, Ok(None), Some(ModuleId::Knowledge)),
+        (true, Err(CredentialError::StoreUnavailable), None),
+    ] {
+        let lookups = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&lookups);
+        let mut credentials = Credentials::default();
+        credentials.supply_with(SOURCE_KEY, move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            source_key.clone()
+        });
+        credentials.supply_with(GENERATION_KEY, || {
+            panic!("Supplied client checked generation key")
+        });
+        let mut flags = ProcessOverrides::default();
+        if !sync {
+            flags.disable.push(ModuleId::Sync);
+        }
+        let app =
+            LocalApp::new(config(&data, flags), credentials).with_endpoints(endpoints(&server));
+        let request =
+            serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json"))
+                .unwrap();
+        let error = app
+            .story_with_inputs(
+                StoryInputs {
+                    request,
+                    manual: None,
+                },
+                Some(&store),
+                &client,
+                None,
+                SystemTime::now().into(),
+                7,
+                |_| {},
+            )
+            .await
+            .unwrap_err();
+        match missing {
+            Some(module) => assert!(matches!(error, ApplicationError::Setup { issues }
+                if issues.len() == 1 && issues[0].module == module)),
+            None => assert!(matches!(
+                error,
+                ApplicationError::Credential(CredentialError::StoreUnavailable)
+            )),
+        }
+        assert_eq!(lookups.load(Ordering::SeqCst), usize::from(sync));
+        assert!(server.received_requests().await.unwrap().is_empty());
+        assert!(!data.exists());
+    }
+}
+
+#[tokio::test]
+async fn local_generation_acquisition_failure_prevents_source_refresh() {
+    let server = MockServer::start().await;
+    for credential_fails in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("fresh");
+        let store = FileLearningStore::new(&data);
+        let lookups = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&lookups);
+        let mut credentials = supplied_credentials(Some("wk".into()), None);
+        credentials.supply_with(GENERATION_KEY, move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            if credential_fails {
+                Err(CredentialError::StoreUnavailable)
+            } else {
+                Ok(Some("ai".into()))
+            }
+        });
+        let app = LocalApp::new(config(&data, ProcessOverrides::default()), credentials)
+            .with_endpoints(ServiceEndpoints {
+                openai: "unusable endpoint".into(),
+                ..endpoints(&server)
+            });
+        assert_eq!(lookups.load(Ordering::SeqCst), 0);
+        let mut events = Vec::new();
+        let error = unsafe {
+            app.story(&store, SystemTime::now().into(), 7, |event| {
+                events.push(event)
+            })
+        }
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            (credential_fails, error),
+            (
+                true,
+                ApplicationError::Credential(CredentialError::StoreUnavailable)
+            ) | (
+                false,
+                ApplicationError::Provider(ProviderError::InvalidBaseUrl)
+            )
+        ));
+        assert_eq!(lookups.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            events.as_slice(),
+            [ProgressEvent::Started { step: Step::Inputs }]
+        ));
+        assert!(server.received_requests().await.unwrap().is_empty());
+        assert!(!data.exists());
+    }
+}
+
+#[tokio::test]
 async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participation() {
     let dir = tempfile::tempdir().unwrap();
     let store = InMemoryLearningStore::new();
     let now = seed_store(&store) + chrono::Duration::minutes(10);
     let server = MockServer::start().await;
     mount_generation(&server, 3).await;
+    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
     for (use_manual, use_store) in [(true, false), (true, true), (false, true)] {
         let mut flags = ProcessOverrides {
             request: Some(dir.path().join("missing-request.json")),
@@ -279,11 +433,8 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
         flags.application.inventory = Some(dir.path().join("missing-inventory.json"));
         flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
         flags.application.wanikani_cache = (!use_store).then(|| dir.path().join("missing-cache"));
-        let app = LocalApp::new(
-            config(dir.path(), flags),
-            supplied_credentials(None, Some("ai".into())),
-        )
-        .with_endpoints(endpoints(&server));
+        let app = LocalApp::new(config(dir.path(), flags), Credentials::default())
+            .with_endpoints(endpoints(&server));
         let mut invocation = Invocation::default();
         invocation.story.select = Some(16);
         invocation.story.seed = Patch::Set(7);
@@ -307,6 +458,7 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
             .story_with_inputs(
                 StoryInputs { request, manual },
                 use_store.then_some(&store),
+                &client,
                 None,
                 now,
                 1,
@@ -371,10 +523,7 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
 
 #[tokio::test]
 async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
-    use std::{
-        cell::Cell,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
+    use std::cell::Cell;
     use yomibu_components::in_memory_learning_store::{InMemoryStoreError, InMemorySyncWriter};
 
     #[derive(Debug)]
@@ -408,6 +557,7 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
 
     let dir = tempfile::tempdir().unwrap();
     let server = MockServer::start().await;
+    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
     for invalid in [
         InvalidInput::RequestVersion,
         InvalidInput::SelectionLimit,
@@ -453,6 +603,7 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
             .story_with_inputs(
                 StoryInputs { request, manual },
                 (!matches!(invalid, InvalidInput::MissingKnowledge)).then_some(&store),
+                &client,
                 None,
                 SystemTime::now().into(),
                 1,

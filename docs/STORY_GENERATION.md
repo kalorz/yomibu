@@ -124,7 +124,8 @@ prepares evidence regardless of optional enablement. See [retrieval](RETRIEVAL.m
 Sync and optional assessment default on. Disabled work does no resource I/O.
 Local story assessment initializes after generation, keeps dictionary lifetimes, warns
 on optional failures and preserves generated text and NotRun behavior.
-`LocalApp::story_with_inputs` safely borrows an initialized Sudachi analyzer.
+`LocalApp::story_with_inputs` safely borrows a reusable generation client and
+an optional initialized Sudachi analyzer.
 `None` skips analysis without consulting dictionary paths; disabled assessment
 ignores the analyzer. Initialization retains the [dictionary lifetime contract](DICTIONARY.md#file-stability-contract).
 
