@@ -18,12 +18,13 @@ use yomibu::{
         ApplicationError, CredentialError, Credentials, LocalApp, Operation, ServiceEndpoints,
         StoryInputs,
         progress::{ProgressEvent, Step},
+        run_story,
     },
     configuration::{
         Configuration, ConfigurationInput, EmbeddingProvider, Invocation, Patch, ProcessOverrides,
         components::{
-            EMBEDDING_DIMENSIONS, EMBEDDING_ENDPOINT, EMBEDDING_KEY, EMBEDDING_MODEL,
-            EMBEDDING_REVISION, GENERATION_KEY, GENERATION_MODEL, SOURCE_KEY,
+            EMBEDDING_DIMENSIONS, EMBEDDING_ENDPOINT, EMBEDDING_MODEL, EMBEDDING_REVISION,
+            GENERATION_KEY, GENERATION_MODEL, SOURCE_KEY,
         },
         modules::{ModuleId, ModuleState},
     },
@@ -239,16 +240,7 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
     let dir = tempfile::tempdir().unwrap();
     let server = MockServer::start().await;
     mount_generation(&server, 3).await;
-    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
-    let lookups = Arc::new(AtomicUsize::new(0));
-    let mut credentials = Credentials::default();
-    for key in [GENERATION_KEY, EMBEDDING_KEY] {
-        let observed = Arc::clone(&lookups);
-        credentials.supply_with(key, move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Err(CredentialError::StoreUnavailable)
-        });
-    }
+    let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
     let (_, mut cache) = embedding_fixture();
     for entry in &mut cache.entries[..3] {
         entry.vector = vec![0., 1.];
@@ -257,11 +249,7 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
     flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
     flags.application.embedding_cache = Some(dir.path().into());
     flags.application.allow_embedding_call = Some(true);
-    let app =
-        LocalApp::new(config(dir.path(), flags), credentials).with_endpoints(ServiceEndpoints {
-            openai: "unusable endpoint".into(),
-            ..endpoints(&server)
-        });
+    let base = config(dir.path(), flags);
     for (index, (model, disabled)) in [
         ("first-model", false),
         ("second-model", false),
@@ -278,7 +266,7 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
             .unwrap();
         invocation.pipeline.assessment.enabled = Some(!disabled);
         invocation.story.select = Some(3);
-        let app = app.for_invocation(invocation, &Operation::Story).unwrap();
+        let config = base.for_invocation(invocation, &Operation::Story).unwrap();
         let (inputs, _) = embedding_fixture();
         let plan = yomibu::application::story::plan_generation(
             inputs.manual.as_ref().unwrap(),
@@ -294,21 +282,20 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
         .unwrap();
         let expected_body = plan.prepared_request().body_utf8().as_bytes().to_vec();
         let mut events = Vec::new();
-        let report = app
-            .story_with_inputs::<InMemoryLearningStore>(
-                inputs,
-                None,
-                None,
-                &client,
-                Some(&analyzer),
-                Some(&cache),
-                SystemTime::now().into(),
-                7,
-                |event| events.push(event),
-            )
-            .await
-            .unwrap();
-        assert_eq!(lookups.load(Ordering::SeqCst), 0);
+        let report = run_story::<InMemoryLearningStore>(
+            &config,
+            inputs,
+            None,
+            None,
+            &client,
+            Some(&analyzer),
+            Some(&cache),
+            SystemTime::now().into(),
+            7,
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
         let requests = server.received_requests().await.unwrap();
         assert_eq!(requests.len(), index + 1);
         assert_eq!(requests[index].method.as_str(), "POST");
@@ -404,8 +391,7 @@ async fn supplied_embedding_evidence_is_checked_against_inputs_and_configuration
         .expect(0)
         .mount(&server)
         .await;
-    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
-    let lookups = Arc::new(AtomicUsize::new(0));
+    let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
     for case in cases {
         let (mut inputs, mut cache) = embedding_fixture();
         let mut flags = embedding_flags();
@@ -420,7 +406,7 @@ async fn supplied_embedding_evidence_is_checked_against_inputs_and_configuration
             .invocation
             .pipeline
             .options
-            .set(EMBEDDING_ENDPOINT, endpoints(&server).openai)
+            .set(EMBEDDING_ENDPOINT, format!("{}/v1/", server.uri()))
             .unwrap();
         let mut config = config(dir.path(), flags);
         match case {
@@ -463,28 +449,21 @@ async fn supplied_embedding_evidence_is_checked_against_inputs_and_configuration
         if case == "no-topic" {
             inputs.request.topic = None;
         }
-        let mut credentials = Credentials::default();
-        let observed = Arc::clone(&lookups);
-        credentials.supply_with(EMBEDDING_KEY, move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Err(CredentialError::StoreUnavailable)
-        });
-        let app = LocalApp::new(config, credentials);
         let mut events = Vec::new();
-        let report = app
-            .story_with_inputs::<InMemoryLearningStore>(
-                inputs,
-                None,
-                None,
-                &client,
-                None,
-                (case != "none").then_some(&cache),
-                SystemTime::now().into(),
-                7,
-                |event| events.push(event),
-            )
-            .await
-            .unwrap();
+        let report = run_story::<InMemoryLearningStore>(
+            &config,
+            inputs,
+            None,
+            None,
+            &client,
+            None,
+            (case != "none").then_some(&cache),
+            SystemTime::now().into(),
+            7,
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
         let available = matches!(case, "inferred" | "local");
         let skipped = matches!(case, "disabled" | "no-topic");
         assert_eq!(
@@ -556,7 +535,6 @@ async fn supplied_embedding_evidence_is_checked_against_inputs_and_configuration
             !skipped
         );
     }
-    assert_eq!(lookups.load(Ordering::SeqCst), 0);
     assert!(
         server
             .received_requests()
@@ -569,50 +547,34 @@ async fn supplied_embedding_evidence_is_checked_against_inputs_and_configuration
 }
 
 #[tokio::test]
-async fn supplied_source_none_reports_missing_knowledge_without_credential_lookup() {
+async fn supplied_source_none_reports_missing_knowledge_without_fetching() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("fresh");
     let store = FileLearningStore::new(&data);
     let server = MockServer::start().await;
-    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
-    for (sync, source_key) in [
-        (true, Ok(Some("app-wk".into()))),
-        (false, Ok(None)),
-        (true, Err(CredentialError::StoreUnavailable)),
-    ] {
-        let lookups = Arc::new(AtomicUsize::new(0));
-        let observed = Arc::clone(&lookups);
-        let mut credentials = Credentials::default();
-        credentials.supply_with(SOURCE_KEY, move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-            source_key.clone()
-        });
-        credentials.supply_with(GENERATION_KEY, || {
-            panic!("Supplied client checked generation key")
-        });
+    let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
+    for sync in [true, false] {
         let mut flags = ProcessOverrides::default();
         if !sync {
             flags.disable.push(ModuleId::Sync);
         }
-        let app =
-            LocalApp::new(config(&data, flags), credentials).with_endpoints(endpoints(&server));
-        let error = app
-            .story_with_inputs(
-                source_story_inputs(),
-                Some(&store),
-                None,
-                &client,
-                None,
-                None,
-                SystemTime::now().into(),
-                7,
-                |_| {},
-            )
-            .await
-            .unwrap_err();
+        let config = config(&data, flags);
+        let error = run_story(
+            &config,
+            source_story_inputs(),
+            Some(&store),
+            None,
+            &client,
+            None,
+            None,
+            SystemTime::now().into(),
+            7,
+            |_| {},
+        )
+        .await
+        .unwrap_err();
         assert!(matches!(error, ApplicationError::Setup { issues }
             if issues.len() == 1 && issues[0].module == ModuleId::Knowledge));
-        assert_eq!(lookups.load(Ordering::SeqCst), 0);
         assert!(server.received_requests().await.unwrap().is_empty());
         assert!(!data.exists());
     }
@@ -625,16 +587,9 @@ async fn supplied_source_refresh_reuses_client_and_invalidates_prepared_embeddin
         mount_source(&server, 2).await;
         mount_generation(&server, 2).await;
         let mut source_client =
-            wanikani_source::Client::with_base_url("supplied-wk", &endpoints(&server).wanikani)
+            wanikani_source::Client::with_base_url("supplied-wk", &format!("{}/v2/", server.uri()))
                 .unwrap();
-        let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
-        let lookups = Arc::new(AtomicUsize::new(0));
-        let observed = Arc::clone(&lookups);
-        let mut credentials = Credentials::default();
-        credentials.supply_with(SOURCE_KEY, move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Err(CredentialError::StoreUnavailable)
-        });
+        let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
         let (_, cache) = embedding_fixture();
         let mut flags = embedding_flags();
         flags.application.cache_max_age_seconds = Some(0);
@@ -656,27 +611,22 @@ async fn supplied_source_refresh_reuses_client_and_invalidates_prepared_embeddin
             .unwrap()
             .replace(previous.into())
             .unwrap();
-        let app = LocalApp::new(config, credentials).with_endpoints(ServiceEndpoints {
-            wanikani: "unusable endpoint".into(),
-            openai: "unusable endpoint".into(),
-        });
         for call in 1..=2 {
             let mut events = Vec::new();
-            let report = app
-                .story_with_inputs(
-                    embedding_fixture().0,
-                    Some(&store),
-                    Some(&mut source_client),
-                    &client,
-                    None,
-                    Some(&cache),
-                    SystemTime::now().into(),
-                    7,
-                    |event| events.push(event),
-                )
-                .await
-                .unwrap();
-            assert_eq!(lookups.load(Ordering::SeqCst), 0);
+            let report = run_story(
+                &config,
+                embedding_fixture().0,
+                Some(&store),
+                Some(&mut source_client),
+                &client,
+                None,
+                Some(&cache),
+                SystemTime::now().into(),
+                7,
+                |event| events.push(event),
+            )
+            .await
+            .unwrap();
             assert_eq!(server.received_requests().await.unwrap().len(), call * 5);
             let published = store.load().unwrap();
             published.validate().unwrap();
@@ -775,10 +725,9 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
     let completed = seed_store(&store);
     let server = MockServer::start().await;
     mount_generation(&server, 7).await;
-    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+    let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
     let mut source_client =
-        wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani).unwrap();
-    let lookups = Arc::new(AtomicUsize::new(0));
+        wanikani_source::Client::with_base_url("wk", &format!("{}/v2/", server.uri())).unwrap();
     for (use_manual, use_store, use_client, age_minutes, sync) in [
         (true, false, false, 10, true),
         (true, false, true, 120, true),
@@ -797,18 +746,11 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
         flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
         flags.application.wanikani_cache = (!use_store).then(|| dir.path().join("missing-cache"));
         flags.application.sync = Some(sync);
-        let observed = Arc::clone(&lookups);
-        let mut credentials = Credentials::default();
-        credentials.supply_with(SOURCE_KEY, move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-            Ok(Some("valid-app-wk".into()))
-        });
-        let app = LocalApp::new(config(dir.path(), flags), credentials)
-            .with_endpoints(endpoints(&server));
+        let base = config(dir.path(), flags);
         let mut invocation = Invocation::default();
         invocation.story.select = Some(16);
         invocation.story.seed = Patch::Set(7);
-        let app = app.for_invocation(invocation, &Operation::Story).unwrap();
+        let config = base.for_invocation(invocation, &Operation::Story).unwrap();
         let manual = use_manual.then(|| {
             LearnerInventory::from_manual(
                 serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json"))
@@ -824,26 +766,25 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
             request.targets.grammar.clear();
         }
         let mut events = Vec::new();
-        let report = app
-            .story_with_inputs(
-                StoryInputs { request, manual },
-                use_store.then_some(&store),
-                use_client.then_some(&mut source_client),
-                &client,
-                None,
-                None,
-                now,
-                1,
-                |event| events.push(event),
-            )
-            .await
-            .unwrap();
+        let report = run_story(
+            &config,
+            StoryInputs { request, manual },
+            use_store.then_some(&store),
+            use_client.then_some(&mut source_client),
+            &client,
+            None,
+            None,
+            now,
+            1,
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
         assert_eq!(
             report.generated.passages()[0].text,
             "猫です。寝ます。朝です。"
         );
         assert_eq!(report.selection.seed, 7);
-        assert_eq!(lookups.load(Ordering::SeqCst), 0);
         assert_eq!(*store.load().unwrap(), source_fixture());
         let reason = if !use_store {
             "Manual inventory selected"
@@ -914,7 +855,7 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
 }
 
 #[tokio::test]
-async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
+async fn invalid_supplied_inputs_do_not_access_stores_or_http() {
     use std::cell::Cell;
     use yomibu_components::in_memory_learning_store::{InMemoryStoreError, InMemorySyncWriter};
 
@@ -949,9 +890,9 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
 
     let dir = tempfile::tempdir().unwrap();
     let server = MockServer::start().await;
-    let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+    let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
     let mut source_client =
-        wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani).unwrap();
+        wanikani_source::Client::with_base_url("wk", &format!("{}/v2/", server.uri())).unwrap();
     for invalid in [
         InvalidInput::RequestVersion,
         InvalidInput::SelectionLimit,
@@ -959,23 +900,13 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
         InvalidInput::MissingKnowledge,
     ] {
         let store = ObservedStore(InMemoryLearningStore::new(), Cell::new(0));
-        let lookups = Arc::new(AtomicUsize::new(0));
-        let mut credentials = Credentials::default();
-        for key in yomibu::configuration::components::credentials() {
-            let lookups = Arc::clone(&lookups);
-            credentials.supply_with(key, move || {
-                lookups.fetch_add(1, Ordering::SeqCst);
-                Ok(Some("synthetic".into()))
-            });
-        }
-        let app = LocalApp::new(config(dir.path(), ProcessOverrides::default()), credentials)
-            .with_endpoints(endpoints(&server));
+        let base = config(dir.path(), ProcessOverrides::default());
         let mut invocation = Invocation::default();
         invocation.story.select = Some(match invalid {
             InvalidInput::SelectionLimit => 1,
             _ => 16,
         });
-        let app = app.for_invocation(invocation, &Operation::Story).unwrap();
+        let config = base.for_invocation(invocation, &Operation::Story).unwrap();
         let mut request: StoryRequest =
             serde_json::from_slice(include_bytes!("../../../tests/fixtures/story/request.json"))
                 .unwrap();
@@ -993,22 +924,21 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
         } else {
             None
         };
-        let error = app
-            .story_with_inputs(
-                StoryInputs { request, manual },
-                (!matches!(invalid, InvalidInput::MissingKnowledge)).then_some(&store),
-                Some(&mut source_client),
-                &client,
-                None,
-                None,
-                SystemTime::now().into(),
-                1,
-                |_| {},
-            )
-            .await
-            .unwrap_err();
+        let error = run_story(
+            &config,
+            StoryInputs { request, manual },
+            (!matches!(invalid, InvalidInput::MissingKnowledge)).then_some(&store),
+            Some(&mut source_client),
+            &client,
+            None,
+            None,
+            SystemTime::now().into(),
+            1,
+            |_| {},
+        )
+        .await
+        .unwrap_err();
         assert_eq!(store.1.get(), 0, "{invalid:?}: {error:?}");
-        assert_eq!(lookups.load(Ordering::SeqCst), 0, "{invalid:?}");
         assert!(
             server.received_requests().await.unwrap().is_empty(),
             "{invalid:?}"
@@ -1037,14 +967,12 @@ async fn cancelling_supplied_source_refresh_preserves_data_and_releases_the_writ
         let before_bytes = std::fs::read(dir.path().join("wanikani.json")).ok();
         let server = MockServer::start().await;
         mount_generation(&server, 0).await;
-        let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+        let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
         let mut source_client =
-            wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani).unwrap();
-        let app = LocalApp::new(
-            config(dir.path(), ProcessOverrides::default()),
-            Credentials::default(),
-        );
-        let mut operation = Box::pin(app.story_with_inputs(
+            wanikani_source::Client::with_base_url("wk", &format!("{}/v2/", server.uri())).unwrap();
+        let config = config(dir.path(), ProcessOverrides::default());
+        let mut operation = Box::pin(run_story(
+            &config,
             source_story_inputs(),
             Some(&store),
             Some(&mut source_client),
@@ -1413,18 +1341,15 @@ async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_pr
             if status == 500 {
                 mount_generation(&server, 1).await;
             }
-            let app = LocalApp::new(
-                config(dir.path(), ProcessOverrides::default()),
-                supplied_credentials(Some("wk".into()), Some("ai".into())),
-            )
-            .with_endpoints(endpoints(&server));
+            let config = config(dir.path(), ProcessOverrides::default());
             let now = completed + chrono::Duration::hours(2);
             let result = if supplied {
                 let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
                 let mut source_client =
                     wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani)
                         .unwrap();
-                app.story_with_inputs(
+                run_story(
+                    &config,
                     source_story_inputs(),
                     Some(&store),
                     Some(&mut source_client),
@@ -1437,6 +1362,11 @@ async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_pr
                 )
                 .await
             } else {
+                let app = LocalApp::new(
+                    config,
+                    supplied_credentials(Some("wk".into()), Some("ai".into())),
+                )
+                .with_endpoints(endpoints(&server));
                 unsafe { app.story(&store, now, 1, |_| {}) }.await
             };
             if status == 500 {
@@ -1982,7 +1912,8 @@ async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentia
     let mut flags = embedding_flags();
     flags.request = Some(request_path.clone());
     flags.application.inventory = Some(inventory_path);
-    let app = LocalApp::new(config(dir.path(), flags), Credentials::default());
+    let config = config(dir.path(), flags);
+    let app = LocalApp::new(config.clone(), Credentials::default());
     let now = SystemTime::now().into();
     let reused = app.prepare_retrieval(now).await.unwrap();
     assert_eq!(
@@ -1993,23 +1924,23 @@ async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentia
     mount_generation(&server, 1).await;
     let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
     let mut events = Vec::new();
-    let supplied = app
-        .story_with_inputs::<InMemoryLearningStore>(
-            StoryInputs {
-                request,
-                manual: Some(inventory),
-            },
-            None,
-            None,
-            &client,
-            None,
-            None,
-            now,
-            7,
-            |event| events.push(event),
-        )
-        .await
-        .unwrap();
+    let supplied = run_story::<InMemoryLearningStore>(
+        &config,
+        StoryInputs {
+            request,
+            manual: Some(inventory),
+        },
+        None,
+        None,
+        &client,
+        None,
+        None,
+        now,
+        7,
+        |event| events.push(event),
+    )
+    .await
+    .unwrap();
     assert_eq!(supplied.selection.selector_revision, "builtin-v2");
     assert!(supplied.selection.embedding_model.is_none());
     assert_eq!(supplied.warnings.len(), 1);
@@ -2207,36 +2138,32 @@ async fn supplied_source_freshness_is_rechecked_under_the_lock_after_another_wri
         let completed = seed_store(&store);
         let server = MockServer::start().await;
         mount_generation(&server, 1).await;
-        let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+        let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
         let mut source_client =
-            wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani).unwrap();
-        let app = LocalApp::new(
-            config(dir.path(), ProcessOverrides::default()),
-            Credentials::default(),
-        )
-        .with_endpoints(endpoints(&server));
+            wanikani_source::Client::with_base_url("wk", &format!("{}/v2/", server.uri())).unwrap();
+        let config = config(dir.path(), ProcessOverrides::default());
         let now = completed + chrono::Duration::hours(2);
-        let report = app
-            .story_with_inputs(
-                source_story_inputs(),
-                Some(&store),
-                Some(&mut source_client),
-                &client,
-                None,
-                None,
-                now,
-                1,
-                |event| {
-                    if matches!(event, ProgressEvent::Started { step: Step::Sync }) {
-                        let writer = store.begin_sync().unwrap();
-                        let mut data = source_fixture();
-                        data.sync_completed_at = now;
-                        writer.replace(data.into()).unwrap();
-                    }
-                },
-            )
-            .await
-            .unwrap();
+        let report = run_story(
+            &config,
+            source_story_inputs(),
+            Some(&store),
+            Some(&mut source_client),
+            &client,
+            None,
+            None,
+            now,
+            1,
+            |event| {
+                if matches!(event, ProgressEvent::Started { step: Step::Sync }) {
+                    let writer = store.begin_sync().unwrap();
+                    let mut data = source_fixture();
+                    data.sync_completed_at = now;
+                    writer.replace(data.into()).unwrap();
+                }
+            },
+        )
+        .await
+        .unwrap();
         assert!(matches!(
             report
                 .modules
