@@ -13,7 +13,7 @@ use yomibu_components::{
 use yomibu_core::capabilities::LearningStore;
 use yomibu_core::domain::{
     candidate::GeneratedCandidates,
-    embedding::EmbeddingError,
+    embedding::{EmbeddingCache, EmbeddingError},
     inventory::{InventoryError, LearnerInventory},
     story::{StoryAssessmentInputs, StoryError, StoryPassageAssessment, StoryRequest},
 };
@@ -21,7 +21,7 @@ use yomibu_core::pipeline::story::prepare_story;
 mod explicit;
 
 use super::progress::{ProgressEvent, Step};
-use crate::reports::run::{SelectionReport, StoryRunReport, Warning};
+use crate::reports::run::{SelectionReport, StoryRunReport};
 
 use super::Credentials;
 
@@ -47,6 +47,11 @@ pub struct LocalApp {
 pub struct StoryInputs {
     pub request: StoryRequest,
     pub manual: Option<LearnerInventory>,
+}
+
+enum StoryEmbeddings<'a> {
+    Local,
+    Supplied(Option<&'a EmbeddingCache>),
 }
 
 #[derive(Debug)]
@@ -185,6 +190,7 @@ impl LocalApp {
                 endpoint: &self.endpoints.wanikani,
             },
             None,
+            StoryEmbeddings::Local,
             now,
             seed,
             progress,
@@ -209,6 +215,9 @@ impl LocalApp {
     /// fetching. Application WaniKani credentials and endpoint are never consulted.
     /// `client` owns generation credentials and endpoint; this call
     /// resolves model and generation options from its invocation configuration.
+    /// `embedding_cache` supplies prepared vectors. Missing or incompatible evidence
+    /// warns and uses base selection when embeddings are enabled with a topic.
+    /// Embedding paths, credentials and providers are never used for acquisition.
     #[expect(
         clippy::too_many_arguments,
         reason = "Keep supplied resources and per-call inputs explicit."
@@ -220,6 +229,7 @@ impl LocalApp {
         source_client: Option<&mut wanikani::Client>,
         client: &openai::Client,
         analyzer: Option<&SudachiAnalyzer>,
+        embedding_cache: Option<&EmbeddingCache>,
         now: DateTime<Utc>,
         seed: u64,
         emit: impl FnMut(ProgressEvent),
@@ -247,6 +257,7 @@ impl LocalApp {
                 source::SourceClient::Supplied,
             ),
             Some(client),
+            StoryEmbeddings::Supplied(embedding_cache),
             now,
             seed,
             progress,
@@ -274,6 +285,7 @@ impl LocalApp {
         store: Option<&Store>,
         source_client: source::SourceClient<'_>,
         supplied_client: Option<&openai::Client>,
+        embedding_source: StoryEmbeddings<'_>,
         now: DateTime<Utc>,
         seed: u64,
         mut progress: RunProgress<F>,
@@ -338,34 +350,56 @@ impl LocalApp {
         progress.finish(Step::Knowledge, started);
         let seed = self.config.story.seed.unwrap_or(seed);
         request.validate(&inventory)?;
-        let cache = embeddings::prepare_optional(
-            &self.config,
-            &self.credentials,
-            &inventory,
-            &request,
-            &mut progress,
-        )
-        .await;
+        let local_cache;
+        let cache = if let Some(started) =
+            embeddings::start_optional(&self.config, &request, &mut progress)
+        {
+            let result = match embedding_source {
+                StoryEmbeddings::Local => {
+                    match embeddings::prepare_embeddings(
+                        &self.config,
+                        &self.credentials,
+                        &inventory,
+                        &request,
+                    )
+                    .await
+                    {
+                        Ok(cache) => {
+                            local_cache = cache;
+                            Ok(&local_cache)
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+                StoryEmbeddings::Supplied(cache) => {
+                    embeddings::validate_supplied(&self.config, &inventory, &request, cache)
+                }
+            };
+            progress.finish(Step::Embeddings, started);
+            match result {
+                Ok(cache) => {
+                    progress.state(ModuleId::Embeddings, ModuleState::Available);
+                    Some(cache)
+                }
+                Err(error) => {
+                    embeddings::report_fallback(&self.config, &error, &mut progress);
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let started = progress.start(Step::Selection);
         let (selection, retrieval_error) = embeddings::select_for_request(
             &self.config.pipeline.selection,
             &inventory,
             &request,
-            cache.as_ref(),
+            cache,
             self.config.story.select,
             seed,
         )?;
         if let Some(error) = retrieval_error {
-            progress.warnings.push(Warning::embedding_fallback(
-                &error,
-                &self.config.pipeline.selection,
-            ));
-            progress.state(
-                ModuleId::Embeddings,
-                ModuleState::Unavailable {
-                    error: error.to_string(),
-                },
-            );
+            embeddings::report_fallback(&self.config, &error.into(), &mut progress);
         }
         let plan = prepare_story(
             &self.config.pipeline.components.preparation.construct(),
