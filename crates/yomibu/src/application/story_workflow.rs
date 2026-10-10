@@ -25,6 +25,15 @@ pub struct StoryInputs {
     pub manual: Option<LearnerInventory>,
 }
 
+/// Borrowed resources for a supplied story call.
+pub struct StoryResources<'a, Store> {
+    pub store: Option<&'a Store>,
+    pub source_client: Option<&'a mut wanikani::Client>,
+    pub generation_client: &'a openai::Client,
+    pub analyzer: Option<&'a SudachiAnalyzer>,
+    pub embedding_cache: Option<&'a EmbeddingCache>,
+}
+
 pub(super) enum StoryEmbeddings<'a> {
     Local(&'a Credentials),
     Supplied(Option<&'a EmbeddingCache>),
@@ -41,26 +50,18 @@ pub(super) enum GenerationClient<'a> {
 /// Generate from supplied inputs and resolved settings without reading configuration
 /// files or configured request, inventory, or dictionary paths. Reuse an initialized
 /// analyzer across calls; `None` skips analysis. Disabled assessment ignores it.
-/// `Some(store)` participates in source preparation; `None` excludes source data.
-/// `source_client` permits refresh through that mutable client; `None` forbids
+/// `resources.store` participates in source preparation; `None` excludes source data.
+/// `resources.source_client` permits refresh through that mutable client; `None` forbids
 /// fetching. Application WaniKani credentials and endpoint are never consulted.
-/// `client` owns generation credentials and endpoint; this call
+/// `resources.generation_client` owns generation credentials and endpoint; this call
 /// uses model and generation options from the resolved configuration.
-/// `embedding_cache` supplies prepared vectors. Missing or incompatible evidence
+/// `resources.embedding_cache` supplies prepared vectors. Missing or incompatible evidence
 /// warns and uses base selection when embeddings are enabled with a topic.
 /// Embedding paths, credentials and providers are never used for acquisition.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Keep supplied resources and per-call inputs explicit."
-)]
 pub async fn run_story<Store: LearningStore>(
     config: &Configuration,
     inputs: StoryInputs,
-    store: Option<&Store>,
-    source_client: Option<&mut wanikani::Client>,
-    client: &openai::Client,
-    analyzer: Option<&SudachiAnalyzer>,
-    embedding_cache: Option<&EmbeddingCache>,
+    resources: StoryResources<'_, Store>,
     now: DateTime<Utc>,
     seed: u64,
     emit: impl FnMut(ProgressEvent),
@@ -68,6 +69,13 @@ pub async fn run_story<Store: LearningStore>(
 where
     ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
 {
+    let StoryResources {
+        store,
+        source_client,
+        generation_client,
+        analyzer,
+        embedding_cache,
+    } = resources;
     let mut progress = RunProgress::new(config, emit);
     let started = progress.start(Step::Inputs);
     validate_story_request(config, &inputs.request)?;
@@ -88,7 +96,7 @@ where
             source::SourceClient::Unavailable,
             source::SourceClient::Supplied,
         ),
-        GenerationClient::Supplied(client),
+        GenerationClient::Supplied(generation_client),
         StoryEmbeddings::Supplied(embedding_cache),
         now,
         seed,
