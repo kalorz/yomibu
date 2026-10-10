@@ -29,6 +29,86 @@ fn load_config(
 }
 
 #[test]
+fn typed_construction_ignores_malformed_local_defaults_and_preserves_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let names = ["config.toml", "default-pipeline.toml", "default-story.toml"];
+    for name in names {
+        std::fs::write(dir.path().join(name), "[").unwrap();
+    }
+    let mut overrides = ProcessOverrides::default();
+    overrides.application.inventory = Some("typed.json".into());
+    overrides.invocation.pipeline.model = Some("shared".into());
+    let options = &mut overrides.invocation.pipeline.options;
+    options.set(GENERATION_MODEL, "generation".into()).unwrap();
+    options.clear(EMBEDDING_ENDPOINT).unwrap();
+    overrides.invocation.story.topic = Patch::Set("typed topic".into());
+    overrides.invocation.story.select = Some(4);
+    let config =
+        Configuration::from_overrides(dir.path().into(), overrides, &Operation::Story).unwrap();
+    assert_eq!(config.application.inventory, Some("typed.json".into()));
+    assert_eq!(config.generation().unwrap().model, "generation");
+    assert_eq!(config.story.topic.as_deref(), Some("typed topic"));
+    assert_eq!(config.story.select, 4);
+    let endpoint = config.pipeline.options.get(EMBEDDING_ENDPOINT).unwrap();
+    assert_eq!(
+        endpoint.map(String::as_str),
+        Some("http://127.0.0.1:11434/v1/")
+    );
+    for name in names {
+        assert_eq!(std::fs::read(dir.path().join(name)).unwrap(), b"[");
+    }
+}
+
+#[test]
+fn typed_construction_keeps_defaults_without_creating_the_data_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("nonexistent");
+    let config = Configuration::from_overrides(
+        data_dir.clone(),
+        ProcessOverrides::default(),
+        &Operation::Story,
+    )
+    .unwrap();
+    let application = &config.application;
+    assert_eq!(application.data_dir, data_dir);
+    assert_eq!(application.dictionary_dir, data_dir.join("dictionaries"));
+    assert_eq!(
+        application.embedding_cache,
+        data_dir.join("embeddings.json")
+    );
+    assert_eq!(config.story.select, 12);
+    assert!(!data_dir.exists());
+}
+
+#[test]
+fn typed_construction_keeps_operation_filtering_and_validation_order() {
+    use yomibu::configuration::modules::ModuleId;
+    let dir = tempfile::tempdir().unwrap();
+    for (conflicting_controls, model) in [(true, ""), (false, ""), (false, "typed")] {
+        let overrides = || {
+            let mut input = ProcessOverrides::default();
+            input.invocation.pipeline.model = Some(model.into());
+            input.invocation.story.select = Some(0);
+            if conflicting_controls {
+                input.enable = vec![ModuleId::Assessment];
+                input.disable = vec![ModuleId::Assessment];
+            }
+            input
+        };
+        let error =
+            Configuration::from_overrides(dir.path().into(), overrides(), &Operation::Story)
+                .unwrap_err();
+        let expected =
+            load_config(dir.path(), &Operation::Story, overrides(), BTreeMap::new()).unwrap_err();
+        assert_eq!(format!("{error:?}"), format!("{expected:?}"));
+        let ignored =
+            Configuration::from_overrides(dir.path().into(), overrides(), &Operation::Status)
+                .unwrap();
+        assert_eq!(ignored.story.select, 12);
+    }
+}
+
+#[test]
 fn status_configuration_keeps_defaults_for_a_later_local_retrieval_invocation() {
     use yomibu::configuration::{EmbeddingProvider, Invocation};
     use yomibu_components::http_embeddings as http;
