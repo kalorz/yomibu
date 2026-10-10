@@ -14,15 +14,15 @@ fn fixture() -> WaniKaniSyncData {
 }
 
 fn stores_a_complete_version(store: &impl LearningStore, persistence: Persistence) {
-    assert!(store.load().is_err());
+    assert!(store.is_missing(&store.load().unwrap_err()));
     let writer = store.begin_sync().unwrap();
-    assert_eq!(writer.replace(fixture()).unwrap(), persistence);
+    assert_eq!(writer.replace(fixture().into()).unwrap(), persistence);
     let first = store.load().unwrap();
     assert_eq!(*first, fixture());
 
     let mut next = fixture();
     next.learner.username = "updated username".into();
-    store.begin_sync().unwrap().replace(next).unwrap();
+    store.begin_sync().unwrap().replace(next.into()).unwrap();
     assert_eq!(store.load().unwrap().learner.username, "updated username");
     assert_eq!(
         *first,
@@ -35,6 +35,13 @@ fn stores_a_complete_version(store: &impl LearningStore, persistence: Persistenc
 fn in_memory_store_retains_data_for_its_handles_without_deep_copying_reads() {
     let store = InMemoryLearningStore::new();
     stores_a_complete_version(&store, Persistence::Volatile);
+    let published = store.load().unwrap();
+    store
+        .begin_sync()
+        .unwrap()
+        .replace(Arc::clone(&published))
+        .unwrap();
+    assert!(Arc::ptr_eq(&published, &store.load().unwrap()));
     let other_handle = store.clone();
     assert!(Arc::ptr_eq(
         &store.load().unwrap(),
@@ -61,21 +68,41 @@ fn file_store_is_lazy_and_preserves_schema_one() {
         serde_json::from_slice(&std::fs::read(directory.join("wanikani.json")).unwrap()).unwrap();
     assert_eq!(envelope["schema_version"], 1);
     assert!(envelope.get("snapshot").is_some());
+    std::fs::write(directory.join("wanikani.json"), b"corrupt").unwrap();
+    assert!(!store.is_missing(&store.load().unwrap_err()));
 }
 
 fn rejects_invalid_replacements(store: &impl LearningStore) {
-    store.begin_sync().unwrap().replace(fixture()).unwrap();
+    store
+        .begin_sync()
+        .unwrap()
+        .replace(fixture().into())
+        .unwrap();
     let mut invalid = fixture();
     invalid.sync_completed_at = invalid.sync_started_at - chrono::Duration::seconds(1);
-    assert!(store.begin_sync().unwrap().replace(invalid).is_err());
+    let error = store
+        .begin_sync()
+        .unwrap()
+        .replace(invalid.into())
+        .unwrap_err();
+    assert!(!store.is_locked(&error));
     assert_eq!(*store.load().unwrap(), fixture());
 
     let mut wrong_account = fixture();
     wrong_account.learner.id = "different-account".into();
-    assert!(store.begin_sync().unwrap().replace(wrong_account).is_err());
+    let error = store
+        .begin_sync()
+        .unwrap()
+        .replace(wrong_account.into())
+        .unwrap_err();
+    assert!(!store.is_locked(&error));
     assert_eq!(*store.load().unwrap(), fixture());
     // A failed publication must release the writer reservation.
-    store.begin_sync().unwrap().replace(fixture()).unwrap();
+    store
+        .begin_sync()
+        .unwrap()
+        .replace(fixture().into())
+        .unwrap();
 }
 
 #[test]
@@ -93,15 +120,23 @@ fn writer_reservation_keeps_reads_available(
     store: &impl LearningStore,
     other: &impl LearningStore,
 ) {
-    store.begin_sync().unwrap().replace(fixture()).unwrap();
+    store
+        .begin_sync()
+        .unwrap()
+        .replace(fixture().into())
+        .unwrap();
     let writer = store.begin_sync().unwrap();
     assert!(
-        other.begin_sync().is_err(),
+        other.is_locked(&other.begin_sync().err().unwrap()),
         "another handle must not reserve a writer"
     );
     assert_eq!(*other.load().unwrap(), fixture());
     drop(writer);
-    other.begin_sync().unwrap().replace(fixture()).unwrap();
+    other
+        .begin_sync()
+        .unwrap()
+        .replace(fixture().into())
+        .unwrap();
 }
 
 #[test]

@@ -62,6 +62,14 @@ impl LearningStore for InMemoryLearningStore {
             .ok_or(InMemoryStoreError::Missing)
     }
 
+    fn is_missing(&self, error: &Self::ReadError) -> bool {
+        matches!(error, InMemoryStoreError::Missing)
+    }
+
+    fn is_locked(&self, error: &Self::WriteError) -> bool {
+        matches!(error, InMemoryStoreError::Locked)
+    }
+
     fn begin_sync(&self) -> Result<Self::Writer, Self::WriteError> {
         self.state
             .writing
@@ -87,7 +95,7 @@ impl Drop for InMemorySyncWriter {
 impl SourceSyncWriter for InMemorySyncWriter {
     type Error = InMemoryStoreError;
 
-    fn replace(self, data: WaniKaniSyncData) -> Result<Persistence, Self::Error> {
+    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<Persistence, Self::Error> {
         data.validate()?;
         let mut current = self
             .state
@@ -99,7 +107,7 @@ impl SourceSyncWriter for InMemorySyncWriter {
         {
             return Err(InMemoryStoreError::AccountMismatch);
         }
-        *current = Some(Arc::new(data));
+        *current = Some(data);
         Ok(Persistence::Volatile)
     }
 }

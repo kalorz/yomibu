@@ -5,14 +5,15 @@ use super::{
 use crate::configuration::Configuration;
 use crate::configuration::modules::{ModuleId, ModuleState};
 use chrono::{DateTime, Utc};
-use std::path::PathBuf;
-use yomibu_components::{file_learning_store::cache, wanikani_source as wanikani};
-use yomibu_core::capabilities::LearningStore;
+use std::{path::PathBuf, sync::Arc};
+use yomibu_components::wanikani_source as wanikani;
+use yomibu_core::capabilities::{LearningStore, SourceSyncWriter};
 use yomibu_core::domain::{
     inventory::LearnerInventory, knowledge::LearnerKnowledgePolicy, source::WaniKaniSyncData,
 };
 
-pub(super) fn cache_path(config: &Configuration) -> PathBuf {
+/// Resolve the configured source cache path without I/O.
+pub fn cache_path(config: &Configuration) -> PathBuf {
     config
         .application
         .wanikani_cache
@@ -20,24 +21,33 @@ pub(super) fn cache_path(config: &Configuration) -> PathBuf {
         .unwrap_or_else(|| config.application.data_dir.join("wanikani.json"))
 }
 
+pub(super) fn load_cache<Store: LearningStore>(
+    store: &Store,
+) -> Result<Option<Arc<WaniKaniSyncData>>, ApplicationError>
+where
+    ApplicationError: From<Store::ReadError>,
+{
+    match store.load() {
+        Ok(data) => Ok(Some(data)),
+        Err(error) if store.is_missing(&error) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 pub(super) fn read_cache(
     config: &Configuration,
     use_default: bool,
-) -> Result<Option<WaniKaniSyncData>, ApplicationError> {
+) -> Result<Option<Arc<WaniKaniSyncData>>, ApplicationError> {
     if !use_default && config.application.wanikani_cache.is_none() {
         return Ok(None);
     }
-    match config
-        .pipeline
-        .components
-        .learning_store
-        .open(cache_path(config))
-        .load_snapshot()
-    {
-        Ok(data) => Ok(Some(data)),
-        Err(cache::CacheError::Missing { .. }) => Ok(None),
-        Err(error) => Err(error.into()),
-    }
+    load_cache(
+        &config
+            .pipeline
+            .components
+            .learning_store
+            .open(cache_path(config)),
+    )
 }
 
 pub(super) fn usable_cache(
@@ -58,16 +68,19 @@ fn can_reuse_cache(config: &Configuration, data: &WaniKaniSyncData, now: DateTim
             .is_ok_and(|age| age < config.application.cache_max_age)
 }
 
-pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
+pub(super) async fn prepare_source<Store: LearningStore, F: FnMut(ProgressEvent)>(
     config: &Configuration,
     credentials: &super::Credentials,
     endpoint: &str,
-    manual_selected: bool,
-    previous: Option<WaniKaniSyncData>,
+    store: Option<&Store>,
+    previous: Option<Arc<WaniKaniSyncData>>,
     now: DateTime<Utc>,
     progress: &mut RunProgress<F>,
-) -> Result<Option<WaniKaniSyncData>, ApplicationError> {
-    if manual_selected && config.application.wanikani_cache.is_none() {
+) -> Result<Option<Arc<WaniKaniSyncData>>, ApplicationError>
+where
+    ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
+{
+    let Some(store) = store else {
         if config.enabled(ModuleId::Sync) {
             progress.state(
                 ModuleId::Sync,
@@ -78,7 +91,7 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
         }
         progress.skip(Step::Sync, "Manual inventory selected");
         return Ok(None);
-    }
+    };
     if previous
         .as_ref()
         .is_some_and(|data| can_reuse_cache(config, data, now))
@@ -126,18 +139,13 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
         })?,
         endpoint,
     )?;
-    let guard = match config
-        .pipeline
-        .components
-        .learning_store
-        .open(cache_path(config))
-        .begin_sync()
-    {
+    let guard = match store.begin_sync() {
         Ok(guard) => guard,
-        Err(cache::WriteError::Locked)
-            if previous
-                .as_ref()
-                .is_some_and(|data| usable_cache(data, &config.pipeline.knowledge_policy, now)) =>
+        Err(error)
+            if store.is_locked(&error)
+                && previous.as_ref().is_some_and(|data| {
+                    usable_cache(data, &config.pipeline.knowledge_policy, now)
+                }) =>
         {
             progress.warn(
                 ModuleId::Sync,
@@ -155,7 +163,7 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
         }
         Err(error) => return Err(error.into()),
     };
-    let rechecked = read_cache(config, true)?;
+    let rechecked = load_cache(store)?;
     if rechecked
         .as_ref()
         .is_some_and(|data| can_reuse_cache(config, data, now))
@@ -175,7 +183,8 @@ pub(super) async fn prepare_source<F: FnMut(ProgressEvent)>(
             if access_expired(&data, now) {
                 return Err(ApplicationError::AccessExpired);
             }
-            guard.replace_snapshot(&data)?;
+            let data = Arc::new(data);
+            guard.replace(Arc::clone(&data))?;
             progress.state(ModuleId::Sync, ModuleState::Available);
             progress.finish(Step::Sync, started);
             Ok(Some(data))

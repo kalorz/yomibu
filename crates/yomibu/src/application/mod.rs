@@ -12,6 +12,7 @@ pub mod input_file;
 pub mod progress;
 pub mod selection;
 mod source;
+pub use source::cache_path as source_cache_path;
 pub mod story;
 
 use crate::reports::summary::Summary;
@@ -154,7 +155,7 @@ impl<Store: LearningStore, Source: LearningSource> App<Store, Source> {
         let writer = self.store.begin_sync().map_err(SyncError::Write)?;
         let data = self.source.fetch().await.map_err(SyncError::Source)?;
         let summary = crate::reports::summary::summarize(&data).map_err(SyncError::InvalidData)?;
-        let persistence = writer.replace(data).map_err(SyncError::Write)?;
+        let persistence = writer.replace(data.into()).map_err(SyncError::Write)?;
         Ok(SyncReport {
             summary,
             persistence,

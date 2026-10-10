@@ -1,6 +1,6 @@
 // Dictionaries are absent or incomplete in these isolated tests; none is mapped.
 use serde_json::json;
-use std::{collections::BTreeMap, time::SystemTime};
+use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
@@ -18,6 +18,25 @@ use yomibu::{
         modules::{ModuleId, ModuleState},
     },
 };
+use yomibu_components::{
+    file_learning_store::FileLearningStore, in_memory_learning_store::InMemoryLearningStore,
+};
+use yomibu_core::{
+    capabilities::{LearningStore, SourceSyncWriter},
+    domain::source::WaniKaniSyncData,
+};
+
+macro_rules! source_stores {
+    ($dir:ident, $store:ident, $body:block) => {{
+        let $dir = tempfile::tempdir().unwrap();
+        let $store = FileLearningStore::new($dir.path());
+        $body
+        let $dir = tempfile::tempdir().unwrap();
+        let $store = InMemoryLearningStore::new();
+        $body
+        assert!(std::fs::read_dir($dir.path()).unwrap().next().is_none());
+    }};
+}
 
 fn config(dir: &std::path::Path, flags: ProcessOverrides) -> Configuration {
     Configuration::load(
@@ -57,11 +76,12 @@ fn assert_completed_steps(events: &[ProgressEvent]) {
 async fn missing_setup_is_aggregated_before_network_or_writes_and_secrets_are_redacted() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("fresh");
+    let store = FileLearningStore::new(&data);
     let app = LocalApp::new(
         config(&data, ProcessOverrides::default()),
         Credentials::default(),
     );
-    let error = unsafe { app.story(SystemTime::now().into(), 7, |_| {}) }
+    let error = unsafe { app.story(&store, SystemTime::now().into(), 7, |_| {}) }
         .await
         .unwrap_err();
     let ApplicationError::Setup { issues } = error else {
@@ -85,6 +105,7 @@ async fn missing_setup_is_aggregated_before_network_or_writes_and_secrets_are_re
 async fn disabling_sync_without_knowledge_reports_the_missing_inventory_instead_of_a_key() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("fresh");
+    let store = FileLearningStore::new(&data);
     let app = LocalApp::new(
         config(
             &data,
@@ -96,7 +117,7 @@ async fn disabling_sync_without_knowledge_reports_the_missing_inventory_instead_
         supplied_credentials(Some("supplied-wk-key".into()), None),
     );
     let ApplicationError::Setup { issues } =
-        unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+        unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }
             .await
             .unwrap_err()
     else {
@@ -148,86 +169,87 @@ async fn mount_generation(server: &MockServer, count: u64) {
 
 #[tokio::test]
 async fn two_keys_generate_once_without_optional_resources_and_the_second_run_uses_cache() {
-    let server = MockServer::start().await;
-    mount_source(&server).await;
-    mount_generation(&server, 2).await;
-    let dir = tempfile::tempdir().unwrap();
-    let app = LocalApp::new(
-        config(dir.path(), ProcessOverrides::default()),
-        supplied_credentials(Some("synthetic-wk".into()), Some("synthetic-ai".into())),
-    )
-    .with_endpoints(ServiceEndpoints {
-        wanikani: format!("{}/v2/", server.uri()),
-        openai: format!("{}/v1/", server.uri()),
+    source_stores!(dir, store, {
+        let server = MockServer::start().await;
+        mount_source(&server).await;
+        mount_generation(&server, 2).await;
+        let app = LocalApp::new(
+            config(dir.path(), ProcessOverrides::default()),
+            supplied_credentials(Some("synthetic-wk".into()), Some("synthetic-ai".into())),
+        )
+        .with_endpoints(ServiceEndpoints {
+            wanikani: format!("{}/v2/", server.uri()),
+            openai: format!("{}/v1/", server.uri()),
+        });
+        let now = SystemTime::now().into();
+        let mut events = Vec::new();
+        let report = unsafe { app.story(&store, now, 7, |event| events.push(event)) }
+            .await
+            .unwrap();
+        assert!(
+            report
+                .modules
+                .iter()
+                .find(|module| module.metadata.id == ModuleId::Sync)
+                .unwrap()
+                .required
+        );
+        assert_eq!(
+            report.generated.passages()[0].text,
+            "猫です。寝ます。朝です。"
+        );
+        assert!(report.request.topic.is_none());
+        assert!(matches!(
+            report
+                .modules
+                .iter()
+                .find(|module| module.metadata.id == ModuleId::Assessment)
+                .unwrap()
+                .state,
+            ModuleState::NotConfigured
+        ));
+        assert!(matches!(
+            report
+                .modules
+                .iter()
+                .find(|module| module.metadata.id == ModuleId::Embeddings)
+                .unwrap()
+                .state,
+            ModuleState::Disabled
+        ));
+        assert!(!events.is_empty());
+        assert_completed_steps(&events);
+        let cached_report = unsafe { app.story(&store, SystemTime::now().into(), 7, |_| {}) }
+            .await
+            .unwrap();
+        assert!(
+            !cached_report
+                .modules
+                .iter()
+                .find(|module| module.metadata.id == ModuleId::Sync)
+                .unwrap()
+                .required
+        );
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|r| r.method.as_str() == "GET")
+                .count(),
+            4
+        );
+        for request in requests.iter().filter(|r| r.method.as_str() == "POST") {
+            let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+            let input: serde_json::Value =
+                serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
+            assert!(input.get("topic").is_none());
+        }
+        assert!(
+            !serde_json::to_string(&report)
+                .unwrap()
+                .contains("synthetic-ai")
+        );
     });
-    let now = SystemTime::now().into();
-    let mut events = Vec::new();
-    let report = unsafe { app.story(now, 7, |event| events.push(event)) }
-        .await
-        .unwrap();
-    assert!(
-        report
-            .modules
-            .iter()
-            .find(|module| module.metadata.id == ModuleId::Sync)
-            .unwrap()
-            .required
-    );
-    assert_eq!(
-        report.generated.passages()[0].text,
-        "猫です。寝ます。朝です。"
-    );
-    assert!(report.request.topic.is_none());
-    assert!(matches!(
-        report
-            .modules
-            .iter()
-            .find(|module| module.metadata.id == ModuleId::Assessment)
-            .unwrap()
-            .state,
-        ModuleState::NotConfigured
-    ));
-    assert!(matches!(
-        report
-            .modules
-            .iter()
-            .find(|module| module.metadata.id == ModuleId::Embeddings)
-            .unwrap()
-            .state,
-        ModuleState::Disabled
-    ));
-    assert!(!events.is_empty());
-    assert_completed_steps(&events);
-    let cached_report = unsafe { app.story(SystemTime::now().into(), 7, |_| {}) }
-        .await
-        .unwrap();
-    assert!(
-        !cached_report
-            .modules
-            .iter()
-            .find(|module| module.metadata.id == ModuleId::Sync)
-            .unwrap()
-            .required
-    );
-    let requests = server.received_requests().await.unwrap();
-    assert_eq!(
-        requests
-            .iter()
-            .filter(|r| r.method.as_str() == "GET")
-            .count(),
-        4
-    );
-    for request in requests.iter().filter(|r| r.method.as_str() == "POST") {
-        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
-        let input: serde_json::Value =
-            serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
-        assert!(input.get("topic").is_none());
-    }
-    assert!(
-        !serde_json::to_string(&report)
-            .unwrap()
-            .contains("synthetic-ai")
-    );
 }
 
 fn write_cache(dir: &std::path::Path) -> chrono::DateTime<chrono::Utc> {
@@ -247,68 +269,63 @@ fn endpoints(server: &MockServer) -> ServiceEndpoints {
     }
 }
 
+fn source_fixture() -> WaniKaniSyncData {
+    let envelope: serde_json::Value =
+        serde_json::from_slice(include_bytes!("../../../tests/fixtures/mixed.json")).unwrap();
+    serde_json::from_value(envelope["snapshot"].clone()).unwrap()
+}
+
+fn seed_store(store: &impl LearningStore) -> chrono::DateTime<chrono::Utc> {
+    let data = source_fixture();
+    let completed = data.sync_completed_at;
+    store.begin_sync().unwrap().replace(data.into()).unwrap();
+    completed
+}
+
+fn assert_original_source(
+    store: &impl LearningStore,
+    dir: &std::path::Path,
+    bytes: Option<Vec<u8>>,
+) {
+    assert_eq!(*store.load().unwrap(), source_fixture());
+    assert_eq!(std::fs::read(dir.join("wanikani.json")).ok(), bytes);
+}
+
 #[tokio::test]
 async fn cache_is_fresh_until_the_one_hour_boundary_then_refreshes() {
-    let dir = tempfile::tempdir().unwrap();
-    let completed = write_cache(dir.path());
-    let server = MockServer::start().await;
-    mount_source(&server).await;
-    mount_generation(&server, 2).await;
-    let app = LocalApp::new(
-        config(dir.path(), ProcessOverrides::default()),
-        supplied_credentials(Some("wk".into()), Some("ai".into())),
-    )
-    .with_endpoints(endpoints(&server));
-    unsafe { app.story(completed + chrono::Duration::seconds(3599), 1, |_| {}) }
+    source_stores!(dir, store, {
+        let completed = seed_store(&store);
+        let server = MockServer::start().await;
+        mount_source(&server).await;
+        mount_generation(&server, 2).await;
+        let app = LocalApp::new(
+            config(dir.path(), ProcessOverrides::default()),
+            supplied_credentials(Some("wk".into()), Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        unsafe {
+            app.story(
+                &store,
+                completed + chrono::Duration::seconds(3599),
+                1,
+                |_| {},
+            )
+        }
         .await
         .unwrap();
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
-    unsafe { app.story(completed + chrono::Duration::hours(1), 1, |_| {}) }
-        .await
-        .unwrap();
-    assert_eq!(server.received_requests().await.unwrap().len(), 6);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        unsafe { app.story(&store, completed + chrono::Duration::hours(1), 1, |_| {}) }
+            .await
+            .unwrap();
+        assert_eq!(server.received_requests().await.unwrap().len(), 6);
+        assert!(store.load().unwrap().sync_completed_at > completed);
+    });
 }
 
 #[tokio::test]
 async fn cache_from_a_future_completion_time_is_refreshed() {
-    let dir = tempfile::tempdir().unwrap();
-    let completed = write_cache(dir.path());
-    let server = MockServer::start().await;
-    mount_source(&server).await;
-    mount_generation(&server, 1).await;
-    let app = LocalApp::new(
-        config(dir.path(), ProcessOverrides::default()),
-        supplied_credentials(Some("wk".into()), Some("ai".into())),
-    )
-    .with_endpoints(endpoints(&server));
-    unsafe { app.story(completed - chrono::Duration::seconds(1), 1, |_| {}) }
-        .await
-        .unwrap();
-    assert_eq!(server.received_requests().await.unwrap().len(), 5);
-}
-
-#[tokio::test]
-async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lock() {
-    use yomibu_components::file_learning_store::cache::SyncGuard;
-    use yomibu_components::file_learning_store::cache::load;
-    for replaced_by_another_writer in [false, true] {
-        let dir = tempfile::tempdir().unwrap();
-        let completed = write_cache(dir.path());
-        let now = completed + chrono::Duration::hours(2);
-        let mut empty = load(dir.path()).unwrap();
-        for assignment in &mut empty.assignments {
-            assignment.started_at = None;
-            assignment.passed_at = None;
-            assignment.burned_at = None;
-            assignment.srs_stage = 0;
-        }
-        empty.sync_completed_at = now;
-        if !replaced_by_another_writer {
-            SyncGuard::acquire(dir.path())
-                .unwrap()
-                .replace(&empty)
-                .unwrap();
-        }
+    source_stores!(dir, store, {
+        let completed = seed_store(&store);
         let server = MockServer::start().await;
         mount_source(&server).await;
         mount_generation(&server, 1).await;
@@ -317,194 +334,251 @@ async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lo
             supplied_credentials(Some("wk".into()), Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
-        let report = unsafe {
-            app.story(now, 1, |event| {
-                if replaced_by_another_writer
-                    && matches!(event, ProgressEvent::Started { step: Step::Sync })
-                {
-                    SyncGuard::acquire(dir.path())
-                        .unwrap()
-                        .replace(&empty)
-                        .unwrap();
-                }
-            })
-        }
-        .await
-        .unwrap();
-        assert_eq!(
-            report.generated.passages()[0].text,
-            "猫です。寝ます。朝です。"
-        );
+        unsafe { app.story(&store, completed - chrono::Duration::seconds(1), 1, |_| {}) }
+            .await
+            .unwrap();
         assert_eq!(server.received_requests().await.unwrap().len(), 5);
-    }
+    });
+}
+
+#[tokio::test]
+async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lock() {
+    source_stores!(dir, store, {
+        for replaced_by_another_writer in [false, true] {
+            let completed = seed_store(&store);
+            let now = completed + chrono::Duration::hours(2);
+            let mut empty = source_fixture();
+            for assignment in &mut empty.assignments {
+                assignment.started_at = None;
+                assignment.passed_at = None;
+                assignment.burned_at = None;
+                assignment.srs_stage = 0;
+            }
+            empty.sync_completed_at = now;
+            let empty = Arc::new(empty);
+            if !replaced_by_another_writer {
+                store
+                    .begin_sync()
+                    .unwrap()
+                    .replace(Arc::clone(&empty))
+                    .unwrap();
+            }
+            let server = MockServer::start().await;
+            mount_source(&server).await;
+            mount_generation(&server, 1).await;
+            let app = LocalApp::new(
+                config(dir.path(), ProcessOverrides::default()),
+                supplied_credentials(Some("wk".into()), Some("ai".into())),
+            )
+            .with_endpoints(endpoints(&server));
+            let report = unsafe {
+                app.story(&store, now, 1, |event| {
+                    if replaced_by_another_writer
+                        && matches!(event, ProgressEvent::Started { step: Step::Sync })
+                    {
+                        store
+                            .begin_sync()
+                            .unwrap()
+                            .replace(Arc::clone(&empty))
+                            .unwrap();
+                    }
+                })
+            }
+            .await
+            .unwrap();
+            assert_eq!(
+                report.generated.passages()[0].text,
+                "猫です。寝ます。朝です。"
+            );
+            assert_eq!(server.received_requests().await.unwrap().len(), 5);
+        }
+    });
 }
 
 #[tokio::test]
 async fn usable_old_cache_needs_no_source_key_and_disabled_sync_never_initializes_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let completed = write_cache(dir.path());
-    let server = MockServer::start().await;
-    mount_generation(&server, 2).await;
-    for (flags, key) in [
-        (ProcessOverrides::default(), None),
-        (
-            ProcessOverrides {
-                disable: vec![ModuleId::Sync],
-                ..Default::default()
-            },
-            Some("invalid\ncredential".into()),
-        ),
-    ] {
-        let app = LocalApp::new(
-            config(dir.path(), flags),
-            supplied_credentials(key, Some("ai".into())),
-        )
-        .with_endpoints(endpoints(&server));
-        let report = unsafe { app.story(completed + chrono::Duration::hours(2), 1, |_| {}) }
-            .await
-            .unwrap();
-        assert_eq!(report.warnings.len(), 1);
-    }
-    assert_eq!(
-        std::fs::read(dir.path().join("wanikani.json")).unwrap(),
-        include_bytes!("../../../tests/fixtures/mixed.json")
-    );
+    source_stores!(dir, store, {
+        let completed = seed_store(&store);
+        let before_bytes = std::fs::read(dir.path().join("wanikani.json")).ok();
+        let server = MockServer::start().await;
+        mount_generation(&server, 2).await;
+        for (flags, key) in [
+            (ProcessOverrides::default(), None),
+            (
+                ProcessOverrides {
+                    disable: vec![ModuleId::Sync],
+                    ..Default::default()
+                },
+                Some("invalid\ncredential".into()),
+            ),
+        ] {
+            let app = LocalApp::new(
+                config(dir.path(), flags),
+                supplied_credentials(key, Some("ai".into())),
+            )
+            .with_endpoints(endpoints(&server));
+            let report =
+                unsafe { app.story(&store, completed + chrono::Duration::hours(2), 1, |_| {}) }
+                    .await
+                    .unwrap();
+            assert_eq!(report.warnings.len(), 1);
+        }
+        assert_original_source(&store, dir.path(), before_bytes);
+    });
 }
 
 #[tokio::test]
 async fn invalid_source_credentials_are_ignored_until_a_refresh_needs_them() {
-    use yomibu::{application::Secret, configuration::components::SOURCE_KEY};
-    let server = MockServer::start().await;
-    mount_generation(&server, 4).await;
-    for cli in [false, true] {
-        for (age_hours, sync, succeeds) in [(0, true, true), (2, false, true), (2, true, false)] {
-            let dir = tempfile::tempdir().unwrap();
-            let completed = write_cache(dir.path());
-            let before = std::fs::read(dir.path().join("wanikani.json")).unwrap();
-            let mut credentials = supplied_credentials(None, Some("ai".into()));
-            if cli {
-                credentials.set_cli(SOURCE_KEY, Secret::invalid_encoding());
-                credentials.set_environment(SOURCE_KEY, "unused-key".into());
-            } else {
-                credentials.set_environment(SOURCE_KEY, Secret::invalid_encoding());
-                credentials.supply(SOURCE_KEY, "unused-key".into());
+    source_stores!(dir, store, {
+        use yomibu::{application::Secret, configuration::components::SOURCE_KEY};
+        let server = MockServer::start().await;
+        mount_generation(&server, 4).await;
+        for cli in [false, true] {
+            for (age_hours, sync, succeeds) in [(0, true, true), (2, false, true), (2, true, false)]
+            {
+                let completed = seed_store(&store);
+                let before_bytes = std::fs::read(dir.path().join("wanikani.json")).ok();
+                let before = store.load().unwrap();
+                let lock = dir.path().join("wanikani.json.lock");
+                if lock.exists() {
+                    std::fs::remove_file(&lock).unwrap();
+                }
+                let mut credentials = supplied_credentials(None, Some("ai".into()));
+                if cli {
+                    credentials.set_cli(SOURCE_KEY, Secret::invalid_encoding());
+                    credentials.set_environment(SOURCE_KEY, "unused-key".into());
+                } else {
+                    credentials.set_environment(SOURCE_KEY, Secret::invalid_encoding());
+                    credentials.supply(SOURCE_KEY, "unused-key".into());
+                }
+                let mut flags = ProcessOverrides::default();
+                flags.application.sync = Some(sync);
+                let app = LocalApp::new(config(dir.path(), flags), credentials)
+                    .with_endpoints(endpoints(&server));
+                let result = unsafe {
+                    app.story(
+                        &store,
+                        completed + chrono::Duration::hours(age_hours),
+                        1,
+                        |_| {},
+                    )
+                }
+                .await;
+                if succeeds {
+                    let report = result.unwrap();
+                    assert_eq!(
+                        report.generated.passages()[0].text,
+                        "猫です。寝ます。朝です。"
+                    );
+                } else {
+                    assert!(
+                        matches!(result, Err(ApplicationError::Credential(_))),
+                        "{result:?}"
+                    );
+                }
+                assert_eq!(store.load().unwrap(), before);
+                assert_original_source(&store, dir.path(), before_bytes);
+                assert!(!dir.path().join("wanikani.json.lock").exists());
             }
-            let mut flags = ProcessOverrides::default();
-            flags.application.sync = Some(sync);
-            let app = LocalApp::new(config(dir.path(), flags), credentials)
-                .with_endpoints(endpoints(&server));
-            let result =
-                unsafe { app.story(completed + chrono::Duration::hours(age_hours), 1, |_| {}) }
-                    .await;
-            if succeeds {
-                let report = result.unwrap();
-                assert_eq!(
-                    report.generated.passages()[0].text,
-                    "猫です。寝ます。朝です。"
-                );
-            } else {
-                assert!(
-                    matches!(result, Err(ApplicationError::Credential(_))),
-                    "{result:?}"
-                );
-            }
-            assert_eq!(
-                std::fs::read(dir.path().join("wanikani.json")).unwrap(),
-                before
-            );
-            assert!(!dir.path().join("wanikani.json.lock").exists());
         }
-    }
-    assert_eq!(server.received_requests().await.unwrap().len(), 4);
+        assert_eq!(server.received_requests().await.unwrap().len(), 4);
+    });
 }
 
 #[tokio::test]
 async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_preserves_bytes() {
-    for status in [500, 401] {
-        let dir = tempfile::tempdir().unwrap();
-        let completed = write_cache(dir.path());
-        let server = MockServer::start().await;
-        Mock::given(path("/v2/user"))
-            .respond_with(ResponseTemplate::new(status))
-            .expect(if status == 500 { 3 } else { 1 })
-            .mount(&server)
-            .await;
-        if status == 500 {
-            mount_generation(&server, 1).await;
+    source_stores!(dir, store, {
+        for status in [500, 401] {
+            let completed = seed_store(&store);
+            let before_bytes = std::fs::read(dir.path().join("wanikani.json")).ok();
+            let server = MockServer::start().await;
+            Mock::given(path("/v2/user"))
+                .respond_with(ResponseTemplate::new(status))
+                .expect(if status == 500 { 3 } else { 1 })
+                .mount(&server)
+                .await;
+            if status == 500 {
+                mount_generation(&server, 1).await;
+            }
+            let app = LocalApp::new(
+                config(dir.path(), ProcessOverrides::default()),
+                supplied_credentials(Some("wk".into()), Some("ai".into())),
+            )
+            .with_endpoints(endpoints(&server));
+            let result =
+                unsafe { app.story(&store, completed + chrono::Duration::hours(2), 1, |_| {}) }
+                    .await;
+            if status == 500 {
+                assert_eq!(result.unwrap().warnings.len(), 1);
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(ApplicationError::Source(
+                        yomibu_components::wanikani_source::Error::Authentication
+                    ))
+                ));
+            }
+            assert_original_source(&store, dir.path(), before_bytes);
         }
+    });
+}
+
+#[tokio::test]
+async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
+    source_stores!(dir, store, {
+        let completed = seed_store(&store);
+        let server = MockServer::start().await;
+        mount_generation(&server, 1).await;
         let app = LocalApp::new(
             config(dir.path(), ProcessOverrides::default()),
             supplied_credentials(Some("wk".into()), Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
-        let result = unsafe { app.story(completed + chrono::Duration::hours(2), 1, |_| {}) }.await;
-        if status == 500 {
-            assert_eq!(result.unwrap().warnings.len(), 1);
-        } else {
-            assert!(matches!(
-                result,
-                Err(ApplicationError::Source(
-                    yomibu_components::wanikani_source::Error::Authentication
-                ))
-            ));
+        let guard = store.begin_sync().unwrap();
+        let mut events = Vec::new();
+        let report = unsafe {
+            app.story(&store, completed + chrono::Duration::hours(2), 1, |event| {
+                events.push(event)
+            })
         }
-        assert_eq!(
-            std::fs::read(dir.path().join("wanikani.json")).unwrap(),
-            include_bytes!("../../../tests/fixtures/mixed.json")
+        .await
+        .unwrap();
+        assert!(report.warnings[0].message.contains("writer"));
+        assert!(
+            report
+                .timings
+                .iter()
+                .any(|timing| timing.step == Step::Sync)
         );
-    }
-}
-
-#[tokio::test]
-async fn writer_contention_can_use_valid_cache_but_expired_access_cannot() {
-    let dir = tempfile::tempdir().unwrap();
-    let completed = write_cache(dir.path());
-    let server = MockServer::start().await;
-    mount_generation(&server, 1).await;
-    let app = LocalApp::new(
-        config(dir.path(), ProcessOverrides::default()),
-        supplied_credentials(Some("wk".into()), Some("ai".into())),
-    )
-    .with_endpoints(endpoints(&server));
-    let guard =
-        yomibu_components::file_learning_store::cache::SyncGuard::acquire(dir.path()).unwrap();
-    let mut events = Vec::new();
-    let report = unsafe {
-        app.story(completed + chrono::Duration::hours(2), 1, |event| {
-            events.push(event)
-        })
-    }
-    .await
-    .unwrap();
-    assert!(report.warnings[0].message.contains("writer"));
-    assert!(
-        report
-            .timings
-            .iter()
-            .any(|timing| timing.step == Step::Sync)
-    );
-    assert_completed_steps(&events);
-    drop(guard);
-    let mut cache: serde_json::Value =
-        serde_json::from_slice(include_bytes!("../../../tests/fixtures/mixed.json")).unwrap();
-    cache["snapshot"]["learner"]["subscription"]["period_ends_at"] =
-        json!(completed + chrono::Duration::minutes(10));
-    cache["snapshot"]["learner"]["subscription"]["active"] = json!(true);
-    std::fs::write(
-        dir.path().join("wanikani.json"),
-        serde_json::to_vec(&cache).unwrap(),
-    )
-    .unwrap();
-    let app = LocalApp::new(
-        config(dir.path(), ProcessOverrides::default()),
-        supplied_credentials(None, Some("ai".into())),
-    )
-    .with_endpoints(endpoints(&server));
-    assert!(
-        unsafe { app.story(completed + chrono::Duration::minutes(10), 1, |_| {}) }
-            .await
-            .is_err()
-    );
+        assert_completed_steps(&events);
+        drop(guard);
+        let mut expired = source_fixture();
+        expired.learner.subscription.period_ends_at =
+            Some(completed + chrono::Duration::minutes(10));
+        expired.learner.subscription.active = true;
+        store.begin_sync().unwrap().replace(expired.into()).unwrap();
+        let guard = store.begin_sync().unwrap();
+        assert!(matches!(
+            unsafe { app.story(&store, completed + chrono::Duration::minutes(10), 1, |_| {}) }
+                .await,
+            Err(ApplicationError::Persistence(
+                yomibu_components::file_learning_store::cache::WriteError::Locked
+            ) | ApplicationError::InMemoryStore(
+                yomibu_components::in_memory_learning_store::InMemoryStoreError::Locked
+            ))
+        ));
+        drop(guard);
+        let app = LocalApp::new(
+            config(dir.path(), ProcessOverrides::default()),
+            supplied_credentials(None, Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        assert!(
+            unsafe { app.story(&store, completed + chrono::Duration::minutes(10), 1, |_| {}) }
+                .await
+                .is_err()
+        );
+    });
 }
 
 #[tokio::test]
@@ -513,6 +587,7 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
     mount_generation(&server, 5).await;
     for source in ["flag", "environment", "file", "default", "broken_default"] {
         let dir = tempfile::tempdir().unwrap();
+        let store = FileLearningStore::new(dir.path());
         let inventory = dir.path().join("inventory.json");
         std::fs::write(
             &inventory,
@@ -552,7 +627,7 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
             supplied_credentials(None, Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
-        let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+        let report = unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }
             .await
             .unwrap();
         assert_eq!(
@@ -586,6 +661,7 @@ async fn explicit_missing_dictionary_warns_but_absent_default_skips_assessment()
 #[tokio::test]
 async fn optional_resources_enhance_when_available_and_failures_preserve_generation() {
     let dir = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(dir.path());
     let inventory = dir.path().join("inventory.json");
     std::fs::write(
         &inventory,
@@ -614,7 +690,7 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
             supplied_credentials(None, Some("ai".into())),
         )
         .with_endpoints(endpoints(&server));
-        let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+        let report = unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }
             .await
             .unwrap();
         assert!(matches!(
@@ -648,6 +724,7 @@ async fn optional_resources_enhance_when_available_and_failures_preserve_generat
 #[tokio::test]
 async fn no_topic_skips_embeddings_and_the_explicit_retrieval_command_requires_a_provider() {
     let dir = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(dir.path());
     let inventory = dir.path().join("inventory.json");
     std::fs::write(
         &inventory,
@@ -666,7 +743,7 @@ async fn no_topic_skips_embeddings_and_the_explicit_retrieval_command_requires_a
         supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
-    let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+    let report = unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }
         .await
         .unwrap();
     assert!(matches!(
@@ -692,6 +769,7 @@ async fn invalid_component_options_report_unavailable_instead_of_missing_setup()
     use yomibu_core::component::options::OptionKey;
 
     let dir = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(dir.path());
     let inventory = dir.path().join("inventory.json");
     std::fs::write(
         &inventory,
@@ -731,7 +809,7 @@ async fn invalid_component_options_report_unavailable_instead_of_missing_setup()
             .unwrap();
         let app = LocalApp::new(config, supplied_credentials(None, Some("ai".into())))
             .with_endpoints(endpoints(&server));
-        let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+        let report = unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }
             .await
             .unwrap();
         let state = &report
@@ -756,6 +834,7 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
         configuration::components::{EMBEDDING_KEY, GENERATION_KEY},
     };
     let dir = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(dir.path());
     let inventory = dir.path().join("inventory.json");
     std::fs::write(
         &inventory,
@@ -827,7 +906,7 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
                 "{error:?}"
             );
         }
-        let report = unsafe { app.story(now, 1, |_| {}) }.await.unwrap();
+        let report = unsafe { app.story(&store, now, 1, |_| {}) }.await.unwrap();
         assert_eq!(report.selection.selector_revision, "builtin-v2");
         assert_eq!(report.warnings.len(), 1);
         let state = &report
@@ -850,6 +929,7 @@ async fn optional_embedding_failure_warns_while_explicit_retrieval_returns_the_e
 #[tokio::test]
 async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model() {
     let dir = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(dir.path());
     let inventory = dir.path().join("inventory.json");
     std::fs::write(
         &inventory,
@@ -885,7 +965,7 @@ async fn partial_embedding_settings_do_not_silently_reuse_another_cached_model()
         supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
-    let report = unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }
+    let report = unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }
         .await
         .unwrap();
     assert_eq!(report.selection.selector_revision, "builtin-v2");
@@ -1032,6 +1112,7 @@ async fn complete_hosted_cache_is_reused_without_call_authorization_or_credentia
 async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_prevents_writes() {
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("knowledge.json");
+    let store = FileLearningStore::at_path(&cache);
     let completed = write_cache(dir.path());
     std::fs::rename(dir.path().join("wanikani.json"), &cache).unwrap();
     let server = MockServer::start().await;
@@ -1044,7 +1125,7 @@ async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_p
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
-    unsafe { app.story(completed + chrono::Duration::hours(2), 1, |_| {}) }
+    unsafe { app.story(&store, completed + chrono::Duration::hours(2), 1, |_| {}) }
         .await
         .unwrap();
     assert_ne!(
@@ -1057,13 +1138,14 @@ async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_p
     let mut flags = ProcessOverrides::default();
     flags.application.inventory = Some(inventory);
     flags.application.wanikani_cache = Some(dir.path().join("absent/wanikani.json"));
+    let store = FileLearningStore::new(dir.path().join("absent"));
     let app = LocalApp::new(
         config(&dir.path().join("absent"), flags),
         supplied_credentials(Some("wk".into()), Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
     assert!(matches!(
-        unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }.await,
+        unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }.await,
         Err(ApplicationError::Inventory(_))
     ));
     assert!(!dir.path().join("absent").exists());
@@ -1080,6 +1162,7 @@ async fn invalid_request_files_are_rejected_before_automatic_sync_or_writes() {
     ] {
         std::fs::write(&request, body).unwrap();
         let data = dir.path().join("absent");
+        let store = FileLearningStore::new(&data);
         let app = LocalApp::new(
             config(
                 &data,
@@ -1092,7 +1175,7 @@ async fn invalid_request_files_are_rejected_before_automatic_sync_or_writes() {
         )
         .with_endpoints(endpoints(&server));
         assert!(matches!(
-            unsafe { app.story(SystemTime::now().into(), 1, |_| {}) }.await,
+            unsafe { app.story(&store, SystemTime::now().into(), 1, |_| {}) }.await,
             Err(ApplicationError::InvalidJson { .. } | ApplicationError::Story(_))
         ));
         assert!(server.received_requests().await.unwrap().is_empty());
@@ -1102,120 +1185,116 @@ async fn invalid_request_files_are_rejected_before_automatic_sync_or_writes() {
 
 #[tokio::test]
 async fn refreshed_expired_access_is_rejected_before_replacing_a_usable_cache() {
-    let dir = tempfile::tempdir().unwrap();
-    let completed = write_cache(dir.path());
-    let now = completed + chrono::Duration::hours(2);
-    let mut user: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/fixtures/wanikani/user.json")).unwrap();
-    user["data"]["subscription"]["active"] = json!(true);
-    user["data"]["subscription"]["period_ends_at"] = json!(now);
-    let server = MockServer::start().await;
-    mount_source_with_user(&server, &user.to_string()).await;
-    let app = LocalApp::new(
-        config(dir.path(), ProcessOverrides::default()),
-        supplied_credentials(Some("wk".into()), Some("ai".into())),
-    )
-    .with_endpoints(endpoints(&server));
-    assert!(matches!(
-        unsafe { app.story(now, 1, |_| {}) }.await,
-        Err(ApplicationError::AccessExpired)
-    ));
-    assert_eq!(
-        std::fs::read(dir.path().join("wanikani.json")).unwrap(),
-        include_bytes!("../../../tests/fixtures/mixed.json")
-    );
+    source_stores!(dir, store, {
+        let completed = seed_store(&store);
+        let before_bytes = std::fs::read(dir.path().join("wanikani.json")).ok();
+        let now = completed + chrono::Duration::hours(2);
+        let mut user: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/wanikani/user.json"))
+                .unwrap();
+        user["data"]["subscription"]["active"] = json!(true);
+        user["data"]["subscription"]["period_ends_at"] = json!(now);
+        let server = MockServer::start().await;
+        mount_source_with_user(&server, &user.to_string()).await;
+        let app = LocalApp::new(
+            config(dir.path(), ProcessOverrides::default()),
+            supplied_credentials(Some("wk".into()), Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        assert!(matches!(
+            unsafe { app.story(&store, now, 1, |_| {}) }.await,
+            Err(ApplicationError::AccessExpired)
+        ));
+        assert_original_source(&store, dir.path(), before_bytes);
+    });
 }
 
 #[tokio::test]
 async fn concurrent_story_runs_refresh_once_and_keep_a_complete_usable_cache() {
-    let dir = tempfile::tempdir().unwrap();
-    let completed = write_cache(dir.path());
-    let server = MockServer::start().await;
-    mount_source(&server).await;
-    mount_generation(&server, 2).await;
-    let app = LocalApp::new(
-        config(dir.path(), ProcessOverrides::default()),
-        supplied_credentials(Some("wk".into()), Some("ai".into())),
-    )
-    .with_endpoints(endpoints(&server));
-    let now = completed + chrono::Duration::hours(2);
-    let (first, second) = tokio::join!(unsafe { app.story(now, 1, |_| {}) }, unsafe {
-        app.story(now, 2, |_| {})
+    source_stores!(dir, store, {
+        let completed = seed_store(&store);
+        let server = MockServer::start().await;
+        mount_source(&server).await;
+        mount_generation(&server, 2).await;
+        let app = LocalApp::new(
+            config(dir.path(), ProcessOverrides::default()),
+            supplied_credentials(Some("wk".into()), Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        let now = completed + chrono::Duration::hours(2);
+        let (first, second) = tokio::join!(unsafe { app.story(&store, now, 1, |_| {}) }, unsafe {
+            app.story(&store, now, 2, |_| {})
+        });
+        let reports = [first.unwrap(), second.unwrap()];
+        assert_eq!(
+            reports
+                .iter()
+                .flat_map(|report| &report.warnings)
+                .filter(|warning| warning.message.contains("writer"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            server
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .filter(|request| request.method.as_str() == "GET")
+                .count(),
+            4
+        );
+        assert!(store.load().unwrap().sync_completed_at > completed);
     });
-    let reports = [first.unwrap(), second.unwrap()];
-    assert_eq!(
-        reports
-            .iter()
-            .flat_map(|report| &report.warnings)
-            .filter(|warning| warning.message.contains("writer"))
-            .count(),
-        1
-    );
-    assert_eq!(
-        server
-            .received_requests()
-            .await
-            .unwrap()
-            .iter()
-            .filter(|request| request.method.as_str() == "GET")
-            .count(),
-        4
-    );
-    assert!(
-        yomibu_components::file_learning_store::cache::load(dir.path())
-            .unwrap()
-            .sync_completed_at
-            > completed
-    );
 }
 
 #[tokio::test]
 async fn freshness_is_rechecked_under_the_lock_after_another_writer_refreshes() {
-    use yomibu_components::file_learning_store::cache::SyncGuard;
-    use yomibu_components::file_learning_store::cache::load;
-    let dir = tempfile::tempdir().unwrap();
-    let completed = write_cache(dir.path());
-    let server = MockServer::start().await;
-    mount_generation(&server, 1).await;
-    let app = LocalApp::new(
-        config(dir.path(), ProcessOverrides::default()),
-        supplied_credentials(Some("wk".into()), Some("ai".into())),
-    )
-    .with_endpoints(endpoints(&server));
-    let now = completed + chrono::Duration::hours(2);
-    let report = unsafe {
-        app.story(now, 1, |event| {
-            if matches!(
-                event,
-                yomibu::application::progress::ProgressEvent::Started {
-                    step: yomibu::application::progress::Step::Sync
+    source_stores!(dir, store, {
+        let completed = seed_store(&store);
+        let server = MockServer::start().await;
+        mount_generation(&server, 1).await;
+        let app = LocalApp::new(
+            config(dir.path(), ProcessOverrides::default()),
+            supplied_credentials(Some("wk".into()), Some("ai".into())),
+        )
+        .with_endpoints(endpoints(&server));
+        let now = completed + chrono::Duration::hours(2);
+        let report = unsafe {
+            app.story(&store, now, 1, |event| {
+                if matches!(
+                    event,
+                    yomibu::application::progress::ProgressEvent::Started {
+                        step: yomibu::application::progress::Step::Sync
+                    }
+                ) {
+                    let writer = store.begin_sync().unwrap();
+                    let mut data = source_fixture();
+                    data.sync_completed_at = now;
+                    writer.replace(data.into()).unwrap();
                 }
-            ) {
-                let writer = SyncGuard::acquire(dir.path()).unwrap();
-                let mut data = load(dir.path()).unwrap();
-                data.sync_completed_at = now;
-                writer.replace(&data).unwrap();
-            }
-        })
-    }
-    .await
-    .unwrap();
-    assert!(matches!(
-        report
-            .modules
-            .iter()
-            .find(|module| module.metadata.id == ModuleId::Sync)
-            .unwrap()
-            .state,
-        ModuleState::Skipped { .. }
-    ));
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
-    assert!(report.warnings.is_empty());
+            })
+        }
+        .await
+        .unwrap();
+        assert!(matches!(
+            report
+                .modules
+                .iter()
+                .find(|module| module.metadata.id == ModuleId::Sync)
+                .unwrap()
+                .state,
+            ModuleState::Skipped { .. }
+        ));
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        assert!(report.warnings.is_empty());
+    });
 }
 
 #[tokio::test]
 async fn an_inactive_subscription_retains_its_recorded_free_content_access() {
     let dir = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(dir.path());
     let completed = write_cache(dir.path());
     let mut data: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../tests/fixtures/mixed.json")).unwrap();
@@ -1233,7 +1312,7 @@ async fn an_inactive_subscription_retains_its_recorded_free_content_access() {
         supplied_credentials(None, Some("ai".into())),
     )
     .with_endpoints(endpoints(&server));
-    unsafe { app.story(completed + chrono::Duration::minutes(10), 1, |_| {}) }
+    unsafe { app.story(&store, completed + chrono::Duration::minutes(10), 1, |_| {}) }
         .await
         .unwrap();
 }

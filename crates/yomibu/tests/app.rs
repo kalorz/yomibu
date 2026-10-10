@@ -121,7 +121,11 @@ where
     };
     use yomibu_core::capabilities::SourceSyncWriter;
 
-    store.begin_sync().unwrap().replace(fixture()).unwrap();
+    store
+        .begin_sync()
+        .unwrap()
+        .replace(fixture().into())
+        .unwrap();
     let mut app = App::new(store.clone()).with_source(PendingSource);
     fn require_send<T: Send>(value: T) -> T {
         value
@@ -136,7 +140,11 @@ where
     assert!(store.begin_sync().is_err());
     assert_eq!(*store.load().unwrap(), fixture());
     drop(operation);
-    store.begin_sync().unwrap().replace(fixture()).unwrap();
+    store
+        .begin_sync()
+        .unwrap()
+        .replace(fixture().into())
+        .unwrap();
     assert_eq!(
         app.status().unwrap(),
         yomibu::reports::summary::summarize(&fixture()).unwrap()
@@ -167,7 +175,11 @@ async fn source_and_validation_failures_are_typed_and_preserve_data() {
     use yomibu::application::SyncError;
     use yomibu_core::capabilities::SourceSyncWriter;
     let store = InMemoryLearningStore::new();
-    store.begin_sync().unwrap().replace(fixture()).unwrap();
+    store
+        .begin_sync()
+        .unwrap()
+        .replace(fixture().into())
+        .unwrap();
     let source = OneResultSource(Some(Err(std::io::ErrorKind::TimedOut.into())));
     let mut app = App::new(store.clone()).with_source(source);
     assert!(
