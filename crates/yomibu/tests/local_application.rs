@@ -248,12 +248,20 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
 }
 
 #[tokio::test]
-async fn invalid_supplied_requests_do_not_access_stores_credentials_or_http() {
+async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
     use std::{
         cell::Cell,
         sync::atomic::{AtomicUsize, Ordering},
     };
     use yomibu_components::in_memory_learning_store::{InMemoryStoreError, InMemorySyncWriter};
+
+    #[derive(Debug)]
+    enum InvalidInput {
+        RequestVersion,
+        SelectionLimit,
+        ManualInventory,
+        MissingKnowledge,
+    }
 
     struct ObservedStore(InMemoryLearningStore, Cell<usize>);
     impl LearningStore for ObservedStore {
@@ -278,7 +286,12 @@ async fn invalid_supplied_requests_do_not_access_stores_credentials_or_http() {
 
     let dir = tempfile::tempdir().unwrap();
     let server = MockServer::start().await;
-    for (version, limit) in [(0, 16), (1, 1)] {
+    for invalid in [
+        InvalidInput::RequestVersion,
+        InvalidInput::SelectionLimit,
+        InvalidInput::ManualInventory,
+        InvalidInput::MissingKnowledge,
+    ] {
         let store = ObservedStore(InMemoryLearningStore::new(), Cell::new(0));
         let lookups = Arc::new(AtomicUsize::new(0));
         let mut credentials = Credentials::default();
@@ -292,19 +305,32 @@ async fn invalid_supplied_requests_do_not_access_stores_credentials_or_http() {
         let app = LocalApp::new(config(dir.path(), ProcessOverrides::default()), credentials)
             .with_endpoints(endpoints(&server));
         let mut invocation = Invocation::default();
-        invocation.story.select = Some(limit);
+        invocation.story.select = Some(match invalid {
+            InvalidInput::SelectionLimit => 1,
+            _ => 16,
+        });
         let app = app.for_invocation(invocation, &Operation::Story).unwrap();
         let mut request: StoryRequest =
             serde_json::from_slice(include_bytes!("../../../tests/fixtures/story/request.json"))
                 .unwrap();
-        request.version = version;
+        if matches!(invalid, InvalidInput::RequestVersion) {
+            request.version = 0;
+        }
+        let manual = if matches!(invalid, InvalidInput::ManualInventory) {
+            let mut manual = LearnerInventory::from_manual(
+                serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json"))
+                    .unwrap(),
+            )
+            .unwrap();
+            manual.vocabulary[0].id.clear();
+            Some(manual)
+        } else {
+            None
+        };
         let error = unsafe {
             app.story_with_inputs(
-                StoryInputs {
-                    request,
-                    manual: None,
-                },
-                Some(&store),
+                StoryInputs { request, manual },
+                (!matches!(invalid, InvalidInput::MissingKnowledge)).then_some(&store),
                 SystemTime::now().into(),
                 1,
                 |_| {},
@@ -312,13 +338,20 @@ async fn invalid_supplied_requests_do_not_access_stores_credentials_or_http() {
         }
         .await
         .unwrap_err();
-        assert!(matches!(
-            error,
-            ApplicationError::Story(StoryError::Invalid(_))
-        ));
-        assert_eq!(store.1.get(), 0);
-        assert_eq!(lookups.load(Ordering::SeqCst), 0);
-        assert!(server.received_requests().await.unwrap().is_empty());
+        assert_eq!(store.1.get(), 0, "{invalid:?}: {error:?}");
+        assert_eq!(lookups.load(Ordering::SeqCst), 0, "{invalid:?}");
+        assert!(
+            server.received_requests().await.unwrap().is_empty(),
+            "{invalid:?}"
+        );
+        assert!(store.0.load().is_err(), "{invalid:?}");
+        assert!(match invalid {
+            InvalidInput::RequestVersion | InvalidInput::SelectionLimit =>
+                matches!(error, ApplicationError::Story(StoryError::Invalid(_))),
+            InvalidInput::ManualInventory => matches!(error, ApplicationError::Inventory(_)),
+            InvalidInput::MissingKnowledge => matches!(error, ApplicationError::Setup { issues }
+                if issues.len() == 1 && issues[0].module == ModuleId::Knowledge),
+        });
     }
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
 }

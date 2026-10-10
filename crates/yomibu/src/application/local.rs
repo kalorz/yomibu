@@ -210,6 +210,15 @@ impl LocalApp {
         let mut progress = RunProgress::new(&self.config, emit);
         let started = progress.start(Step::Inputs);
         self.validate_story_request(&inputs.request)?;
+        if let Some(manual) = &inputs.manual {
+            manual.validate()?;
+        } else if store.is_none() {
+            return Err(ApplicationError::Setup {
+                issues: vec![SetupIssue {
+                    module: ModuleId::Knowledge,
+                }],
+            });
+        }
         unsafe {
             self.execute_story(inputs, store, now, seed, progress, started)
                 .await
