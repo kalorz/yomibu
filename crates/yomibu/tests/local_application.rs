@@ -44,7 +44,7 @@ use yomibu_core::{
         evaluation::EvaluationBasis,
         inventory::LearnerInventory,
         source::WaniKaniSyncData,
-        story::{StoryError, StoryRequest},
+        story::{StoryError, StoryRequest, StoryTopic},
     },
 };
 
@@ -360,6 +360,106 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
     }
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+}
+
+#[tokio::test]
+async fn concurrent_supplied_story_runs_share_one_client_and_keep_per_call_inputs_and_progress() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut flags = ProcessOverrides {
+        disable: vec![ModuleId::Embeddings, ModuleId::Assessment],
+        ..Default::default()
+    };
+    flags.invocation.pipeline.model = Some("base-model".into());
+    flags.invocation.story.seed = Patch::Set(5);
+    flags.invocation.story.topic = Patch::Set("base topic".into());
+    let base = Configuration::from_overrides(dir.path().into(), flags, &Operation::Story).unwrap();
+    let server = MockServer::start().await;
+    mount_generation(&server, 2).await;
+    let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
+    let cases = [
+        ("first-model", "A cat exploring a garden", 7),
+        ("second-model", "A walk through a snowy town", 42),
+    ];
+    let steps = [
+        Step::Inputs,
+        Step::Knowledge,
+        Step::Selection,
+        Step::Generation,
+    ];
+    let [first, second] = cases.map(|(model, topic, seed)| {
+        let mut invocation = Invocation::default();
+        invocation
+            .pipeline
+            .options
+            .set(GENERATION_MODEL, model.into())
+            .unwrap();
+        invocation.story.seed = Patch::Set(seed);
+        let config = base.for_invocation(invocation, &Operation::Story).unwrap();
+        let mut request: StoryRequest =
+            serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json"))
+                .unwrap();
+        request.topic = Some(StoryTopic::new(topic.into()).unwrap());
+        let expected_request = serde_json::to_value(&request).unwrap();
+        let manual = LearnerInventory::from_manual(
+            serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        let inputs = StoryInputs {
+            request,
+            manual: Some(manual),
+        };
+        let client = &client;
+        async move {
+            let mut events = Vec::new();
+            let report = run_story::<InMemoryLearningStore>(
+                &config,
+                inputs,
+                None,
+                None,
+                client,
+                None,
+                None,
+                chrono::DateTime::from_timestamp(0, 0).unwrap(),
+                99,
+                |event| events.push(event),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(&report.request).unwrap(),
+                expected_request
+            );
+            assert_eq!(report.generated.provenance().requested_model, model);
+            assert_eq!(report.selection.seed, seed);
+            assert_completed_steps(&events);
+            let started: Vec<_> = events
+                .iter()
+                .filter_map(|event| match event {
+                    ProgressEvent::Started { step } => Some(*step),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(started, steps);
+        }
+    });
+    tokio::join!(first, second);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 2);
+    let bodies: Vec<serde_json::Value> = requests
+        .iter()
+        .map(|request| serde_json::from_slice(&request.body).unwrap())
+        .collect();
+    for (model, topic, _) in cases {
+        let body = bodies.iter().find(|body| body["model"] == model).unwrap();
+        let text = body.to_string();
+        assert!(text.contains(topic), "{body}");
+        let other_topic = cases.iter().find(|case| case.0 != model).unwrap().1;
+        assert!(!text.contains(other_topic), "{body}");
+    }
+    assert_eq!(base.generation().unwrap().model, "base-model");
+    assert_eq!(base.story.seed, Some(5));
+    assert_eq!(base.story.topic.as_deref(), Some("base topic"));
 }
 
 #[tokio::test]
