@@ -15,7 +15,7 @@ mod source;
 pub use source::cache_path as source_cache_path;
 pub mod story;
 mod story_workflow;
-pub use story_workflow::{StoryInputs, run_story};
+pub use story_workflow::{StoryInputs, StoryResources, run_story};
 
 use crate::reports::summary::Summary;
 use thiserror::Error;
