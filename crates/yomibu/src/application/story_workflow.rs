@@ -58,6 +58,63 @@ pub(super) enum GenerationClient<'a> {
 /// `resources.embedding_cache` supplies prepared vectors. Missing or incompatible evidence
 /// warns and uses base selection when embeddings are enabled with a topic.
 /// Embedding paths, credentials and providers are never used for acquisition.
+///
+/// Reuse one generation client with independent per-call settings. Both prepared
+/// inputs must contain manual inventory (`manual: Some(...)`). Executing this
+/// example contacts OpenAI; Rustdoc only compiles it.
+///
+/// ```no_run
+/// use std::path::PathBuf;
+/// use yomibu::{
+///     application::{self, Operation, StoryInputs, StoryResources},
+///     configuration::{
+///         Configuration, Invocation, Patch, ProcessOverrides, modules::ModuleId,
+///     },
+///     reports::run::StoryRunReport,
+/// };
+/// use yomibu_components::{
+///     in_memory_learning_store::InMemoryLearningStore, openai_story_generation::Client,
+/// };
+///
+/// async fn generate_two_stories(
+///     data_dir: PathBuf,
+///     api_key: &str,
+///     inputs: [StoryInputs; 2],
+/// ) -> Result<Vec<StoryRunReport>, Box<dyn std::error::Error>> {
+///     let base = Configuration::from_overrides(
+///         data_dir,
+///         ProcessOverrides {
+///             disable: vec![ModuleId::Embeddings, ModuleId::Assessment],
+///             ..Default::default()
+///         },
+///         &Operation::Story,
+///     )?;
+///     let client = Client::new(api_key)?;
+///     let mut reports = Vec::new();
+///     for (inputs, seed) in inputs.into_iter().zip([7, 42]) {
+///         let mut invocation = Invocation::default();
+///         invocation.story.seed = Patch::Set(seed);
+///         let config = base.for_invocation(invocation, &Operation::Story)?;
+///         let report = application::run_story::<InMemoryLearningStore>(
+///             &config,
+///             inputs,
+///             StoryResources {
+///                 store: None,
+///                 source_client: None,
+///                 generation_client: &client,
+///                 analyzer: None,
+///                 embedding_cache: None,
+///             },
+///             std::time::SystemTime::now().into(),
+///             seed,
+///             |_| {},
+///         )
+///         .await?;
+///         reports.push(report);
+///     }
+///     Ok(reports)
+/// }
+/// ```
 pub async fn run_story<Store: LearningStore>(
     config: &Configuration,
     inputs: StoryInputs,
