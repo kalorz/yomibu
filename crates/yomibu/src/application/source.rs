@@ -12,6 +12,15 @@ use yomibu_core::domain::{
     inventory::LearnerInventory, knowledge::LearnerKnowledgePolicy, source::WaniKaniSyncData,
 };
 
+pub(super) enum SourceClient<'a> {
+    Local {
+        credentials: &'a super::Credentials,
+        endpoint: &'a str,
+    },
+    Supplied(&'a mut wanikani::Client),
+    Unavailable,
+}
+
 /// Resolve the configured source cache path without I/O.
 pub fn cache_path(config: &Configuration) -> PathBuf {
     config
@@ -70,8 +79,7 @@ fn can_reuse_cache(config: &Configuration, data: &WaniKaniSyncData, now: DateTim
 
 pub(super) async fn prepare_source<Store: LearningStore, F: FnMut(ProgressEvent)>(
     config: &Configuration,
-    credentials: &super::Credentials,
-    endpoint: &str,
+    source_client: SourceClient<'_>,
     store: Option<&Store>,
     previous: Option<Arc<WaniKaniSyncData>>,
     now: DateTime<Utc>,
@@ -109,36 +117,64 @@ where
         progress.skip(Step::Sync, "Cache is fresh");
         return Ok(previous);
     }
-    let key = if config.enabled(ModuleId::Sync) {
-        credentials.source()?
-    } else {
-        None
+    let key = match &source_client {
+        SourceClient::Local { credentials, .. } if config.enabled(ModuleId::Sync) => {
+            credentials.source()?
+        }
+        _ => None,
     };
-    if !config.enabled(ModuleId::Sync) || key.is_none() {
+    let available = config.enabled(ModuleId::Sync)
+        && match &source_client {
+            SourceClient::Local { .. } => key.is_some(),
+            SourceClient::Supplied(_) => true,
+            SourceClient::Unavailable => false,
+        };
+    if !available {
         if previous
             .as_ref()
             .is_some_and(|data| access_expired(data, now))
         {
             return Err(ApplicationError::AccessExpired);
         }
+        let (warning, reason) = match source_client {
+            SourceClient::Local { .. } => (
+                "Using an old WaniKani cache; sync is disabled or no key was supplied.",
+                "Sync disabled or no WaniKani key",
+            ),
+            _ => (
+                "Using an old WaniKani cache; sync is disabled or no source client was supplied.",
+                "Sync disabled or no WaniKani client supplied",
+            ),
+        };
         if previous.is_some() {
-            progress.warn(
-                ModuleId::Sync,
-                "Using an old WaniKani cache; sync is disabled or no key was supplied.".into(),
-            );
+            progress.warn(ModuleId::Sync, warning.into());
         }
-        progress.skip(Step::Sync, "Sync disabled or no WaniKani key");
+        progress.skip(Step::Sync, reason);
         return Ok(previous);
     }
     let started = progress.start(Step::Sync);
-    let mut client = config.pipeline.components.source.client(
-        key.ok_or_else(|| ApplicationError::Setup {
-            issues: vec![SetupIssue {
-                module: ModuleId::Sync,
-            }],
-        })?,
-        endpoint,
-    )?;
+    let mut local_client;
+    let client = match source_client {
+        SourceClient::Local { endpoint, .. } => {
+            local_client = config.pipeline.components.source.client(
+                key.ok_or_else(|| ApplicationError::Setup {
+                    issues: vec![SetupIssue {
+                        module: ModuleId::Sync,
+                    }],
+                })?,
+                endpoint,
+            )?;
+            &mut local_client
+        }
+        SourceClient::Supplied(client) => client,
+        SourceClient::Unavailable => {
+            return Err(ApplicationError::Setup {
+                issues: vec![SetupIssue {
+                    module: ModuleId::Knowledge,
+                }],
+            });
+        }
+    };
     let guard = match store.begin_sync() {
         Ok(guard) => guard,
         Err(error)

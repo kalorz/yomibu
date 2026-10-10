@@ -125,8 +125,11 @@ Sync and optional assessment default on. Disabled work does no resource I/O.
 Local story assessment initializes after generation, keeps dictionary lifetimes, warns
 on optional failures and preserves generated text and NotRun behavior.
 `LocalApp::story_with_inputs` safely borrows a reusable generation client and
-an optional initialized Sudachi analyzer.
-`None` skips analysis without consulting dictionary paths; disabled assessment
+an optional initialized Sudachi analyzer. An optional mutable WaniKani client
+permits refresh only with a supplied store. Without that client, usable cached
+data still participates, but fetching is prohibited. Supplied calls never consult
+application WaniKani credentials or endpoints.
+An absent analyzer skips analysis without consulting dictionary paths; disabled assessment
 ignores the analyzer. Initialization retains the [dictionary lifetime contract](DICTIONARY.md#file-stability-contract).
 
 ## Topic and vocabulary

@@ -32,6 +32,7 @@ use yomibu_components::{
     file_learning_store::FileLearningStore,
     in_memory_learning_store::InMemoryLearningStore,
     openai_story_generation::{Client, ProviderError},
+    wanikani_source,
 };
 use yomibu_core::{
     capabilities::{LearningStore, SourceSyncWriter},
@@ -148,15 +149,16 @@ async fn disabling_sync_without_knowledge_reports_the_missing_inventory_instead_
     assert!(!data.exists());
 }
 
-async fn mount_source(server: &MockServer) {
+async fn mount_source(server: &MockServer, count: u64) {
     mount_source_with_user(
         server,
         include_str!("../../../tests/fixtures/wanikani/user.json"),
+        count,
     )
     .await;
 }
 
-async fn mount_source_with_user(server: &MockServer, user: &str) {
+async fn mount_source_with_user(server: &MockServer, user: &str, count: u64) {
     for (endpoint, body) in [
         ("user", user),
         (
@@ -175,7 +177,7 @@ async fn mount_source_with_user(server: &MockServer, user: &str) {
         Mock::given(method("GET"))
             .and(path(format!("/v2/{endpoint}")))
             .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
-            .expect(1)
+            .expect(count)
             .mount(server)
             .await;
     }
@@ -238,6 +240,7 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
                     request,
                     manual: Some(manual),
                 },
+                None,
                 None,
                 &client,
                 Some(&analyzer),
@@ -306,16 +309,16 @@ async fn supplied_client_and_analyzer_are_reused_with_per_call_models_and_disabl
 }
 
 #[tokio::test]
-async fn supplied_client_preserves_required_source_setup_and_credential_errors() {
+async fn supplied_source_none_reports_missing_knowledge_without_credential_lookup() {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("fresh");
     let store = FileLearningStore::new(&data);
     let server = MockServer::start().await;
     let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
-    for (sync, source_key, missing) in [
-        (true, Ok(None), Some(ModuleId::Sync)),
-        (false, Ok(None), Some(ModuleId::Knowledge)),
-        (true, Err(CredentialError::StoreUnavailable), None),
+    for (sync, source_key) in [
+        (true, Ok(Some("app-wk".into()))),
+        (false, Ok(None)),
+        (true, Err(CredentialError::StoreUnavailable)),
     ] {
         let lookups = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&lookups);
@@ -333,16 +336,11 @@ async fn supplied_client_preserves_required_source_setup_and_credential_errors()
         }
         let app =
             LocalApp::new(config(&data, flags), credentials).with_endpoints(endpoints(&server));
-        let request =
-            serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json"))
-                .unwrap();
         let error = app
             .story_with_inputs(
-                StoryInputs {
-                    request,
-                    manual: None,
-                },
+                source_story_inputs(),
                 Some(&store),
+                None,
                 &client,
                 None,
                 SystemTime::now().into(),
@@ -351,18 +349,74 @@ async fn supplied_client_preserves_required_source_setup_and_credential_errors()
             )
             .await
             .unwrap_err();
-        match missing {
-            Some(module) => assert!(matches!(error, ApplicationError::Setup { issues }
-                if issues.len() == 1 && issues[0].module == module)),
-            None => assert!(matches!(
-                error,
-                ApplicationError::Credential(CredentialError::StoreUnavailable)
-            )),
-        }
-        assert_eq!(lookups.load(Ordering::SeqCst), usize::from(sync));
+        assert!(matches!(error, ApplicationError::Setup { issues }
+            if issues.len() == 1 && issues[0].module == ModuleId::Knowledge));
+        assert_eq!(lookups.load(Ordering::SeqCst), 0);
         assert!(server.received_requests().await.unwrap().is_empty());
         assert!(!data.exists());
     }
+}
+
+#[tokio::test]
+async fn supplied_source_client_refreshes_repeatedly_without_application_acquisition() {
+    source_stores!(dir, store, {
+        let server = MockServer::start().await;
+        mount_source(&server, 2).await;
+        mount_generation(&server, 2).await;
+        let mut source_client =
+            wanikani_source::Client::with_base_url("supplied-wk", &endpoints(&server).wanikani)
+                .unwrap();
+        let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+        let lookups = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&lookups);
+        let mut credentials = Credentials::default();
+        credentials.supply_with(SOURCE_KEY, move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Err(CredentialError::StoreUnavailable)
+        });
+        let mut flags = ProcessOverrides::default();
+        flags.application.cache_max_age_seconds = Some(0);
+        let app = LocalApp::new(config(dir.path(), flags), credentials).with_endpoints(
+            ServiceEndpoints {
+                wanikani: "unusable endpoint".into(),
+                openai: "unusable endpoint".into(),
+            },
+        );
+        for call in 1..=2 {
+            let mut events = Vec::new();
+            let report = app
+                .story_with_inputs(
+                    source_story_inputs(),
+                    Some(&store),
+                    Some(&mut source_client),
+                    &client,
+                    None,
+                    SystemTime::now().into(),
+                    7,
+                    |event| events.push(event),
+                )
+                .await
+                .unwrap();
+            assert_eq!(lookups.load(Ordering::SeqCst), 0);
+            assert_eq!(server.received_requests().await.unwrap().len(), call * 5);
+            let published = store.load().unwrap();
+            published.validate().unwrap();
+            assert_eq!(published.subjects.len(), 4);
+            assert_eq!(
+                report.generated.passages()[0].text,
+                "猫です。寝ます。朝です。"
+            );
+            assert!(report.warnings.is_empty());
+            assert_completed_steps(&events);
+            store.begin_sync().unwrap();
+        }
+        for request in server.received_requests().await.unwrap() {
+            if request.method.as_str() == "GET" {
+                assert!(request.url.path().starts_with("/v2/"));
+                assert_eq!(request.headers["authorization"], "Bearer supplied-wk");
+            }
+        }
+    });
 }
 
 #[tokio::test]
@@ -421,11 +475,23 @@ async fn local_generation_acquisition_failure_prevents_source_refresh() {
 async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participation() {
     let dir = tempfile::tempdir().unwrap();
     let store = InMemoryLearningStore::new();
-    let now = seed_store(&store) + chrono::Duration::minutes(10);
+    let completed = seed_store(&store);
     let server = MockServer::start().await;
-    mount_generation(&server, 3).await;
+    mount_generation(&server, 7).await;
     let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
-    for (use_manual, use_store) in [(true, false), (true, true), (false, true)] {
+    let mut source_client =
+        wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani).unwrap();
+    let lookups = Arc::new(AtomicUsize::new(0));
+    for (use_manual, use_store, use_client, age_minutes, sync) in [
+        (true, false, false, 10, true),
+        (true, false, true, 120, true),
+        (true, true, false, 120, true),
+        (false, true, false, 120, true),
+        (false, true, false, 10, true),
+        (false, true, true, 10, true),
+        (false, true, true, 120, false),
+    ] {
+        let now = completed + chrono::Duration::minutes(age_minutes);
         let mut flags = ProcessOverrides {
             request: Some(dir.path().join("missing-request.json")),
             ..Default::default()
@@ -433,7 +499,14 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
         flags.application.inventory = Some(dir.path().join("missing-inventory.json"));
         flags.application.dictionary_dir = Some(dir.path().join("missing-dictionary"));
         flags.application.wanikani_cache = (!use_store).then(|| dir.path().join("missing-cache"));
-        let app = LocalApp::new(config(dir.path(), flags), Credentials::default())
+        flags.application.sync = Some(sync);
+        let observed = Arc::clone(&lookups);
+        let mut credentials = Credentials::default();
+        credentials.supply_with(SOURCE_KEY, move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Ok(Some("valid-app-wk".into()))
+        });
+        let app = LocalApp::new(config(dir.path(), flags), credentials)
             .with_endpoints(endpoints(&server));
         let mut invocation = Invocation::default();
         invocation.story.select = Some(16);
@@ -458,6 +531,7 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
             .story_with_inputs(
                 StoryInputs { request, manual },
                 use_store.then_some(&store),
+                use_client.then_some(&mut source_client),
                 &client,
                 None,
                 now,
@@ -471,6 +545,26 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
             "猫です。寝ます。朝です。"
         );
         assert_eq!(report.selection.seed, 7);
+        assert_eq!(lookups.load(Ordering::SeqCst), 0);
+        assert_eq!(*store.load().unwrap(), source_fixture());
+        let reason = if !use_store {
+            "Manual inventory selected"
+        } else if age_minutes < 60 {
+            "Cache is fresh"
+        } else {
+            "Sync disabled or no WaniKani client supplied"
+        };
+        assert!(events.iter().any(|event| matches!(event,
+            ProgressEvent::Skipped { step: Step::Sync, reason: actual } if actual == reason)));
+        if use_store && age_minutes >= 60 {
+            assert!(
+                report
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.module == ModuleId::Sync
+                        && warning.message.contains("source client"))
+            );
+        }
         let selected = &report.selection.vocabulary_ids;
         assert_eq!(
             selected.iter().any(|id| id.starts_with("wanikani:")),
@@ -517,7 +611,7 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
             1
         );
     }
-    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    assert_eq!(server.received_requests().await.unwrap().len(), 7);
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
 }
 
@@ -558,6 +652,8 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
     let dir = tempfile::tempdir().unwrap();
     let server = MockServer::start().await;
     let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+    let mut source_client =
+        wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani).unwrap();
     for invalid in [
         InvalidInput::RequestVersion,
         InvalidInput::SelectionLimit,
@@ -603,6 +699,7 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
             .story_with_inputs(
                 StoryInputs { request, manual },
                 (!matches!(invalid, InvalidInput::MissingKnowledge)).then_some(&store),
+                Some(&mut source_client),
                 &client,
                 None,
                 SystemTime::now().into(),
@@ -630,10 +727,53 @@ async fn invalid_supplied_inputs_do_not_access_stores_credentials_or_http() {
 }
 
 #[tokio::test]
+async fn cancelling_supplied_source_refresh_preserves_data_and_releases_the_writer() {
+    use std::{
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+
+    source_stores!(dir, store, {
+        let completed = seed_store(&store);
+        let before_bytes = std::fs::read(dir.path().join("wanikani.json")).ok();
+        let server = MockServer::start().await;
+        mount_generation(&server, 0).await;
+        let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+        let mut source_client =
+            wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani).unwrap();
+        let app = LocalApp::new(
+            config(dir.path(), ProcessOverrides::default()),
+            Credentials::default(),
+        );
+        let mut operation = Box::pin(app.story_with_inputs(
+            source_story_inputs(),
+            Some(&store),
+            Some(&mut source_client),
+            &client,
+            None,
+            completed + chrono::Duration::hours(2),
+            7,
+            |_| {},
+        ));
+        assert!(matches!(
+            operation
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ));
+        assert!(store.is_locked(&store.begin_sync().err().unwrap()));
+        assert_original_source(&store, dir.path(), before_bytes.clone());
+        drop(operation);
+        store.begin_sync().unwrap();
+        assert_original_source(&store, dir.path(), before_bytes);
+    });
+}
+
+#[tokio::test]
 async fn two_keys_generate_once_without_optional_resources_and_the_second_run_uses_cache() {
     source_stores!(dir, store, {
         let server = MockServer::start().await;
-        mount_source(&server).await;
+        mount_source(&server, 1).await;
         mount_generation(&server, 2).await;
         let app = LocalApp::new(
             config(dir.path(), ProcessOverrides::default()),
@@ -737,6 +877,17 @@ fn source_fixture() -> WaniKaniSyncData {
     serde_json::from_value(envelope["snapshot"].clone()).unwrap()
 }
 
+fn source_story_inputs() -> StoryInputs {
+    let mut request: StoryRequest =
+        serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
+    request.targets.vocabulary.clear();
+    request.targets.grammar.clear();
+    StoryInputs {
+        request,
+        manual: None,
+    }
+}
+
 fn seed_store(store: &impl LearningStore) -> chrono::DateTime<chrono::Utc> {
     let data = source_fixture();
     let completed = data.sync_completed_at;
@@ -758,7 +909,7 @@ async fn cache_is_fresh_until_the_one_hour_boundary_then_refreshes() {
     source_stores!(dir, store, {
         let completed = seed_store(&store);
         let server = MockServer::start().await;
-        mount_source(&server).await;
+        mount_source(&server, 1).await;
         mount_generation(&server, 2).await;
         let app = LocalApp::new(
             config(dir.path(), ProcessOverrides::default()),
@@ -789,7 +940,7 @@ async fn cache_from_a_future_completion_time_is_refreshed() {
     source_stores!(dir, store, {
         let completed = seed_store(&store);
         let server = MockServer::start().await;
-        mount_source(&server).await;
+        mount_source(&server, 1).await;
         mount_generation(&server, 1).await;
         let app = LocalApp::new(
             config(dir.path(), ProcessOverrides::default()),
@@ -826,7 +977,7 @@ async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lo
                     .unwrap();
             }
             let server = MockServer::start().await;
-            mount_source(&server).await;
+            mount_source(&server, 1).await;
             mount_generation(&server, 1).await;
             let app = LocalApp::new(
                 config(dir.path(), ProcessOverrides::default()),
@@ -950,7 +1101,7 @@ async fn invalid_source_credentials_are_ignored_until_a_refresh_needs_them() {
 #[tokio::test]
 async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_preserves_bytes() {
     source_stores!(dir, store, {
-        for status in [500, 401] {
+        for (status, supplied) in [(500, false), (401, false), (500, true), (401, true)] {
             let completed = seed_store(&store);
             let before_bytes = std::fs::read(dir.path().join("wanikani.json")).ok();
             let server = MockServer::start().await;
@@ -967,9 +1118,26 @@ async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_pr
                 supplied_credentials(Some("wk".into()), Some("ai".into())),
             )
             .with_endpoints(endpoints(&server));
-            let result =
-                unsafe { app.story(&store, completed + chrono::Duration::hours(2), 1, |_| {}) }
-                    .await;
+            let now = completed + chrono::Duration::hours(2);
+            let result = if supplied {
+                let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+                let mut source_client =
+                    wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani)
+                        .unwrap();
+                app.story_with_inputs(
+                    source_story_inputs(),
+                    Some(&store),
+                    Some(&mut source_client),
+                    &client,
+                    None,
+                    now,
+                    1,
+                    |_| {},
+                )
+                .await
+            } else {
+                unsafe { app.story(&store, now, 1, |_| {}) }.await
+            };
             if status == 500 {
                 assert_eq!(result.unwrap().warnings.len(), 1);
             } else {
@@ -981,6 +1149,7 @@ async fn temporary_refresh_failure_uses_cache_but_authentication_is_fatal_and_pr
                 ));
             }
             assert_original_source(&store, dir.path(), before_bytes);
+            store.begin_sync().unwrap();
         }
     });
 }
@@ -1609,7 +1778,7 @@ async fn custom_source_cache_is_refreshed_in_place_and_an_invalid_manual_input_p
     let completed = write_cache(dir.path());
     std::fs::rename(dir.path().join("wanikani.json"), &cache).unwrap();
     let server = MockServer::start().await;
-    mount_source(&server).await;
+    mount_source(&server, 1).await;
     mount_generation(&server, 1).await;
     let mut flags = ProcessOverrides::default();
     flags.application.wanikani_cache = Some(cache.clone());
@@ -1688,7 +1857,7 @@ async fn refreshed_expired_access_is_rejected_before_replacing_a_usable_cache() 
         user["data"]["subscription"]["active"] = json!(true);
         user["data"]["subscription"]["period_ends_at"] = json!(now);
         let server = MockServer::start().await;
-        mount_source_with_user(&server, &user.to_string()).await;
+        mount_source_with_user(&server, &user.to_string(), 1).await;
         let app = LocalApp::new(
             config(dir.path(), ProcessOverrides::default()),
             supplied_credentials(Some("wk".into()), Some("ai".into())),
@@ -1707,7 +1876,7 @@ async fn concurrent_story_runs_refresh_once_and_keep_a_complete_usable_cache() {
     source_stores!(dir, store, {
         let completed = seed_store(&store);
         let server = MockServer::start().await;
-        mount_source(&server).await;
+        mount_source(&server, 1).await;
         mount_generation(&server, 2).await;
         let app = LocalApp::new(
             config(dir.path(), ProcessOverrides::default()),
@@ -1742,34 +1911,40 @@ async fn concurrent_story_runs_refresh_once_and_keep_a_complete_usable_cache() {
 }
 
 #[tokio::test]
-async fn freshness_is_rechecked_under_the_lock_after_another_writer_refreshes() {
+async fn supplied_source_freshness_is_rechecked_under_the_lock_after_another_writer_refreshes() {
     source_stores!(dir, store, {
         let completed = seed_store(&store);
         let server = MockServer::start().await;
         mount_generation(&server, 1).await;
+        let client = Client::with_base_url("ai", &endpoints(&server).openai).unwrap();
+        let mut source_client =
+            wanikani_source::Client::with_base_url("wk", &endpoints(&server).wanikani).unwrap();
         let app = LocalApp::new(
             config(dir.path(), ProcessOverrides::default()),
-            supplied_credentials(Some("wk".into()), Some("ai".into())),
+            Credentials::default(),
         )
         .with_endpoints(endpoints(&server));
         let now = completed + chrono::Duration::hours(2);
-        let report = unsafe {
-            app.story(&store, now, 1, |event| {
-                if matches!(
-                    event,
-                    yomibu::application::progress::ProgressEvent::Started {
-                        step: yomibu::application::progress::Step::Sync
+        let report = app
+            .story_with_inputs(
+                source_story_inputs(),
+                Some(&store),
+                Some(&mut source_client),
+                &client,
+                None,
+                now,
+                1,
+                |event| {
+                    if matches!(event, ProgressEvent::Started { step: Step::Sync }) {
+                        let writer = store.begin_sync().unwrap();
+                        let mut data = source_fixture();
+                        data.sync_completed_at = now;
+                        writer.replace(data.into()).unwrap();
                     }
-                ) {
-                    let writer = store.begin_sync().unwrap();
-                    let mut data = source_fixture();
-                    data.sync_completed_at = now;
-                    writer.replace(data.into()).unwrap();
-                }
-            })
-        }
-        .await
-        .unwrap();
+                },
+            )
+            .await
+            .unwrap();
         assert!(matches!(
             report
                 .modules
