@@ -37,10 +37,14 @@ pub(super) fn prepare_inventory(
         return Err(ApplicationError::AccessExpired);
     }
     match (source, manual) {
-        (Some(source), Some(manual)) => {
-            Ok(wanikani::project_inventory(source, policy)?.merge(manual)?)
+        (Some(source), manual) => {
+            let inventory =
+                LearnerInventory::from_mapped(wanikani::map_content_and_progress(source)?, policy)?;
+            match manual {
+                Some(manual) => Ok(inventory.merge(manual)?),
+                None => Ok(inventory),
+            }
         }
-        (Some(source), None) => Ok(wanikani::project_inventory(source, policy)?),
         (None, Some(manual)) => Ok(manual),
         (None, None) => Err(ApplicationError::Setup {
             issues: vec![SetupIssue {

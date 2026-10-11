@@ -1,8 +1,8 @@
-//! WaniKani retrieval and inventory projection. Transport shapes and credentials stay here.
+//! WaniKani retrieval and mapping. Transport shapes and credentials stay here.
 mod dto;
 mod inventory;
 
-pub use inventory::{ProjectionError, project_inventory};
+pub use inventory::map_content_and_progress;
 
 use chrono::{DateTime, Utc};
 use reqwest::{

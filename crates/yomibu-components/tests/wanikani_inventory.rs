@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
-use yomibu_components::wanikani_source::project_inventory;
+use yomibu_components::wanikani_source::map_content_and_progress;
 use yomibu_core::domain::{
-    inventory::{LearnerInventory, ManualInventory, SourceOrigin},
+    inventory::{LearnerInventory, ManualInventory, MappedContent, SourceOrigin},
     knowledge::{ExclusionReason, LearnerKnowledgePolicy},
     source::WaniKaniSyncData,
 };
@@ -10,6 +10,10 @@ fn source() -> WaniKaniSyncData {
     let value: Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/mixed.json")).unwrap();
     serde_json::from_value(value["snapshot"].clone()).unwrap()
+}
+
+fn prepare_inventory(data: &WaniKaniSyncData, policy: &LearnerKnowledgePolicy) -> LearnerInventory {
+    LearnerInventory::from_mapped(map_content_and_progress(data).unwrap(), policy).unwrap()
 }
 
 fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
@@ -24,7 +28,7 @@ fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
 fn projection_retains_exclusion_reasons_in_source_subject_order() {
     use ExclusionReason::{ContentUnavailable, Hidden, NoProgress, NoRecordedPass};
     let data = source();
-    let inventory = project_inventory(&data, &LearnerKnowledgePolicy::default()).unwrap();
+    let inventory = prepare_inventory(&data, &LearnerKnowledgePolicy::default());
     assert_eq!(inventory.vocabulary.len(), 1);
     assert_eq!(inventory.vocabulary[0].written_form, "これ");
     assert_eq!(
@@ -43,8 +47,57 @@ fn projection_retains_exclusion_reasons_in_source_subject_order() {
             )
         ]
     );
-    let passed = project_inventory(&data, &LearnerKnowledgePolicy::RecordedPass).unwrap();
+    let passed = prepare_inventory(&data, &LearnerKnowledgePolicy::RecordedPass);
     assert_eq!(exclusion(&passed, 3), Some(NoRecordedPass));
+}
+
+#[test]
+fn eligible_kanji_are_neither_vocabulary_nor_excluded() {
+    let mut data = source();
+    data.subjects[0].hidden_at = None;
+    data.assignments[0].started_at = Some(data.sync_completed_at);
+    let inventory = prepare_inventory(&data, &LearnerKnowledgePolicy::default());
+    assert_eq!(exclusion(&inventory, 1), None);
+    assert_eq!(
+        inventory
+            .vocabulary
+            .iter()
+            .map(|word| word.id.as_str())
+            .collect::<Vec<_>>(),
+        ["wanikani:3"]
+    );
+}
+
+#[test]
+fn unavailable_content_takes_precedence_over_hidden_progress_and_milestones() {
+    let mut data = source();
+    let assignment = data
+        .assignments
+        .iter_mut()
+        .find(|entry| entry.subject_id == 5)
+        .unwrap();
+    assignment.hidden = true;
+    assignment.started_at = Some(data.sync_completed_at);
+    assignment.passed_at = assignment.started_at;
+    let (content, progress) = map_content_and_progress(&data).unwrap().last().unwrap();
+    assert!(matches!(
+        content,
+        MappedContent::Unavailable(SourceOrigin::Wanikani { subject_id: 5 })
+    ));
+    let progress = progress.unwrap();
+    assert!(progress.is_hidden);
+    assert_eq!(progress.learning_started_at, Some(data.sync_completed_at));
+    assert_eq!(progress.first_passed_at, Some(data.sync_completed_at));
+    for policy in [
+        LearnerKnowledgePolicy::LessonStarted,
+        LearnerKnowledgePolicy::RecordedPass,
+    ] {
+        let inventory = prepare_inventory(&data, &policy);
+        assert_eq!(
+            exclusion(&inventory, 5),
+            Some(ExclusionReason::ContentUnavailable)
+        );
+    }
 }
 
 #[test]
@@ -54,7 +107,7 @@ fn lifecycle_evidence_not_stage_accuracy_or_burned_state_controls_eligibility() 
     data.assignments[1].hidden = false;
     data.assignments[2].srs_stage = 999;
     let policy = LearnerKnowledgePolicy::default();
-    let inventory = project_inventory(&data, &policy).unwrap();
+    let inventory = prepare_inventory(&data, &policy);
     assert_eq!(
         exclusion(&inventory, 1),
         Some(ExclusionReason::NoRecordedLessonStart)
@@ -68,21 +121,21 @@ fn lifecycle_evidence_not_stage_accuracy_or_burned_state_controls_eligibility() 
         ["wanikani:2", "wanikani:3"]
     );
     assert!(data.assignments[1].burned_at.is_some());
-    let passed = project_inventory(&data, &LearnerKnowledgePolicy::RecordedPass).unwrap();
+    let passed = prepare_inventory(&data, &LearnerKnowledgePolicy::RecordedPass);
     assert_eq!(passed.vocabulary[0].id, "wanikani:2");
     data.review_statistics[1].hidden = true;
     assert_eq!(
-        exclusion(&project_inventory(&data, &policy).unwrap(), 2),
+        exclusion(&prepare_inventory(&data, &policy), 2),
         Some(ExclusionReason::Hidden)
     );
     data.assignments[2].started_at = None;
     assert_eq!(
-        exclusion(&project_inventory(&data, &policy).unwrap(), 3),
+        exclusion(&prepare_inventory(&data, &policy), 3),
         Some(ExclusionReason::NoRecordedLessonStart)
     );
     data.review_statistics[2].hidden = true;
     assert_eq!(
-        exclusion(&project_inventory(&data, &policy).unwrap(), 4),
+        exclusion(&prepare_inventory(&data, &policy), 4),
         Some(ExclusionReason::Hidden)
     );
 }
@@ -91,38 +144,16 @@ fn lifecycle_evidence_not_stage_accuracy_or_burned_state_controls_eligibility() 
 fn projection_order_is_stable_and_invalid_direct_input_is_rejected() {
     let mut data = source();
     let policy = LearnerKnowledgePolicy::default();
-    let expected = serde_json::to_value(project_inventory(&data, &policy).unwrap()).unwrap();
+    let expected = serde_json::to_value(prepare_inventory(&data, &policy)).unwrap();
     data.subjects.reverse();
     data.assignments.reverse();
     data.review_statistics.reverse();
     assert_eq!(
-        serde_json::to_value(project_inventory(&data, &policy).unwrap()).unwrap(),
+        serde_json::to_value(prepare_inventory(&data, &policy)).unwrap(),
         expected
     );
     data.subjects.clear();
-    assert!(project_inventory(&data, &policy).is_err());
-}
-
-#[test]
-fn account_progress_independently_controls_eligibility_for_shared_content() {
-    let first = source();
-    let mut second = source();
-    second.learner.id = "another-learner".into();
-    second.assignments[2].started_at = None;
-    let policy = LearnerKnowledgePolicy::default();
-    let first_inventory = project_inventory(&first, &policy).unwrap();
-    let second_inventory = project_inventory(&second, &policy).unwrap();
-    assert_eq!(first_inventory.vocabulary.len(), 1);
-    assert_eq!(
-        first_inventory.vocabulary[0].origin,
-        SourceOrigin::Wanikani { subject_id: 3 }
-    );
-    assert_eq!(first_inventory.vocabulary[0].written_form, "これ");
-    assert!(second_inventory.vocabulary.is_empty());
-    assert_eq!(
-        exclusion(&second_inventory, 3),
-        Some(ExclusionReason::NoRecordedLessonStart)
-    );
+    assert!(map_content_and_progress(&data).is_err());
 }
 
 #[test]
@@ -152,7 +183,7 @@ fn projection_preserves_unpaired_reading_and_meaning_alternatives() {
             accepted_answer: true,
         })
         .collect();
-    let inventory = project_inventory(&data, &LearnerKnowledgePolicy::default()).unwrap();
+    let inventory = prepare_inventory(&data, &LearnerKnowledgePolicy::default());
     let words: Vec<_> = inventory
         .vocabulary
         .iter()
@@ -168,7 +199,7 @@ fn projection_keeps_missing_readings_and_manual_grammar() {
     let value: Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(value["snapshot"].clone()).unwrap();
-    let inventory = project_inventory(&source, &LearnerKnowledgePolicy::default()).unwrap();
+    let inventory = prepare_inventory(&source, &LearnerKnowledgePolicy::default());
     assert!(
         inventory
             .vocabulary

@@ -16,7 +16,7 @@ use yomibu_core::{
 };
 
 #[test]
-fn projection_errors_preserve_domain_validation_at_the_application_boundary() {
+fn mapping_and_preparation_errors_preserve_domain_validation_at_the_application_boundary() {
     use yomibu::application::ApplicationError;
     use yomibu_core::domain::{knowledge::LearnerKnowledgePolicy, source::WaniKaniSyncData};
     let fixture: Value =
@@ -24,8 +24,11 @@ fn projection_errors_preserve_domain_validation_at_the_application_boundary() {
     let mut source: WaniKaniSyncData = serde_json::from_value(fixture["snapshot"].clone()).unwrap();
     source.subjects[2].characters = "x".repeat(257);
     let error = ApplicationError::from(
-        wanikani_source::project_inventory(&source, &LearnerKnowledgePolicy::default())
-            .unwrap_err(),
+        LearnerInventory::from_mapped(
+            wanikani_source::map_content_and_progress(&source).unwrap(),
+            &LearnerKnowledgePolicy::default(),
+        )
+        .unwrap_err(),
     );
     assert!(matches!(error, ApplicationError::Inventory(_)), "{error:?}");
     assert_eq!(
@@ -34,8 +37,9 @@ fn projection_errors_preserve_domain_validation_at_the_application_boundary() {
     );
     source.learner.id.clear();
     let error = ApplicationError::from(
-        wanikani_source::project_inventory(&source, &LearnerKnowledgePolicy::default())
-            .unwrap_err(),
+        wanikani_source::map_content_and_progress(&source)
+            .err()
+            .unwrap(),
     );
     assert!(
         matches!(error, ApplicationError::Validation(_)),
@@ -201,8 +205,11 @@ async fn manual_and_wanikani_sources_share_embedding_inputs_and_prepared_request
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(fixture["snapshot"].clone()).unwrap();
-    let wk =
-        wanikani_source::project_inventory(&source, &LearnerKnowledgePolicy::default()).unwrap();
+    let wk = LearnerInventory::from_mapped(
+        wanikani_source::map_content_and_progress(&source).unwrap(),
+        &LearnerKnowledgePolicy::default(),
+    )
+    .unwrap();
     let mut words = serde_json::to_value(&wk.vocabulary).unwrap();
     for word in words.as_array_mut().unwrap() {
         word.as_object_mut().unwrap().remove("origin");

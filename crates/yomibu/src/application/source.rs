@@ -8,7 +8,9 @@ use chrono::{DateTime, Utc};
 use std::{path::PathBuf, sync::Arc};
 use yomibu_components::wanikani_source as wanikani;
 use yomibu_core::capabilities::{LearningStore, SourceSyncWriter};
-use yomibu_core::domain::{knowledge::LearnerKnowledgePolicy, source::WaniKaniSyncData};
+use yomibu_core::domain::{
+    inventory::LearnerInventory, knowledge::LearnerKnowledgePolicy, source::WaniKaniSyncData,
+};
 
 pub(super) enum SourceClient<'a> {
     Local {
@@ -63,8 +65,10 @@ pub(super) fn usable_cache(
     now: DateTime<Utc>,
 ) -> bool {
     !access_expired(data, now)
-        && wanikani::project_inventory(data, policy)
-            .is_ok_and(|inventory| !inventory.vocabulary.is_empty())
+        && wanikani::map_content_and_progress(data).is_ok_and(|records| {
+            LearnerInventory::from_mapped(records, policy)
+                .is_ok_and(|inventory| !inventory.vocabulary.is_empty())
+        })
 }
 
 fn can_reuse_cache(config: &Configuration, data: &WaniKaniSyncData, now: DateTime<Utc>) -> bool {
