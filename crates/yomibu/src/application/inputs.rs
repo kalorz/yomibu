@@ -8,6 +8,7 @@ use crate::configuration::modules::ModuleId;
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 use std::path::Path;
+use yomibu_components::wanikani_source as wanikani;
 use yomibu_core::domain::{
     inventory::{LearnerInventory, ManualInventory},
     knowledge::LearnerKnowledgePolicy,
@@ -37,9 +38,9 @@ pub(super) fn prepare_inventory(
     }
     match (source, manual) {
         (Some(source), Some(manual)) => {
-            Ok(LearnerInventory::from_wanikani(source, policy)?.merge(manual)?)
+            Ok(wanikani::prepare_inventory(source, policy)?.merge(manual)?)
         }
-        (Some(source), None) => Ok(LearnerInventory::from_wanikani(source, policy)?),
+        (Some(source), None) => Ok(wanikani::prepare_inventory(source, policy)?),
         (None, Some(manual)) => Ok(manual),
         (None, None) => Err(ApplicationError::Setup {
             issues: vec![SetupIssue {

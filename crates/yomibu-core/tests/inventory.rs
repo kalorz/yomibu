@@ -1,8 +1,5 @@
 use serde_json::{Value, json};
-use yomibu_core::domain::{
-    inventory::{LearnerInventory, ManualInventory, SourceOrigin},
-    knowledge::LearnerKnowledgePolicy,
-};
+use yomibu_core::domain::inventory::{LearnerInventory, ManualInventory, SourceOrigin};
 
 fn manual() -> Value {
     json!({"version":1,"vocabulary":[{"id":"cat","written_form":"猫","readings":["ねこ"],"meanings":["cat"],"direct_object":null}],
@@ -40,45 +37,14 @@ fn inventory_rejects_duplicate_ids_dangling_bindings_and_blank_values() {
 }
 
 #[test]
-fn wanikani_projection_keeps_eligibility_alternatives_and_missing_readings() {
-    let value: Value =
-        serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
-    let source = serde_json::from_value(value["snapshot"].clone()).unwrap();
-    let inventory =
-        LearnerInventory::from_wanikani(&source, &LearnerKnowledgePolicy::default()).unwrap();
-    assert!(
-        inventory
-            .vocabulary
-            .iter()
-            .all(|v| v.id.starts_with("wanikani:"))
-    );
-    assert!(
-        inventory
-            .vocabulary
-            .iter()
-            .all(|v| v.direct_object.is_none())
-    );
-    assert!(inventory.excluded.iter().any(|v| v.subject_id == 1));
-    let kana = inventory
-        .vocabulary
-        .iter()
-        .find(|v| v.written_form == "これ")
-        .unwrap();
-    assert!(kana.readings.is_empty());
-    let mut supplement: ManualInventory = serde_json::from_value(manual()).unwrap();
-    supplement.vocabulary.clear();
-    let combined = inventory.with_manual(supplement).unwrap();
-    assert_eq!(combined.grammar_declarations[0].id, "topic");
-}
-
-#[test]
-fn typed_exclusion_reasons_keep_the_existing_inventory_json_codes() {
+fn typed_exclusion_reasons_serialize_with_source_independent_codes() {
     use yomibu_core::domain::inventory::ExcludedMaterial;
     use yomibu_core::domain::knowledge::ExclusionReason;
     for (reason, code) in [
         (ExclusionReason::ContentUnavailable, "ContentUnavailable"),
         (ExclusionReason::Hidden, "Hidden"),
-        (ExclusionReason::NoAssignment, "NoAssignment"),
+        (ExclusionReason::NoProgress, "NoProgress"),
+        (ExclusionReason::MarkedUnknown, "MarkedUnknown"),
         (
             ExclusionReason::NoRecordedLessonStart,
             "NoRecordedLessonStart",

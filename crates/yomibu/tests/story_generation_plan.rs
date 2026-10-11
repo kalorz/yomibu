@@ -4,7 +4,7 @@ use yomibu::application::selection::select_vocabulary;
 use yomibu::application::story::plan_generation;
 use yomibu_components::{
     embedding_vocabulary_selection::prepare_embedding_inputs, lexical_embeddings::LexicalEmbedder,
-    story_prompt_preparation::fit_selection_and_build_request,
+    story_prompt_preparation::fit_selection_and_build_request, wanikani_source,
 };
 use yomibu_core::{
     capabilities::Embedder,
@@ -173,7 +173,8 @@ async fn manual_and_wanikani_sources_share_embedding_inputs_and_prepared_request
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(fixture["snapshot"].clone()).unwrap();
-    let wk = LearnerInventory::from_wanikani(&source, &LearnerKnowledgePolicy::default()).unwrap();
+    let wk =
+        wanikani_source::prepare_inventory(&source, &LearnerKnowledgePolicy::default()).unwrap();
     let mut words = serde_json::to_value(&wk.vocabulary).unwrap();
     for word in words.as_array_mut().unwrap() {
         word.as_object_mut().unwrap().remove("origin");

@@ -1,36 +1,31 @@
 //! Revisable, deterministic eligibility derived from preserved learner evidence.
 
-use crate::domain::source::{
-    Assignment, ReviewStatistic, Subject, SubjectKind, ValidationError, WaniKaniSyncData,
-};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use std::collections::BTreeMap;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum WaniKaniKnowledgeRule {
+pub enum LearnerKnowledgePolicy {
     #[default]
     LessonStarted,
     RecordedPass,
 }
 
-/// Source timestamps are practice-eligibility rules, not mastery guarantees.
+/// Common learner observations; provider stages and raw responses stay with the source.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct LearnerKnowledgePolicy {
-    pub wanikani: WaniKaniKnowledgeRule,
+pub struct LearnerProgress {
+    pub is_marked_known: Option<bool>,
+    pub learning_started_at: Option<DateTime<Utc>>,
+    pub first_passed_at: Option<DateTime<Utc>>,
+    pub is_hidden: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum ExclusionReason {
-    #[serde(rename = "ContentUnavailable")]
     ContentUnavailable,
-    #[serde(rename = "Hidden")]
     Hidden,
-    #[serde(rename = "NoAssignment")]
-    NoAssignment,
-    #[serde(rename = "NoRecordedLessonStart")]
+    NoProgress,
+    MarkedUnknown,
     NoRecordedLessonStart,
-    #[serde(rename = "NoRecordedPass")]
     NoRecordedPass,
 }
 
@@ -40,110 +35,35 @@ pub enum KnowledgeDecision {
     Excluded(ExclusionReason),
 }
 
-/// Retains the evidence for either eligibility or an explicit exclusion.
-#[derive(Debug, PartialEq, Eq)]
-pub struct MaterialKnowledge<'a> {
-    pub subject_id: u64,
-    pub kind: SubjectKind,
-    pub material: Option<&'a Subject>,
-    pub assignment: Option<&'a Assignment>,
-    pub review_statistic: Option<&'a ReviewStatistic>,
-    pub decision: KnowledgeDecision,
-}
-
-/// An on-demand interpretation. It never replaces the original observations.
-#[derive(Debug, PartialEq, Eq)]
-pub struct LearnerKnowledge<'a> {
-    pub policy: LearnerKnowledgePolicy,
-    pub learner_id: &'a str,
-    pub sync_started_at: DateTime<Utc>,
-    pub sync_completed_at: DateTime<Utc>,
-    /// Ordered by source subject ID, independently of collection order.
-    pub materials: Vec<MaterialKnowledge<'a>>,
-}
-
 impl LearnerKnowledgePolicy {
-    /// Validate and derive without I/O, environment access, time, or persistence.
-    ///
-    /// Exclusion precedence is unavailable content, any hidden evidence, missing
-    /// assignment, then the selected missing lifecycle timestamp. Other evidence
-    /// remains inspectable in the result. SRS stages and accuracy are not cutoffs.
-    pub fn derive<'a>(
-        &self,
-        source: &'a WaniKaniSyncData,
-    ) -> Result<LearnerKnowledge<'a>, ValidationError> {
-        use ExclusionReason::{
-            ContentUnavailable, Hidden, NoAssignment, NoRecordedLessonStart, NoRecordedPass,
-        };
+    /// Hidden observations are excluded. Explicit declarations take precedence
+    /// over the selected lifecycle milestone; none of these establish mastery.
+    pub fn decide(&self, progress: Option<&LearnerProgress>) -> KnowledgeDecision {
         use KnowledgeDecision::{Eligible, Excluded};
-
-        source.validate()?;
-        let assignments: BTreeMap<_, _> = source
-            .assignments
-            .iter()
-            .map(|entry| (entry.subject_id, entry))
-            .collect();
-        let statistics: BTreeMap<_, _> = source
-            .review_statistics
-            .iter()
-            .map(|entry| (entry.subject_id, entry))
-            .collect();
-        let mut material_by_id: BTreeMap<_, _> = source
-            .subjects
-            .iter()
-            .map(|subject| (subject.id, (subject.kind(), Some(subject))))
-            .collect();
-        for unavailable in &source.unavailable_subjects {
-            material_by_id.insert(unavailable.id, (unavailable.kind, None));
+        let Some(progress) = progress else {
+            return Excluded(ExclusionReason::NoProgress);
+        };
+        if progress.is_hidden {
+            return Excluded(ExclusionReason::Hidden);
         }
-        let materials = material_by_id
-            .into_iter()
-            .map(|(subject_id, (kind, material))| {
-                let assignment = assignments.get(&subject_id).copied();
-                let review_statistic = statistics.get(&subject_id).copied();
-                let decision = if material.is_none() {
-                    Excluded(ContentUnavailable)
-                } else if material.is_some_and(|subject| subject.hidden_at.is_some())
-                    || assignment.is_some_and(|entry| entry.hidden)
-                    || review_statistic.is_some_and(|entry| entry.hidden)
-                {
-                    Excluded(Hidden)
-                } else {
-                    match assignment {
-                        None => Excluded(NoAssignment),
-                        Some(assignment) => {
-                            let (recorded, missing) = match self.wanikani {
-                                WaniKaniKnowledgeRule::LessonStarted => {
-                                    (assignment.started_at.is_some(), NoRecordedLessonStart)
-                                }
-                                WaniKaniKnowledgeRule::RecordedPass => {
-                                    (assignment.passed_at.is_some(), NoRecordedPass)
-                                }
-                            };
-                            if recorded {
-                                Eligible
-                            } else {
-                                Excluded(missing)
-                            }
-                        }
-                    }
-                };
-                MaterialKnowledge {
-                    subject_id,
-                    kind,
-                    material,
-                    assignment,
-                    review_statistic,
-                    decision,
-                }
-            })
-            .collect();
-        Ok(LearnerKnowledge {
-            policy: *self,
-            learner_id: &source.learner.id,
-            sync_started_at: source.sync_started_at,
-            sync_completed_at: source.sync_completed_at,
-            materials,
-        })
+        if let Some(known) = progress.is_marked_known {
+            return if known {
+                Eligible
+            } else {
+                Excluded(ExclusionReason::MarkedUnknown)
+            };
+        }
+        let (recorded, missing) = match self {
+            Self::LessonStarted => (
+                progress.learning_started_at,
+                ExclusionReason::NoRecordedLessonStart,
+            ),
+            Self::RecordedPass => (progress.first_passed_at, ExclusionReason::NoRecordedPass),
+        };
+        if recorded.is_some() {
+            Eligible
+        } else {
+            Excluded(missing)
+        }
     }
 }

@@ -1,9 +1,5 @@
 //! Source-independent material available for practice, with explicit uncertainty.
-use crate::domain::{
-    grammar::GrammarRule,
-    knowledge::{ExclusionReason, KnowledgeDecision, LearnerKnowledgePolicy},
-    source::{LexicalContent, WaniKaniSyncData},
-};
+use crate::domain::{grammar::GrammarRule, knowledge::ExclusionReason};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -86,8 +82,6 @@ pub struct LearnerInventory {
 pub enum InventoryError {
     #[error("Invalid learner inventory: {0}.")]
     Invalid(&'static str),
-    #[error("Invalid WaniKani source: {0}")]
-    Source(#[from] crate::domain::source::ValidationError),
 }
 impl LearnerInventory {
     pub fn from_manual(input: ManualInventory) -> Result<Self, InventoryError> {
@@ -100,56 +94,6 @@ impl LearnerInventory {
             grammar_bindings: input.grammar_bindings,
             excluded: Vec::new(),
         };
-        result.validate()?;
-        Ok(result)
-    }
-    pub fn from_wanikani(
-        source: &WaniKaniSyncData,
-        policy: &LearnerKnowledgePolicy,
-    ) -> Result<Self, InventoryError> {
-        let knowledge = policy.derive(source)?;
-        let mut result = Self {
-            vocabulary: Vec::new(),
-            grammar_declarations: Vec::new(),
-            grammar_bindings: Vec::new(),
-            excluded: Vec::new(),
-        };
-        for item in knowledge.materials {
-            if let KnowledgeDecision::Excluded(reason) = item.decision {
-                result.excluded.push(ExcludedMaterial {
-                    subject_id: item.subject_id,
-                    reason,
-                });
-                continue;
-            }
-            let Some(subject) = item.material else {
-                continue;
-            };
-            let readings = match &subject.lexical {
-                LexicalContent::Kanji { .. } => continue,
-                LexicalContent::Vocabulary { readings, .. } => readings
-                    .iter()
-                    .filter(|r| r.accepted_answer)
-                    .map(|r| r.reading.clone())
-                    .collect(),
-                LexicalContent::KanaVocabulary { .. } => Vec::new(),
-            };
-            result.vocabulary.push(InventoryWord {
-                id: format!("wanikani:{}", subject.id),
-                written_form: subject.characters.clone(),
-                readings,
-                meanings: subject
-                    .meanings
-                    .iter()
-                    .filter(|m| m.accepted_answer)
-                    .map(|m| m.meaning.clone())
-                    .collect(),
-                direct_object: None,
-                origin: SourceOrigin::Wanikani {
-                    subject_id: subject.id,
-                },
-            });
-        }
         result.validate()?;
         Ok(result)
     }

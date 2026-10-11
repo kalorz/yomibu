@@ -3,6 +3,7 @@ use super::{
     SelectionStep, StoryFormat, components,
 };
 use serde::Deserialize;
+use yomibu_core::domain::knowledge::LearnerKnowledgePolicy;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -110,13 +111,9 @@ impl Configuration {
         if operation.uses_setting("pipeline.knowledge_policy")
             && let Some(value) = overrides.knowledge_policy
         {
-            pipeline.knowledge_policy.wanikani = match value {
-                KnowledgePolicy::LessonStarted => {
-                    yomibu_core::domain::knowledge::WaniKaniKnowledgeRule::LessonStarted
-                }
-                KnowledgePolicy::RecordedPass => {
-                    yomibu_core::domain::knowledge::WaniKaniKnowledgeRule::RecordedPass
-                }
+            pipeline.knowledge_policy = match value {
+                KnowledgePolicy::LessonStarted => LearnerKnowledgePolicy::LessonStarted,
+                KnowledgePolicy::RecordedPass => LearnerKnowledgePolicy::RecordedPass,
             };
         }
         if operation.uses_setting("pipeline.model") {
