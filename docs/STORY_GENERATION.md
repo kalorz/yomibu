@@ -18,7 +18,7 @@ Use the complete [inventory](../tests/fixtures/story/inventory.json) and
   The provider receives no whole account, progress history or unselected vocabulary.
 
 IDs are stable strings. WaniKani entries use `wanikani:<subject-id>`.
-Manual input can supplement a WaniKani projection, particularly its grammar;
+Manual input can supplement a WaniKani inventory, particularly its grammar;
 duplicate IDs are rejected rather than silently overriding entries. A grammar
 description records familiarity. A binding names an explicit
 [supported rule](ANALYSIS.md#input-and-supported-checks); descriptions never create rules.
@@ -30,7 +30,7 @@ are preserved, with a hiragana-to-katakana comparison form for Sudachi.
 `direct_object: null` means unknown; WaniKani glosses/POS do not infer transitivity.
 A single reading and meaning still does not establish contextual correctness.
 The original source cache is unchanged and remains the evidence record; the
-projection retains source subject IDs and exclusions.
+inventory retains source subject IDs and exclusions.
 
 ## Configuration and optional work
 

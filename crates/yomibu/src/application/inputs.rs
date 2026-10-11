@@ -37,10 +37,14 @@ pub(super) fn prepare_inventory(
         return Err(ApplicationError::AccessExpired);
     }
     match (source, manual) {
-        (Some(source), Some(manual)) => {
-            Ok(wanikani::project_inventory(source, policy)?.merge(manual)?)
+        (Some(source), manual) => {
+            let inventory =
+                LearnerInventory::from_mapped(wanikani::map_content_and_progress(source)?, policy)?;
+            match manual {
+                Some(manual) => Ok(inventory.merge(manual)?),
+                None => Ok(inventory),
+            }
         }
-        (Some(source), None) => Ok(wanikani::project_inventory(source, policy)?),
         (None, Some(manual)) => Ok(manual),
         (None, None) => Err(ApplicationError::Setup {
             issues: vec![SetupIssue {
@@ -106,5 +110,34 @@ enum RequestTopic {
 impl<'de> serde::Deserialize<'de> for RequestTopic {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         <Option<StoryTopic> as serde::Deserialize>::deserialize(deserializer).map(Self::Supplied)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_preparation_preserves_mapping_and_inventory_error_categories() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../tests/fixtures/mixed.json")).unwrap();
+        let mut source: WaniKaniSyncData =
+            serde_json::from_value(fixture["snapshot"].clone()).unwrap();
+        let now = source.sync_completed_at;
+        source.subjects[2].characters = "x".repeat(257);
+        let error = prepare_inventory(&LearnerKnowledgePolicy::default(), Some(&source), None, now)
+            .unwrap_err();
+        assert!(matches!(error, ApplicationError::Inventory(_)), "{error:?}");
+        assert_eq!(
+            error.to_string(),
+            "Invalid learner inventory: invalid or duplicate vocabulary entry."
+        );
+        source.learner.id.clear();
+        let error = prepare_inventory(&LearnerKnowledgePolicy::default(), Some(&source), None, now)
+            .unwrap_err();
+        assert!(
+            matches!(error, ApplicationError::Validation(_)),
+            "{error:?}"
+        );
     }
 }

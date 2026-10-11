@@ -1,24 +1,16 @@
 use std::collections::BTreeMap;
 use yomibu_core::domain::{
-    inventory::{ExcludedMaterial, InventoryError, InventoryWord, LearnerInventory, SourceOrigin},
-    knowledge::{ExclusionReason, KnowledgeDecision, LearnerKnowledgePolicy, LearnerProgress},
+    inventory::{InventoryWord, MappedContent, SourceOrigin},
+    knowledge::LearnerProgress,
     source::{
         Assignment, LexicalContent, ReviewStatistic, Subject, ValidationError, WaniKaniSyncData,
     },
 };
 
-#[derive(Debug, thiserror::Error)]
-pub enum ProjectionError {
-    #[error(transparent)]
-    Source(#[from] ValidationError),
-    #[error(transparent)]
-    Inventory(#[from] InventoryError),
-}
-
-pub fn project_inventory(
+/// Validate observations, then map content and progress in subject ID order.
+pub fn map_content_and_progress(
     source: &WaniKaniSyncData,
-    policy: &LearnerKnowledgePolicy,
-) -> Result<LearnerInventory, ProjectionError> {
+) -> Result<impl Iterator<Item = (MappedContent, Option<LearnerProgress>)> + '_, ValidationError> {
     source.validate()?;
     let assignments: BTreeMap<_, _> = source
         .assignments
@@ -38,30 +30,18 @@ pub fn project_inventory(
     for unavailable in &source.unavailable_subjects {
         subjects.insert(unavailable.id, None);
     }
-    let mut inventory = LearnerInventory {
-        vocabulary: Vec::new(),
-        grammar_declarations: Vec::new(),
-        grammar_bindings: Vec::new(),
-        excluded: Vec::new(),
-    };
-    for (subject_id, subject) in subjects {
+    Ok(subjects.into_iter().map(move |(subject_id, subject)| {
         let origin = SourceOrigin::Wanikani { subject_id };
-        let Some(subject) = subject else {
-            inventory.excluded.push(ExcludedMaterial {
-                origin,
-                reason: ExclusionReason::ContentUnavailable,
-            });
-            continue;
-        };
         let assignment = assignments.get(&subject_id).copied();
         let statistic = statistics.get(&subject_id).copied();
         let progress = learner_progress(subject, assignment, statistic);
-        if let KnowledgeDecision::Excluded(reason) = policy.decide(progress.as_ref()) {
-            inventory.excluded.push(ExcludedMaterial { origin, reason });
-            continue;
-        }
+        let Some(subject) = subject else {
+            return (MappedContent::Unavailable(origin), progress);
+        };
         let readings = match &subject.lexical {
-            LexicalContent::Kanji { .. } => continue,
+            LexicalContent::Kanji { .. } => {
+                return (MappedContent::NonVocabulary(origin), progress);
+            }
             LexicalContent::Vocabulary { readings, .. } => readings
                 .iter()
                 .filter(|reading| reading.accepted_answer)
@@ -69,7 +49,7 @@ pub fn project_inventory(
                 .collect(),
             LexicalContent::KanaVocabulary { .. } => Vec::new(),
         };
-        inventory.vocabulary.push(InventoryWord {
+        let word = InventoryWord {
             id: format!("wanikani:{subject_id}"),
             written_form: subject.characters.clone(),
             readings,
@@ -81,18 +61,17 @@ pub fn project_inventory(
                 .collect(),
             direct_object: None,
             origin,
-        });
-    }
-    inventory.validate()?;
-    Ok(inventory)
+        };
+        (MappedContent::Vocabulary(word), progress)
+    }))
 }
 
 fn learner_progress(
-    subject: &Subject,
+    subject: Option<&Subject>,
     assignment: Option<&Assignment>,
     statistic: Option<&ReviewStatistic>,
 ) -> Option<LearnerProgress> {
-    let is_hidden = subject.hidden_at.is_some()
+    let is_hidden = subject.is_some_and(|subject| subject.hidden_at.is_some())
         || assignment.is_some_and(|entry| entry.hidden)
         || statistic.is_some_and(|entry| entry.hidden);
     (assignment.is_some() || is_hidden).then(|| LearnerProgress {
@@ -120,15 +99,13 @@ mod tests {
             subject.hidden_at = (hidden_in == 0).then_some(data.sync_completed_at);
             assignment.hidden = hidden_in == 1;
             statistic.hidden = hidden_in == 2;
-            let progress = learner_progress(subject, Some(assignment), Some(statistic)).unwrap();
+            let progress =
+                learner_progress(Some(subject), Some(assignment), Some(statistic)).unwrap();
             assert!(progress.is_hidden, "hidden source {hidden_in}");
+            assert_eq!(progress.is_marked_known, None);
             assert_eq!(progress.learning_started_at, assignment.started_at);
             assert_eq!(progress.first_passed_at, assignment.passed_at);
-            assert_eq!(
-                LearnerKnowledgePolicy::default().decide(Some(&progress)),
-                KnowledgeDecision::Excluded(ExclusionReason::Hidden)
-            );
-            let without_assignment = learner_progress(subject, None, Some(statistic));
+            let without_assignment = learner_progress(Some(subject), None, Some(statistic));
             if hidden_in == 1 {
                 assert_eq!(without_assignment, None);
             } else {

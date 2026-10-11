@@ -1,5 +1,8 @@
 //! Source-independent material available for practice, with explicit uncertainty.
-use crate::domain::{grammar::GrammarRule, knowledge::ExclusionReason};
+use crate::domain::{
+    grammar::GrammarRule,
+    knowledge::{ExclusionReason, KnowledgeDecision, LearnerKnowledgePolicy, LearnerProgress},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -24,6 +27,7 @@ pub struct InventoryWord {
     #[serde(skip_deserializing)]
     pub origin: SourceOrigin,
 }
+
 impl InventoryWord {
     /// Hiragana-to-katakana comparison form; original source readings stay intact.
     pub fn analyzer_readings(&self) -> Vec<String> {
@@ -32,6 +36,14 @@ impl InventoryWord {
             .map(|reading| analyzer_reading(reading))
             .collect()
     }
+}
+
+/// Mapped content retains provenance even when it cannot supply vocabulary.
+#[derive(Debug)]
+pub enum MappedContent {
+    Vocabulary(InventoryWord),
+    NonVocabulary(SourceOrigin),
+    Unavailable(SourceOrigin),
 }
 
 pub fn analyzer_reading(reading: &str) -> String {
@@ -84,6 +96,44 @@ pub enum InventoryError {
     Invalid(&'static str),
 }
 impl LearnerInventory {
+    /// Prepare one learner's mapped values in input order and validate the result.
+    /// Unavailable content takes precedence over progress. Eligible non-vocabulary is omitted.
+    pub fn from_mapped(
+        records: impl IntoIterator<Item = (MappedContent, Option<LearnerProgress>)>,
+        policy: &LearnerKnowledgePolicy,
+    ) -> Result<Self, InventoryError> {
+        let mut inventory = Self {
+            vocabulary: Vec::new(),
+            grammar_declarations: Vec::new(),
+            grammar_bindings: Vec::new(),
+            excluded: Vec::new(),
+        };
+        for (content, progress) in records {
+            let decision = if matches!(content, MappedContent::Unavailable(_)) {
+                KnowledgeDecision::Excluded(ExclusionReason::ContentUnavailable)
+            } else {
+                policy.decide(progress.as_ref())
+            };
+            match decision {
+                KnowledgeDecision::Eligible => {
+                    if let MappedContent::Vocabulary(word) = content {
+                        inventory.vocabulary.push(word);
+                    }
+                }
+                KnowledgeDecision::Excluded(reason) => {
+                    let origin = match content {
+                        MappedContent::Vocabulary(word) => word.origin,
+                        MappedContent::NonVocabulary(origin)
+                        | MappedContent::Unavailable(origin) => origin,
+                    };
+                    inventory.excluded.push(ExcludedMaterial { origin, reason });
+                }
+            }
+        }
+        inventory.validate()?;
+        Ok(inventory)
+    }
+
     pub fn from_manual(input: ManualInventory) -> Result<Self, InventoryError> {
         if input.version != 1 {
             return Err(InventoryError::Invalid("expected version 1"));
