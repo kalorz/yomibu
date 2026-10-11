@@ -1302,25 +1302,32 @@ async fn cache_from_a_future_completion_time_is_refreshed() {
 }
 
 #[tokio::test]
-async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lock() {
+async fn a_recent_unusable_cache_is_refreshed_even_under_the_lock() {
     source_stores!(dir, store, {
-        for replaced_by_another_writer in [false, true] {
+        for (replaced_by_another_writer, invalid_inventory) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
             let completed = seed_store(&store);
             let now = completed + chrono::Duration::hours(2);
-            let mut empty = source_fixture();
-            for assignment in &mut empty.assignments {
-                assignment.started_at = None;
-                assignment.passed_at = None;
-                assignment.burned_at = None;
-                assignment.srs_stage = 0;
+            let mut unusable = source_fixture();
+            if invalid_inventory {
+                unusable.subjects[2].characters = "x".repeat(257);
+            } else {
+                for assignment in &mut unusable.assignments {
+                    assignment.started_at = None;
+                    assignment.passed_at = None;
+                    assignment.burned_at = None;
+                    assignment.srs_stage = 0;
+                }
             }
-            empty.sync_completed_at = now;
-            let empty = Arc::new(empty);
+            unusable.sync_completed_at = now;
+            unusable.validate().unwrap();
+            let unusable = Arc::new(unusable);
             if !replaced_by_another_writer {
                 store
                     .begin_sync()
                     .unwrap()
-                    .replace(Arc::clone(&empty))
+                    .replace(Arc::clone(&unusable))
                     .unwrap();
             }
             let server = MockServer::start().await;
@@ -1339,7 +1346,7 @@ async fn a_recent_cache_without_usable_vocabulary_is_refreshed_even_under_the_lo
                         store
                             .begin_sync()
                             .unwrap()
-                            .replace(Arc::clone(&empty))
+                            .replace(Arc::clone(&unusable))
                             .unwrap();
                     }
                 })
