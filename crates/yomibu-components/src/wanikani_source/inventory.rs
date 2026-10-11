@@ -8,7 +8,6 @@ use yomibu_core::domain::{
 };
 
 /// Validate observations, then map content and progress in subject ID order.
-/// Vocabulary becomes owned words, including words later excluded by policy.
 pub fn map_content_and_progress(
     source: &WaniKaniSyncData,
 ) -> Result<impl Iterator<Item = (MappedContent, Option<LearnerProgress>)> + '_, ValidationError> {
