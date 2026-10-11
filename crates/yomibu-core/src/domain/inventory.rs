@@ -68,7 +68,7 @@ pub struct ManualInventory {
 }
 #[derive(Debug, Serialize)]
 pub struct ExcludedMaterial {
-    pub subject_id: u64,
+    pub origin: SourceOrigin,
     pub reason: ExclusionReason,
 }
 #[derive(Debug, Serialize)]

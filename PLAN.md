@@ -1,6 +1,6 @@
 # Current plan
 
-As of 2026-10-07. Use [README](README.md) for commands,
+Use [README](README.md) for commands,
 [ARCHITECTURE](ARCHITECTURE.md#current-module-map) for code, and [SPEC](SPEC.md) for contracts.
 
 ## Current status
@@ -12,11 +12,15 @@ exercises or assess naturalness, meaning in context, or comprehension.
 
 ## Remaining work
 
+- Align vocabulary content with explicit spelling, reading, and sense; preserve
+  unresolved source alternatives. Add SQLite import/write and common learner-read
+  paths, replacing generation-time source refresh. See the
+  [knowledge storage direction](SPEC.md#knowledge-storage-direction).
 - Compare local dense and hosted retrieval before choosing a default model.
   Only the nonsemantic lexical baseline has been measured. See [retrieval](docs/RETRIEVAL.md).
 - Validated generation needs better linguistic evidence, quality review, candidate
   selection, and bounded repair. See [future design](ARCHITECTURE.md#future-composition).
-- Quizzes, attempt history, adaptive targets, more sources, databases, and other
+- Quizzes, attempt history, adaptive targets, more sources, and other
   interfaces remain future work. Implement them only when requested.
 
 ## Earlier evidence

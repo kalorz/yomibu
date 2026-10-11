@@ -709,7 +709,7 @@ async fn supplied_source_refresh_reuses_client_and_invalidates_prepared_embeddin
             }
         }
         assert!(
-            wanikani_source::prepare_inventory(&previous, &config.pipeline.knowledge_policy)
+            wanikani_source::project_inventory(&previous, &config.pipeline.knowledge_policy)
                 .unwrap()
                 .vocabulary
                 .is_empty()

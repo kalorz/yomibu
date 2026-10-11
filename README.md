@@ -75,6 +75,7 @@ Quick tests without a dictionary:
 
 ```sh
 cargo test --locked -p yomibu-core --test knowledge --test inventory
+cargo test --locked -p yomibu-components --test wanikani_inventory
 ```
 
 The full suite needs Python 3.8+ and the pinned dictionary. Setup downloads about

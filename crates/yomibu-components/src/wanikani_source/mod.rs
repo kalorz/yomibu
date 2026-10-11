@@ -1,8 +1,8 @@
-//! WaniKani v2 retrieval. Transport shapes and credentials stay inside this adapter.
+//! WaniKani retrieval and inventory projection. Transport shapes and credentials stay here.
 mod dto;
 mod inventory;
 
-pub use inventory::prepare_inventory;
+pub use inventory::{ProjectionError, project_inventory};
 
 use chrono::{DateTime, Utc};
 use reqwest::{
@@ -56,8 +56,6 @@ pub enum Error {
     ResponseTooLarge { endpoint: &'static str },
     #[error("Invalid WaniKani sync data: {0}")]
     InvalidSyncData(#[from] ValidationError),
-    #[error("Invalid WaniKani inventory: {0}")]
-    InvalidInventory(#[from] yomibu_core::domain::inventory::InventoryError),
 }
 
 /// Reusable authenticated client with sequential requests and bounded retries.

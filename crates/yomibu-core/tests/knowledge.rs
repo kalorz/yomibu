@@ -4,7 +4,7 @@ use yomibu_core::domain::knowledge::{
 };
 
 #[test]
-fn lifecycle_milestones_are_independent_of_an_explicit_known_declaration() {
+fn policy_distinguishes_missing_progress_learning_start_and_first_pass() {
     use KnowledgeDecision::{Eligible, Excluded};
     let lesson = LearnerKnowledgePolicy::LessonStarted;
     let passed = LearnerKnowledgePolicy::RecordedPass;
@@ -22,7 +22,12 @@ fn lifecycle_milestones_are_independent_of_an_explicit_known_declaration() {
     );
     progress.first_passed_at = Some(Utc.timestamp_opt(2, 0).unwrap());
     assert_eq!(passed.decide(Some(&progress)), Eligible);
-    assert_eq!(progress.is_marked_known, None);
+    progress.learning_started_at = None;
+    assert_eq!(passed.decide(Some(&progress)), Eligible);
+    assert_eq!(
+        lesson.decide(Some(&progress)),
+        Excluded(ExclusionReason::NoRecordedLessonStart)
+    );
 }
 
 #[test]

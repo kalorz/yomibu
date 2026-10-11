@@ -292,14 +292,12 @@ The common progress facts are `is_marked_known`, `learning_started_at`,
 declarations override milestone policy; neither milestones nor declarations prove mastery.
 Provider stages and raw observations remain preserved source data.
 
-The next content-model change will identify vocabulary by spelling, reading, and
-sense. Preserve unresolved source alternatives until their mapping is supported.
-Current inventories still retain unpaired alternatives.
+Stored vocabulary entries identify spelling, reading, and sense. Preserve
+unresolved source alternatives until their mapping is supported.
 
 Explicit imports will own fetching, mapping, and transactional writes. Knowledge
 preparation will read common content and progress for an explicit learner, without
-provider calls. Removing generation-time refresh and adding SQL storage remain
-subsequent changes. Database constraints enforce relationships; Rust validates content.
+provider calls. Database constraints enforce relationships; Rust validates content.
 
 ## WaniKani synchronization
 

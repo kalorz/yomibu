@@ -38,9 +38,9 @@ pub(super) fn prepare_inventory(
     }
     match (source, manual) {
         (Some(source), Some(manual)) => {
-            Ok(wanikani::prepare_inventory(source, policy)?.merge(manual)?)
+            Ok(wanikani::project_inventory(source, policy)?.merge(manual)?)
         }
-        (Some(source), None) => Ok(wanikani::prepare_inventory(source, policy)?),
+        (Some(source), None) => Ok(wanikani::project_inventory(source, policy)?),
         (None, Some(manual)) => Ok(manual),
         (None, None) => Err(ApplicationError::Setup {
             issues: vec![SetupIssue {

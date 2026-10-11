@@ -63,7 +63,7 @@ pub(super) fn usable_cache(
     now: DateTime<Utc>,
 ) -> bool {
     !access_expired(data, now)
-        && wanikani::prepare_inventory(data, policy)
+        && wanikani::project_inventory(data, policy)
             .is_ok_and(|inventory| !inventory.vocabulary.is_empty())
 }
 

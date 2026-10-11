@@ -37,7 +37,7 @@ fn inventory_rejects_duplicate_ids_dangling_bindings_and_blank_values() {
 }
 
 #[test]
-fn typed_exclusion_reasons_serialize_with_source_independent_codes() {
+fn exclusions_serialize_source_identity_and_source_independent_reasons() {
     use yomibu_core::domain::inventory::ExcludedMaterial;
     use yomibu_core::domain::knowledge::ExclusionReason;
     for (reason, code) in [
@@ -52,12 +52,12 @@ fn typed_exclusion_reasons_serialize_with_source_independent_codes() {
         (ExclusionReason::NoRecordedPass, "NoRecordedPass"),
     ] {
         let excluded = ExcludedMaterial {
-            subject_id: 42,
+            origin: SourceOrigin::Wanikani { subject_id: 42 },
             reason,
         };
         assert_eq!(
             serde_json::to_value(excluded).unwrap(),
-            json!({"subject_id":42,"reason":code})
+            json!({"origin":{"kind":"wanikani","subject_id":42},"reason":code})
         );
     }
 }
