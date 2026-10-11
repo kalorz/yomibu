@@ -113,6 +113,15 @@ pub enum ApplicationError {
     Evaluation(#[from] yomibu_core::domain::evaluation::EvaluationError),
 }
 
+impl From<wanikani::ProjectionError> for ApplicationError {
+    fn from(error: wanikani::ProjectionError) -> Self {
+        match error {
+            wanikani::ProjectionError::Source(error) => Self::Validation(error),
+            wanikani::ProjectionError::Inventory(error) => Self::Inventory(error),
+        }
+    }
+}
+
 impl From<yomibu_components::http_embeddings::BuildError> for ApplicationError {
     fn from(error: yomibu_components::http_embeddings::BuildError) -> Self {
         use yomibu_components::http_embeddings::BuildError;

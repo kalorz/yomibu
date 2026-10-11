@@ -1,5 +1,8 @@
-//! WaniKani v2 retrieval. Transport shapes and credentials stay inside this adapter.
+//! WaniKani retrieval and inventory projection. Transport shapes and credentials stay here.
 mod dto;
+mod inventory;
+
+pub use inventory::{ProjectionError, project_inventory};
 
 use chrono::{DateTime, Utc};
 use reqwest::{

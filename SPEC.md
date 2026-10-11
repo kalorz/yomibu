@@ -275,6 +275,30 @@ For future validated generation:
 - Start with existing modules; new crates or repositories need an actual responsibility.
   In-process extension contracts do not provide a sandbox.
 
+### Knowledge storage direction
+
+Use SQLite locally and PostgreSQL for hosted storage, with separate SQL migrations.
+Existing local data is disposable development/test input; no conversion tooling is needed.
+
+`learners` own `source_learner_profiles` and `source_learner_progress`.
+`source_collections` contain shared or private `source_subjects`; content and
+learner progress remain separate. Vocabulary entries have translations and examples;
+grammar entries have descriptions, examples, and optional assessment rule codes.
+Embedding profiles identify the model; vectors belong to vocabulary or grammar entries.
+No canonical dictionary or provider-independent sense equivalence is required.
+
+The common progress facts are `is_marked_known`, `learning_started_at`,
+`first_passed_at`, and `is_hidden`. Hidden progress is excluded. Explicit known/unknown
+declarations override milestone policy; neither milestones nor declarations prove mastery.
+Provider stages and raw observations remain preserved source data.
+
+Stored vocabulary entries identify spelling, reading, and sense. Preserve
+unresolved source alternatives until their mapping is supported.
+
+Explicit imports will own fetching, mapping, and transactional writes. Knowledge
+preparation will read common content and progress for an explicit learner, without
+provider calls. Database constraints enforce relationships; Rust validates content.
+
 ## WaniKani synchronization
 
 Supported platforms are macOS and Linux. Use one account per data directory and
