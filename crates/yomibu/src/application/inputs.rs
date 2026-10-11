@@ -112,3 +112,32 @@ impl<'de> serde::Deserialize<'de> for RequestTopic {
         <Option<StoryTopic> as serde::Deserialize>::deserialize(deserializer).map(Self::Supplied)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_preparation_preserves_mapping_and_inventory_error_categories() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../tests/fixtures/mixed.json")).unwrap();
+        let mut source: WaniKaniSyncData =
+            serde_json::from_value(fixture["snapshot"].clone()).unwrap();
+        let now = source.sync_completed_at;
+        source.subjects[2].characters = "x".repeat(257);
+        let error = prepare_inventory(&LearnerKnowledgePolicy::default(), Some(&source), None, now)
+            .unwrap_err();
+        assert!(matches!(error, ApplicationError::Inventory(_)), "{error:?}");
+        assert_eq!(
+            error.to_string(),
+            "Invalid learner inventory: invalid or duplicate vocabulary entry."
+        );
+        source.learner.id.clear();
+        let error = prepare_inventory(&LearnerKnowledgePolicy::default(), Some(&source), None, now)
+            .unwrap_err();
+        assert!(
+            matches!(error, ApplicationError::Validation(_)),
+            "{error:?}"
+        );
+    }
+}

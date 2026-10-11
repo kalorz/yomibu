@@ -28,14 +28,6 @@ pub struct InventoryWord {
     pub origin: SourceOrigin,
 }
 
-/// Mapped content retains provenance even when it cannot supply vocabulary.
-#[derive(Debug)]
-pub enum MappedContent {
-    Vocabulary(InventoryWord),
-    NonVocabulary(SourceOrigin),
-    Unavailable(SourceOrigin),
-}
-
 impl InventoryWord {
     /// Hiragana-to-katakana comparison form; original source readings stay intact.
     pub fn analyzer_readings(&self) -> Vec<String> {
@@ -44,6 +36,14 @@ impl InventoryWord {
             .map(|reading| analyzer_reading(reading))
             .collect()
     }
+}
+
+/// Mapped content retains provenance even when it cannot supply vocabulary.
+#[derive(Debug)]
+pub enum MappedContent {
+    Vocabulary(InventoryWord),
+    NonVocabulary(SourceOrigin),
+    Unavailable(SourceOrigin),
 }
 
 pub fn analyzer_reading(reading: &str) -> String {

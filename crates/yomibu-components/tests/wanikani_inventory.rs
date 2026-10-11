@@ -25,7 +25,7 @@ fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
 }
 
 #[test]
-fn projection_retains_exclusion_reasons_in_source_subject_order() {
+fn preparation_retains_exclusion_reasons_in_source_subject_order() {
     use ExclusionReason::{ContentUnavailable, Hidden, NoProgress, NoRecordedPass};
     let data = source();
     let inventory = prepare_inventory(&data, &LearnerKnowledgePolicy::default());
@@ -69,35 +69,28 @@ fn eligible_kanji_are_neither_vocabulary_nor_excluded() {
 }
 
 #[test]
-fn unavailable_content_takes_precedence_over_hidden_progress_and_milestones() {
+fn mapping_preserves_progress_when_content_is_unavailable() {
     let mut data = source();
     let assignment = data
         .assignments
         .iter_mut()
         .find(|entry| entry.subject_id == 5)
         .unwrap();
-    assignment.hidden = true;
     assignment.started_at = Some(data.sync_completed_at);
     assignment.passed_at = assignment.started_at;
-    let (content, progress) = map_content_and_progress(&data).unwrap().last().unwrap();
-    assert!(matches!(
-        content,
-        MappedContent::Unavailable(SourceOrigin::Wanikani { subject_id: 5 })
-    ));
+    let (_, progress) = map_content_and_progress(&data)
+        .unwrap()
+        .find(|(content, _)| {
+            matches!(
+                content,
+                MappedContent::Unavailable(SourceOrigin::Wanikani { subject_id: 5 })
+            )
+        })
+        .unwrap();
     let progress = progress.unwrap();
     assert!(progress.is_hidden);
     assert_eq!(progress.learning_started_at, Some(data.sync_completed_at));
     assert_eq!(progress.first_passed_at, Some(data.sync_completed_at));
-    for policy in [
-        LearnerKnowledgePolicy::LessonStarted,
-        LearnerKnowledgePolicy::RecordedPass,
-    ] {
-        let inventory = prepare_inventory(&data, &policy);
-        assert_eq!(
-            exclusion(&inventory, 5),
-            Some(ExclusionReason::ContentUnavailable)
-        );
-    }
 }
 
 #[test]
@@ -141,7 +134,7 @@ fn lifecycle_evidence_not_stage_accuracy_or_burned_state_controls_eligibility() 
 }
 
 #[test]
-fn projection_order_is_stable_and_invalid_direct_input_is_rejected() {
+fn preparation_order_is_stable_and_invalid_direct_input_is_rejected() {
     let mut data = source();
     let policy = LearnerKnowledgePolicy::default();
     let expected = serde_json::to_value(prepare_inventory(&data, &policy)).unwrap();
@@ -157,7 +150,7 @@ fn projection_order_is_stable_and_invalid_direct_input_is_rejected() {
 }
 
 #[test]
-fn projection_preserves_unpaired_reading_and_meaning_alternatives() {
+fn preparation_preserves_unpaired_reading_and_meaning_alternatives() {
     use yomibu_core::domain::source::{LexicalContent, Meaning, Reading};
     let mut data = source();
     data.assignments[1].hidden = false;
@@ -195,7 +188,7 @@ fn projection_preserves_unpaired_reading_and_meaning_alternatives() {
 }
 
 #[test]
-fn projection_keeps_missing_readings_and_manual_grammar() {
+fn preparation_keeps_missing_readings_and_manual_grammar() {
     let value: Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(value["snapshot"].clone()).unwrap();

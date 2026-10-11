@@ -15,38 +15,6 @@ use yomibu_core::{
     },
 };
 
-#[test]
-fn mapping_and_preparation_errors_preserve_domain_validation_at_the_application_boundary() {
-    use yomibu::application::ApplicationError;
-    use yomibu_core::domain::{knowledge::LearnerKnowledgePolicy, source::WaniKaniSyncData};
-    let fixture: Value =
-        serde_json::from_str(include_str!("../../../tests/fixtures/mixed.json")).unwrap();
-    let mut source: WaniKaniSyncData = serde_json::from_value(fixture["snapshot"].clone()).unwrap();
-    source.subjects[2].characters = "x".repeat(257);
-    let error = ApplicationError::from(
-        LearnerInventory::from_mapped(
-            wanikani_source::map_content_and_progress(&source).unwrap(),
-            &LearnerKnowledgePolicy::default(),
-        )
-        .unwrap_err(),
-    );
-    assert!(matches!(error, ApplicationError::Inventory(_)), "{error:?}");
-    assert_eq!(
-        error.to_string(),
-        "Invalid learner inventory: invalid or duplicate vocabulary entry."
-    );
-    source.learner.id.clear();
-    let error = ApplicationError::from(
-        wanikani_source::map_content_and_progress(&source)
-            .err()
-            .unwrap(),
-    );
-    assert!(
-        matches!(error, ApplicationError::Validation(_)),
-        "{error:?}"
-    );
-}
-
 #[tokio::test]
 async fn current_story_request_matches_the_reviewed_prompt_and_payload_snapshot() {
     let inventory = LearnerInventory::from_manual(
