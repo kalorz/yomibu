@@ -63,7 +63,7 @@ The generation component's optional model resolves independently, then falls bac
 to `pipeline.model` (`--model`). Thus a saved generation model beats a CLI shared
 model. `--openai-model` and `YOMIBU_OPENAI_MODEL` come from the component declaration.
 Automatic sync uses `--sync true|false`, `YOMIBU_SYNC`, or `[application].sync`
-(default `true`), in that order. Mandatory core validation cannot be disabled.
+(default `true`), in that order.
 
 Credentials belong to components. Names generate `--<component>-<credential>` and
 `YOMIBU_<COMPONENT>_<CREDENTIAL>` inputs. The components are `openai` and `wanikani`,

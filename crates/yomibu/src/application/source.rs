@@ -1,5 +1,5 @@
 use super::{
-    local::{ApplicationError, SetupIssue},
+    local::ApplicationError,
     progress::{ProgressEvent, RunProgress, Step},
 };
 use crate::configuration::Configuration;
@@ -64,7 +64,7 @@ fn can_reuse_cache(config: &Configuration, data: &WaniKaniSyncData, now: DateTim
 
 pub(super) async fn prepare_source<Store: LearningStore, F: FnMut(ProgressEvent)>(
     config: &Configuration,
-    source_client: SourceClient<'_>,
+    mut source_client: SourceClient<'_>,
     store: Option<&Store>,
     previous: Option<Arc<WaniKaniSyncData>>,
     now: DateTime<Utc>,
@@ -84,19 +84,27 @@ where
         progress.skip(Step::Sync, "Cache is fresh");
         return Ok(previous);
     }
-    let key = match &source_client {
-        SourceClient::Local { credentials, .. } if config.application.sync => {
-            credentials.source()?
+    let mut local_client;
+    let client = if config.application.sync {
+        match &mut source_client {
+            SourceClient::Local {
+                credentials,
+                endpoint,
+            } => {
+                if let Some(key) = credentials.source()? {
+                    local_client = config.pipeline.components.source.client(key, endpoint)?;
+                    Some(&mut local_client)
+                } else {
+                    None
+                }
+            }
+            SourceClient::Supplied(client) => Some(&mut **client),
+            SourceClient::Unavailable => None,
         }
-        _ => None,
+    } else {
+        None
     };
-    let available = config.application.sync
-        && match &source_client {
-            SourceClient::Local { .. } => key.is_some(),
-            SourceClient::Supplied(_) => true,
-            SourceClient::Unavailable => false,
-        };
-    if !available {
+    let Some(client) = client else {
         if previous
             .as_ref()
             .is_some_and(|data| access_expired(data, now))
@@ -118,26 +126,8 @@ where
         }
         progress.skip(Step::Sync, reason);
         return Ok(previous);
-    }
-    let started = progress.start(Step::Sync);
-    let mut local_client;
-    let client = match source_client {
-        SourceClient::Local { endpoint, .. } => {
-            local_client = config.pipeline.components.source.client(
-                key.ok_or_else(|| ApplicationError::Setup {
-                    issues: vec![SetupIssue::Credential(wanikani::API_KEY)],
-                })?,
-                endpoint,
-            )?;
-            &mut local_client
-        }
-        SourceClient::Supplied(client) => client,
-        SourceClient::Unavailable => {
-            return Err(ApplicationError::Setup {
-                issues: vec![SetupIssue::Inventory],
-            });
-        }
     };
+    let started = progress.start(Step::Sync);
     let guard = match store.begin_sync() {
         Ok(guard) => guard,
         Err(error)
@@ -161,6 +151,7 @@ where
         .as_ref()
         .is_some_and(|data| can_reuse_cache(config, data, now))
     {
+        progress.skip(Step::Sync, "Another writer refreshed the cache");
         progress.finish(Step::Sync, started);
         return Ok(rechecked);
     }

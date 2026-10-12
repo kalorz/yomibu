@@ -32,13 +32,36 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
                 SetupIssue::Inventory => ("Learner vocabulary".into(), INVENTORY_GUIDANCE.into()),
                 SetupIssue::Credential(key) => (key.name.key(), credential_guidance(*key)),
             };
-            message.push_str(&format!(
-                "  {}:\n    {}\n",
-                name.escape_debug(),
-                guidance.escape_debug()
-            ));
+            message.push_str(&format!("  {name}:\n    {guidance}\n"));
         }
         return anyhow!("{}", message.trim_end());
     }
     anyhow!("{}", format!("{error:#}").escape_debug())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yomibu::{application::ApplicationError, configuration::components::OptionKey};
+
+    #[test]
+    fn setup_guidance_preserves_trusted_punctuation_and_layout() {
+        let error = ApplicationError::Setup {
+            issues: vec![SetupIssue::Credential(OptionKey::new(
+                "example",
+                "api-key",
+                "Learner's 日本語 key.\n    Use the \"reading\" key.",
+            ))],
+        };
+        assert_eq!(
+            command_error(error.into()).to_string(),
+            concat!(
+                "Missing required setup:\n",
+                "  example.api-key:\n",
+                "    Learner's 日本語 key.\n",
+                "    Use the \"reading\" key. Supply --example-api-key or YOMIBU_EXAMPLE_API_KEY. ",
+                "On macOS, run yomibu auth example.",
+            )
+        );
+    }
 }

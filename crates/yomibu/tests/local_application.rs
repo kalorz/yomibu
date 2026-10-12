@@ -1304,6 +1304,7 @@ async fn supplied_source_freshness_is_rechecked_under_the_lock_after_another_wri
             wanikani_source::Client::with_base_url("wk", &format!("{}/v2/", server.uri())).unwrap();
         let config = config(dir.path(), ProcessOverrides::default());
         let now = completed + chrono::Duration::hours(2);
+        let mut events = Vec::new();
         let report = run_story(
             &config,
             source_story_inputs(),
@@ -1321,6 +1322,7 @@ async fn supplied_source_freshness_is_rechecked_under_the_lock_after_another_wri
                     data.sync_completed_at = now;
                     writer.replace(data.into()).unwrap();
                 }
+                events.push(event);
             },
         )
         .await
@@ -1328,6 +1330,12 @@ async fn supplied_source_freshness_is_rechecked_under_the_lock_after_another_wri
         assert_eq!(store.load().unwrap().sync_completed_at, now);
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         assert!(report.warnings.is_empty());
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ProgressEvent::Skipped { step: Step::Sync, reason }
+                if reason == "Another writer refreshed the cache"
+        )));
+        assert_completed_steps(&events);
     });
 }
 
