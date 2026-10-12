@@ -1,10 +1,8 @@
 pub mod components;
 mod documents;
 mod invocation;
-pub mod modules;
 mod options;
 mod patch;
-use self::modules::ModuleId;
 use crate::application::Operation;
 pub use invocation::*;
 pub use options::OptionOverrides;
@@ -27,8 +25,7 @@ pub const ENVIRONMENT_SETTINGS: &[&str] = &[
     "YOMIBU_FORMAT",
     "YOMIBU_CANDIDATES",
     "YOMIBU_CACHE_MAX_AGE_SECONDS",
-    "YOMIBU_ENABLE",
-    "YOMIBU_DISABLE",
+    "YOMIBU_SYNC",
 ];
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -52,10 +49,6 @@ macro_rules! parse_setting {
     };
 }
 parse_setting!(KnowledgePolicy, "Choose lesson-started or recorded-pass.");
-parse_setting!(
-    ModuleId,
-    "Choose a supported module shown in yomibu help story."
-);
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -65,10 +58,6 @@ pub struct ProcessOverrides {
     pub invocation: Invocation,
     #[serde(skip)]
     pub request: Option<PathBuf>,
-    #[serde(skip)]
-    pub enable: Vec<ModuleId>,
-    #[serde(skip)]
-    pub disable: Vec<ModuleId>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -144,8 +133,6 @@ pub enum ConfigError {
         name: String,
         error: components::OptionError,
     },
-    #[error("Cannot both enable and disable {module} in the same configuration source.")]
-    ConflictingControl { module: &'static str },
     #[error("{0}")]
     InvalidSetting(&'static str),
 }
@@ -202,26 +189,6 @@ impl Configuration {
         mut flags: ProcessOverrides,
         operation: &Operation,
     ) -> Result<Self, ConfigError> {
-        if operation.uses_setting("enable") {
-            for source in [&mut env, &mut flags] {
-                for id in source.enable.iter().chain(&source.disable) {
-                    let setting = match id {
-                        ModuleId::Sync => &mut source.application.sync,
-                        ModuleId::Knowledge | ModuleId::Generation => {
-                            return Err(ConfigError::InvalidSetting(
-                                "Only sync can be enabled or disabled.",
-                            ));
-                        }
-                    };
-                    if source.enable.contains(id) && source.disable.contains(id) {
-                        return Err(ConfigError::ConflictingControl {
-                            module: id.metadata().name,
-                        });
-                    }
-                    *setting = Some(source.enable.contains(id));
-                }
-            }
-        }
         macro_rules! setting {
             ($field:ident) => {
                 flags
@@ -245,7 +212,7 @@ impl Configuration {
                 } else {
                     None
                 }
-                .unwrap_or(ModuleId::Sync.metadata().default_enabled),
+                .unwrap_or(true),
                 data_dir,
             }),
             pipeline: PipelineSettings {
@@ -285,13 +252,6 @@ impl Configuration {
             },
         )
     }
-
-    pub fn enabled(&self, id: ModuleId) -> bool {
-        match id {
-            ModuleId::Knowledge | ModuleId::Generation => true,
-            ModuleId::Sync => self.application.sync,
-        }
-    }
 }
 
 fn environment_settings(
@@ -330,6 +290,7 @@ fn environment_settings(
         let pipeline = &mut input.invocation.pipeline;
         let story = &mut input.invocation.story;
         match name.as_str() {
+            "YOMIBU_SYNC" => set!(application.sync),
             "YOMIBU_MODEL" => set!(pipeline.model),
             "YOMIBU_INVENTORY" => set!(application.inventory),
             "YOMIBU_WANIKANI_CACHE" => set!(application.wanikani_cache),
@@ -341,18 +302,6 @@ fn environment_settings(
             "YOMIBU_FORMAT" => set!(story.format),
             "YOMIBU_CANDIDATES" => set!(story.candidates),
             "YOMIBU_CACHE_MAX_AGE_SECONDS" => set!(application.cache_max_age_seconds),
-            "YOMIBU_ENABLE" | "YOMIBU_DISABLE" if operation.uses_setting("enable") => {
-                let modules = text
-                    .split(',')
-                    .map(|id| id.trim().parse())
-                    .collect::<Result<_, _>>()
-                    .map_err(|_| ConfigError::Environment { name: name.clone() })?;
-                if name == "YOMIBU_ENABLE" {
-                    input.enable = modules;
-                } else {
-                    input.disable = modules;
-                }
-            }
             _ => {}
         }
     }

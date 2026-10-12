@@ -14,14 +14,14 @@ use wiremock::{
 use yomibu::{
     application::{
         ApplicationError, CredentialError, Credentials, LocalApp, Operation, ServiceEndpoints,
-        StoryInputs, StoryResources,
+        SetupIssue, StoryInputs, StoryResources,
         progress::{ProgressEvent, Step},
         run_story,
     },
     configuration::{
-        Configuration, ConfigurationInput, Invocation, Patch, ProcessOverrides,
+        ApplicationOverrides, Configuration, ConfigurationInput, Invocation, Patch,
+        ProcessOverrides,
         components::{GENERATION_KEY, GENERATION_MODEL, SOURCE_KEY},
-        modules::{ModuleId, ModuleState},
     },
 };
 use yomibu_components::{
@@ -95,10 +95,9 @@ async fn missing_setup_is_aggregated_before_network_or_writes_and_secrets_are_re
     let ApplicationError::Setup { issues } = error else {
         panic!("{error:?}")
     };
-    assert_eq!(
-        issues.iter().map(|issue| issue.module).collect::<Vec<_>>(),
-        [ModuleId::Sync, ModuleId::Generation]
-    );
+    assert!(matches!(issues.as_slice(),
+        [SetupIssue::Credential(source), SetupIssue::Credential(generation)]
+        if source.name == SOURCE_KEY.name && generation.name == GENERATION_KEY.name));
     assert!(!data.exists());
     assert!(
         !format!(
@@ -118,7 +117,10 @@ async fn disabling_sync_without_knowledge_reports_the_missing_inventory_instead_
         config(
             &data,
             ProcessOverrides {
-                disable: vec![ModuleId::Sync],
+                application: ApplicationOverrides {
+                    sync: Some(false),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         ),
@@ -131,10 +133,9 @@ async fn disabling_sync_without_knowledge_reports_the_missing_inventory_instead_
     else {
         panic!("expected setup issues")
     };
-    assert_eq!(
-        issues.iter().map(|issue| issue.module).collect::<Vec<_>>(),
-        [ModuleId::Knowledge, ModuleId::Generation]
-    );
+    assert!(matches!(issues.as_slice(),
+        [SetupIssue::Inventory, SetupIssue::Credential(generation)]
+        if generation.name == GENERATION_KEY.name));
     assert!(!data.exists());
 }
 
@@ -284,9 +285,7 @@ async fn supplied_source_none_reports_missing_knowledge_without_fetching() {
     let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
     for sync in [true, false] {
         let mut flags = ProcessOverrides::default();
-        if !sync {
-            flags.disable.push(ModuleId::Sync);
-        }
+        flags.application.sync = Some(sync);
         let config = config(&data, flags);
         let error = run_story(
             &config,
@@ -303,7 +302,7 @@ async fn supplied_source_none_reports_missing_knowledge_without_fetching() {
         .await
         .unwrap_err();
         assert!(matches!(error, ApplicationError::Setup { issues }
-            if issues.len() == 1 && issues[0].module == ModuleId::Knowledge));
+            if matches!(issues.as_slice(), [SetupIssue::Inventory])));
         assert!(server.received_requests().await.unwrap().is_empty());
         assert!(!data.exists());
     }
@@ -520,7 +519,7 @@ async fn supplied_story_inputs_ignore_local_paths_and_choose_source_participatio
                 report
                     .warnings
                     .iter()
-                    .any(|warning| warning.module == ModuleId::Sync
+                    .any(|warning| warning.step == Step::Sync
                         && warning.message.contains("source client"))
             );
         }
@@ -644,7 +643,7 @@ async fn invalid_supplied_inputs_do_not_access_stores_or_http() {
                 matches!(error, ApplicationError::Story(StoryError::Invalid(_))),
             InvalidInput::ManualInventory => matches!(error, ApplicationError::Inventory(_)),
             InvalidInput::MissingKnowledge => matches!(error, ApplicationError::Setup { issues }
-                if issues.len() == 1 && issues[0].module == ModuleId::Knowledge),
+                if matches!(issues.as_slice(), [SetupIssue::Inventory])),
         });
     }
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
@@ -718,13 +717,11 @@ async fn invocation_overrides_leave_the_base_app_unchanged_and_reuse_its_cache()
             .await
             .unwrap();
         assert!(
-            report
-                .modules
+            events
                 .iter()
-                .find(|module| module.metadata.id == ModuleId::Sync)
-                .unwrap()
-                .required
+                .any(|event| matches!(event, ProgressEvent::Started { step: Step::Sync }))
         );
+
         assert_eq!(
             report.generated.passages()[0].text,
             "猫です。寝ます。朝です。"
@@ -736,22 +733,27 @@ async fn invocation_overrides_leave_the_base_app_unchanged_and_reuse_its_cache()
         );
         assert!(!events.is_empty());
         assert_completed_steps(&events);
-        let cached_report = { app.story(&store, SystemTime::now().into(), 7, |_| {}) }
-            .await
-            .unwrap();
+        let mut cached_events = Vec::new();
+        let cached_report = {
+            app.story(&store, SystemTime::now().into(), 7, |event| {
+                cached_events.push(event)
+            })
+        }
+        .await
+        .unwrap();
         assert!(cached_report.request.topic.is_none());
         assert_eq!(
             cached_report.generated.provenance().requested_model,
             base_model
         );
+        assert!(cached_events.iter().any(|event| matches!(event,
+            ProgressEvent::Skipped { step: Step::Sync, reason } if reason == "Cache is fresh")));
         assert!(
-            !cached_report
-                .modules
+            !cached_events
                 .iter()
-                .find(|module| module.metadata.id == ModuleId::Sync)
-                .unwrap()
-                .required
+                .any(|event| matches!(event, ProgressEvent::Started { step: Step::Sync }))
         );
+        assert_completed_steps(&cached_events);
         let requests = server.received_requests().await.unwrap();
         assert_eq!(
             requests
@@ -956,7 +958,10 @@ async fn usable_old_cache_needs_no_source_key_and_disabled_sync_never_initialize
             (ProcessOverrides::default(), None),
             (
                 ProcessOverrides {
-                    disable: vec![ModuleId::Sync],
+                    application: ApplicationOverrides {
+                        sync: Some(false),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 Some("invalid\ncredential".into()),
@@ -1320,15 +1325,7 @@ async fn supplied_source_freshness_is_rechecked_under_the_lock_after_another_wri
         )
         .await
         .unwrap();
-        assert!(matches!(
-            report
-                .modules
-                .iter()
-                .find(|module| module.metadata.id == ModuleId::Sync)
-                .unwrap()
-                .state,
-            ModuleState::Skipped { .. }
-        ));
+        assert_eq!(store.load().unwrap().sync_completed_at, now);
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
         assert!(report.warnings.is_empty());
     });

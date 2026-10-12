@@ -62,9 +62,8 @@ ENV clear sentinel. Empty strings do not mean clear.
 The generation component's optional model resolves independently, then falls back
 to `pipeline.model` (`--model`). Thus a saved generation model beats a CLI shared
 model. `--openai-model` and `YOMIBU_OPENAI_MODEL` come from the component declaration.
-Repeat `--enable` / `--disable` for sync; ENV controls are comma-separated.
-A same-source enable/disable conflict fails. Mandatory core validation cannot be
-disabled.
+Automatic sync uses `--sync true|false`, `YOMIBU_SYNC`, or `[application].sync`
+(default `true`), in that order. Mandatory core validation cannot be disabled.
 
 Credentials belong to components. Names generate `--<component>-<credential>` and
 `YOMIBU_<COMPONENT>_<CREDENTIAL>` inputs. The components are `openai` and `wanikani`,
@@ -138,8 +137,8 @@ conditional/incremental requests remain deferred.
 
 ## Output
 
-Normal stdout contains the passage; warnings use stderr. `--verbose` adds module
-states, progress and monotonic step timings to stdout.
+Normal stdout contains the passage; warnings use stderr. `--verbose` adds progress,
+monotonic step timings and generation details to stdout.
 Provider/preflight failures exit 1; parsing failures exit 2.
 Reports retain assembled text, provenance and sentence byte ranges. Terminal
 escaping keeps Japanese readable. Prompt revision is `story-inventory-v3`.

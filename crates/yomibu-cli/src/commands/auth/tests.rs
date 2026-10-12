@@ -26,8 +26,8 @@ fn configuration(application: &str, pipeline: &str, environment: &[(&str, &str)]
 }
 
 #[test]
-fn setup_honors_environment_controls_and_keeps_component_keys_separate() {
-    let config = configuration("", "", &[("YOMIBU_DISABLE", "sync")]);
+fn setup_honors_sync_setting_and_keeps_component_keys_separate() {
+    let config = configuration("", "", &[("YOMIBU_SYNC", "false")]);
     let needs = pending(
         &Target::Missing(config.credential_requirements().collect()),
         &Credentials::default(),

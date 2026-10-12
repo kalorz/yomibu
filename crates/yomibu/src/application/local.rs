@@ -6,7 +6,7 @@ use super::{
 };
 use crate::application::input_file;
 use crate::configuration::Configuration;
-use crate::configuration::modules::ModuleId;
+use crate::configuration::components::OptionKey;
 use chrono::{DateTime, Utc};
 use yomibu_components::{
     file_learning_store::cache, openai_story_generation as openai, wanikani_source as wanikani,
@@ -40,8 +40,9 @@ pub struct LocalApp {
 }
 
 #[derive(Debug)]
-pub struct SetupIssue {
-    pub module: ModuleId,
+pub enum SetupIssue {
+    Inventory,
+    Credential(OptionKey<super::Secret>),
 }
 #[derive(Debug, thiserror::Error)]
 pub enum ApplicationError {
@@ -119,7 +120,7 @@ impl LocalApp {
     where
         ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
     {
-        let mut progress = RunProgress::new(&self.config, emit);
+        let mut progress = RunProgress::new(emit);
         let started = progress.start(Step::Inputs);
         let request = inputs::read_request(&self.config)?;
         story_workflow::validate_story_request(&self.config, &request)?;

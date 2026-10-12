@@ -8,32 +8,6 @@ use yomibu::{
 };
 
 #[test]
-fn module_setup_names_match_the_component_credential_declarations() {
-    use yomibu::configuration::modules::ModuleId;
-    for (module, requirement) in [
-        (ModuleId::Sync, SOURCE_KEY),
-        (ModuleId::Generation, GENERATION_KEY),
-    ] {
-        let metadata = module.metadata();
-        for setting in [
-            format!("--{}", requirement.name.cli()),
-            requirement.name.environment(),
-        ] {
-            assert!(
-                metadata.settings.contains(&setting),
-                "Missing {setting} in {}",
-                metadata.name
-            );
-        }
-        assert!(
-            metadata
-                .guidance
-                .contains(&format!("yomibu auth {}", requirement.name.component))
-        );
-    }
-}
-
-#[test]
 fn component_credentials_follow_precedence_without_cross_component_fallback() {
     let mut credentials = Credentials::default();
     credentials.supply(GENERATION_KEY, "stored-generation".into());
@@ -132,47 +106,5 @@ fn explicit_inputs_bypass_the_store_including_blank_and_invalid_values() {
                 expected
             );
         }
-    }
-}
-
-#[test]
-fn module_help_uses_all_declared_options_and_their_credential_guidance() {
-    use yomibu::configuration::{components::COMPONENTS, modules::ModuleId};
-    for (module, id) in [
-        (ModuleId::Sync, "wanikani"),
-        (ModuleId::Generation, "openai"),
-    ] {
-        let component = COMPONENTS
-            .iter()
-            .find(|component| component.id == id)
-            .unwrap();
-        let metadata = module.metadata();
-        for setting in component.settings {
-            assert!(
-                metadata
-                    .settings
-                    .iter()
-                    .any(|s| s == &format!("--{}", setting.name().cli())),
-                "Missing {} in {}",
-                setting.name().key(),
-                metadata.name
-            );
-            if let Some(key) = setting.secret() {
-                assert!(
-                    metadata.guidance.contains(key.description),
-                    "Missing component-owned guidance for {}",
-                    key.name.key()
-                );
-            }
-        }
-        let json = serde_json::to_value(metadata).unwrap();
-        assert!(
-            json["settings"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|value| value.is_string())
-        );
-        assert_eq!(json["guidance"].as_str().unwrap(), metadata.guidance);
     }
 }

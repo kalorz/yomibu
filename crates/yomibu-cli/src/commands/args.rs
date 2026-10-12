@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
-use yomibu::configuration::{KnowledgePolicy, ProcessOverrides, StoryFormat, modules::ModuleId};
+use yomibu::configuration::{KnowledgePolicy, ProcessOverrides, StoryFormat};
 
 #[derive(Parser)]
 #[command(
@@ -19,7 +19,7 @@ pub(crate) struct Cli {
     /// Use only explicit credentials; do not read macOS Keychain.
     #[arg(long, global = true, help_heading = "Credentials")]
     pub no_keychain: bool,
-    /// Print module states, progress, and timings.
+    /// Print progress, timings, and generation details.
     #[arg(long, global = true)]
     pub verbose: bool,
     #[command(subcommand)]
@@ -59,12 +59,9 @@ pub(crate) struct StoryArgs {
     /// Number of alternatives in the single generation request (default: 1).
     #[arg(long)]
     candidates: Option<std::num::NonZeroUsize>,
-    /// Enable an optional module; repeat for multiple modules.
-    #[arg(long, value_name = "MODULE")]
-    enable: Vec<ModuleId>,
-    /// Disable an optional module; repeat for multiple modules.
-    #[arg(long, value_name = "MODULE")]
-    disable: Vec<ModuleId>,
+    /// Automatically refresh WaniKani when needed (default: true); env: YOMIBU_SYNC.
+    #[arg(long, action = clap::ArgAction::Set, value_name = "BOOL")]
+    sync: Option<bool>,
     /// Manual inventory, optionally supplementing an explicit WaniKani cache.
     #[arg(long, value_name = "PATH")]
     inventory: Option<PathBuf>,
@@ -85,11 +82,10 @@ impl StoryArgs {
     pub fn overrides(self) -> ProcessOverrides {
         let mut input = ProcessOverrides {
             request: self.request,
-            enable: self.enable,
-            disable: self.disable,
             ..Default::default()
         };
         let app = &mut input.application;
+        app.sync = self.sync;
         app.inventory = self.inventory;
         app.wanikani_cache = self.wanikani_cache;
         let pipeline = &mut input.invocation.pipeline;

@@ -1,7 +1,3 @@
-use crate::configuration::{
-    Configuration,
-    modules::{MODULES, ModuleId, ModuleReport, ModuleState},
-};
 use crate::reports::run::{SelectionReport, StepTiming, StoryRunReport, Warning};
 use serde::Serialize;
 use std::time::Instant;
@@ -24,27 +20,13 @@ pub enum ProgressEvent {
 }
 pub(super) struct RunProgress<F> {
     emit: F,
-    pub(super) modules: Vec<ModuleReport>,
     timings: Vec<StepTiming>,
     pub(super) warnings: Vec<Warning>,
 }
 impl<F: FnMut(ProgressEvent)> RunProgress<F> {
-    pub(super) fn new(config: &Configuration, emit: F) -> Self {
-        let modules = MODULES
-            .iter()
-            .map(|metadata| ModuleReport {
-                metadata,
-                required: matches!(metadata.id, ModuleId::Knowledge | ModuleId::Generation),
-                state: if config.enabled(metadata.id) {
-                    ModuleState::NotConfigured
-                } else {
-                    ModuleState::Disabled
-                },
-            })
-            .collect();
+    pub(super) fn new(emit: F) -> Self {
         Self {
             emit,
-            modules,
             timings: Vec::new(),
             warnings: Vec::new(),
         }
@@ -62,7 +44,6 @@ impl<F: FnMut(ProgressEvent)> RunProgress<F> {
             request,
             selection,
             generated,
-            modules: self.modules,
             timings: self.timings,
             warnings: self.warnings,
         }
@@ -83,16 +64,7 @@ impl<F: FnMut(ProgressEvent)> RunProgress<F> {
             reason: reason.into(),
         });
     }
-    pub(super) fn state(&mut self, id: ModuleId, state: ModuleState) {
-        if let Some(module) = self
-            .modules
-            .iter_mut()
-            .find(|module| module.metadata.id == id)
-        {
-            module.state = state;
-        }
-    }
-    pub(super) fn warn(&mut self, module: ModuleId, message: String) {
-        self.warnings.push(Warning { module, message });
+    pub(super) fn warn(&mut self, step: Step, message: String) {
+        self.warnings.push(Warning { step, message });
     }
 }

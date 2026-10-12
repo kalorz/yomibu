@@ -1,8 +1,6 @@
 use super::{ApplicationError, LocalApp, SetupIssue};
-use crate::{
-    application::{SyncReport, source},
-    configuration::modules::ModuleId,
-};
+use crate::application::{SyncReport, source};
+use yomibu_components::wanikani_source as wanikani;
 use yomibu_core::capabilities::{LearningStore, SourceSyncWriter};
 
 impl LocalApp {
@@ -11,9 +9,7 @@ impl LocalApp {
             .credentials
             .source()?
             .ok_or_else(|| ApplicationError::Setup {
-                issues: vec![SetupIssue {
-                    module: ModuleId::Sync,
-                }],
+                issues: vec![SetupIssue::Credential(wanikani::API_KEY)],
             })?;
         let mut source = self
             .config

@@ -1,4 +1,3 @@
-use super::modules::ModuleId;
 use serde::Deserialize;
 pub use yomibu_components::{COMPONENTS, settings};
 pub use yomibu_core::component::credentials::Secret;
@@ -33,7 +32,7 @@ impl super::Configuration {
     pub fn credential_requirements(&self) -> impl Iterator<Item = OptionKey<Secret>> + '_ {
         credentials().filter(|requirement| {
             if requirement.name == SOURCE_KEY.name {
-                self.enabled(ModuleId::Sync)
+                self.application.sync
             } else {
                 true
             }

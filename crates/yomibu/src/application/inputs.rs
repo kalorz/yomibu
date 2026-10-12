@@ -4,7 +4,6 @@ use super::{
 };
 use crate::application::input_file;
 use crate::configuration::Configuration;
-use crate::configuration::modules::ModuleId;
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 use std::path::Path;
@@ -47,9 +46,7 @@ pub(super) fn prepare_inventory(
         }
         (None, Some(manual)) => Ok(manual),
         (None, None) => Err(ApplicationError::Setup {
-            issues: vec![SetupIssue {
-                module: ModuleId::Knowledge,
-            }],
+            issues: vec![SetupIssue::Inventory],
         }),
     }
 }

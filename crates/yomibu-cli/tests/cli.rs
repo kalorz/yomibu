@@ -28,6 +28,8 @@ fn removed_commands_and_options_are_rejected_without_side_effects() {
         vec!["story", "--embedding-cache", "vectors.json"],
         vec!["story", "--allow-embedding-call"],
         vec!["story", "--dictionary-dir", "dictionary"],
+        vec!["story", "--enable", "sync"],
+        vec!["story", "--disable", "sync"],
         vec!["story", "--enable", "embeddings"],
         vec!["story", "--enable", "assessment"],
     ] {
@@ -49,6 +51,7 @@ fn parser_diagnostics_escape_values_and_preserve_trusted_usage_layout() {
         vec![hostile],
         vec!["story", "--candidates", hostile],
         vec!["story", "--knowledge-policy", hostile],
+        vec!["story", "--sync", hostile],
     ] {
         let mut command = cli();
         #[cfg(unix)]

@@ -65,23 +65,19 @@ fn typed_construction_keeps_defaults_without_creating_the_data_directory() {
     .unwrap();
     let application = &config.application;
     assert_eq!(application.data_dir, data_dir);
+    assert!(application.sync);
     assert_eq!(config.story.select, 12);
     assert!(!data_dir.exists());
 }
 
 #[test]
 fn typed_construction_keeps_operation_filtering_and_validation_order() {
-    use yomibu::configuration::modules::ModuleId;
     let dir = tempfile::tempdir().unwrap();
-    for (conflicting_controls, model) in [(true, ""), (false, ""), (false, "typed")] {
+    for model in ["", "typed"] {
         let overrides = || {
             let mut input = ProcessOverrides::default();
             input.invocation.pipeline.model = Some(model.into());
             input.invocation.story.select = Some(0);
-            if conflicting_controls {
-                input.enable = vec![ModuleId::Sync];
-                input.disable = vec![ModuleId::Sync];
-            }
             input
         };
         let error =
@@ -118,8 +114,7 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
         "YOMIBU_CANDIDATES",
         "YOMIBU_KNOWLEDGE_POLICY",
         "YOMIBU_CACHE_MAX_AGE_SECONDS",
-        "YOMIBU_ENABLE",
-        "YOMIBU_DISABLE",
+        "YOMIBU_SYNC",
     ] {
         let environment = BTreeMap::from([(name.into(), "wrong-type".into())]);
         assert!(
@@ -344,46 +339,6 @@ fn construction_with_defaults_neither_creates_files_nor_reads_environment() {
         PathBuf::from(&data_dir).join(".yomibu")
     );
     assert!(!data_dir.exists());
-}
-
-#[test]
-fn module_controls_override_saved_choices_but_conflicts_remain_errors() {
-    use yomibu::configuration::modules::ModuleId;
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "[application]\nsync=false\n",
-    )
-    .unwrap();
-    std::fs::write(
-        dir.path().join("default-pipeline.toml"),
-        "[pipeline.selection]\nsteps=['seeded-order']\n",
-    )
-    .unwrap();
-    let config = load_config(
-        dir.path(),
-        &yomibu::application::Operation::Story,
-        ProcessOverrides {
-            enable: vec![ModuleId::Sync],
-            ..Default::default()
-        },
-        BTreeMap::new(),
-    )
-    .unwrap();
-    assert!(config.enabled(ModuleId::Sync));
-    assert!(
-        load_config(
-            dir.path(),
-            &yomibu::application::Operation::Story,
-            ProcessOverrides {
-                enable: vec![ModuleId::Sync],
-                disable: vec![ModuleId::Sync],
-                ..Default::default()
-            },
-            BTreeMap::new()
-        )
-        .is_err()
-    );
 }
 
 #[test]
@@ -631,4 +586,29 @@ fn typed_topic_overrides_conflict_with_request_files_after_option_validation() {
         assert_eq!(config.story.topic.as_deref(), Some("saved"));
     }
     assert!(!dir.path().join("unopened.json").exists());
+}
+
+#[test]
+fn sync_boolean_resolves_flags_then_environment_then_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "[application]\nsync=false\n",
+    )
+    .unwrap();
+    for (flag, environment, expected) in [
+        (None, None, false),
+        (None, Some("true"), true),
+        (Some(false), Some("true"), false),
+        (Some(true), Some("false"), true),
+    ] {
+        let mut flags = ProcessOverrides::default();
+        flags.application.sync = flag;
+        let environment = environment
+            .map(|value| ("YOMIBU_SYNC".into(), value.into()))
+            .into_iter()
+            .collect();
+        let config = load_config(dir.path(), &Operation::Story, flags, environment).unwrap();
+        assert_eq!(config.application.sync, expected);
+    }
 }
