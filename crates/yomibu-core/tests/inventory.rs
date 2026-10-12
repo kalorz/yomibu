@@ -15,7 +15,6 @@ fn manual_inventory_keeps_original_readings_and_unknown_evidence() {
     let input: ManualInventory = serde_json::from_value(manual()).unwrap();
     let inventory = LearnerInventory::from_manual(input).unwrap();
     assert_eq!(inventory.vocabulary[0].readings, ["ねこ"]);
-    assert_eq!(inventory.vocabulary[0].analyzer_readings(), ["ネコ"]);
     assert_eq!(inventory.vocabulary[0].direct_object, None);
     assert_eq!(inventory.vocabulary[0].origin, SourceOrigin::Manual);
     assert_eq!(inventory.grammar_bindings[0].declaration_id, "topic");

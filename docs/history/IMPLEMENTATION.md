@@ -1306,7 +1306,7 @@ release measurement: **~256 MB peak process memory**.
   reuse the analyzer when that architecture is needed for the product.
 - **Implemented:** managed dictionary mapping, merged in PR #12. Explicit import
   fully verifies the installation; managed startup checks and file-stability
-  obligations follow [the dictionary contract](../DICTIONARY.md). Explicit
+  obligations follow [the dictionary contract](https://github.com/kalorz/yomibu/blob/7239de7517ab5be23193030b6d12f64a1f57fac3/docs/DICTIONARY.md). Explicit
   external dictionaries still receive full checksum verification into owned bytes.
   The delivery record below contains the Linux release measurements and limits.
 - **Implemented:** SHA-256 test-profile optimization, merged in PR #11, with
@@ -3183,7 +3183,7 @@ not retain the owned-buffer guarantee against such writes. The public managed
 constructor is `unsafe` so Rust callers must uphold these obligations explicitly.
 Managed provenance reports installation-time verification, startup checks and
 file stability; its checksum identifies the expected pin. Owned JSON keeps its
-existing serialized shape. See [dictionary usage/safety](../DICTIONARY.md).
+existing serialized shape. See [dictionary usage/safety](https://github.com/kalorz/yomibu/blob/7239de7517ab5be23193030b6d12f64a1f57fac3/docs/DICTIONARY.md).
 
 Direct dependencies on already-locked `memmap2 0.9.11` and `libc 0.2.189` permit
 mapping the checked handle and performing effective-UID/no-follow/nonblocking

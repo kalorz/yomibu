@@ -1,8 +1,3 @@
-#[path = "../../../tests/support/dictionary.rs"]
-mod test_dictionary;
-
-use test_dictionary::analyzer;
-
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use wiremock::{
@@ -10,121 +5,13 @@ use wiremock::{
     matchers::{method, path},
 };
 use yomibu_components::{
-    embedding_vocabulary_selection::{EmbeddingRanking, prepare_embedding_inputs},
-    japanese_constraint_checks::JapaneseConstraintChecks,
     openai_story_generation::{Client, PreparedRequest},
     story_prompt_preparation::fit_selection_and_build_request,
 };
 use yomibu_core::domain::{
-    embedding::{EmbeddingCache, EmbeddingModelIdentity},
     inventory::LearnerInventory,
-    story::{StoryAssessmentInputs, StoryRequest, StoryVocabularySelection},
+    story::{StoryRequest, StoryVocabularySelection},
 };
-use yomibu_core::pipeline::assessment::assess_candidates;
-
-#[tokio::test]
-async fn real_assessment_preserves_both_texts_and_independent_errors_and_findings() {
-    use yomibu_components::japanese_constraint_checks::evaluate;
-    use yomibu_core::domain::analysis::Sentence;
-    use yomibu_core::domain::candidate::CandidateError;
-    use yomibu_core::domain::{
-        candidate::CandidateAssessment,
-        evaluation::{CheckKind, CheckOutcome, CheckState},
-    };
-    let server = MockServer::start().await;
-    let client =
-        Client::with_base_url("synthetic-story-key", &format!("{}/v1/", server.uri())).unwrap();
-    let (mut inventory, mut request) = input();
-    inventory.vocabulary.retain(|word| word.id == "sleep");
-    inventory.grammar_declarations.clear();
-    inventory.grammar_bindings.clear();
-    request.targets.vocabulary = vec!["sleep".into()];
-    request.targets.grammar.clear();
-    let (plan, prepared_request) = prepare(&inventory, &request);
-    let inputs = StoryAssessmentInputs::new(&inventory, &request, &plan).unwrap();
-    let grammar =
-        yomibu_core::domain::grammar::GrammarDeclarations::from_descriptions(Vec::<String>::new())
-            .unwrap();
-    let bindings = yomibu_core::domain::evaluation::EvaluationBindings::default();
-    for pair in [
-        ["犬です。".into(), "猫です。".into()],
-        ["犬です。".into(), "犬です。".into()],
-        [" \n".into(), "猫です。".into()],
-        ["猫".repeat(101), "猫".repeat(100)],
-        ["犬は水を飲みます。".into(), "猫\u{1b}\nです。".into()],
-    ] {
-        server.reset().await;
-        Mock::given(method("POST"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(response(&json!({"candidates":pair.iter().map(|sentence| json!({"sentences":[sentence]})).collect::<Vec<_>>()}).to_string())),
-            )
-            .expect(1)
-            .mount(&server)
-            .await;
-        let generated = client.generate_candidates(&prepared_request).await;
-        if pair.iter().any(|text| Sentence::new(text).is_err()) {
-            assert!(matches!(
-                generated,
-                Err(yomibu_components::openai_story_generation::ProviderError::InvalidResponse)
-            ));
-            continue;
-        }
-        let generated = generated.unwrap();
-        assert_eq!(
-            generated
-                .passages()
-                .iter()
-                .map(|passage| passage.text.as_str())
-                .collect::<Vec<_>>(),
-            &pair
-        );
-        let assessments =
-            assess_candidates(&generated, &inputs, analyzer(), &JapaneseConstraintChecks);
-        for (text, assessment) in pair.iter().zip(assessments) {
-            match Sentence::new(text) {
-                Ok(sentence) => {
-                    let direct_analysis = analyzer().analyze(sentence).unwrap();
-                    let direct_evaluation =
-                        evaluate(&direct_analysis, &grammar, &bindings).unwrap();
-                    let CandidateAssessment::Completed {
-                        analysis,
-                        evaluation,
-                    } = assessment.assessment
-                    else {
-                        panic!("expected completed assessment");
-                    };
-                    assert_eq!(analysis, direct_analysis);
-                    assert_eq!(
-                        evaluation.check(CheckKind::Vocabulary).state,
-                        direct_evaluation.check(CheckKind::Vocabulary).state
-                    );
-                    if text == "犬です。" {
-                        assert_eq!(
-                            evaluation.check(CheckKind::Vocabulary).state,
-                            CheckState::Completed(CheckOutcome::Fail)
-                        );
-                        assert_eq!(
-                            evaluation.check(CheckKind::Nominal).state,
-                            CheckState::NotRun
-                        );
-                    }
-                }
-                Err(expected) => {
-                    let CandidateAssessment::ExecutionError {
-                        analysis: None,
-                        error: CandidateError::Sentence(actual),
-                    } = assessment.assessment
-                    else {
-                        panic!("expected sentence execution error");
-                    };
-                    assert_eq!(actual, expected);
-                }
-            }
-        }
-        assert_eq!(server.received_requests().await.unwrap().len(), 1);
-    }
-}
 
 fn input() -> (LearnerInventory, StoryRequest) {
     let inventory = LearnerInventory::from_manual(
@@ -140,29 +27,14 @@ fn prepare<'a>(
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
 ) -> (StoryVocabularySelection<'a>, PreparedRequest) {
-    let inputs = prepare_embedding_inputs(inventory, request).unwrap();
-    let model = EmbeddingModelIdentity {
-        provider: "test".into(),
-        model: "fixture-vectors".into(),
-        revision: "1".into(),
-        dimensions: 2,
-        encoding_revision: "1".into(),
-    };
-    let cache =
-        EmbeddingCache::from_vectors(model.clone(), &inputs, vec![vec![1., 0.]; inputs.len()])
-            .unwrap();
     let input = yomibu_core::domain::story::SelectionInput {
         inventory,
         request,
         limit: 2,
     };
-    let ranking = EmbeddingRanking::prepare(input, &cache, &model).unwrap();
-    let plan = yomibu_core::pipeline::selection::select_target_first(
-        input,
-        &[&ranking],
-        "test-embedding-ranked-v1",
-    )
-    .unwrap();
+    let plan =
+        yomibu_core::pipeline::selection::select_target_first(input, &[], "test-inventory-order")
+            .unwrap();
     fit_selection_and_build_request(inventory, request, plan, sentence_options(2)).unwrap()
 }
 

@@ -1,8 +1,6 @@
 use serde_json::{Value, json};
-use yomibu::application::selection::select_builtin_vocabulary;
-#[path = "../../../tests/support/dictionary.rs"]
-mod test_dictionary;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
+use yomibu::application::selection::select_builtin_vocabulary;
 use yomibu_components::openai_story_generation::{Client, PreparedRequest};
 use yomibu_core::domain::story::{StoryFormat, StoryGenerationOptions};
 
@@ -121,51 +119,4 @@ fn story_prompt_uses_complete_instructions_for_each_format_and_candidate_count()
             assert_eq!(prepared.prompt_revision(), "story-inventory-v3");
         }
     }
-}
-
-#[tokio::test]
-async fn shared_generation_assesses_every_sentence_in_a_passage() {
-    use yomibu::application::story::{generate_story, plan_generation};
-    use yomibu_components::embedding_vocabulary_selection::prepare_embedding_inputs;
-    use yomibu_components::lexical_embeddings::LexicalEmbedder;
-    use yomibu_core::{
-        capabilities::Embedder,
-        domain::{inventory::LearnerInventory, story::StoryRequest},
-        pipeline::embeddings::prepare_cache,
-    };
-    let inventory = LearnerInventory::from_manual(
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
-    )
-    .unwrap();
-    let request: StoryRequest =
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
-    let encoder = LexicalEmbedder::new();
-    let cache = prepare_cache(
-        &encoder,
-        &prepare_embedding_inputs(&inventory, &request).unwrap(),
-        None,
-    )
-    .await
-    .unwrap();
-    let plan = plan_generation(
-        &inventory,
-        &request,
-        &cache,
-        encoder.model_identity(),
-        2,
-        Default::default(),
-    )
-    .unwrap();
-    let server = MockServer::start().await;
-    Mock::given(method("POST")).respond_with(ResponseTemplate::new(200).set_body_json(json!({"id":"synthetic", "model":"returned", "status":"completed", "output":[{"type":"message", "role":"assistant", "status":"completed", "content":[{"type":"output_text", "text":json!({"candidates":[{"sentences":["猫は寝ます。","猫です。","猫は寝ます。"]}]}).to_string()}]}]}))).expect(1).mount(&server).await;
-    let client = Client::with_base_url("synthetic", &format!("{}/", server.uri())).unwrap();
-    let analyzer = test_dictionary::load_analyzer();
-    let result = generate_story(&plan, &client, &analyzer).await.unwrap();
-    assert_eq!(result.assessments().len(), 3);
-    assert!(!result.has_execution_errors());
-    let report = serde_json::to_value(yomibu::reports::story::StoryReport::new(
-        &request, &plan, &result,
-    ))
-    .unwrap();
-    assert_eq!(report["candidates"].as_array().unwrap().len(), 3);
 }

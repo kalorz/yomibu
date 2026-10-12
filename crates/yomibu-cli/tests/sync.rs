@@ -41,26 +41,12 @@ async fn refresh(client: &mut Client, dir: &Path) -> Result<(), Box<dyn std::err
         .await?;
     Ok(())
 }
-fn offline_status(dir: &Path) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_yomibu"))
-        .arg("--no-keychain")
-        .env_clear()
-        .arg("status")
-        .arg("--data-dir")
-        .arg(dir)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(output.stderr.is_empty());
-    String::from_utf8(output.stdout).unwrap()
+fn saved_summary(dir: &Path) -> yomibu::reports::summary::Summary {
+    yomibu::reports::summary::summarize(&cache::load(dir).unwrap()).unwrap()
 }
 
 #[tokio::test]
-async fn complete_http_sync_to_disk_to_offline_cli_and_repeat_refresh() {
+async fn complete_http_sync_to_disk_and_repeat_refresh() {
     let server = MockServer::start().await;
     for endpoint in ["user", "assignments", "review_statistics", "subjects"] {
         serve(&server, endpoint, fixture(endpoint)).await;
@@ -71,19 +57,12 @@ async fn complete_http_sync_to_disk_to_offline_cli_and_repeat_refresh() {
     let bytes = fs::read(dir.path().join("wanikani.json")).unwrap();
     assert!(!String::from_utf8_lossy(&bytes).contains(TOKEN));
     assert_eq!(cache::load(dir.path()).unwrap().subjects.len(), 4);
-    let actual = offline_status(dir.path());
-    for line in include_str!("../../../tests/fixtures/mixed-status.txt")
-        .lines()
-        .filter(|line| !line.starts_with("Sync "))
-    {
-        assert!(
-            actual.lines().any(|actual| actual == line),
-            "missing {line} in {actual}"
-        );
-    }
-    // Status remains usable during a writer's fetch interval.
+    let actual = saved_summary(dir.path());
+    assert_eq!(actual.username, "テスト");
+    assert_eq!(actual.vocabulary, 2);
+    // Readers retain the previous snapshot during a writer's fetch interval.
     let guard = SyncGuard::acquire(dir.path()).unwrap();
-    assert_eq!(offline_status(dir.path()), actual);
+    assert_eq!(saved_summary(dir.path()), actual);
     drop(guard);
 
     server.reset().await;
@@ -120,9 +99,9 @@ async fn complete_http_sync_to_disk_to_offline_cli_and_repeat_refresh() {
             && sync_data.review_statistics.is_empty()
             && sync_data.unavailable_subjects.is_empty()
     );
-    let text = offline_status(dir.path());
-    assert!(text.contains("Synchronized kanji: 0"));
-    assert!(text.contains("Reading accuracy: no reviews"));
+    let summary = saved_summary(dir.path());
+    assert_eq!(summary.kanji, 0);
+    assert_eq!(summary.reading_accuracy.percentage(), None);
     assert!(!dir.path().join("config.toml").exists());
 }
 
@@ -173,7 +152,7 @@ async fn later_page_failures_preserve_complete_cached_observations() {
             let bytes = include_bytes!("../../../tests/fixtures/mixed.json");
             fs::write(dir.path().join("wanikani.json"), bytes).unwrap();
             let old = cache::load(dir.path()).unwrap();
-            let before_status = offline_status(dir.path());
+            let before_status = saved_summary(dir.path());
             let mut client =
                 Client::with_base_url(TOKEN, &format!("{}/v2/", server.uri())).unwrap();
             let error = refresh(&mut client, dir.path()).await.unwrap_err();
@@ -182,7 +161,7 @@ async fn later_page_failures_preserve_complete_cached_observations() {
             assert!(!text.contains(TOKEN));
             assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), bytes);
             assert_eq!(cache::load(dir.path()).unwrap(), old);
-            assert_eq!(offline_status(dir.path()), before_status);
+            assert_eq!(saved_summary(dir.path()), before_status);
             assert!(SyncGuard::acquire(dir.path()).is_ok());
             assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
         }
@@ -233,7 +212,10 @@ async fn access_changes_and_missing_statistics_replace_source_state_without_stal
         } else {
             assert!(!sync_data.unavailable_subjects.is_empty());
         }
-        assert!(offline_status(dir.path()).contains("Reading accuracy: no reviews"));
+        assert_eq!(
+            saved_summary(dir.path()).reading_accuracy.percentage(),
+            None
+        );
     }
 }
 
@@ -279,7 +261,7 @@ async fn killing_a_process_during_retrieval_preserves_cache_and_releases_lock() 
     let dir = tempfile::tempdir().unwrap();
     let bytes = include_bytes!("../../../tests/fixtures/mixed.json");
     fs::write(dir.path().join("wanikani.json"), bytes).unwrap();
-    let before = offline_status(dir.path());
+    let before = saved_summary(dir.path());
     let mut child = FetchChild(
         Command::new(std::env::current_exe().unwrap())
             .env_clear()
@@ -297,7 +279,7 @@ async fn killing_a_process_during_retrieval_preserves_cache_and_releases_lock() 
         SyncGuard::acquire(dir.path()),
         Err(cache::WriteError::Locked)
     ));
-    assert_eq!(offline_status(dir.path()), before);
+    assert_eq!(saved_summary(dir.path()), before);
     child.0.kill().unwrap();
     assert_eq!(
         child.0.wait().unwrap().signal(),
@@ -305,6 +287,6 @@ async fn killing_a_process_during_retrieval_preserves_cache_and_releases_lock() 
         "expected SIGKILL"
     );
     assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), bytes);
-    assert_eq!(offline_status(dir.path()), before);
+    assert_eq!(saved_summary(dir.path()), before);
     assert!(SyncGuard::acquire(dir.path()).is_ok());
 }

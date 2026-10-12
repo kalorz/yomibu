@@ -1,7 +1,4 @@
-use crate::domain::{
-    embedding::EmbeddingModelIdentity,
-    inventory::{InventoryWord, LearnerInventory},
-};
+use crate::domain::inventory::{InventoryWord, LearnerInventory};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -16,8 +13,6 @@ pub struct StoryVocabularySelection<'a> {
     pub selected: Vec<VocabularyCandidate<'a>>,
     pub vocabulary_targets: &'a [String],
     pub grammar_targets: &'a [String],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub embedding_model: Option<EmbeddingModelIdentity>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +26,6 @@ pub struct SelectionInput<'a> {
 #[derive(Debug)]
 pub struct SelectionCandidates<'a> {
     pub entries: Vec<VocabularyCandidate<'a>>,
-    pub embedding_model: Option<EmbeddingModelIdentity>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -46,6 +40,4 @@ pub enum SelectionError {
     MissingTarget { id: String },
     #[error("Selection score for {id} must be finite.")]
     NonfiniteScore { id: String },
-    #[error("Selection evidence belongs to a different inventory or request.")]
-    EvidenceMismatch,
 }

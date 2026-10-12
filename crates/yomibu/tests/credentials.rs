@@ -4,7 +4,7 @@ use std::sync::{
 };
 use yomibu::{
     application::{CredentialError, Credentials, Secret},
-    configuration::components::{EMBEDDING_KEY, GENERATION_KEY, SOURCE_KEY},
+    configuration::components::{GENERATION_KEY, SOURCE_KEY},
 };
 
 #[test]
@@ -13,7 +13,6 @@ fn module_setup_names_match_the_component_credential_declarations() {
     for (module, requirement) in [
         (ModuleId::Sync, SOURCE_KEY),
         (ModuleId::Generation, GENERATION_KEY),
-        (ModuleId::Embeddings, EMBEDDING_KEY),
     ] {
         let metadata = module.metadata();
         for setting in [
@@ -38,7 +37,7 @@ fn module_setup_names_match_the_component_credential_declarations() {
 fn component_credentials_follow_precedence_without_cross_component_fallback() {
     let mut credentials = Credentials::default();
     credentials.supply(GENERATION_KEY, "stored-generation".into());
-    credentials.supply(EMBEDDING_KEY, "stored-embedding".into());
+    credentials.supply(SOURCE_KEY, "stored-source".into());
     assert_eq!(
         credentials.resolve(GENERATION_KEY).unwrap(),
         Some("stored-generation")
@@ -54,18 +53,17 @@ fn component_credentials_follow_precedence_without_cross_component_fallback() {
         Some("cli-generation")
     );
     assert_eq!(
-        credentials.resolve(EMBEDDING_KEY).unwrap(),
-        Some("stored-embedding")
+        credentials.resolve(SOURCE_KEY).unwrap(),
+        Some("stored-source")
     );
-    assert!(credentials.resolve(SOURCE_KEY).unwrap().is_none());
     credentials.set_cli(GENERATION_KEY, "".into());
     assert!(credentials.resolve(GENERATION_KEY).unwrap().is_none());
-    credentials.set_environment(EMBEDDING_KEY, " ".into());
-    assert!(credentials.resolve(EMBEDDING_KEY).unwrap().is_none());
+    credentials.set_environment(SOURCE_KEY, " ".into());
+    assert!(credentials.resolve(SOURCE_KEY).unwrap().is_none());
     let debug = format!("{credentials:?}");
     for secret in [
         "stored-generation",
-        "stored-embedding",
+        "stored-source",
         "env-generation",
         "cli-generation",
     ] {
@@ -93,7 +91,7 @@ fn credential_lookup_is_lazy_and_caches_values_absence_and_errors() {
             observed.fetch_add(1, Ordering::SeqCst);
             result.clone()
         });
-        assert!(credentials.resolve(EMBEDDING_KEY).unwrap().is_none());
+        assert!(credentials.resolve(SOURCE_KEY).unwrap().is_none());
         assert_eq!(reads.load(Ordering::SeqCst), 0);
         let first = credentials
             .resolve(GENERATION_KEY)
@@ -143,7 +141,6 @@ fn module_help_uses_all_declared_options_and_their_credential_guidance() {
     for (module, id) in [
         (ModuleId::Sync, "wanikani"),
         (ModuleId::Generation, "openai"),
-        (ModuleId::Embeddings, "http-embeddings"),
     ] {
         let component = COMPONENTS
             .iter()

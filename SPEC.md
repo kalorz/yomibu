@@ -8,11 +8,8 @@ rules in [AGENTS](AGENTS.md). Future direction does not authorize implementation
 
 | Task | Reference |
 | --- | --- |
-| Sync and offline status | [Sync rules](#wanikani-synchronization), [usage](docs/SYNC.md) |
-| Analysis and evaluation | [Check boundaries](#bounded-analysis-and-evaluation), [input/output](docs/ANALYSIS.md) |
+| Sync | [Sync rules](#wanikani-synchronization), [usage](docs/SYNC.md) |
 | Learner inventory and story generation | [Story contract](docs/STORY_GENERATION.md) |
-| Embeddings and vector caches | [Retrieval contract and evidence](docs/RETRIEVAL.md) |
-| Dictionary installation and loading | [Dictionary contract](docs/DICTIONARY.md) |
 
 Current commands are in [README](README.md#current-commands). They do not select
 accepted exercises. [The code map](ARCHITECTURE.md#current-module-map) locates
@@ -137,83 +134,12 @@ placeholder implementations for these future capabilities.
 Retired commands, research protocols and code pins are in [history](docs/history/README.md).
 Their original contracts describe those revisions, not current behavior.
 
-## Bounded analysis and evaluation
-
-`analysis::Sentence` retains unchanged nonblank text of at most 100 Unicode scalar
-values. The pinned Sudachi adapter supplies C-mode whole units and A-mode components
-with original UTF-8 byte spans. Familiar components/kanji cannot authorize a whole
-word. Other grammar, multiword expressions and contextual reading/sense expose
-limitations; there is no general Japanese validator.
-
-Dictionary pins, configuration, developer setup and loading rules have one
-home: [dictionary contracts](docs/DICTIONARY.md). No ambient configuration, fallback
-tokenizer or runtime download is allowed.
-
-`japanese_constraint_checks::evaluate` synchronously takes concrete analysis,
-unchanged free-form declarations, and explicit word/rule bindings. Vocabulary tuples
-retain written form, dictionary-style katakana reading, nonblank sense and `direct_object` boolean.
-True supplies transitive-use evidence for that tuple; false supplies no positive
-object-use evidence, not a claim of intransitivity. Such metadata needs source
-evidence and is never inferred from を. A sense label is not contextual validation.
-Unknown identities, competing supplied tuples, reading mismatches and unresolved
-lexical/POS alternatives affecting a check remain Inconclusive. Dictionary entry
-grouping cannot settle them; ordinary polysemy alone does not invalidate the
-bounded identity check.
-
-Recognition covers two single-clause patterns: optional nominal topic with
-nominal です, or optional topic/direct object with a regular godan/ichidan polite
-verb in present/past/negative forms. A nominal slot is one whole lexical unit,
-possibly a compound. At most one final 。 is optional. Other punctuation,
-whitespace, clauses/modifiers, questions and unsupported morphology expose scope
-limits. The seven `GrammarRule` variants require explicit bindings to existing
-declaration IDs; descriptions are never parsed. Malformed bindings/analysis are
-typed errors. [Analysis usage](docs/ANALYSIS.md#input-and-supported-checks) lists the rules.
-
-The five checks cover vocabulary, inflection, particles, grammar and structural
-scope. Scope independently assesses coverage/applicability, not permission
-outcomes; all original text must be accounted for before Scope can Pass.
-Applicability remains unresolved for unrecognized constructions. Supported
-permission failures retain their Fail reason/span beside other uncertainty.
-Keep completed Pass/Fail/Inconclusive, execution errors and NotRun distinct.
-Aggregate precedence is Fail, NotRun, Inconclusive, then Pass.
-
-A transitive-use binding cannot resolve an object/predicate combination. Recognized
-object + を + regular polite verb therefore retains Inconclusive for Particles
-and Scope when permissions are present, even with `direct_object: true`.
-Existing permission failures still determine Fail and retain decisive spans.
-The uncertainty finding spans object through predicate, excluding a preceding
-topic and optional final 。. Per-word vocabulary/morphology remain observable.
-This deliberately limits ordinary object sentences too; it introduces no idiom
-blacklist, contextual evidence, phrase exceptions or broader grammar support.
-
-Every report exposes naturalness, multiword expressions and contextual reading/sense
-as unassessed. A Pass never establishes an accepted exercise. The completed A1
-investigation retains its frozen **no-go**, and the separate object-combination
-safeguard does not revise that score. Research protocols, historical packet-only
-contracts, review lineage and private scoring receipts are indexed in
-[history](docs/history/README.md#analysis-investigation). Engineering tests are not
-independent linguistic ground truth. Frozen/held-out references are not development
-inputs; private learner material and undisclosed reference keys stay outside Git
-and runtime composition.
-
-## Offline analysis CLI
-
-[Analysis](docs/ANALYSIS.md) defines input, output and execution behavior.
-The CLI exposes the bounded checks above; it adds no exercise acceptance decision.
-
 ## Shared learner-inventory story path
 
 [Story generation](docs/STORY_GENERATION.md) owns the inventory/request formats,
-planning and assessment contracts, provider limits, and CLI behavior.
-[Retrieval](docs/RETRIEVAL.md) owns embedding/cache contracts and measured evidence.
+planning contracts, provider limits, and CLI behavior.
 Manual and WaniKani material use this same path. The application handles optional
 auto-sync; the story guide defines cache and first-run policies.
-
-## Managed dictionary loading
-
-[Dictionary contracts](docs/DICTIONARY.md) own installation, verification, update
-and loading rules. Managed mapping requires verified bytes to remain unchanged
-for the analyzer's lifetime. A receipt or read-only mode cannot prove that condition.
 
 ## Design vocabulary and composition
 
@@ -308,10 +234,9 @@ full refresh synchronization.
 
 ```sh
 YOMIBU_WANIKANI_API_KEY=... yomibu sync
-yomibu status
 ```
 
-Both accept a global `--data-dir PATH`. The default is `$HOME/.yomibu`; if HOME is
+Sync accepts a global `--data-dir PATH`. The default is `$HOME/.yomibu`; if HOME is
 unavailable or empty, require an explicit directory. API-key flags override prefixed
 environment bindings. The macOS CLI may save credentials in Keychain. Never store
 secret values in configuration files; see [credential setup](docs/STORY_GENERATION.md#configuration-and-optional-work).
@@ -383,12 +308,9 @@ source state, not as a pedagogical enum implying knowledge. Use parsed UTC
 timestamps. Open-ended source classifications such as parts of speech do not
 require a closed enum simply because they are strings.
 
-### Offline status
+### Sync summary
 
-Read and validate only the local cache. Do not access the network, read the token,
-or construct an HTTP client.
-
-Display:
+Display after successful synchronization:
 
 - WaniKani username and level.
 - Synchronization timestamp.
@@ -404,7 +326,7 @@ average per-subject percentages to calculate aggregate accuracy. Missing,
 corrupt, or unsupported caches produce actionable errors and a nonzero exit
 status. An empty but valid account succeeds.
 
-### Schema 1 and status count semantics
+### Schema 1 and summary count semantics
 
 The cache envelope is `{ "schema_version": 1, "snapshot": { ... } }`.
 The persisted `snapshot` key is retained for schema-1 compatibility; it does not
@@ -441,7 +363,7 @@ an ordered synchronization interval, and reported percentages within 0–100.
 - Accuracy uses all retained review counters, including hidden and excluded
   content. Counters are widened before summing; percentages are computed only
   when the corresponding total is nonzero. Reported source percentages remain
-  available as source state but are never averaged for status.
+  available as source state but are never averaged for summaries.
 
 Loading and summarizing both validate the sync data; library callers who construct
 or modify domain structs cannot silently obtain a summary of invalid data.
@@ -506,7 +428,7 @@ explicitly; introduce migrations only when needed. Preserve corrupt existing
 caches for recovery rather than silently overwriting them.
 
 Hold a separate advisory lock for the entire sync operation. A second writer
-fails promptly; status can continue reading the previous sync data. Use
+fails promptly; readers can continue using the previous sync data. Use
 [standard-library file locking](https://doc.rust-lang.org/stable/std/fs/struct.File.html#method.try_lock),
 available on current stable Rust. Keep the lock handle alive until sync ends;
 do not delete and recreate a lock file while another process might hold it.

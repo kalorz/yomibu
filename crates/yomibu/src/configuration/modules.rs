@@ -1,7 +1,7 @@
 use super::components::credential_guidance;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
-use yomibu_components::{http_embeddings, openai_story_generation, wanikani_source};
+use yomibu_components::{openai_story_generation, wanikani_source};
 use yomibu_core::component::Component;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -9,9 +9,7 @@ use yomibu_core::component::Component;
 pub enum ModuleId {
     Knowledge,
     Sync,
-    Embeddings,
     Generation,
-    Assessment,
 }
 
 #[derive(Debug, Serialize)]
@@ -25,7 +23,7 @@ pub struct ModuleMetadata {
     pub default_enabled: bool,
 }
 
-pub static MODULES: LazyLock<[ModuleMetadata; 5]> = LazyLock::new(|| {
+pub static MODULES: LazyLock<[ModuleMetadata; 3]> = LazyLock::new(|| {
     [
         ModuleMetadata {
             id: ModuleId::Knowledge,
@@ -46,33 +44,12 @@ pub static MODULES: LazyLock<[ModuleMetadata; 5]> = LazyLock::new(|| {
             default_enabled: true,
         },
         ModuleMetadata {
-            id: ModuleId::Embeddings,
-            name: "Embeddings",
-            purpose: "Improve topic vocabulary selection",
-            settings: component_settings(&http_embeddings::COMPONENT, &["--embedding-provider"]),
-            guidance: format!(
-                "Enable embeddings and configure an encoder. Hosted requests require --allow-embedding-call. {}",
-                component_guidance(&http_embeddings::COMPONENT)
-            ),
-            controllable: true,
-            default_enabled: false,
-        },
-        ModuleMetadata {
             id: ModuleId::Generation,
             name: "OpenAI generation",
             purpose: "Create an experimental Japanese reading",
             settings: component_settings(&openai_story_generation::COMPONENT, &[]),
             guidance: component_guidance(&openai_story_generation::COMPONENT),
             controllable: false,
-            default_enabled: true,
-        },
-        ModuleMetadata {
-            id: ModuleId::Assessment,
-            name: "Sudachi assessment",
-            purpose: "Check available vocabulary evidence",
-            settings: vec!["--dictionary-dir".into()],
-            guidance: "Import a dictionary with yomibu dictionary import; use --dictionary-dir PATH for a custom location. No dictionary is downloaded automatically.".into(),
-            controllable: true,
             default_enabled: true,
         },
     ]
@@ -104,9 +81,7 @@ impl ModuleId {
         &MODULES[match self {
             Self::Knowledge => 0,
             Self::Sync => 1,
-            Self::Embeddings => 2,
-            Self::Generation => 3,
-            Self::Assessment => 4,
+            Self::Generation => 2,
         }]
     }
 }

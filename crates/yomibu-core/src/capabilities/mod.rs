@@ -7,7 +7,7 @@ use crate::domain::source::WaniKaniSyncData;
 use std::{error::Error, sync::Arc};
 
 mod story;
-pub use story::{CandidateGenerator, SentenceAnalyzer, StoryAssessor, StoryPreparer};
+pub use story::{CandidateGenerator, StoryPreparer};
 
 /// Retrieves and normalizes one complete WaniKani account refresh.
 ///
@@ -28,16 +28,6 @@ impl<Source: LearningSource + ?Sized> LearningSource for &mut Source {
     }
 }
 
-/// What a successful replacement promises about the new version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Persistence {
-    /// Retained only while the in-memory store has live handles.
-    Volatile,
-    /// The backend completed its durability operations, including directory sync.
-    Durable,
-}
-
 /// One exclusive synchronization attempt; dropping it releases the writer slot.
 pub trait SourceSyncWriter {
     type Error: Error + Send + Sync + 'static;
@@ -45,7 +35,8 @@ pub trait SourceSyncWriter {
     /// Validate and atomically publish a complete source version for the same
     /// account. Backend errors must distinguish failure before replacement from
     /// uncertain durability after replacement; an error need not mean rollback.
-    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<Persistence, Self::Error>;
+    /// Success means durability operations, including directory sync, completed.
+    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<(), Self::Error>;
 }
 
 /// A physical store of coherent source material and learner progress.
@@ -73,18 +64,8 @@ pub trait LearningStore {
     fn begin_sync(&self) -> Result<Self::Writer, Self::WriteError>;
 }
 
-/// Encodes explicit lexical documents/briefs; adapters own no process environment
-/// or runtime. Purpose distinguishes asymmetric document/query encoders.
-pub trait Embedder {
-    fn model_identity(&self) -> &crate::domain::embedding::EmbeddingModelIdentity;
-    fn embed(
-        &self,
-        inputs: &[crate::domain::embedding::EmbeddingInput],
-    ) -> impl Future<Output = Result<Vec<Vec<f32>>, crate::domain::embedding::EmbeddingError>> + Send;
-}
-
 /// Synchronous candidate transformation. Prepare external evidence before calling.
-/// Keep word identity and targets; update scores, reasons and embedding provenance together.
+/// Keep word identity and targets; update scores and reasons together.
 pub trait SelectionStep {
     fn apply<'a>(
         &self,

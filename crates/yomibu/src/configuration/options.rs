@@ -8,9 +8,9 @@ use yomibu_core::component::options::OptionName;
 pub struct OptionOverrides(BTreeMap<OptionName, Patch<Value>>);
 impl OptionOverrides {
     /// ```compile_fail
-    /// use yomibu::configuration::{OptionOverrides, components::EMBEDDING_DIMENSIONS};
+    /// use yomibu::configuration::{OptionOverrides, components::GENERATION_MODEL};
     /// let mut options = OptionOverrides::default();
-    /// options.set(EMBEDDING_DIMENSIONS, "not an integer".to_string());
+    /// options.set(GENERATION_MODEL, 42);
     /// ```
     pub fn set<T: OptionType>(&mut self, key: OptionKey<T>, value: T) -> Result<(), OptionError> {
         self.insert(key.name, Patch::Set(value.value()))
@@ -41,10 +41,10 @@ impl OptionOverrides {
                 continue;
             }
             match self.0.remove(&setting.name()) {
-                Some(Patch::Set(value)) => options.insert(setting, value),
+                Some(Patch::Set(value)) => options.insert(setting, value)?,
                 Some(Patch::Clear) => options.clear(setting),
-                _ => Ok(()),
-            }?;
+                _ => {}
+            }
         }
         Ok(())
     }

@@ -132,15 +132,12 @@ async fn source(server: &MockServer) {
 async fn fresh_install_generates_once_in_every_presentation_with_identical_requests_and_correct_streams()
  {
     let mut previous_body = None;
-    for (json_output, verbose) in [(false, false), (false, true), (true, false), (true, true)] {
+    for verbose in [false, true] {
         let server = MockServer::start().await;
         source(&server).await;
         generation(&server, &["猫です。", "朝です。", "寝ます。"]).await;
         let dir = tempfile::tempdir().unwrap();
         let mut flags = vec![];
-        if json_output {
-            flags.push("--json");
-        }
         if verbose {
             flags.push("--verbose");
         }
@@ -158,35 +155,13 @@ async fn fresh_install_generates_once_in_every_presentation_with_identical_reque
         assert!(dir.path().join(".yomibu/wanikani.json").exists());
         assert!(!dir.path().join(".yomibu/embeddings.json").exists());
         assert!(!dir.path().join(".yomibu/dictionaries").exists());
-        if json_output {
-            let report: Value = serde_json::from_str(&stdout).unwrap();
-            assert_eq!(
-                report["generated"]["passages"][0]["text"],
-                "猫です。朝です。寝ます。"
-            );
-            assert!(report["request"].get("topic").is_none());
-            assert_eq!(report["generated"]["provenance"]["request_count"], 1);
-            assert_eq!(
-                report["assessments"][0]["sentences"][0]["assessment"]["assessment"]["status"],
-                "not_run"
-            );
-            assert!(
-                report["timings"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .all(|timing| timing["elapsed_ms"].as_f64().unwrap() >= 0.)
-            );
-            assert_eq!(stderr.contains("[Generation] completed in"), verbose);
+        if verbose {
+            assert!(stdout.contains("[Generation] completed in"));
+            assert!(stdout.ends_with("猫です。朝です。寝ます。\n"));
         } else {
-            if verbose {
-                assert!(stdout.contains("[Generation] completed in"));
-                assert!(stdout.contains("Sudachi assessment: Missing config"));
-            } else {
-                assert_eq!(stdout, "猫です。朝です。寝ます。\n");
-            }
-            assert!(stderr.is_empty());
+            assert_eq!(stdout, "猫です。朝です。寝ます。\n");
         }
+        assert!(stderr.is_empty());
         let requests = server.received_requests().await.unwrap();
         assert_eq!(requests.len(), 5);
         let generated = requests
@@ -205,52 +180,34 @@ async fn fresh_install_generates_once_in_every_presentation_with_identical_reque
 }
 
 #[tokio::test]
-async fn generated_controls_are_escaped_and_optional_failure_warns_without_losing_text() {
-    for json_output in [true, false] {
-        let server = MockServer::start().await;
-        generation(&server, &[HOSTILE, "猫です。", "寝ます。"]).await;
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("inventory.json"),
-            include_bytes!("../../../tests/fixtures/story/inventory.json"),
-        )
-        .unwrap();
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(dir.path().join("incomplete"))
-            .unwrap();
-        let mut flags = vec![
-            "--inventory",
-            "inventory.json",
-            "--dictionary-dir",
-            "incomplete",
-        ];
-        if json_output {
-            flags.push("--json");
-        }
-        let output = child(&server, dir.path(), &flags, false).await;
-        assert_eq!(output.status.code(), Some(0));
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let stderr = String::from_utf8(output.stderr).unwrap();
-        safe(&stdout);
-        safe(&stderr);
-        assert!(stderr.starts_with("warning: Sudachi assessment:"));
-        assert!(stdout.contains("猫"));
-        assert!(!stdout.contains("\n\t"));
-        if json_output {
-            let report: Value = serde_json::from_str(&stdout).unwrap();
-            assert_eq!(
-                report["generated"]["passages"][0]["text"],
-                format!("{HOSTILE}猫です。寝ます。")
-            );
-        }
-    }
+async fn generated_controls_are_escaped_without_losing_readable_text() {
+    let server = MockServer::start().await;
+    generation(&server, &[HOSTILE, "猫です。", "寝ます。"]).await;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("inventory.json"),
+        include_bytes!("../../../tests/fixtures/story/inventory.json"),
+    )
+    .unwrap();
+    let output = child(
+        &server,
+        dir.path(),
+        &["--inventory", "inventory.json"],
+        false,
+    )
+    .await;
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    safe(&stdout);
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        stdout,
+        format!("{}猫です。寝ます。\n", HOSTILE.escape_debug())
+    );
 }
 
 #[tokio::test]
-async fn sentence_assessment_with_a_real_dictionary_reports_available_evidence_and_keeps_generation_model()
- {
+async fn sentence_format_uses_the_selected_generation_model() {
     let server = MockServer::start().await;
     generation(&server, &["猫は寝ます。"]).await;
     let dir = tempfile::tempdir().unwrap();
@@ -259,44 +216,27 @@ async fn sentence_assessment_with_a_real_dictionary_reports_available_evidence_a
         include_bytes!("../../../tests/fixtures/story/inventory.json"),
     )
     .unwrap();
-    let dictionary = crate::test_dictionary::installation();
     let output = child(
         &server,
         dir.path(),
         &[
             "--inventory",
             "inventory.json",
-            "--dictionary-dir",
-            dictionary.to_str().unwrap(),
             "--format",
             "sentence",
             "--openai-model",
             "chosen-model",
-            "--json",
         ],
         false,
     )
     .await;
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stderr.is_empty());
-    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(
-        report["generated"]["provenance"]["requested_model"],
-        "chosen-model"
-    );
-    assert_eq!(
-        report["assessments"][0]["sentences"][0]["assessment"]["assessment"]["status"],
-        "completed"
-    );
-    assert_eq!(
-        report["assessments"][0]["sentences"][0]["span"],
-        json!({"start":0,"end":18})
-    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "猫は寝ます。\n");
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(body["model"], "chosen-model");
 }
 
 #[tokio::test]
@@ -328,7 +268,7 @@ async fn provider_errors_and_invalid_passages_make_one_attempt_and_do_not_reflec
         let output = child(
             &server,
             dir.path(),
-            &["--inventory", "inventory.json", "--json"],
+            &["--inventory", "inventory.json"],
             false,
         )
         .await;
@@ -341,22 +281,30 @@ async fn provider_errors_and_invalid_passages_make_one_attempt_and_do_not_reflec
 }
 
 #[tokio::test]
-async fn explicit_sync_json_contains_one_complete_publication_report() {
+async fn explicit_sync_prints_the_complete_publication_summary() {
     let server = MockServer::start().await;
     source(&server).await;
     let dir = tempfile::tempdir().unwrap();
     let output = child_with_args(
         &server,
         dir.path(),
-        vec!["yomibu".into(), "sync".into(), "--json".into()],
+        vec!["yomibu".into(), "sync".into()],
         true,
     )
     .await;
     assert_eq!(output.status.code(), Some(0), "{:?}", output);
     assert!(output.stderr.is_empty());
-    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["persistence"], "durable");
-    assert_eq!(report["summary"]["username"], "テスト");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.starts_with("Cached WaniKani observations\nUser: テスト"));
+    for line in include_str!("../../../tests/fixtures/mixed-status.txt")
+        .lines()
+        .filter(|line| !line.starts_with("Sync "))
+    {
+        assert!(
+            text.lines().any(|actual| actual == line),
+            "missing {line} in {text}"
+        );
+    }
     assert_eq!(server.received_requests().await.unwrap().len(), 4);
     assert!(dir.path().join(".yomibu/wanikani.json").exists());
 }

@@ -197,6 +197,5 @@ fn seeded_orders_and_equal_lexical_scores_match_the_existing_sha256_strategy() {
         );
         assert_eq!(selection.selector_revision, "builtin-v2");
         assert_eq!(selection.grammar_targets, ["polite"]);
-        assert!(selection.embedding_model.is_none());
     }
 }

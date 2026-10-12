@@ -1,15 +1,6 @@
-use crate::application::story::DefaultCandidateError;
 use crate::configuration::modules::{ModuleId, ModuleReport};
-use crate::reports::analysis::AnalysisInput;
 use serde::Serialize;
-use yomibu_components::openai_story_generation as openai;
-use yomibu_core::domain::{
-    analysis::SentenceAnalysis,
-    candidate::GeneratedCandidates,
-    embedding::EmbeddingModelIdentity,
-    evaluation::{CheckState, Evaluation},
-    story::{StoryPassageAssessment, StoryRequest},
-};
+use yomibu_core::domain::{candidate::GeneratedCandidates, story::StoryRequest};
 
 use crate::application::progress::Step;
 #[derive(Debug, Serialize)]
@@ -22,28 +13,11 @@ pub struct Warning {
     pub module: ModuleId,
     pub message: String,
 }
-impl Warning {
-    pub(crate) fn embedding_fallback(
-        error: &impl std::fmt::Display,
-        selection: &crate::configuration::SelectionSettings,
-    ) -> Self {
-        let fallback = if selection.steps == [crate::configuration::SelectionStep::SeededOrder] {
-            "Using seeded-only-v1 selection."
-        } else {
-            "Using built-in selection."
-        };
-        Self {
-            module: ModuleId::Embeddings,
-            message: format!("{error} {fallback}"),
-        }
-    }
-}
 #[derive(Debug, Serialize)]
 pub struct SelectionReport {
     pub selector_revision: &'static str,
     pub vocabulary_ids: Vec<String>,
     pub seed: u64,
-    pub embedding_model: Option<EmbeddingModelIdentity>,
 }
 impl SelectionReport {
     pub(crate) fn from_selection(
@@ -58,7 +32,6 @@ impl SelectionReport {
                 .map(|entry| entry.word.id.clone())
                 .collect(),
             seed,
-            embedding_model: selection.embedding_model.clone(),
         }
     }
 }
@@ -69,25 +42,7 @@ pub struct StoryRunReport {
     pub request: StoryRequest,
     pub selection: SelectionReport,
     pub generated: GeneratedCandidates,
-    pub assessments: Vec<StoryPassageAssessment<DefaultCandidateError>>,
     pub modules: Vec<ModuleReport>,
     pub timings: Vec<StepTiming>,
     pub warnings: Vec<Warning>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct StoryPreviewRunReport {
-    pub kind: &'static str,
-    pub request: StoryRequest,
-    pub selection: SelectionReport,
-    pub provider_request: openai::PreparedRequest,
-    pub warnings: Vec<Warning>,
-}
-#[derive(Serialize)]
-pub struct AnalysisRunReport {
-    pub version: u32,
-    pub input: AnalysisInput,
-    pub analysis: SentenceAnalysis<'static>,
-    pub outcome: CheckState,
-    pub evaluation: Evaluation,
 }

@@ -12,14 +12,7 @@ fn auth_help_lists_component_namespaces_and_credentials_without_reading_configur
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     let text = String::from_utf8(output.stdout).unwrap();
-    for slot in [
-        "wanikani",
-        "openai",
-        "openai.api-key",
-        "wanikani.api-key",
-        "http-embeddings",
-        "http-embeddings.api-key",
-    ] {
+    for slot in ["wanikani", "openai", "openai.api-key", "wanikani.api-key"] {
         assert!(text.contains(slot), "{text}");
     }
     assert!(text.contains("macOS Keychain"), "{text}");

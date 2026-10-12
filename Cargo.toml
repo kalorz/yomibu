@@ -22,13 +22,5 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 tokio = { version = "1", features = ["rt", "time", "net"] }
 tempfile = "3"
 sha2 = "0.10"
-libc = "0.2"
-memmap2 = "0.9"
-sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", rev = "90fd6068c80c2fc3b63e0dbab0e341475bad4d8f" }
 wiremock = "0.6"
 toml = "1"
-
-# cargo test also uses this profile for CLI binaries launched by integration tests.
-# Optimize hashing while retaining full pinned-dictionary verification.
-[profile.test.package.sha2]
-opt-level = 3

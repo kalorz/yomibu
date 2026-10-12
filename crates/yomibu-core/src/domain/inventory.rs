@@ -28,16 +28,6 @@ pub struct InventoryWord {
     pub origin: SourceOrigin,
 }
 
-impl InventoryWord {
-    /// Hiragana-to-katakana comparison form; original source readings stay intact.
-    pub fn analyzer_readings(&self) -> Vec<String> {
-        self.readings
-            .iter()
-            .map(|reading| analyzer_reading(reading))
-            .collect()
-    }
-}
-
 /// Mapped content retains provenance even when it cannot supply vocabulary.
 #[derive(Debug)]
 pub enum MappedContent {
@@ -46,18 +36,6 @@ pub enum MappedContent {
     Unavailable(SourceOrigin),
 }
 
-pub fn analyzer_reading(reading: &str) -> String {
-    reading
-        .chars()
-        .map(|c| {
-            if ('\u{3041}'..='\u{3096}').contains(&c) {
-                char::from_u32(c as u32 + 0x60).unwrap_or(c)
-            } else {
-                c
-            }
-        })
-        .collect()
-}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InventoryGrammar {

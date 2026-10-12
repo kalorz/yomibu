@@ -1,9 +1,6 @@
-use std::sync::Arc;
-use yomibu_components::{
-    file_learning_store::FileLearningStore, in_memory_learning_store::InMemoryLearningStore,
-};
+use yomibu_components::file_learning_store::FileLearningStore;
 use yomibu_core::{
-    capabilities::{LearningStore, Persistence, SourceSyncWriter},
+    capabilities::{LearningStore, SourceSyncWriter},
     domain::source::WaniKaniSyncData,
 };
 
@@ -13,10 +10,10 @@ fn fixture() -> WaniKaniSyncData {
     serde_json::from_value(envelope["snapshot"].clone()).unwrap()
 }
 
-fn stores_a_complete_version(store: &impl LearningStore, persistence: Persistence) {
+fn stores_a_complete_version(store: &impl LearningStore) {
     assert!(store.is_missing(&store.load().unwrap_err()));
     let writer = store.begin_sync().unwrap();
-    assert_eq!(writer.replace(fixture().into()).unwrap(), persistence);
+    let _: () = writer.replace(fixture().into()).unwrap();
     let first = store.load().unwrap();
     assert_eq!(*first, fixture());
 
@@ -32,36 +29,12 @@ fn stores_a_complete_version(store: &impl LearningStore, persistence: Persistenc
 }
 
 #[test]
-fn in_memory_store_retains_data_for_its_handles_without_deep_copying_reads() {
-    let store = InMemoryLearningStore::new();
-    stores_a_complete_version(&store, Persistence::Volatile);
-    let published = store.load().unwrap();
-    store
-        .begin_sync()
-        .unwrap()
-        .replace(Arc::clone(&published))
-        .unwrap();
-    assert!(Arc::ptr_eq(&published, &store.load().unwrap()));
-    let other_handle = store.clone();
-    assert!(Arc::ptr_eq(
-        &store.load().unwrap(),
-        &other_handle.load().unwrap()
-    ));
-    drop(store);
-    assert_eq!(
-        other_handle.load().unwrap().learner.username,
-        "updated username"
-    );
-    assert!(InMemoryLearningStore::new().load().is_err());
-}
-
-#[test]
 fn file_store_is_lazy_and_preserves_schema_one() {
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().join("data");
     let store = FileLearningStore::new(&directory);
     assert!(!directory.exists());
-    stores_a_complete_version(&store, Persistence::Durable);
+    stores_a_complete_version(&store);
     let reloaded = FileLearningStore::new(&directory).load().unwrap();
     assert_eq!(reloaded.learner.username, "updated username");
     let envelope: serde_json::Value =
@@ -106,11 +79,6 @@ fn rejects_invalid_replacements(store: &impl LearningStore) {
 }
 
 #[test]
-fn in_memory_store_preserves_the_previous_account_and_valid_version() {
-    rejects_invalid_replacements(&InMemoryLearningStore::new());
-}
-
-#[test]
 fn file_store_preserves_the_previous_account_and_valid_version() {
     let directory = tempfile::tempdir().unwrap();
     rejects_invalid_replacements(&FileLearningStore::new(directory.path()));
@@ -137,12 +105,6 @@ fn writer_reservation_keeps_reads_available(
         .unwrap()
         .replace(fixture().into())
         .unwrap();
-}
-
-#[test]
-fn in_memory_writer_reservation_is_shared_and_released_on_drop() {
-    let store = InMemoryLearningStore::new();
-    writer_reservation_keeps_reads_available(&store, &store.clone());
 }
 
 #[test]

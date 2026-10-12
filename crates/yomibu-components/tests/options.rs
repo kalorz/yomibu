@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use yomibu_components::COMPONENTS;
 
 #[test]
-fn registered_components_have_unique_names_owned_settings_and_valid_defaults() {
+fn registered_components_have_unique_names_and_owned_settings() {
     let mut ids = BTreeSet::new();
     let mut flags = BTreeSet::new();
     let identifier = |name: &str| {
@@ -25,38 +25,15 @@ fn registered_components_have_unique_names_owned_settings_and_valid_defaults() {
                 "{}",
                 name.key()
             );
-            setting.default_value().unwrap();
         }
     }
 }
 
 #[test]
 fn providers_read_only_their_scoped_options_and_keep_domain_configuration_typed() {
-    use yomibu_components::{http_embeddings as http, openai_story_generation as openai};
-    use yomibu_core::{
-        component::options::{OptionError, Options},
-        domain::story::StoryGenerationOptions,
-    };
+    use yomibu_components::{openai_story_generation as openai, wanikani_source as wanikani};
+    use yomibu_core::{component::options::Options, domain::story::StoryGenerationOptions};
     let mut values = Options::default();
-    assert!(
-        matches!(http::model_identity(values.for_component(&http::COMPONENT), "local"),
-        Err(OptionError::Missing { name, .. }) if name == http::MODEL.name)
-    );
-    values.set(http::MODEL, "embedding-model".into()).unwrap();
-    values.set(http::REVISION, "pinned".into()).unwrap();
-    values.set(http::DIMENSIONS, 2).unwrap();
-    let identity = http::model_identity(values.for_component(&http::COMPONENT), "local").unwrap();
-    assert_eq!(
-        (
-            identity.model.as_str(),
-            identity.revision.as_str(),
-            identity.dimensions
-        ),
-        ("embedding-model", "pinned", 2)
-    );
-    assert!(http::model_identity(values.for_component(&openai::COMPONENT), "local").is_err());
-    assert!(http::has_model_options(values.for_component(&http::COMPONENT)).unwrap());
-
     let defaults = StoryGenerationOptions {
         model: "fallback".into(),
         ..Default::default()
@@ -67,35 +44,14 @@ fn providers_read_only_their_scoped_options_and_keep_domain_configuration_typed(
             .model,
         "fallback"
     );
-    values.set(openai::MODEL, "text-model".into()).unwrap();
+    values.set(openai::MODEL, "text-model".into());
     assert_eq!(
         openai::generation_options(values.for_component(&openai::COMPONENT), defaults.clone())
             .unwrap()
             .model,
         "text-model"
     );
-    assert!(openai::generation_options(values.for_component(&http::COMPONENT), defaults).is_err());
-}
-
-#[test]
-fn local_encoder_construction_requires_its_scoped_endpoint_before_building_transport() {
-    use yomibu_components::{http_embeddings as http, openai_story_generation as openai};
-    use yomibu_core::component::options::{OptionError, Options};
-    let mut values = Options::default();
-    values.set(http::MODEL, "embedding-model".into()).unwrap();
-    values.set(http::REVISION, "pinned".into()).unwrap();
-    values.set(http::DIMENSIONS, 2).unwrap();
-    let identity = http::model_identity(values.for_component(&http::COMPONENT), "local").unwrap();
     assert!(
-        matches!(http::HttpEmbedder::local(values.for_component(&http::COMPONENT), identity.clone()),
-        Err(http::BuildError::Options(OptionError::Missing { name, .. })) if name == http::ENDPOINT.name)
+        openai::generation_options(values.for_component(&wanikani::COMPONENT), defaults).is_err()
     );
-    values.clear(http::ENDPOINT.setting()).unwrap();
-    assert!(
-        http::HttpEmbedder::local(values.for_component(&http::COMPONENT), identity.clone()).is_ok()
-    );
-    assert!(matches!(
-        http::HttpEmbedder::local(values.for_component(&openai::COMPONENT), identity),
-        Err(http::BuildError::Options(OptionError::Invalid { .. }))
-    ));
 }

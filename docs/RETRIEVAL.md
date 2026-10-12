@@ -1,65 +1,11 @@
-# Retrieval implementation and evidence
+# Historical retrieval probe
 
-`yomibu_core::capabilities::Embedder` accepts explicit document/query inputs and returns vectors.
-`HttpEmbedder` supports an OpenAI-compatible numeric loopback server and the
-hosted OpenAI embeddings endpoint. `LexicalEmbedder` is an explicit nonsemantic
-comparison baseline. No default dense model is selected.
+Retrieval is retired. Reproduce this probe with the [pinned code](https://github.com/kalorz/yomibu/blob/7239de7517ab5be23193030b6d12f64a1f57fac3/scripts/compare_story_retrieval.py).
 
-The cache records provider, model, revision, dimensions and encoding revision.
-SHA-256 input keys distinguish document and query purpose and hash exact encoded
-text. Changing model identity or input text invalidates reuse. Vectors must have
-finite components, correct dimensions and nonzero magnitude; indexed HTTP results
-must be complete, unique and from the requested model. Plain encoding sends the
-same document/query format to either HTTP backend; models needing instruction
-prefixes or another protocol are not implicitly supported. Model revisions are
-caller assertions: configure/pin the server accordingly. A hosted alias is not
-proof that the provider keeps weights immutable.
-
-Flat cosine ranking uses f64 accumulation and stable ID ties. Every explicit
-vocabulary target is retained, irrespective of similarity. No vector database,
-plugin registry, server launcher or new dependency is introduced. Explicit preparation and enabled story embeddings can prepare missing vectors. Selection and input preparation are synchronous;
-encoding through `prepare_cache` is async and driven by the caller's executor.
-
-Library `yomibu_core::pipeline::embeddings::prepare_cache` groups at most 32 missing inputs; the HTTP adapter further splits groups by actual
-encoded JSON size, including escapes and model metadata, to keep each request
-within 512 KiB. All vectors must succeed before cache publication; a failed batch
-leaves the prior file intact, without retry. Compatible cached documents are reused.
-`yomibu_components::file_embedding_cache::EmbeddingCacheFile` owns explicit bounded reads
-and publication. A temporary file is synchronized before atomic replacement; a directory-sync
-failure reports uncertain durability after publication. Concurrent independent
-writers may replace each other's additional cached entries; they cannot publish
-half a JSON file. A later attempt can explicitly recompute missing entries.
-
-HTTP transport has 5-second connection and 30-second total deadlines, no retries,
-redirects or ambient proxies, a 512 KiB request cap and 4 MiB response cap. A batch
-allows at most 64 nonblank inputs, each 32 KiB before JSON escaping. The complete
-joined lexical document (written form, readings, meanings and labels) must fit
-that per-input limit; all documents are validated before any provider work.
-Cache vectors have at most 4,096
-dimensions and 20,000 entries. Errors expose status/category, not provider bodies
-or credentials. Missing vectors never cause an implicit hosted request.
-
-## Reproducible small probe
-
-The public synthetic [cases](../tests/fixtures/story/retrieval-cases.json) have
+The public synthetic [cases](https://github.com/kalorz/yomibu/blob/7239de7517ab5be23193030b6d12f64a1f57fac3/tests/fixtures/story/retrieval-cases.json) have
 10 vocabulary documents and six topics, with labeled relevant IDs and no forced
-targets. Run the same inputs for each backend, independently of generation:
-
-```sh
-cargo build --locked
-python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider lexical-baseline
-
-# Substitute an actually installed, pinned OpenAI-compatible local model:
-python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider local --http-embeddings-endpoint http://127.0.0.1:11434/v1/ \
-  --http-embeddings-model MODEL --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS
-
-# Explicit paid/data-transmitting comparison; supply YOMIBU_HTTP_EMBEDDINGS_API_KEY:
-python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider openai --http-embeddings-model MODEL \
-  --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS --allow-embedding-call
-```
+targets. Use a checkout of commit `7239de7517ab5be23193030b6d12f64a1f57fac3`
+and follow its [reproduction instructions](https://github.com/kalorz/yomibu/blob/7239de7517ab5be23193030b6d12f64a1f57fac3/docs/RETRIEVAL.md).
 
 The script fails if the requested encoder is unavailable; it never substitutes
 another one. It uses a fresh temporary cache per run, reusing documents between
@@ -89,16 +35,3 @@ had no service and `OPENAI_API_KEY` was absent. HTTP adapter tests use loopback
 mock vector responses to verify protocol/error behavior; they provide no semantic
 quality evidence. Real dense-model quality, latency and hosted cost remain an
 explicit follow-up before selecting a default. No live generation call was made.
-
-## Reusable preparation boundary
-
-`prepare_cache(&embedder, inputs, previous).await` reuses compatible vectors,
-checks every input size before any encoder call, encodes missing inputs and
-validates the complete result. It returns typed
-`EmbeddingError` and never publishes partial batches. The caller supplies an
-encoder and drives async I/O; the library resolves no credentials or runtime.
-`EmbeddingCacheFile::new(path)` performs no I/O. `load` distinguishes absence from
-malformed data; `save` validates before creating temporary files and publishes one
-complete cache. It distinguishes errors before
-replacement from uncertain directory durability afterwards. Both enforce the
-existing 128 MiB readable-cache limit. The application chooses paths and encoder configuration from supplied settings.
