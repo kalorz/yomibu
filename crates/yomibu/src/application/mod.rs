@@ -1,10 +1,8 @@
-//! Explicit synchronization and offline status for one account-scoped store.
+//! Explicit synchronization for one account-scoped store.
 
-mod assessment;
 mod construction;
 mod credentials;
 pub use credentials::{CredentialError, Credentials, Secret};
-mod embeddings;
 mod inputs;
 mod local;
 pub use local::{ApplicationError, LocalApp, ServiceEndpoints, SetupIssue};
@@ -13,7 +11,6 @@ pub mod progress;
 pub mod selection;
 mod source;
 pub use source::cache_path as source_cache_path;
-pub mod story;
 mod story_workflow;
 pub use story_workflow::{StoryInputs, StoryResources, run_story};
 
@@ -28,13 +25,7 @@ use yomibu_core::{
 pub enum Operation {
     Auth,
     Story,
-    Preview,
-    Retrieval,
-    Analyze(std::path::PathBuf),
-    Import(std::path::PathBuf),
-    Verify,
     Sync,
-    Status,
 }
 
 impl Operation {
@@ -48,62 +39,19 @@ impl Operation {
                     | "application.sync"
                     | "pipeline.components.source"
                     | "pipeline.components.generation"
-                    | "pipeline.selection.embeddings"
-                    | "pipeline.embedding.provider"
             );
         }
         if let Some(option) = name.strip_prefix("pipeline.options.") {
-            return match option.split_once('.').map(|(component, _)| component) {
-                Some(yomibu_components::openai_story_generation::ID) => {
-                    matches!(self, Story | Preview)
-                }
-                Some(yomibu_components::http_embeddings::ID) => {
-                    matches!(self, Story | Preview | Retrieval)
-                }
-                _ => false,
-            };
+            return matches!(
+                option.split_once('.').map(|(component, _)| component),
+                Some(yomibu_components::openai_story_generation::ID)
+            ) && matches!(self, Story);
         }
         match name {
-            "pipeline.components.source" => matches!(self, Story | Sync),
-            "pipeline.components.learning_store" | "application.wanikani_cache" => {
-                matches!(self, Story | Preview | Retrieval | Sync | Status)
-            }
-            "pipeline.components.analysis" | "application.dictionary_dir" => {
-                matches!(self, Story | Analyze(_) | Import(_) | Verify)
-            }
-            "pipeline.components.assessment" => matches!(self, Story | Analyze(_)),
-            "pipeline.components.preparation"
-            | "pipeline.components.generation"
-            | "pipeline.model"
-            | "story.format"
-            | "story.candidates"
-            | "story.seed"
-            | "enable"
-            | "disable"
-            | "application.sync"
-            | "pipeline.selection.embeddings"
-            | "pipeline.assessment.enabled"
-            | "pipeline.selection.steps"
-            | "pipeline.selection.embedding_steps" => matches!(self, Story | Preview),
-            "application.cache_max_age_seconds" => matches!(self, Story),
-            _ => matches!(self, Story | Preview | Retrieval),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Operation;
-
-    #[test]
-    fn component_options_apply_only_to_operations_that_use_the_component() {
-        for operation in [Operation::Story, Operation::Preview, Operation::Retrieval] {
-            assert!(!operation.uses_setting("pipeline.options.unregistered.value"));
-            assert!(operation.uses_setting("pipeline.options.http-embeddings.dimensions"));
-            assert_eq!(
-                operation.uses_setting("pipeline.options.openai.model"),
-                !matches!(operation, Operation::Retrieval)
-            );
+            "pipeline.components.source"
+            | "pipeline.components.learning_store"
+            | "application.wanikani_cache" => matches!(self, Story | Sync),
+            _ => matches!(self, Story),
         }
     }
 }
@@ -128,15 +76,6 @@ impl<Store> App<Store> {
             store: self.store,
             source,
         }
-    }
-}
-
-impl<Store: LearningStore, Source> App<Store, Source> {
-    /// Read and summarize local data without network access or writes.
-    /// The returned summary owns its data and can outlive the application.
-    pub fn status(&self) -> Result<Summary, StatusError<Store::ReadError>> {
-        crate::reports::summary::summarize(self.store.load().map_err(StatusError::Read)?.as_ref())
-            .map_err(StatusError::InvalidData)
     }
 }
 
@@ -170,14 +109,6 @@ impl<Store: LearningStore, Source: LearningSource> App<Store, Source> {
 pub struct SyncReport {
     pub summary: Summary,
     pub persistence: Persistence,
-}
-
-#[derive(Debug, Error)]
-pub enum StatusError<ReadError> {
-    #[error(transparent)]
-    Read(ReadError),
-    #[error("Invalid stored source data: {0}")]
-    InvalidData(#[source] ValidationError),
 }
 
 #[derive(Debug, Error)]

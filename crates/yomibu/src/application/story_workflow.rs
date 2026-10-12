@@ -1,23 +1,15 @@
 use super::{
-    ApplicationError, Credentials, SetupIssue, assessment, embeddings, inputs,
+    ApplicationError, Credentials, SetupIssue, inputs,
     progress::{ProgressEvent, RunProgress, Step},
-    source,
+    selection, source,
 };
 use crate::configuration::Configuration;
 use crate::configuration::modules::{ModuleId, ModuleReport, ModuleState};
 use crate::reports::run::{SelectionReport, StoryRunReport};
 use chrono::{DateTime, Utc};
-use yomibu_components::{
-    openai_story_generation as openai, sudachi_dictionary::SudachiAnalyzer,
-    wanikani_source as wanikani,
-};
+use yomibu_components::{openai_story_generation as openai, wanikani_source as wanikani};
 use yomibu_core::capabilities::LearningStore;
-use yomibu_core::domain::{
-    candidate::GeneratedCandidates,
-    embedding::EmbeddingCache,
-    inventory::LearnerInventory,
-    story::{StoryAssessmentInputs, StoryPassageAssessment, StoryRequest},
-};
+use yomibu_core::domain::{inventory::LearnerInventory, story::StoryRequest};
 use yomibu_core::pipeline::story::prepare_story;
 
 pub struct StoryInputs {
@@ -30,13 +22,6 @@ pub struct StoryResources<'a, Store> {
     pub store: Option<&'a Store>,
     pub source_client: Option<&'a mut wanikani::Client>,
     pub generation_client: &'a openai::Client,
-    pub analyzer: Option<&'a SudachiAnalyzer>,
-    pub embedding_cache: Option<&'a EmbeddingCache>,
-}
-
-pub(super) enum StoryEmbeddings<'a> {
-    Local(&'a Credentials),
-    Supplied(Option<&'a EmbeddingCache>),
 }
 
 pub(super) enum GenerationClient<'a> {
@@ -47,74 +32,8 @@ pub(super) enum GenerationClient<'a> {
     Supplied(&'a openai::Client),
 }
 
-/// Generate from supplied inputs and resolved settings without reading configuration
-/// files or configured request, inventory, or dictionary paths. Reuse an initialized
-/// analyzer across calls; `None` skips analysis. Disabled assessment ignores it.
-/// `resources.store` participates in source preparation; `None` excludes source data.
-/// `resources.source_client` permits refresh through that mutable client; `None` forbids
-/// fetching. Application WaniKani credentials and endpoint are never consulted.
-/// `resources.generation_client` owns generation credentials and endpoint; this call
-/// uses model and generation options from the resolved configuration.
-/// `resources.embedding_cache` supplies prepared vectors. Missing or incompatible evidence
-/// warns and uses base selection when embeddings are enabled with a topic.
-/// Embedding paths, credentials and providers are never used for acquisition.
-///
-/// Reuse one generation client with independent per-call settings. Both prepared
-/// inputs must contain manual inventory (`manual: Some(...)`). Executing this
-/// example contacts OpenAI; Rustdoc only compiles it.
-///
-/// ```no_run
-/// use std::path::PathBuf;
-/// use yomibu::{
-///     application::{self, Operation, StoryInputs, StoryResources},
-///     configuration::{
-///         Configuration, Invocation, Patch, ProcessOverrides, modules::ModuleId,
-///     },
-///     reports::run::StoryRunReport,
-/// };
-/// use yomibu_components::{
-///     in_memory_learning_store::InMemoryLearningStore, openai_story_generation::Client,
-/// };
-///
-/// async fn generate_two_stories(
-///     data_dir: PathBuf,
-///     api_key: &str,
-///     inputs: [StoryInputs; 2],
-/// ) -> Result<Vec<StoryRunReport>, Box<dyn std::error::Error>> {
-///     let base = Configuration::from_overrides(
-///         data_dir,
-///         ProcessOverrides {
-///             disable: vec![ModuleId::Embeddings, ModuleId::Assessment],
-///             ..Default::default()
-///         },
-///         &Operation::Story,
-///     )?;
-///     let client = Client::new(api_key)?;
-///     let mut reports = Vec::new();
-///     for (inputs, seed) in inputs.into_iter().zip([7, 42]) {
-///         let mut invocation = Invocation::default();
-///         invocation.story.seed = Patch::Set(seed);
-///         let config = base.for_invocation(invocation, &Operation::Story)?;
-///         let report = application::run_story::<InMemoryLearningStore>(
-///             &config,
-///             inputs,
-///             StoryResources {
-///                 store: None,
-///                 source_client: None,
-///                 generation_client: &client,
-///                 analyzer: None,
-///                 embedding_cache: None,
-///             },
-///             std::time::SystemTime::now().into(),
-///             seed,
-///             |_| {},
-///         )
-///         .await?;
-///         reports.push(report);
-///     }
-///     Ok(reports)
-/// }
-/// ```
+/// Generate from supplied inputs and resolved settings without reading input paths.
+/// The caller owns the store and clients; absent source resources prohibit fetching.
 pub async fn run_story<Store: LearningStore>(
     config: &Configuration,
     inputs: StoryInputs,
@@ -130,8 +49,6 @@ where
         store,
         source_client,
         generation_client,
-        analyzer,
-        embedding_cache,
     } = resources;
     let mut progress = RunProgress::new(config, emit);
     let started = progress.start(Step::Inputs);
@@ -154,14 +71,10 @@ where
             source::SourceClient::Supplied,
         ),
         GenerationClient::Supplied(generation_client),
-        StoryEmbeddings::Supplied(embedding_cache),
         now,
         seed,
         progress,
         started,
-        |generated, inputs, progress| {
-            assessment::assess_optional(config, generated, inputs, analyzer, progress)
-        },
     )
     .await
 }
@@ -177,7 +90,7 @@ pub(super) fn validate_story_request(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "Keep invocation inputs and deferred assessment explicit."
+    reason = "Keep invocation inputs and resources explicit."
 )]
 pub(super) async fn execute_story<Store: LearningStore, F: FnMut(ProgressEvent)>(
     config: &Configuration,
@@ -185,16 +98,10 @@ pub(super) async fn execute_story<Store: LearningStore, F: FnMut(ProgressEvent)>
     store: Option<&Store>,
     source_client: source::SourceClient<'_>,
     generation_client: GenerationClient<'_>,
-    embedding_source: StoryEmbeddings<'_>,
     now: DateTime<Utc>,
     seed: u64,
     mut progress: RunProgress<F>,
     started: std::time::Instant,
-    assess: impl FnOnce(
-        &GeneratedCandidates,
-        &StoryAssessmentInputs<'_>,
-        &mut RunProgress<F>,
-    ) -> Vec<StoryPassageAssessment<super::story::DefaultCandidateError>>,
 ) -> Result<StoryRunReport, ApplicationError>
 where
     ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
@@ -247,50 +154,14 @@ where
     progress.finish(Step::Knowledge, started);
     let seed = config.story.seed.unwrap_or(seed);
     request.validate(&inventory)?;
-    let local_cache;
-    let cache = if let Some(started) = embeddings::start_optional(config, &request, &mut progress) {
-        let result = match embedding_source {
-            StoryEmbeddings::Local(credentials) => {
-                match embeddings::prepare_embeddings(config, credentials, &inventory, &request)
-                    .await
-                {
-                    Ok(cache) => {
-                        local_cache = cache;
-                        Ok(&local_cache)
-                    }
-                    Err(error) => Err(error),
-                }
-            }
-            StoryEmbeddings::Supplied(cache) => {
-                embeddings::validate_supplied(config, &inventory, &request, cache)
-            }
-        };
-        progress.finish(Step::Embeddings, started);
-        match result {
-            Ok(cache) => {
-                progress.state(ModuleId::Embeddings, ModuleState::Available);
-                Some(cache)
-            }
-            Err(error) => {
-                embeddings::report_fallback(config, &error, &mut progress);
-                None
-            }
-        }
-    } else {
-        None
-    };
     let started = progress.start(Step::Selection);
-    let (selection, retrieval_error) = embeddings::select_for_request(
+    let selection = selection::select_configured(
         &config.pipeline.selection,
         &inventory,
         &request,
-        cache,
         config.story.select,
         seed,
     )?;
-    if let Some(error) = retrieval_error {
-        embeddings::report_fallback(config, &error.into(), &mut progress);
-    }
     let plan = prepare_story(
         &config.pipeline.components.preparation.construct(),
         &inventory,
@@ -303,8 +174,7 @@ where
     let started = progress.start(Step::Generation);
     let generated = plan.generate(client).await?;
     progress.finish(Step::Generation, started);
-    let assessments = assess(&generated, plan.assessment_inputs(), &mut progress);
-    Ok(progress.into_story_report(request, selection, generated, assessments))
+    Ok(progress.into_story_report(request, selection, generated))
 }
 
 fn validate_story_setup(
@@ -341,7 +211,6 @@ fn validate_story_setup(
                     }
                     GenerationClient::Supplied(_) => false,
                 },
-                _ => false,
             };
             missing.then_some(SetupIssue {
                 module: module.metadata.id,

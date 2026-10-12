@@ -89,7 +89,7 @@ fn api_key(token: String) -> Result<Option<String>> {
     Ok(Some(token))
 }
 
-pub(super) fn require_interactive(json: bool) -> Result<()> {
+pub(super) fn require_interactive() -> Result<()> {
     if !cfg!(target_os = "macos") {
         bail!(
             "Credential storage is supported only on macOS; use CLI/environment credentials on this platform."
@@ -97,9 +97,6 @@ pub(super) fn require_interactive(json: bool) -> Result<()> {
     }
     if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
         bail!("Credential setup requires an interactive terminal.");
-    }
-    if json {
-        bail!("Credential setup is interactive; omit --json.");
     }
     Ok(())
 }

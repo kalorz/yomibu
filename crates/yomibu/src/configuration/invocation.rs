@@ -1,6 +1,6 @@
 use super::{
-    ConfigError, Configuration, EmbeddingProvider, KnowledgePolicy, Operation, Patch,
-    SelectionStep, StoryFormat, components,
+    ConfigError, Configuration, KnowledgePolicy, Operation, Patch, SelectionStep, StoryFormat,
+    components,
 };
 use serde::Deserialize;
 use yomibu_core::domain::knowledge::LearnerKnowledgePolicy;
@@ -19,36 +19,19 @@ pub struct PipelineOverrides {
     pub model: Option<String>,
     pub selection: SelectionOverrides,
     pub options: super::OptionOverrides,
-    pub embedding: EmbeddingOverrides,
-    pub assessment: AssessmentOverrides,
 }
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ComponentOverrides {
     pub source: Option<components::Source>,
     pub learning_store: Option<components::LearningStore>,
-    pub embedding_cache: Option<components::EmbeddingCache>,
     pub preparation: Option<components::Preparation>,
     pub generation: Option<components::Generation>,
-    pub analysis: Option<components::Analysis>,
-    pub assessment: Option<components::Assessment>,
 }
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SelectionOverrides {
     pub steps: Option<Vec<SelectionStep>>,
-    pub embedding_steps: Option<Vec<SelectionStep>>,
-    pub embeddings: Option<bool>,
-}
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct EmbeddingOverrides {
-    pub provider: Patch<EmbeddingProvider>,
-}
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct AssessmentOverrides {
-    pub enabled: Option<bool>,
 }
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -103,11 +86,8 @@ impl Configuration {
         }
         component!(source);
         component!(learning_store);
-        component!(embedding_cache);
         component!(preparation);
         component!(generation);
-        component!(analysis);
-        component!(assessment);
         if operation.uses_setting("pipeline.knowledge_policy")
             && let Some(value) = overrides.knowledge_policy
         {
@@ -124,20 +104,6 @@ impl Configuration {
         }
         if operation.uses_setting("pipeline.selection.steps") {
             set!(overrides.selection.steps, pipeline.selection.steps);
-            set!(
-                overrides.selection.embedding_steps,
-                pipeline.selection.embedding_steps
-            );
-            set!(overrides.assessment.enabled, pipeline.assessment);
-        }
-        if operation.uses_setting("pipeline.selection.embeddings") {
-            set!(overrides.selection.embeddings, pipeline.embeddings);
-        }
-        if operation.uses_setting("pipeline.embedding.provider") {
-            overrides
-                .embedding
-                .provider
-                .apply(&mut pipeline.embedding_provider);
         }
         overrides.options.apply(&mut pipeline.options, operation)?;
         if operation.uses_setting("story.topic") {

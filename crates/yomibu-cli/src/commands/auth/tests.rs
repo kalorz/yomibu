@@ -27,11 +27,7 @@ fn configuration(application: &str, pipeline: &str, environment: &[(&str, &str)]
 
 #[test]
 fn setup_honors_environment_controls_and_keeps_component_keys_separate() {
-    let config = configuration(
-        "",
-        "[pipeline.embedding]\nprovider='openai'\n",
-        &[("YOMIBU_DISABLE", "sync"), ("YOMIBU_ENABLE", "embeddings")],
-    );
+    let config = configuration("", "", &[("YOMIBU_DISABLE", "sync")]);
     let needs = pending(
         &Target::Missing(config.credential_requirements().collect()),
         &Credentials::default(),
@@ -39,7 +35,7 @@ fn setup_honors_environment_controls_and_keeps_component_keys_separate() {
     )
     .unwrap();
     let keys: Vec<_> = needs.iter().map(|need| need.name.key()).collect();
-    assert_eq!(keys, ["http-embeddings.api-key", "openai.api-key"]);
+    assert_eq!(keys, ["openai.api-key"]);
     let mut credentials = Credentials::default();
     credentials.supply(components::GENERATION_KEY, "generation-only".into());
     let needs = pending(
@@ -48,39 +44,24 @@ fn setup_honors_environment_controls_and_keeps_component_keys_separate() {
         &mut Vec::new(),
     )
     .unwrap();
-    assert_eq!(needs.len(), 1);
-    assert_eq!(needs[0].name, components::EMBEDDING_KEY.name);
+    assert!(needs.is_empty());
 }
 
 #[test]
-fn disabled_or_local_integrations_do_not_request_credentials() {
-    for (enabled, provider) in [
-        (false, "openai"),
-        (true, "local"),
-        (true, "lexical-baseline"),
-    ] {
-        let config = configuration(
-            "[application]\nsync=false\n",
-            &format!(
-                "[pipeline.selection]\nembeddings={enabled}\n[pipeline.embedding]\nprovider='{provider}'\n"
-            ),
-            &[],
-        );
-        let mut credentials = Credentials::default();
-        for requirement in [components::SOURCE_KEY, components::EMBEDDING_KEY] {
-            credentials.supply_with(requirement, || {
-                panic!("Disabled or local integration read a credential")
-            });
-        }
-        let needs = pending(
-            &Target::Missing(config.credential_requirements().collect()),
-            &credentials,
-            &mut Vec::new(),
-        )
-        .unwrap();
-        assert_eq!(needs.len(), 1);
-        assert_eq!(needs[0].name, components::GENERATION_KEY.name);
-    }
+fn disabled_sync_does_not_read_or_request_its_credential() {
+    let config = configuration("[application]\nsync=false\n", "", &[]);
+    let mut credentials = Credentials::default();
+    credentials.supply_with(components::SOURCE_KEY, || {
+        panic!("Disabled sync read a credential")
+    });
+    let needs = pending(
+        &Target::Missing(config.credential_requirements().collect()),
+        &credentials,
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(needs.len(), 1);
+    assert_eq!(needs[0].name, components::GENERATION_KEY.name);
 }
 
 #[test]
@@ -89,38 +70,19 @@ fn namespace_skips_present_keys_while_exact_target_allows_replacement() {
     credentials.supply_with(components::GENERATION_KEY, || {
         panic!("Unselected component read the store")
     });
-    let selected = select("http-embeddings").unwrap();
+    let selected = select("wanikani").unwrap();
     let missing = pending(&selected, &credentials, &mut Vec::new()).unwrap();
     assert_eq!(missing.len(), 1);
-    assert_eq!(missing[0].name, components::EMBEDDING_KEY.name);
-    credentials.set_environment(components::EMBEDDING_KEY, "synthetic-env".into());
+    assert_eq!(missing[0].name, components::SOURCE_KEY.name);
+    credentials.set_environment(components::SOURCE_KEY, "synthetic-env".into());
     assert!(
         pending(&selected, &credentials, &mut Vec::new())
             .unwrap()
             .is_empty()
     );
-    credentials.supply_with(components::SOURCE_KEY, || {
-        Err(CredentialError::StoreUnavailable)
-    });
-    assert_eq!(
-        pending(&select("wanikani").unwrap(), &credentials, &mut Vec::new())
-            .unwrap()
-            .len(),
-        1
-    );
     assert_eq!(
         pending(
             &select("wanikani.api-key").unwrap(),
-            &credentials,
-            &mut Vec::new()
-        )
-        .unwrap()
-        .len(),
-        1
-    );
-    assert_eq!(
-        pending(
-            &select("http-embeddings.api-key").unwrap(),
             &credentials,
             &mut Vec::new()
         )
@@ -192,10 +154,10 @@ fn a_failed_credential_lookup_does_not_block_other_setup() {
         let mut credentials = Credentials::default();
         match error {
             CredentialError::InvalidEncoding => {
-                credentials.set_environment(components::EMBEDDING_KEY, Secret::invalid_encoding())
+                credentials.set_environment(components::GENERATION_KEY, Secret::invalid_encoding())
             }
             CredentialError::StoreUnavailable => {
-                credentials.supply_with(components::EMBEDDING_KEY, move || Err(error))
+                credentials.supply_with(components::GENERATION_KEY, move || Err(error))
             }
         }
         let mut warnings = Vec::new();
@@ -208,17 +170,13 @@ fn a_failed_credential_lookup_does_not_block_other_setup() {
         let warnings = String::from_utf8(warnings).unwrap();
         assert!(
             warnings.starts_with(&format!(
-                "warning: http-embeddings.api-key: {error} Continuing setup.\n"
+                "warning: openai.api-key: {error} Continuing setup.\n"
             )),
             "{warnings}"
         );
         assert_eq!(
             needs.iter().map(|need| need.name.key()).collect::<Vec<_>>(),
-            [
-                "http-embeddings.api-key",
-                "openai.api-key",
-                "wanikani.api-key"
-            ]
+            ["openai.api-key", "wanikani.api-key"]
         );
     }
 }
@@ -241,7 +199,6 @@ fn empty_input_skips_and_invalid_keys_are_rejected_without_exposing_them() {
 #[test]
 fn keychain_names_follow_component_and_credential_names() {
     for (requirement, service) in [
-        (components::EMBEDDING_KEY, "yomibu:http-embeddings"),
         (components::GENERATION_KEY, "yomibu:openai"),
         (components::SOURCE_KEY, "yomibu:wanikani"),
     ] {
@@ -257,7 +214,7 @@ fn keychain_names_follow_component_and_credential_names() {
 fn auth_configuration_ignores_story_inputs_and_unused_model_options() {
     let config = configuration(
         "[application]\nsync=false\n",
-        "[pipeline]\nmodel=7\n[pipeline.selection]\nsteps=[]\nembeddings=true\n[pipeline.embedding]\nprovider='openai'\n",
+        "[pipeline]\nmodel=7\n[pipeline.selection]\nsteps=[]\n",
         &[],
     );
     let needs = pending(
@@ -266,5 +223,5 @@ fn auth_configuration_ignores_story_inputs_and_unused_model_options() {
         &mut Vec::new(),
     )
     .unwrap();
-    assert_eq!(needs.len(), 2);
+    assert_eq!(needs.len(), 1);
 }

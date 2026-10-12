@@ -68,10 +68,7 @@ mod tests {
     use clap::Parser;
     use yomibu::{
         application::Operation,
-        configuration::{
-            Configuration, ConfigurationInput,
-            components::{EMBEDDING_DIMENSIONS, GENERATION_MODEL},
-        },
+        configuration::{Configuration, ConfigurationInput, components::GENERATION_MODEL},
     };
 
     #[derive(Parser)]
@@ -82,15 +79,9 @@ mod tests {
 
     #[test]
     fn flattened_story_arguments_register_read_and_update_component_options() {
-        let mut cli = AnotherCommand::try_parse_from([
-            "another",
-            "--openai-model",
-            "日本語",
-            "--http-embeddings-dimensions",
-            "8",
-        ])
-        .unwrap();
-        cli.try_update_from(["another", "--http-embeddings-dimensions", "16"])
+        let mut cli =
+            AnotherCommand::try_parse_from(["another", "--openai-model", "日本語"]).unwrap();
+        cli.try_update_from(["another", "--openai-model", "updated-model"])
             .unwrap();
         let dir = tempfile::tempdir().unwrap();
         let config = Configuration::load(
@@ -111,11 +102,7 @@ mod tests {
                 .get(GENERATION_MODEL)
                 .unwrap()
                 .map(String::as_str),
-            Some("日本語")
-        );
-        assert_eq!(
-            config.pipeline.options.get(EMBEDDING_DIMENSIONS).unwrap(),
-            Some(&16)
+            Some("updated-model")
         );
     }
 }

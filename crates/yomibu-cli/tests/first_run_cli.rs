@@ -15,31 +15,25 @@ fn bare_help_and_help_command_list_every_command_without_setup_or_writes() {
         assert!(output.stderr.is_empty());
         let text = String::from_utf8(output.stdout).unwrap();
         assert!(text.contains("Usage: yomibu"));
-        for command in [
-            "story",
+        for command in ["auth", "sync", "story", "help"] {
+            assert!(text.contains(command), "{text}");
+        }
+        for removed in [
             "preview-story",
             "prepare-retrieval",
             "analyze",
             "dictionary",
-            "sync",
             "status",
-            "help",
+            "--json",
         ] {
-            assert!(text.contains(command), "{text}");
+            assert!(!text.contains(removed), "{text}");
         }
         assert!(!text.contains("generate-story"));
         let credential_flags: Vec<_> = text
             .split_whitespace()
             .filter(|word| word.starts_with("--") && word.ends_with("-api-key"))
             .collect();
-        assert_eq!(
-            credential_flags,
-            [
-                "--http-embeddings-api-key",
-                "--openai-api-key",
-                "--wanikani-api-key"
-            ]
-        );
+        assert_eq!(credential_flags, ["--openai-api-key", "--wanikani-api-key"]);
         let (_, credentials_help) = text
             .split_once("\nCredentials:\n")
             .expect("Missing Credentials help section");
@@ -52,61 +46,6 @@ fn bare_help_and_help_command_list_every_command_without_setup_or_writes() {
         assert!(!text.contains("--credential-"));
     }
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
-}
-
-#[test]
-fn component_configuration_errors_explain_validation_without_echoing_values() {
-    let dir = tempfile::tempdir().unwrap();
-    let data = dir.path().join("日本語\n\u{1b}");
-    std::fs::create_dir(&data).unwrap();
-    let path = data.join("default-pipeline.toml");
-    for file in [false, true] {
-        for value in ["0", "synthetic-private\n\u{1b}"] {
-            let mut command = cli(dir.path());
-            command
-                .arg("--data-dir")
-                .arg(&data)
-                .arg("prepare-retrieval");
-            let text = if file {
-                let literal = if value == "0" {
-                    "0".into()
-                } else {
-                    serde_json::to_string(value).unwrap()
-                };
-                format!("[pipeline.options.http-embeddings]\ndimensions={literal}\n")
-            } else {
-                command.env("YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS", value);
-                String::new()
-            };
-            std::fs::write(&path, text).unwrap();
-            let output = command.output().unwrap();
-            assert_eq!(output.status.code(), Some(1));
-            assert!(output.stdout.is_empty());
-            let error = String::from_utf8(output.stderr).unwrap();
-            assert!(
-                error.starts_with("error: ") && error.ends_with('\n'),
-                "{error}"
-            );
-            assert_eq!(error.lines().count(), 1, "{error}");
-            assert!(error.contains("http-embeddings.dimensions"), "{error}");
-            if value == "0" {
-                assert!(
-                    error.contains("Embedding dimensions must be between 1 and 4096."),
-                    "{error}"
-                );
-            }
-            if file {
-                assert!(error.contains("日本語\\n\\u{1b}"), "{error}");
-            } else {
-                assert!(
-                    error.contains("YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS"),
-                    "{error}"
-                );
-            }
-            assert!(!error.contains("synthetic-private"));
-            assert!(!error.contains('\u{1b}'));
-        }
-    }
 }
 
 #[test]
@@ -207,83 +146,6 @@ fn missing_keys_recommend_component_auth_even_when_automatic_sync_is_disabled() 
 }
 
 #[test]
-fn hosted_embeddings_request_their_own_key_even_when_openai_has_one() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = cli(dir.path())
-        .args([
-            "prepare-retrieval",
-            "--embedding-provider",
-            "openai",
-            "--http-embeddings-model",
-            "synthetic-model",
-            "--http-embeddings-revision",
-            "synthetic-revision",
-            "--http-embeddings-dimensions",
-            "2",
-            "--allow-embedding-call",
-            "--openai-api-key",
-            "synthetic-generation-key",
-            "--inventory",
-        ])
-        .arg(root.join("tests/fixtures/story/inventory.json"))
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    let name = yomibu::configuration::components::EMBEDDING_KEY.name;
-    assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
-        format!(
-            "error: Use an OpenAI key with embedding access. Supply --{} or {}. On macOS, run yomibu auth {}.\n",
-            name.cli(),
-            name.environment(),
-            name.component
-        )
-    );
-    assert!(!dir.path().join(".yomibu").exists());
-}
-
-#[test]
-fn missing_embedding_options_report_the_declared_setting_without_echoing_values() {
-    use yomibu::configuration::components::{
-        EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, EMBEDDING_REVISION,
-    };
-    let dir = tempfile::tempdir().unwrap();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut command = cli(dir.path());
-    command
-        .args([
-            "prepare-retrieval",
-            "--embedding-provider",
-            "openai",
-            "--inventory",
-        ])
-        .arg(root.join("tests/fixtures/story/inventory.json"));
-    for setting in [
-        EMBEDDING_MODEL.setting(),
-        EMBEDDING_REVISION.setting(),
-        EMBEDDING_DIMENSIONS.setting(),
-    ] {
-        let output = command.output().unwrap();
-        assert_eq!(output.status.code(), Some(1));
-        assert!(output.stdout.is_empty());
-        assert_eq!(
-            String::from_utf8(output.stderr).unwrap(),
-            format!(
-                "error: Supply --{}. {}\n",
-                setting.name().cli(),
-                setting.description()
-            )
-        );
-        command
-            .arg(format!("--{}", setting.name().cli()))
-            .arg("日本語\n\u{1b}");
-    }
-    assert!(!dir.path().join(".yomibu").exists());
-}
-
-#[test]
 fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     let dir = tempfile::tempdir().unwrap();
     let help = cli(dir.path()).args(["help", "story"]).output().unwrap();
@@ -302,24 +164,8 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
         assert!(text.contains(flag), "{text}");
     }
     assert!(text.contains("api.responses.write"));
-    let (_, assessment) = text
-        .split_once("Sudachi assessment: Check available vocabulary evidence")
-        .unwrap();
-    assert!(assessment.contains("--dictionary-dir"), "{assessment}");
-    let (_, embeddings) = text
-        .split_once("Embeddings: Improve topic vocabulary selection")
-        .unwrap();
-    let embeddings = embeddings.split("OpenAI generation:").next().unwrap();
-    let name = yomibu::configuration::components::EMBEDDING_KEY.name;
-    for guidance in [
-        format!("--{}", name.cli()),
-        name.environment(),
-        format!("yomibu auth {}", name.component),
-    ] {
-        assert!(embeddings.contains(&guidance), "{embeddings}");
-    }
     for (requirement, invalid_option) in yomibu::configuration::components::credentials()
-        .flat_map(|key| ["--format", "--http-embeddings-dimensions"].map(|flag| (key, flag)))
+        .flat_map(|key| ["--format", "--candidates"].map(|flag| (key, flag)))
     {
         let output = cli(dir.path())
             .args([
@@ -341,47 +187,4 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
         assert!(!text.contains("synthetic-secret"));
         assert!(text.contains("\n\nUsage:"));
     }
-}
-
-#[test]
-fn the_global_json_option_produces_a_single_report_for_offline_status_and_retrieval() {
-    let dir = tempfile::tempdir().unwrap();
-    let data = dir.path().join(".yomibu");
-    std::fs::create_dir(&data).unwrap();
-    std::fs::write(
-        data.join("wanikani.json"),
-        include_bytes!("../../../tests/fixtures/mixed.json"),
-    )
-    .unwrap();
-    let status = cli(dir.path())
-        .args(["status", "--json", "--verbose"])
-        .output()
-        .unwrap();
-    assert!(status.status.success());
-    assert!(status.stderr.is_empty());
-    let report: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
-    assert_eq!(report["username"], "テスト");
-    assert_eq!(report["vocabulary"], 2);
-    assert_eq!(
-        report["srs_stages"][0]["srs_system_id"],
-        serde_json::Value::Null
-    );
-    assert_eq!(report["reading_accuracy"]["total"], 11);
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let retrieval = cli(dir.path())
-        .args([
-            "prepare-retrieval",
-            "--json",
-            "--embedding-provider",
-            "lexical-baseline",
-            "--inventory",
-        ])
-        .arg(root.join("tests/fixtures/story/inventory.json"))
-        .output()
-        .unwrap();
-    assert!(retrieval.status.success());
-    assert!(retrieval.stderr.is_empty());
-    let report: serde_json::Value = serde_json::from_slice(&retrieval.stdout).unwrap();
-    assert_eq!(report["model"]["model"], "lexical-hash");
-    assert!(!report["entries"].as_array().unwrap().is_empty());
 }

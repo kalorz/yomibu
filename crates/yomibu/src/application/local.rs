@@ -1,24 +1,18 @@
 use super::{
-    StoryInputs, assessment, inputs,
+    StoryInputs, inputs,
     progress::RunProgress,
     source,
-    story_workflow::{self, GenerationClient, StoryEmbeddings},
+    story_workflow::{self, GenerationClient},
 };
 use crate::application::input_file;
 use crate::configuration::Configuration;
 use crate::configuration::modules::ModuleId;
 use chrono::{DateTime, Utc};
 use yomibu_components::{
-    file_embedding_cache::EmbeddingCacheFileError,
-    file_learning_store::cache,
-    openai_story_generation as openai,
-    sudachi_dictionary::{DictionaryError, installation::InstallationError},
-    wanikani_source as wanikani,
+    file_learning_store::cache, openai_story_generation as openai, wanikani_source as wanikani,
 };
 use yomibu_core::capabilities::LearningStore;
-use yomibu_core::domain::{
-    embedding::EmbeddingError, inventory::InventoryError, story::StoryError,
-};
+use yomibu_core::domain::{inventory::InventoryError, story::StoryError};
 mod explicit;
 
 use super::progress::{ProgressEvent, Step};
@@ -55,16 +49,12 @@ pub enum ApplicationError {
     Options(#[from] crate::configuration::components::OptionError),
     #[error(transparent)]
     Credential(#[from] super::CredentialError),
-    #[error("{}", crate::configuration::components::credential_guidance(*.0))]
-    MissingCredential(crate::configuration::components::OptionKey<super::Secret>),
     #[error("Missing required setup.")]
     Setup { issues: Vec<SetupIssue> },
     #[error(transparent)]
     Cache(#[from] cache::CacheError),
     #[error(transparent)]
     Persistence(#[from] cache::WriteError),
-    #[error(transparent)]
-    InMemoryStore(#[from] yomibu_components::in_memory_learning_store::InMemoryStoreError),
     #[error(transparent)]
     Source(#[from] wanikani::Error),
     #[error(transparent)]
@@ -79,8 +69,6 @@ pub enum ApplicationError {
         #[source]
         source: serde_json::Error,
     },
-    #[error("Unsupported analysis input version {version}; expected 1.")]
-    InputVersion { version: u32 },
     #[error(transparent)]
     Inventory(#[from] InventoryError),
     #[error(transparent)]
@@ -90,37 +78,7 @@ pub enum ApplicationError {
     )]
     AccessExpired,
     #[error(transparent)]
-    Dictionary(#[from] DictionaryError),
-    #[error(transparent)]
-    Installation(#[from] InstallationError),
-    #[error(transparent)]
-    EmbeddingCache(#[from] EmbeddingCacheFileError),
-    #[error(transparent)]
-    Embedding(#[from] EmbeddingError),
-    #[error("{0}")]
-    Resource(&'static str),
-    #[error("{0}")]
-    ResourceConfiguration(&'static str),
-    #[error(transparent)]
     Validation(#[from] yomibu_core::domain::source::ValidationError),
-    #[error(transparent)]
-    Sentence(#[from] yomibu_core::domain::analysis::SentenceError),
-    #[error(transparent)]
-    Analysis(#[from] yomibu_components::sudachi_dictionary::AnalysisError),
-    #[error(transparent)]
-    Grammar(#[from] yomibu_core::domain::grammar::GrammarError),
-    #[error(transparent)]
-    Evaluation(#[from] yomibu_core::domain::evaluation::EvaluationError),
-}
-
-impl From<yomibu_components::http_embeddings::BuildError> for ApplicationError {
-    fn from(error: yomibu_components::http_embeddings::BuildError) -> Self {
-        use yomibu_components::http_embeddings::BuildError;
-        match error {
-            BuildError::Options(error) => error.into(),
-            BuildError::Embedding(error) => error.into(),
-        }
-    }
 }
 
 impl LocalApp {
@@ -151,12 +109,7 @@ impl LocalApp {
     }
 
     /// Load local story inputs and generate using the selected source store.
-    ///
-    /// # Safety
-    /// Selected managed dictionaries must satisfy
-    /// [`SudachiAnalyzer::load`](yomibu_components::sudachi_dictionary::SudachiAnalyzer::load)
-    /// for this future's duration.
-    pub async unsafe fn story<Store: LearningStore>(
+    pub async fn story<Store: LearningStore>(
         &self,
         store: &Store,
         now: DateTime<Utc>,
@@ -185,19 +138,10 @@ impl LocalApp {
                 credentials: &self.credentials,
                 endpoint: &self.endpoints.openai,
             },
-            StoryEmbeddings::Local(&self.credentials),
             now,
             seed,
             progress,
             started,
-            |generated, inputs, progress| {
-                // SAFETY: story's caller guarantees verified, unchanged dictionary
-                // bytes for this future. The local analyzer is dropped inside this
-                // callback, so its entire lifetime is covered by that guarantee.
-                unsafe {
-                    assessment::assess_local_optional(&self.config, generated, inputs, progress)
-                }
-            },
         )
         .await
     }

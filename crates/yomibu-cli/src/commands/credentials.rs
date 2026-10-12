@@ -89,12 +89,6 @@ mod tests {
             credentials.resolve(components::GENERATION_KEY).unwrap(),
             Some("synthetic-openai")
         );
-        assert!(
-            credentials
-                .resolve(components::EMBEDDING_KEY)
-                .unwrap()
-                .is_none()
-        );
         assert_eq!(
             credentials.resolve(components::SOURCE_KEY).unwrap(),
             Some("synthetic-wanikani")

@@ -1,7 +1,5 @@
 use yomibu::App;
-use yomibu_components::{
-    file_learning_store::FileLearningStore, in_memory_learning_store::InMemoryLearningStore,
-};
+use yomibu_components::file_learning_store::FileLearningStore;
 use yomibu_core::{
     capabilities::{LearningSource, LearningStore, Persistence},
     domain::source::WaniKaniSyncData,
@@ -23,16 +21,15 @@ impl LearningSource for FixtureSource {
     }
 }
 
-async fn sync_and_status(store: impl LearningStore, persistence: Persistence) {
+async fn sync_and_summary(store: impl LearningStore, persistence: Persistence) {
     let mut app = App::new(store).with_source(FixtureSource);
-    assert!(app.status().is_err());
     let report = app.sync().await.unwrap();
     assert_eq!(report.persistence, persistence);
     assert_eq!(
         report.summary,
         yomibu::reports::summary::summarize(&fixture()).unwrap()
     );
-    let summary = app.status().unwrap();
+    let summary = yomibu::reports::summary::summarize(&fixture()).unwrap();
     drop(app);
     assert_eq!(
         summary, report.summary,
@@ -41,26 +38,17 @@ async fn sync_and_status(store: impl LearningStore, persistence: Persistence) {
 }
 
 #[tokio::test]
-async fn same_use_case_runs_with_memory_and_file_storage() {
-    sync_and_status(InMemoryLearningStore::new(), Persistence::Volatile).await;
+async fn sync_publishes_to_file_storage() {
     let directory = tempfile::tempdir().unwrap();
-    sync_and_status(
+    sync_and_summary(
         FileLearningStore::new(directory.path()),
         Persistence::Durable,
     )
     .await;
-    // Offline inspection does not require a source, token, or async runtime.
-    let summary = App::new(FileLearningStore::new(directory.path()))
-        .status()
-        .unwrap();
-    assert_eq!(
-        summary,
-        yomibu::reports::summary::summarize(&fixture()).unwrap()
-    );
 }
 
 #[tokio::test]
-async fn real_http_source_can_publish_to_memory() {
+async fn real_http_source_can_publish_to_file_storage() {
     use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
     use yomibu_components::wanikani_source::Client;
 
@@ -89,15 +77,19 @@ async fn real_http_source_can_publish_to_memory() {
             .mount(&server)
             .await;
     }
-    let store = InMemoryLearningStore::new();
+    let directory = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(directory.path());
     let client =
         Client::with_base_url("synthetic-app-credential", &format!("{}/v2/", server.uri()))
             .unwrap();
     let mut app = App::new(store.clone()).with_source(client);
     let report = app.sync().await.unwrap();
-    assert_eq!(report.persistence, Persistence::Volatile);
+    assert_eq!(report.persistence, Persistence::Durable);
     assert_eq!(store.load().unwrap().subjects.len(), 4);
-    assert_eq!(app.status().unwrap(), report.summary);
+    assert_eq!(
+        yomibu::reports::summary::summarize(&store.load().unwrap()).unwrap(),
+        report.summary
+    );
 }
 
 struct PendingSource;
@@ -146,14 +138,13 @@ where
         .replace(fixture().into())
         .unwrap();
     assert_eq!(
-        app.status().unwrap(),
+        yomibu::reports::summary::summarize(&store.load().unwrap()).unwrap(),
         yomibu::reports::summary::summarize(&fixture()).unwrap()
     );
 }
 
 #[test]
-fn cancelling_sync_releases_memory_and_file_writers_without_replacing_data() {
-    cancellation_preserves_data_and_releases_writer(InMemoryLearningStore::new());
+fn cancelling_sync_releases_file_writer_without_replacing_data() {
     let directory = tempfile::tempdir().unwrap();
     cancellation_preserves_data_and_releases_writer(FileLearningStore::new(directory.path()));
 }
@@ -174,7 +165,8 @@ impl LearningSource for OneResultSource {
 async fn source_and_validation_failures_are_typed_and_preserve_data() {
     use yomibu::application::SyncError;
     use yomibu_core::capabilities::SourceSyncWriter;
-    let store = InMemoryLearningStore::new();
+    let directory = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(directory.path());
     store
         .begin_sync()
         .unwrap()

@@ -60,7 +60,6 @@ pub fn select_target_first<'a>(
                 reason: "inventory_entry",
             })
             .collect(),
-        embedding_model: None,
     };
     let inventory: BTreeMap<_, _> = input
         .inventory
@@ -100,7 +99,6 @@ pub fn select_target_first<'a>(
         selector_revision,
         vocabulary_targets: &input.request.targets.vocabulary,
         grammar_targets: &input.request.targets.grammar,
-        embedding_model: candidates.embedding_model,
     })
 }
 

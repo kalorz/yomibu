@@ -27,21 +27,10 @@ pub const ENVIRONMENT_SETTINGS: &[&str] = &[
     "YOMIBU_FORMAT",
     "YOMIBU_CANDIDATES",
     "YOMIBU_CACHE_MAX_AGE_SECONDS",
-    "YOMIBU_DICTIONARY_DIR",
-    "YOMIBU_EMBEDDING_CACHE",
-    "YOMIBU_EMBEDDING_PROVIDER",
-    "YOMIBU_ALLOW_EMBEDDING_CALL",
     "YOMIBU_ENABLE",
     "YOMIBU_DISABLE",
 ];
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum EmbeddingProvider {
-    LexicalBaseline,
-    Local,
-    Openai,
-}
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum KnowledgePolicy {
@@ -62,10 +51,6 @@ macro_rules! parse_setting {
         }
     };
 }
-parse_setting!(
-    EmbeddingProvider,
-    "Choose lexical-baseline, local, or openai."
-);
 parse_setting!(KnowledgePolicy, "Choose lesson-started or recorded-pass.");
 parse_setting!(
     ModuleId,
@@ -92,9 +77,6 @@ pub struct ApplicationOverrides {
     pub inventory: Option<PathBuf>,
     pub wanikani_cache: Option<PathBuf>,
     pub cache_max_age_seconds: Option<u64>,
-    pub dictionary_dir: Option<PathBuf>,
-    pub embedding_cache: Option<PathBuf>,
-    pub allow_embedding_call: Option<bool>,
     pub sync: Option<bool>,
 }
 
@@ -118,10 +100,6 @@ pub struct ApplicationSettings {
     pub inventory: Option<PathBuf>,
     pub wanikani_cache: Option<PathBuf>,
     pub cache_max_age: Duration,
-    pub dictionary_dir: PathBuf,
-    pub(crate) dictionary_dir_explicit: bool,
-    pub embedding_cache: PathBuf,
-    pub allow_embedding_call: bool,
     pub sync: bool,
 }
 #[derive(Debug, Clone)]
@@ -131,9 +109,6 @@ pub struct PipelineSettings {
     pub knowledge_policy: LearnerKnowledgePolicy,
     pub model: String,
     pub options: components::Options,
-    pub embedding_provider: Option<EmbeddingProvider>,
-    pub embeddings: bool,
-    pub assessment: bool,
 }
 #[derive(Debug, Clone)]
 pub struct StorySettings {
@@ -191,8 +166,6 @@ impl Configuration {
         for value in [
             &mut file.application.inventory,
             &mut file.application.wanikani_cache,
-            &mut file.application.dictionary_dir,
-            &mut file.application.embedding_cache,
         ]
         .into_iter()
         .flatten()
@@ -234,13 +207,9 @@ impl Configuration {
                 for id in source.enable.iter().chain(&source.disable) {
                     let setting = match id {
                         ModuleId::Sync => &mut source.application.sync,
-                        ModuleId::Embeddings => {
-                            &mut source.invocation.pipeline.selection.embeddings
-                        }
-                        ModuleId::Assessment => &mut source.invocation.pipeline.assessment.enabled,
                         ModuleId::Knowledge | ModuleId::Generation => {
                             return Err(ConfigError::InvalidSetting(
-                                "Only sync, embeddings, and assessment can be enabled or disabled.",
+                                "Only sync can be enabled or disabled.",
                             ));
                         }
                     };
@@ -266,7 +235,6 @@ impl Configuration {
         let topic_conflict = !matches!(flags.invocation.story.topic, Patch::Inherit)
             || !matches!(env.invocation.story.topic, Patch::Inherit);
         let request = flags.request.or(env.request);
-        let dictionary_dir = setting!(dictionary_dir);
         let mut options = components::Options::default();
         for setting in components::options() {
             options.clear(setting)?;
@@ -276,11 +244,6 @@ impl Configuration {
                 inventory: setting!(inventory),
                 wanikani_cache: setting!(wanikani_cache),
                 cache_max_age: Duration::from_secs(setting!(cache_max_age_seconds).unwrap_or(3600)),
-                dictionary_dir_explicit: dictionary_dir.is_some(),
-                dictionary_dir: dictionary_dir.unwrap_or_else(|| data_dir.join("dictionaries")),
-                embedding_cache: setting!(embedding_cache)
-                    .unwrap_or_else(|| data_dir.join("embeddings.json")),
-                allow_embedding_call: setting!(allow_embedding_call).unwrap_or(false),
                 sync: if operation.uses_setting("application.sync") {
                     setting!(sync)
                 } else {
@@ -293,14 +256,10 @@ impl Configuration {
                 components: components::Components::default(),
                 selection: SelectionSettings {
                     steps: vec![SelectionStep::LexicalTopic, SelectionStep::SeededOrder],
-                    embedding_steps: vec![SelectionStep::EmbeddingRank],
                 },
                 knowledge_policy: LearnerKnowledgePolicy::default(),
                 model: StoryGenerationOptions::default().model,
                 options,
-                embedding_provider: None,
-                embeddings: ModuleId::Embeddings.metadata().default_enabled,
-                assessment: ModuleId::Assessment.metadata().default_enabled,
             },
             story: StorySettings {
                 request,
@@ -335,8 +294,6 @@ impl Configuration {
         match id {
             ModuleId::Knowledge | ModuleId::Generation => true,
             ModuleId::Sync => self.application.sync,
-            ModuleId::Embeddings => self.pipeline.embeddings,
-            ModuleId::Assessment => self.pipeline.assessment,
         }
     }
 }
@@ -388,10 +345,6 @@ fn environment_settings(
             "YOMIBU_FORMAT" => set!(story.format),
             "YOMIBU_CANDIDATES" => set!(story.candidates),
             "YOMIBU_CACHE_MAX_AGE_SECONDS" => set!(application.cache_max_age_seconds),
-            "YOMIBU_DICTIONARY_DIR" => set!(application.dictionary_dir),
-            "YOMIBU_EMBEDDING_CACHE" => set!(application.embedding_cache),
-            "YOMIBU_EMBEDDING_PROVIDER" => set!(pipeline.embedding.provider),
-            "YOMIBU_ALLOW_EMBEDDING_CALL" => set!(application.allow_embedding_call),
             "YOMIBU_ENABLE" | "YOMIBU_DISABLE" if operation.uses_setting("enable") => {
                 let modules = text
                     .split(',')
@@ -415,12 +368,10 @@ fn environment_settings(
 pub enum SelectionStep {
     LexicalTopic,
     SeededOrder,
-    EmbeddingRank,
 }
 #[derive(Debug, Clone)]
 pub struct SelectionSettings {
     pub steps: Vec<SelectionStep>,
-    pub embedding_steps: Vec<SelectionStep>,
 }
 impl SelectionSettings {
     fn validate(&self) -> Result<(), ConfigError> {
@@ -428,12 +379,9 @@ impl SelectionSettings {
         if !matches!(
             self.steps.as_slice(),
             [LexicalTopic, SeededOrder] | [SeededOrder]
-        ) || !matches!(
-            self.embedding_steps.as_slice(),
-            [EmbeddingRank] | [EmbeddingRank, SeededOrder]
         ) {
             return Err(ConfigError::InvalidSetting(
-                "Selection requires [lexical-topic, seeded-order] or [seeded-order]; embedding selection requires [embedding-rank] or [embedding-rank, seeded-order].",
+                "Selection requires [lexical-topic, seeded-order] or [seeded-order].",
             ));
         }
         Ok(())

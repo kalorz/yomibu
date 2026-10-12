@@ -4,10 +4,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{
-    embedding::EmbeddingError,
-    inventory::{InventoryError, LearnerInventory},
-};
+use crate::domain::inventory::{InventoryError, LearnerInventory};
 
 pub(crate) const MAX_SELECTED_VOCABULARY_ENTRIES: usize = 16;
 const MAX_VOCABULARY_TARGET_IDS: usize = 16;
@@ -86,8 +83,6 @@ pub enum StoryError {
     Selection(#[from] super::SelectionError),
     #[error(transparent)]
     Inventory(#[from] InventoryError),
-    #[error(transparent)]
-    Embedding(#[from] EmbeddingError),
     #[error("Invalid story request: targets and grammar exceed the {limit}-byte request limit.")]
     RequiredMaterialTooLarge { bytes: usize, limit: usize },
     #[error("Invalid story request: {0}.")]

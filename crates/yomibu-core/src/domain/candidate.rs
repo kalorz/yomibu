@@ -1,22 +1,6 @@
-//! Generated texts, provider metadata, assessments and execution errors.
-use crate::domain::{analysis::SentenceAnalysis, evaluation::Evaluation, story::StoryFormat};
+//! Generated texts and provider metadata.
+use crate::domain::story::StoryFormat;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, thiserror::Error)]
-pub enum CandidateError<A, E> {
-    #[error(transparent)]
-    Sentence(crate::domain::analysis::SentenceError),
-    #[error("Sentence analysis failed.")]
-    Analysis(#[source] A),
-    #[error(transparent)]
-    Assessment(E),
-    #[error("Sentence span is outside the original passage.")]
-    InvalidSentenceSpan,
-    #[error("Analysis does not describe the original sentence.")]
-    MismatchedAnalysis,
-    #[error("Assessment does not describe the original sentence.")]
-    MismatchedAssessment,
-}
 
 /// Counts reported by the provider, not an independently verified bill.
 #[derive(Debug, Deserialize, Serialize)]
@@ -121,27 +105,4 @@ impl GeneratedCandidates {
     pub fn provenance(&self) -> &GenerationProvenance {
         &self.provenance
     }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-#[serde(bound(serialize = "E: std::fmt::Display"))]
-pub enum CandidateAssessment<'a, E> {
-    NotRun,
-    Completed {
-        analysis: SentenceAnalysis<'a>,
-        evaluation: Box<Evaluation>,
-    },
-    ExecutionError {
-        analysis: Option<SentenceAnalysis<'a>>,
-        #[serde(serialize_with = "serialize_candidate_error")]
-        error: E,
-    },
-}
-
-fn serialize_candidate_error<E: std::fmt::Display, S: serde::Serializer>(
-    error: &E,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(&error.to_string())
 }

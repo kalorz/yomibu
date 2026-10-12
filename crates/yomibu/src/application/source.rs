@@ -43,22 +43,6 @@ where
     }
 }
 
-pub(super) fn read_cache(
-    config: &Configuration,
-    use_default: bool,
-) -> Result<Option<Arc<WaniKaniSyncData>>, ApplicationError> {
-    if !use_default && config.application.wanikani_cache.is_none() {
-        return Ok(None);
-    }
-    load_cache(
-        &config
-            .pipeline
-            .components
-            .learning_store
-            .open(cache_path(config)),
-    )
-}
-
 pub(super) fn usable_cache(
     data: &WaniKaniSyncData,
     policy: &LearnerKnowledgePolicy,

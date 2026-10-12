@@ -1,6 +1,6 @@
-# Sync and offline status
+# Sync
 
-Sync saves WaniKani observations for one account. Status reads them offline.
+Sync saves WaniKani observations for one account.
 The saved data records progress; it does not prove mastery.
 
 ## CLI usage
@@ -9,13 +9,10 @@ Set `YOMIBU_WANIKANI_API_KEY` in the environment before sync:
 
 ```sh
 cargo run --locked -- sync
-cargo run --locked -- status
-cargo run --locked -- --data-dir /path/to/data status
+cargo run --locked -- --data-dir /path/to/data sync
 ```
 
-The default directory is `$HOME/.yomibu`. Status reads `wanikani.json` without
-network access or writes. Use a separate directory for each account.
-The [README demo](../README.md#try-it-without-an-account) needs no account.
+The default directory is `$HOME/.yomibu`. Use a separate directory for each account.
 
 Explicit sync always refreshes. Story auto-sync follows the
 [story cache policy](STORY_GENERATION.md#cache). Sync locks the writer before fetching and validates data before replacing the cache.
@@ -33,12 +30,9 @@ use yomibu_components::{wanikani_source::Client, file_learning_store::FileLearni
 let mut app = App::new(FileLearningStore::new("/path/to/data"))
     .with_source(Client::new(token)?);
 let report = app.sync().await?;
-let summary = app.status()?;
 ```
 
-`InMemoryLearningStore` provides volatile storage. `report.persistence` states
-what the write guarantees. Status needs only `App::new(store).status()`, without a
-source or runtime. Constructors do no I/O.
+`report.persistence` states what the write guarantees. Constructors do no I/O.
 
 See [SPEC](../SPEC.md#wanikani-synchronization) for cache and sync contracts,
 and [Rustdoc](../crates/yomibu/src/application/mod.rs) for errors and cancellation. Direct file

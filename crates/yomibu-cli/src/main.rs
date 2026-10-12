@@ -63,7 +63,3 @@ fn entry(
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/support/dictionary.rs"]
-mod test_dictionary;

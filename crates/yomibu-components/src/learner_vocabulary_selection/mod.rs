@@ -10,7 +10,7 @@ use yomibu_core::{
     domain::story::{SelectionCandidates, SelectionInput, StoryError},
 };
 
-/// Replace lexical scores and reasons; clear embedding provenance.
+/// Replace lexical scores and reasons.
 pub struct LexicalTopicScoring;
 
 impl SelectionStep for LexicalTopicScoring {
@@ -47,7 +47,6 @@ impl SelectionStep for LexicalTopicScoring {
                 "local_sample"
             };
         }
-        candidates.embedding_model = None;
         Ok(candidates)
     }
 }

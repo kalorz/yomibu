@@ -1,4 +1,3 @@
-use crate::application::story::DefaultCandidateError;
 use crate::configuration::{
     Configuration,
     modules::{MODULES, ModuleId, ModuleReport, ModuleState},
@@ -6,10 +5,7 @@ use crate::configuration::{
 use crate::reports::run::{SelectionReport, StepTiming, StoryRunReport, Warning};
 use serde::Serialize;
 use std::time::Instant;
-use yomibu_core::domain::{
-    candidate::GeneratedCandidates,
-    story::{StoryPassageAssessment, StoryRequest},
-};
+use yomibu_core::domain::{candidate::GeneratedCandidates, story::StoryRequest};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Step {
@@ -17,9 +13,7 @@ pub enum Step {
     Knowledge,
     Sync,
     Selection,
-    Embeddings,
     Generation,
-    Assessment,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
@@ -61,7 +55,6 @@ impl<F: FnMut(ProgressEvent)> RunProgress<F> {
         request: StoryRequest,
         selection: SelectionReport,
         generated: GeneratedCandidates,
-        assessments: Vec<StoryPassageAssessment<DefaultCandidateError>>,
     ) -> StoryRunReport {
         StoryRunReport {
             kind: "experimental_story",
@@ -69,7 +62,6 @@ impl<F: FnMut(ProgressEvent)> RunProgress<F> {
             request,
             selection,
             generated,
-            assessments,
             modules: self.modules,
             timings: self.timings,
             warnings: self.warnings,

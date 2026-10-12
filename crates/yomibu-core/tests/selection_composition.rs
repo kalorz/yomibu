@@ -3,8 +3,8 @@ use yomibu_core::{
     domain::{
         inventory::{InventoryWord, LearnerInventory},
         story::{
-            PracticeTargets, SelectionCandidates, SelectionError, SelectionInput,
-            StoryAssessmentInputs, StoryError, StoryRequest,
+            PracticeTargets, SelectionCandidates, SelectionError, SelectionInput, StoryError,
+            StoryRequest,
         },
     },
     pipeline::selection::select_target_first,
@@ -71,10 +71,6 @@ fn an_external_step_composes_with_target_first_finalization_and_full_inventory_a
     assert_eq!(selection.selector_revision, "test-reverse-v1");
     assert_eq!(selection.grammar_targets, ["polite"]);
     assert_eq!(inventory.vocabulary.len(), 4);
-    let assessment = StoryAssessmentInputs::new(&inventory, &request, &selection).unwrap();
-    assert!(std::ptr::eq(assessment.inventory(), &inventory));
-    assert_eq!(assessment.inventory().vocabulary.len(), 4);
-    assert_eq!(assessment.selected_vocabulary_ids(), ["cat", "walk", "dog"]);
     let twice =
         select_target_first(input, &[&Reverse, &Reverse], "test-double-reverse-v1").unwrap();
     assert_eq!(

@@ -11,6 +11,73 @@ fn cli() -> Command {
     command
 }
 
+#[test]
+fn removed_commands_and_options_are_rejected_without_side_effects() {
+    let dir = tempfile::tempdir().unwrap();
+    for args in [
+        vec!["preview-story"],
+        vec!["prepare-retrieval"],
+        vec!["analyze"],
+        vec!["dictionary"],
+        vec!["status"],
+        vec!["story", "--json"],
+        vec!["sync", "--json"],
+        vec!["auth", "--json"],
+        vec!["story", "--http-embeddings-api-key", "synthetic-secret"],
+        vec!["story", "--embedding-provider", "lexical-baseline"],
+        vec!["story", "--embedding-cache", "vectors.json"],
+        vec!["story", "--allow-embedding-call"],
+        vec!["story", "--dictionary-dir", "dictionary"],
+        vec!["story", "--enable", "embeddings"],
+        vec!["story", "--enable", "assessment"],
+    ] {
+        let output = cli().env("HOME", dir.path()).args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.starts_with("error:"), "{error}");
+        assert!(error.contains("\n\nUsage: yomibu"), "{error}");
+        assert!(!error.contains("synthetic-secret"));
+    }
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn parser_diagnostics_escape_values_and_preserve_trusted_usage_layout() {
+    let hostile = "日本語\n\u{1b}";
+    for args in [
+        vec![hostile],
+        vec!["story", "--candidates", hostile],
+        vec!["story", "--knowledge-policy", hostile],
+    ] {
+        let mut command = cli();
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.arg0("untrusted\n\u{1b}executable");
+        }
+        let output = command.args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            error
+                .lines()
+                .next()
+                .unwrap()
+                .contains(&hostile.escape_debug().to_string()),
+            "{error}"
+        );
+        assert!(!error.contains('\u{1b}'));
+        assert!(!error.contains("untrusted"));
+        assert!(error.contains("\n\nUsage: yomibu"), "{error}");
+        assert!(
+            error.ends_with("\n\nFor more information, try '--help'.\n"),
+            "{error}"
+        );
+    }
+}
+
 fn cache(dir: &Path, data: &str) {
     fs::write(dir.join("wanikani.json"), data).unwrap();
 }
@@ -26,96 +93,6 @@ fn stdout(output: &Output) -> String {
 }
 
 #[test]
-fn status_is_offline_and_uses_a_global_data_directory() {
-    let dir = tempfile::tempdir().unwrap();
-    cache(
-        dir.path(),
-        include_str!("../../../tests/fixtures/mixed.json"),
-    );
-    fs::write(dir.path().join("config.toml"), "[application]").unwrap();
-    fs::write(dir.path().join("wanikani.json.lock"), "existing lock").unwrap();
-    let before = fs::read(dir.path().join("wanikani.json")).unwrap();
-    for args in [
-        vec!["--data-dir", dir.path().to_str().unwrap(), "status"],
-        vec!["status", "--data-dir", dir.path().to_str().unwrap()],
-    ] {
-        let output = cli().args(args).output().unwrap();
-        assert_eq!(
-            stdout(&output),
-            include_str!("../../../tests/fixtures/mixed-status.txt")
-        );
-    }
-    assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
-    assert_eq!(
-        fs::read_to_string(dir.path().join("wanikani.json.lock")).unwrap(),
-        "existing lock"
-    );
-    assert_eq!(
-        fs::read_to_string(dir.path().join("config.toml")).unwrap(),
-        "[application]"
-    );
-}
-
-#[test]
-fn status_uses_the_configured_cache_without_validating_unused_story_settings() {
-    let dir = tempfile::tempdir().unwrap();
-    fs::write(
-        dir.path().join("source.json"),
-        include_bytes!("../../../tests/fixtures/mixed.json"),
-    )
-    .unwrap();
-    fs::write(
-        dir.path().join("config.toml"),
-        "[application]\nwanikani_cache='source.json'\ndictionary_dir='unused'\n",
-    )
-    .unwrap();
-    fs::write(
-        dir.path().join("default-pipeline.toml"),
-        "[pipeline]\nmodel=''\n",
-    )
-    .unwrap();
-    fs::write(
-        dir.path().join("default-story.toml"),
-        "[story]\nselect=40\ncandidates=0\nformat='invalid-unused'\n",
-    )
-    .unwrap();
-    let before = fs::read_dir(dir.path()).unwrap().count();
-    let output = cli()
-        .args(["--data-dir", dir.path().to_str().unwrap(), "status"])
-        .env("YOMIBU_SELECT", "日本語\n\u{1b}")
-        .env("YOMIBU_CANDIDATES", "0")
-        .output()
-        .unwrap();
-    assert_eq!(
-        stdout(&output),
-        include_str!("../../../tests/fixtures/mixed-status.txt")
-    );
-    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), before);
-    fs::write(
-        dir.path().join("config.toml"),
-        "broken TOML '日本語\n\u{1b}",
-    )
-    .unwrap();
-    let output = cli()
-        .args(["--data-dir", dir.path().to_str().unwrap(), "status"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    let diagnostic = String::from_utf8(output.stderr).unwrap();
-    assert!(
-        diagnostic.starts_with("error: Invalid configuration at "),
-        "{diagnostic}"
-    );
-    assert!(
-        diagnostic.ends_with("; use supported settings and valid TOML.\n"),
-        "{diagnostic}"
-    );
-    assert!(!diagnostic.contains("broken TOML"));
-    assert!(!diagnostic.contains('\u{1b}'));
-}
-
-#[test]
 fn pasted_credential_values_in_config_are_rejected_without_echoing_them() {
     let dir = tempfile::tempdir().unwrap();
     let config = dir.path().join("config.toml");
@@ -124,7 +101,7 @@ fn pasted_credential_values_in_config_are_rejected_without_echoing_them() {
         "[application.credentials]\n\"openai.api-key\"=\"synthetic-secret\\n\\u001b日本語\"\n",
     )
     .unwrap();
-    for operation in [vec!["status"], vec!["sync"], vec!["dictionary", "verify"]] {
+    for operation in [vec!["story"], vec!["sync"]] {
         let output = cli()
             .arg("--data-dir")
             .arg(dir.path())
@@ -145,84 +122,13 @@ fn pasted_credential_values_in_config_are_rejected_without_echoing_them() {
 }
 
 #[test]
-fn empty_account_displays_no_reviews_and_no_assignments() {
-    let dir = tempfile::tempdir().unwrap();
-    cache(
-        dir.path(),
-        include_str!("../../../tests/fixtures/empty.json"),
-    );
-    let output = cli()
-        .arg("status")
-        .arg("--data-dir")
-        .arg(dir.path())
-        .output()
-        .unwrap();
-    let text = stdout(&output);
-    for expected in [
-        "User: テスト (level 1)",
-        "Synchronized kanji: 0",
-        "Synchronized vocabulary: 0 (kana-only: 0)",
-        "  no assignments",
-        "Reading accuracy: no reviews",
-        "Meaning accuracy: no reviews",
-    ] {
-        assert!(text.contains(expected), "{text}");
-    }
-}
-
-#[test]
-fn cache_failures_are_actionable_and_exit_unsuccessfully() {
-    for (data, message) in [
-        (None, "No cache"),
-        (Some("{"), "Corrupt cache"),
-        (
-            Some(r#"{"schema_version":2}"#),
-            "Unsupported cache schema 2",
-        ),
-    ] {
-        let dir = tempfile::tempdir().unwrap();
-        if let Some(data) = data {
-            cache(dir.path(), data);
-        }
-        let output = cli()
-            .arg("status")
-            .arg("--data-dir")
-            .arg(dir.path())
-            .output()
-            .unwrap();
-        assert!(!output.status.success(), "cache error exited successfully");
-        assert!(output.stdout.is_empty());
-        let error = String::from_utf8(output.stderr).unwrap();
-        assert!(error.contains(message), "{error}");
-        assert!(error.contains("--data-dir"), "{error}");
-    }
-}
-
-#[test]
-fn defaults_to_home_dot_yomibu() {
-    let home = tempfile::tempdir().unwrap();
-    let data_dir = home.path().join(".yomibu");
-    fs::create_dir(&data_dir).unwrap();
-    cache(
-        &data_dir,
-        include_str!("../../../tests/fixtures/empty.json"),
-    );
-    let output = cli()
-        .env("HOME", home.path())
-        .arg("status")
-        .output()
-        .unwrap();
-    assert!(stdout(&output).contains("User: テスト (level 1)"));
-}
-
-#[test]
 fn missing_or_empty_home_requires_an_explicit_directory() {
     for home in [None, Some("")] {
         let mut command = cli();
         if let Some(home) = home {
             command.env("HOME", home);
         }
-        let output = command.arg("status").output().unwrap();
+        let output = command.arg("sync").output().unwrap();
         assert!(!output.status.success());
         let error = String::from_utf8(output.stderr).unwrap();
         assert!(error.contains("HOME is unavailable"), "{error}");
@@ -253,30 +159,7 @@ fn sync_requires_an_environment_token_before_creating_files() {
 }
 
 #[test]
-fn missing_cache_guidance_points_to_sync_and_status_ignores_invalid_tokens() {
-    let dir = tempfile::tempdir().unwrap();
-    let output = cli()
-        .args(["status", "--data-dir"])
-        .arg(dir.path())
-        .output()
-        .unwrap();
-    let text = String::from_utf8(output.stderr).unwrap();
-    assert!(text.contains("yomibu sync"), "{text}");
-    cache(
-        dir.path(),
-        include_str!("../../../tests/fixtures/empty.json"),
-    );
-    let output = cli()
-        .env("YOMIBU_WANIKANI_API_KEY", "invalid\nsynthetic-token")
-        .args(["status", "--data-dir"])
-        .arg(dir.path())
-        .output()
-        .unwrap();
-    assert!(stdout(&output).contains("Cached WaniKani observations"));
-}
-
-#[test]
-fn another_process_cannot_sync_while_status_reads_the_locked_cache() {
+fn another_process_cannot_sync_while_the_cache_is_locked() {
     use yomibu_components::file_learning_store::cache::SyncGuard;
     use yomibu_components::file_learning_store::cache::load;
     let dir = tempfile::tempdir().unwrap();
@@ -298,15 +181,6 @@ fn another_process_cannot_sync_while_status_reads_the_locked_cache() {
     let error = String::from_utf8(output.stderr).unwrap();
     assert!(error.contains("Another sync holds the lock"), "{error}");
     assert!(!error.contains(token));
-    let output = cli()
-        .args(["status", "--data-dir"])
-        .arg(dir.path())
-        .output()
-        .unwrap();
-    assert_eq!(
-        stdout(&output),
-        include_str!("../../../tests/fixtures/mixed-status.txt")
-    );
     assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
     load(dir.path()).unwrap();
     drop(guard);
@@ -351,13 +225,13 @@ fn retired_preview_and_prepare_commands_have_no_aliases() {
     let help = stdout(&output);
     assert!(!help.contains("  preview "));
     assert!(!help.contains("  prepare "));
-    assert!(help.contains("preview-story"));
-    assert!(help.contains("prepare-retrieval"));
+    assert!(!help.contains("preview-story"));
+    assert!(!help.contains("prepare-retrieval"));
 }
 
 #[test]
 fn component_model_options_and_provider_keys_have_safe_parser_diagnostics() {
-    for command in ["story", "preview-story", "prepare-retrieval"] {
+    for command in ["story"] {
         let help = cli().args([command, "--help"]).output().unwrap();
         assert_eq!(help.status.code(), Some(0));
         assert!(help.stderr.is_empty());
@@ -462,39 +336,30 @@ fn invalid_credentials_are_lazy_and_cannot_fall_through_to_lower_precedence_keys
     );
     let before = fs::read(dir.path().join("wanikani.json")).unwrap();
     for input in ["environment", "cli", "cli-equals"] {
-        for operation in ["status", "sync"] {
-            let mut command = cli();
-            command.args(["--data-dir", dir.path().to_str().unwrap(), operation]);
-            command.env("YOMIBU_WANIKANI_API_KEY", "invalid\nenvironment");
-            let invalid = std::ffi::OsString::from_vec(b"synthetic-secret\xff".to_vec());
-            if input == "environment" {
-                command.env("YOMIBU_WANIKANI_API_KEY", invalid);
+        let mut command = cli();
+        command.args(["--data-dir", dir.path().to_str().unwrap(), "sync"]);
+        command.env("YOMIBU_WANIKANI_API_KEY", "invalid\nenvironment");
+        let invalid = std::ffi::OsString::from_vec(b"synthetic-secret\xff".to_vec());
+        if input == "environment" {
+            command.env("YOMIBU_WANIKANI_API_KEY", invalid);
+        } else {
+            let flag = "--wanikani-api-key";
+            if input.ends_with("-equals") {
+                let mut argument = std::ffi::OsString::from(format!("{flag}="));
+                argument.push(invalid);
+                command.arg(argument);
             } else {
-                let flag = "--wanikani-api-key";
-                if input.ends_with("-equals") {
-                    let mut argument = std::ffi::OsString::from(format!("{flag}="));
-                    argument.push(invalid);
-                    command.arg(argument);
-                } else {
-                    command.arg(flag).arg(invalid);
-                }
-            }
-            let output = command.output().unwrap();
-            if operation == "status" {
-                assert_eq!(
-                    stdout(&output),
-                    include_str!("../../../tests/fixtures/mixed-status.txt")
-                );
-            } else {
-                assert_eq!(output.status.code(), Some(1), "{input}");
-                assert!(output.stdout.is_empty());
-                let error = String::from_utf8(output.stderr).unwrap();
-                assert_eq!(
-                    error, "error: Invalid credential input; supply a UTF-8 credential.\n",
-                    "{input}"
-                );
+                command.arg(flag).arg(invalid);
             }
         }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(1), "{input}");
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(
+            error, "error: Invalid credential input; supply a UTF-8 credential.\n",
+            "{input}"
+        );
     }
     assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
     assert!(!dir.path().join("wanikani.json.lock").exists());
@@ -516,7 +381,7 @@ fn removed_configuration_spellings_have_no_compatibility_paths() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("config.toml"), "model='old-flat-config'\n").unwrap();
     let output = cli()
-        .args(["status", "--data-dir", dir.path().to_str().unwrap()])
+        .args(["sync", "--data-dir", dir.path().to_str().unwrap()])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));

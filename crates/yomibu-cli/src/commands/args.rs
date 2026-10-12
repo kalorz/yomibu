@@ -1,8 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
-use yomibu::configuration::{
-    EmbeddingProvider, KnowledgePolicy, ProcessOverrides, StoryFormat, modules::ModuleId,
-};
+use yomibu::configuration::{KnowledgePolicy, ProcessOverrides, StoryFormat, modules::ModuleId};
 
 #[derive(Parser)]
 #[command(
@@ -21,10 +19,7 @@ pub(crate) struct Cli {
     /// Use only explicit credentials; do not read macOS Keychain.
     #[arg(long, global = true, help_heading = "Credentials")]
     pub no_keychain: bool,
-    /// Emit a single structured JSON report.
-    #[arg(long, global = true)]
-    pub json: bool,
-    /// Print module states, progress, and timings (stderr with --json).
+    /// Print module states, progress, and timings.
     #[arg(long, global = true)]
     pub verbose: bool,
     #[command(subcommand)]
@@ -41,26 +36,8 @@ pub(crate) enum Command {
     },
     /// Generate a passage of 3–5 short sentences with one AI request.
     Story(StoryArgs),
-    /// Show an exact generation request offline without calling an AI model.
-    PreviewStory(StoryArgs),
-    /// Explicitly prepare and cache vocabulary/topic embeddings.
-    PrepareRetrieval(StoryArgs),
-    /// Run bounded offline checks on one supplied sentence.
-    Analyze {
-        #[command(flatten)]
-        dictionary: DictionaryArgs,
-        #[arg(long, value_name = "PATH")]
-        input: PathBuf,
-    },
-    /// Import or fully verify a pinned dictionary offline.
-    Dictionary {
-        #[command(subcommand)]
-        command: DictionaryCommand,
-    },
     /// Explicitly refresh the complete WaniKani cache.
     Sync,
-    /// Show cached source observations without network access.
-    Status,
 }
 
 #[derive(Args, Default)]
@@ -102,16 +79,6 @@ pub(crate) struct StoryArgs {
     /// Repeatable vocabulary sampling seed.
     #[arg(long)]
     seed: Option<u64>,
-    #[command(flatten)]
-    dictionary: DictionaryArgs,
-    #[arg(long, value_name = "PATH")]
-    embedding_cache: Option<PathBuf>,
-    /// Encoder: lexical-baseline, local, or openai. Does not enable embeddings.
-    #[arg(long)]
-    embedding_provider: Option<EmbeddingProvider>,
-    /// Authorize hosted embedding calls sending vocabulary and topic text.
-    #[arg(long)]
-    allow_embedding_call: bool,
 }
 
 impl StoryArgs {
@@ -125,14 +92,10 @@ impl StoryArgs {
         let app = &mut input.application;
         app.inventory = self.inventory;
         app.wanikani_cache = self.wanikani_cache;
-        app.dictionary_dir = self.dictionary.dictionary_dir;
-        app.embedding_cache = self.embedding_cache;
-        app.allow_embedding_call = self.allow_embedding_call.then_some(true);
         let pipeline = &mut input.invocation.pipeline;
         pipeline.model = self.model;
         pipeline.options = self.options.0;
         pipeline.knowledge_policy = self.knowledge_policy;
-        pipeline.embedding.provider = self.embedding_provider.into();
         let story = &mut input.invocation.story;
         story.topic = self.topic.into();
         story.format = self.format;
@@ -141,32 +104,4 @@ impl StoryArgs {
         story.seed = self.seed.into();
         input
     }
-}
-#[derive(Args, Default)]
-pub(crate) struct DictionaryArgs {
-    /// Managed dictionary root (default: <data-dir>/dictionaries); files must remain unchanged.
-    #[arg(long, value_name = "PATH")]
-    pub dictionary_dir: Option<PathBuf>,
-}
-impl DictionaryArgs {
-    pub fn overrides(self) -> ProcessOverrides {
-        let mut input = ProcessOverrides::default();
-        input.application.dictionary_dir = self.dictionary_dir;
-        input
-    }
-}
-#[derive(Subcommand)]
-pub(crate) enum DictionaryCommand {
-    /// Copy and fully verify a bundle and publisher notices offline.
-    Import {
-        #[arg(long, value_name = "PATH")]
-        bundle: PathBuf,
-        #[arg(long, value_name = "PATH")]
-        dictionary_dir: Option<PathBuf>,
-    },
-    /// Fully verify the installed dictionary and publisher notices offline.
-    Verify {
-        #[arg(long, value_name = "PATH")]
-        dictionary_dir: Option<PathBuf>,
-    },
 }

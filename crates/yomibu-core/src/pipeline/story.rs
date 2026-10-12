@@ -3,9 +3,7 @@ use crate::{
     domain::{
         candidate::{CandidateConstructionError, GeneratedCandidates},
         inventory::LearnerInventory,
-        story::{
-            StoryAssessmentInputs, StoryGenerationOptions, StoryRequest, StoryVocabularySelection,
-        },
+        story::{StoryGenerationOptions, StoryRequest, StoryVocabularySelection},
     },
     pipeline::selection::validate_selection,
 };
@@ -21,12 +19,10 @@ pub fn prepare_story<'a, P: StoryPreparer>(
     let (selection, prepared_request) =
         preparer.prepare(inventory, request, selection, options.clone())?;
     validate_selection(inventory, request, &selection)?;
-    let assessment_inputs = StoryAssessmentInputs::new(inventory, request, &selection)?;
     Ok(PreparedStory {
         selection,
         prepared_request,
         options,
-        assessment_inputs,
     })
 }
 
@@ -38,8 +34,7 @@ pub enum GenerationError<E> {
     InvalidCandidates(#[from] CandidateConstructionError),
 }
 
-/// Immutable finalized selection, provider request (including its options), and
-/// bound full-inventory assessment inputs. Execution cannot replace these inputs.
+/// Immutable finalized selection and provider request, including its options.
 ///
 /// Plans cannot be assembled from independently supplied request bytes and inputs.
 /// ```compile_fail
@@ -54,7 +49,6 @@ pub struct PreparedStory<'a, R> {
     selection: StoryVocabularySelection<'a>,
     prepared_request: R,
     options: StoryGenerationOptions,
-    assessment_inputs: StoryAssessmentInputs<'a>,
 }
 
 impl<'a, R> PreparedStory<'a, R> {
@@ -64,14 +58,6 @@ impl<'a, R> PreparedStory<'a, R> {
 
     pub fn prepared_request(&self) -> &R {
         &self.prepared_request
-    }
-
-    pub fn assessment_inputs(&self) -> &StoryAssessmentInputs<'a> {
-        &self.assessment_inputs
-    }
-
-    pub fn into_parts(self) -> (StoryVocabularySelection<'a>, R) {
-        (self.selection, self.prepared_request)
     }
 
     /// Calls the supplied generator once. Request compatibility is static.

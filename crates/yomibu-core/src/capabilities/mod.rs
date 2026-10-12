@@ -7,7 +7,7 @@ use crate::domain::source::WaniKaniSyncData;
 use std::{error::Error, sync::Arc};
 
 mod story;
-pub use story::{CandidateGenerator, SentenceAnalyzer, StoryAssessor, StoryPreparer};
+pub use story::{CandidateGenerator, StoryPreparer};
 
 /// Retrieves and normalizes one complete WaniKani account refresh.
 ///
@@ -32,8 +32,6 @@ impl<Source: LearningSource + ?Sized> LearningSource for &mut Source {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Persistence {
-    /// Retained only while the in-memory store has live handles.
-    Volatile,
     /// The backend completed its durability operations, including directory sync.
     Durable,
 }
@@ -73,18 +71,8 @@ pub trait LearningStore {
     fn begin_sync(&self) -> Result<Self::Writer, Self::WriteError>;
 }
 
-/// Encodes explicit lexical documents/briefs; adapters own no process environment
-/// or runtime. Purpose distinguishes asymmetric document/query encoders.
-pub trait Embedder {
-    fn model_identity(&self) -> &crate::domain::embedding::EmbeddingModelIdentity;
-    fn embed(
-        &self,
-        inputs: &[crate::domain::embedding::EmbeddingInput],
-    ) -> impl Future<Output = Result<Vec<Vec<f32>>, crate::domain::embedding::EmbeddingError>> + Send;
-}
-
 /// Synchronous candidate transformation. Prepare external evidence before calling.
-/// Keep word identity and targets; update scores, reasons and embedding provenance together.
+/// Keep word identity and targets; update scores and reasons together.
 pub trait SelectionStep {
     fn apply<'a>(
         &self,

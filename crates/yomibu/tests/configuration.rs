@@ -6,7 +6,7 @@ use yomibu::{
     application::Operation,
     configuration::{
         ConfigError, Configuration, ConfigurationInput, Patch, ProcessOverrides,
-        components::{EMBEDDING_ENDPOINT, GENERATION_MODEL},
+        components::GENERATION_MODEL,
     },
 };
 
@@ -40,7 +40,6 @@ fn typed_construction_ignores_malformed_local_defaults_and_preserves_files() {
     overrides.invocation.pipeline.model = Some("shared".into());
     let options = &mut overrides.invocation.pipeline.options;
     options.set(GENERATION_MODEL, "generation".into()).unwrap();
-    options.clear(EMBEDDING_ENDPOINT).unwrap();
     overrides.invocation.story.topic = Patch::Set("typed topic".into());
     overrides.invocation.story.select = Some(4);
     let config =
@@ -49,11 +48,6 @@ fn typed_construction_ignores_malformed_local_defaults_and_preserves_files() {
     assert_eq!(config.generation().unwrap().model, "generation");
     assert_eq!(config.story.topic.as_deref(), Some("typed topic"));
     assert_eq!(config.story.select, 4);
-    let endpoint = config.pipeline.options.get(EMBEDDING_ENDPOINT).unwrap();
-    assert_eq!(
-        endpoint.map(String::as_str),
-        Some("http://127.0.0.1:11434/v1/")
-    );
     for name in names {
         assert_eq!(std::fs::read(dir.path().join(name)).unwrap(), b"[");
     }
@@ -71,11 +65,6 @@ fn typed_construction_keeps_defaults_without_creating_the_data_directory() {
     .unwrap();
     let application = &config.application;
     assert_eq!(application.data_dir, data_dir);
-    assert_eq!(application.dictionary_dir, data_dir.join("dictionaries"));
-    assert_eq!(
-        application.embedding_cache,
-        data_dir.join("embeddings.json")
-    );
     assert_eq!(config.story.select, 12);
     assert!(!data_dir.exists());
 }
@@ -90,8 +79,8 @@ fn typed_construction_keeps_operation_filtering_and_validation_order() {
             input.invocation.pipeline.model = Some(model.into());
             input.invocation.story.select = Some(0);
             if conflicting_controls {
-                input.enable = vec![ModuleId::Assessment];
-                input.disable = vec![ModuleId::Assessment];
+                input.enable = vec![ModuleId::Sync];
+                input.disable = vec![ModuleId::Sync];
             }
             input
         };
@@ -102,43 +91,10 @@ fn typed_construction_keeps_operation_filtering_and_validation_order() {
             load_config(dir.path(), &Operation::Story, overrides(), BTreeMap::new()).unwrap_err();
         assert_eq!(format!("{error:?}"), format!("{expected:?}"));
         let ignored =
-            Configuration::from_overrides(dir.path().into(), overrides(), &Operation::Status)
+            Configuration::from_overrides(dir.path().into(), overrides(), &Operation::Sync)
                 .unwrap();
         assert_eq!(ignored.story.select, 12);
     }
-}
-
-#[test]
-fn status_configuration_keeps_defaults_for_a_later_local_retrieval_invocation() {
-    use yomibu::configuration::{EmbeddingProvider, Invocation};
-    use yomibu_components::http_embeddings as http;
-
-    let dir = tempfile::tempdir().unwrap();
-    let config = load_config(
-        dir.path(),
-        &Operation::Status,
-        ProcessOverrides::default(),
-        BTreeMap::new(),
-    )
-    .unwrap();
-    let mut invocation = Invocation::default();
-    invocation.pipeline.embedding.provider = Patch::Set(EmbeddingProvider::Local);
-    let options = &mut invocation.pipeline.options;
-    options.set(http::MODEL, "test-model".into()).unwrap();
-    options.set(http::REVISION, "pinned".into()).unwrap();
-    options.set(http::DIMENSIONS, 2).unwrap();
-
-    let retrieval = config
-        .for_invocation(invocation, &Operation::Retrieval)
-        .unwrap();
-    let options = retrieval.pipeline.options.for_component(&http::COMPONENT);
-    assert_eq!(
-        options.required(http::ENDPOINT).unwrap(),
-        "http://127.0.0.1:11434/v1/"
-    );
-    let identity = http::model_identity(options, "local").unwrap();
-    assert!(http::HttpEmbedder::local(options, identity).is_ok());
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
 #[test]
@@ -161,10 +117,7 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
         "YOMIBU_FORMAT",
         "YOMIBU_CANDIDATES",
         "YOMIBU_KNOWLEDGE_POLICY",
-        "YOMIBU_ALLOW_EMBEDDING_CALL",
         "YOMIBU_CACHE_MAX_AGE_SECONDS",
-        "YOMIBU_EMBEDDING_PROVIDER",
-        "YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS",
         "YOMIBU_ENABLE",
         "YOMIBU_DISABLE",
     ] {
@@ -175,7 +128,7 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
         assert!(
             load_config(
                 dir.path(),
-                &Operation::Status,
+                &Operation::Sync,
                 ProcessOverrides::default(),
                 environment
             )
@@ -187,81 +140,33 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
 }
 
 #[test]
-fn component_validators_apply_to_file_and_environment_but_skip_unused_operations() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("default-pipeline.toml");
-    for dimensions in ["0", "4097"] {
-        for file in [false, true] {
-            std::fs::write(
-                &path,
-                if file {
-                    format!("[pipeline.options.http-embeddings]\ndimensions={dimensions}\n")
-                } else {
-                    String::new()
-                },
-            )
-            .unwrap();
-            let environment = if file {
-                BTreeMap::new()
-            } else {
-                BTreeMap::from([(
-                    "YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS".into(),
-                    dimensions.into(),
-                )])
-            };
-            let error = load_config(
-                dir.path(),
-                &Operation::Retrieval,
-                ProcessOverrides::default(),
-                environment.clone(),
-            )
-            .unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("Embedding dimensions must be between 1 and 4096."),
-                "{error}"
-            );
-            assert!(
-                load_config(
-                    dir.path(),
-                    &Operation::Status,
-                    ProcessOverrides::default(),
-                    environment
-                )
-                .is_ok()
-            );
-        }
-    }
-}
-
-#[test]
 fn auth_reads_credential_selection_but_ignores_component_tuning() {
-    use yomibu::configuration::components::{EMBEDDING_KEY, GENERATION_KEY, SOURCE_KEY};
+    use yomibu::configuration::components::{GENERATION_KEY, SOURCE_KEY};
     let dir = tempfile::tempdir().unwrap();
-    for (provider, sync, hosted) in [("local", false, false), ("openai", true, true)] {
+    for sync in [false, true] {
         std::fs::write(
             dir.path().join("config.toml"),
             format!("[application]\nsync={sync}\n"),
         )
         .unwrap();
-        std::fs::write(dir.path().join("default-pipeline.toml"), format!(
-            "[pipeline.selection]\nembeddings=true\n[pipeline.embedding]\nprovider='{provider}'\n[pipeline.options.http-embeddings]\ndimensions=0\nmodel=42\n[pipeline.options.openai]\nmodel=42\n"
-        )).unwrap();
+        std::fs::write(
+            dir.path().join("default-pipeline.toml"),
+            "[pipeline.options.openai]\nmodel=42\n",
+        )
+        .unwrap();
         let config = load_config(
             dir.path(),
             &Operation::Auth,
             ProcessOverrides::default(),
-            BTreeMap::from([("YOMIBU_HTTP_EMBEDDINGS_DIMENSIONS".into(), "invalid".into())]),
+            BTreeMap::new(),
         )
         .unwrap();
-        let required: Vec<_> = config
+        let requirements: Vec<_> = config
             .credential_requirements()
             .map(|key| key.name)
             .collect();
-        assert!(required.contains(&GENERATION_KEY.name));
-        assert_eq!(required.contains(&EMBEDDING_KEY.name), hosted);
-        assert_eq!(required.contains(&SOURCE_KEY.name), sync);
+        assert!(requirements.contains(&GENERATION_KEY.name));
+        assert_eq!(requirements.contains(&SOURCE_KEY.name), sync);
     }
 }
 
@@ -279,7 +184,7 @@ fn unknown_fields_in_loaded_unused_pipeline_scopes_are_rejected() {
         std::fs::write(&path, text).unwrap();
         let error = load_config(
             dir.path(),
-            &Operation::Status,
+            &Operation::Sync,
             ProcessOverrides::default(),
             BTreeMap::new(),
         )
@@ -367,87 +272,34 @@ fn scoped_defaults_resolve_component_options_and_file_relative_resources() {
 }
 
 #[test]
-fn configuration_rejects_the_removed_arbitrary_dictionary_setting() {
+fn sync_validates_its_resources_without_parsing_unused_story_settings() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("config.toml"),
-        "dictionary = 'external.dic'\n",
+        "[application]\nwanikani_cache='source.json'\n",
     )
     .unwrap();
-    assert!(matches!(
-        load_config(
-            dir.path(),
-            &Operation::Analyze("input.json".into()),
-            ProcessOverrides::default(),
-            BTreeMap::new()
-        ),
-        Err(yomibu::configuration::ConfigError::Invalid { .. })
-    ));
-}
-
-#[test]
-fn each_operation_validates_its_resources_without_parsing_unused_settings() {
-    let dir = tempfile::tempdir().unwrap();
-    for operation in [
-        Operation::Status,
-        Operation::Sync,
-        Operation::Analyze("input.json".into()),
-        Operation::Import("bundle".into()),
-        Operation::Verify,
-        Operation::Retrieval,
-        Operation::Preview,
-    ] {
-        std::fs::write(
-            dir.path().join("config.toml"),
-            if matches!(operation, Operation::Preview) {
-                "[application]\ndictionary_dir=false\n"
-            } else {
-                "[application]\nwanikani_cache='source.json'\ndictionary_dir='managed'\n"
-            },
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("default-pipeline.toml"),
-            if matches!(operation, Operation::Preview) {
-                "[pipeline]\nmodel='preview'\n"
-            } else {
-                "[pipeline]\nmodel=7\n"
-            },
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("default-story.toml"),
-            if matches!(operation, Operation::Preview) {
-                "[story]\nselect=2\n"
-            } else {
-                "[story]\nformat='unused-invalid'\nselect=2\ncandidates=0\n"
-            },
-        )
-        .unwrap();
-        let config = load_config(
-            dir.path(),
-            &operation,
-            ProcessOverrides::default(),
-            BTreeMap::new(),
-        )
-        .unwrap_or_else(|error| panic!("{operation:?}: {error}"));
-        match operation {
-            Operation::Status | Operation::Sync => assert_eq!(
-                config.application.wanikani_cache,
-                Some(dir.path().join("source.json"))
-            ),
-            Operation::Analyze(_) | Operation::Import(_) | Operation::Verify => assert_eq!(
-                config.application.dictionary_dir,
-                dir.path().join("managed")
-            ),
-            Operation::Preview => assert_eq!(
-                config.application.dictionary_dir,
-                dir.path().join("dictionaries")
-            ),
-            Operation::Retrieval => assert_eq!(config.story.select, 2),
-            Operation::Story | Operation::Auth => unreachable!(),
-        }
-    }
+    std::fs::write(
+        dir.path().join("default-pipeline.toml"),
+        "[pipeline]\nmodel=7\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("default-story.toml"),
+        "[story]\nformat='unused-invalid'\nselect=2\ncandidates=0\n",
+    )
+    .unwrap();
+    let config = load_config(
+        dir.path(),
+        &Operation::Sync,
+        ProcessOverrides::default(),
+        BTreeMap::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        config.application.wanikani_cache,
+        Some(dir.path().join("source.json"))
+    );
 }
 
 #[test]
@@ -505,7 +357,7 @@ fn module_controls_override_saved_choices_but_conflicts_remain_errors() {
     .unwrap();
     std::fs::write(
         dir.path().join("default-pipeline.toml"),
-        "[pipeline.selection]\nembeddings=true\n",
+        "[pipeline.selection]\nsteps=['seeded-order']\n",
     )
     .unwrap();
     let config = load_config(
@@ -513,22 +365,19 @@ fn module_controls_override_saved_choices_but_conflicts_remain_errors() {
         &yomibu::application::Operation::Story,
         ProcessOverrides {
             enable: vec![ModuleId::Sync],
-            disable: vec![ModuleId::Embeddings],
             ..Default::default()
         },
         BTreeMap::new(),
     )
     .unwrap();
     assert!(config.enabled(ModuleId::Sync));
-    assert!(!config.enabled(ModuleId::Embeddings));
-    assert!(config.enabled(ModuleId::Assessment));
     assert!(
         load_config(
             dir.path(),
             &yomibu::application::Operation::Story,
             ProcessOverrides {
-                enable: vec![ModuleId::Assessment],
-                disable: vec![ModuleId::Assessment],
+                enable: vec![ModuleId::Sync],
+                disable: vec![ModuleId::Sync],
                 ..Default::default()
             },
             BTreeMap::new()
@@ -570,7 +419,7 @@ fn flags_override_environment_and_environment_overrides_file_for_each_setting() 
 #[test]
 fn component_choices_belong_to_pipeline_scope() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("default-pipeline.toml"), "[pipeline.components]\nsource='wanikani'\nlearning_store='file-learning-store'\nembedding_cache='file-embedding-cache'\npreparation='story-prompt-preparation'\ngeneration='openai'\nanalysis='sudachi-dictionary'\nassessment='japanese-constraint-checks'\n").unwrap();
+    std::fs::write(dir.path().join("default-pipeline.toml"), "[pipeline.components]\nsource='wanikani'\nlearning_store='file-learning-store'\npreparation='story-prompt-preparation'\ngeneration='openai'\n").unwrap();
     let load = || {
         load_config(
             dir.path(),
@@ -598,17 +447,7 @@ fn credential_bindings_are_rejected_for_every_operation() {
             format!("[application.credentials]\n\"openai.api-key\"={value}\n"),
         )
         .unwrap();
-        for operation in [
-            Operation::Auth,
-            Operation::Story,
-            Operation::Preview,
-            Operation::Retrieval,
-            Operation::Sync,
-            Operation::Status,
-            Operation::Verify,
-            Operation::Analyze("input.json".into()),
-            Operation::Import("bundle".into()),
-        ] {
+        for operation in [Operation::Auth, Operation::Story, Operation::Sync] {
             let error = load_config(
                 dir.path(),
                 &operation,
@@ -623,7 +462,7 @@ fn credential_bindings_are_rejected_for_every_operation() {
 }
 
 #[test]
-fn status_does_not_open_story_defaults_but_story_requires_bounded_valid_documents() {
+fn sync_does_not_open_story_defaults_but_story_requires_bounded_valid_documents() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir(dir.path().join("default-story.toml")).unwrap();
     let load = |operation, config| {
@@ -638,11 +477,11 @@ fn status_does_not_open_story_defaults_but_story_requires_bounded_valid_document
             &operation,
         )
     };
-    assert!(load(Operation::Status, None).is_ok());
+    assert!(load(Operation::Sync, None).is_ok());
     assert!(load(Operation::Story, None).is_err());
     std::fs::remove_dir(dir.path().join("default-story.toml")).unwrap();
     std::fs::write(dir.path().join("default-pipeline.toml"), " ".repeat(65537)).unwrap();
-    assert!(load(Operation::Status, None).is_err());
+    assert!(load(Operation::Sync, None).is_err());
     std::fs::remove_file(dir.path().join("default-pipeline.toml")).unwrap();
     assert!(load(Operation::Story, None).is_ok());
     assert!(load(Operation::Story, Some(dir.path().join("missing.toml"))).is_err());
@@ -675,7 +514,11 @@ fn shipped_references_and_resource_clears_preserve_implicit_defaults() {
         std::fs::write(dir.path().join(name), text).unwrap();
     }
     assert_eq!(format!("{:?}", load()), omitted);
-    std::fs::write(dir.path().join("config.toml"), "[application]\ninventory={clear=true}\nwanikani_cache={clear=true}\ndictionary_dir={clear=true}\nembedding_cache={clear=true}\n").unwrap();
+    std::fs::write(
+        dir.path().join("config.toml"),
+        "[application]\ninventory={clear=true}\nwanikani_cache={clear=true}\n",
+    )
+    .unwrap();
     assert_eq!(format!("{:?}", load()), omitted);
 }
 
@@ -725,37 +568,13 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
         .options
         .set(GENERATION_MODEL, "specific".into())
         .unwrap();
-    flags
-        .invocation
-        .pipeline
-        .options
-        .set(EMBEDDING_ENDPOINT, "http://127.0.0.1:9000/v1/".into())
-        .unwrap();
     let config = load_config(dir.path(), &Operation::Story, flags, BTreeMap::new()).unwrap();
     let input: Invocation = serde_json::from_str(
-        r#"{"pipeline":{"model":"new-shared","options":{"openai":{"model":{"clear":true}},"http-embeddings":{"endpoint":{"clear":true}}}}}"#,
+        r#"{"pipeline":{"model":"new-shared","options":{"openai":{"model":{"clear":true}}}}}"#,
     )
     .unwrap();
     let changed = config.for_invocation(input, &Operation::Story).unwrap();
     assert_eq!(changed.generation().unwrap().model, "new-shared");
-    assert_eq!(
-        changed
-            .pipeline
-            .options
-            .get(EMBEDDING_ENDPOINT)
-            .unwrap()
-            .map(String::as_str),
-        Some("http://127.0.0.1:11434/v1/")
-    );
-    assert_eq!(
-        config
-            .pipeline
-            .options
-            .get(EMBEDDING_ENDPOINT)
-            .unwrap()
-            .map(String::as_str),
-        Some("http://127.0.0.1:9000/v1/")
-    );
     assert_eq!(config.generation().unwrap().model, "specific");
     assert!(std::sync::Arc::ptr_eq(
         &config.application,
@@ -772,7 +591,7 @@ fn typed_topic_overrides_conflict_with_request_files_after_option_validation() {
         "[story]\ntopic='saved'\n",
     )
     .unwrap();
-    for operation in [Operation::Story, Operation::Preview, Operation::Retrieval] {
+    for operation in [Operation::Story] {
         let config = load_config(
             dir.path(),
             &operation,
