@@ -7,21 +7,13 @@ have not run. See the [module map](../ARCHITECTURE.md#current-module-map).
 
 ## Inputs and meaning
 
-Use the complete [inventory](../tests/fixtures/story/inventory.json) and
-[request](../tests/fixtures/story/request.json) examples together.
-
-- The inventory contains all allowed material. WaniKani eligibility uses explicit
-  `lesson-started` or `recorded-pass` policy; eligibility does not prove mastery.
-- The request contains an optional `topic` and vocabulary/grammar target IDs.
-  Targets must exist in the inventory and grant no new permissions. Empty lists are valid.
-- Selection is the vocabulary sent in the prompt.
-  The provider receives no whole account, progress history or unselected vocabulary.
+Local generation derives eligibility from supplied normalized material and progress.
+`run_story` accepts a caller-prepared allowed inventory and typed request.
+Vocabulary requires a recorded lesson completion; hidden/unavailable entries are excluded.
+The request holds an optional topic and vocabulary/grammar target IDs.
+Targets must exist in the inventory. Selection is only the prompt subset.
 
 IDs are stable strings. WaniKani entries use `wanikani:<subject-id>`.
-Manual input can supplement a WaniKani inventory, particularly its grammar;
-duplicate IDs are rejected rather than silently overriding entries. A grammar
-description records familiarity. Bindings supply explicit grammatical forms to the prompt.
-
 Readings and meanings remain separate source alternatives, never a Cartesian
 product of asserted word uses. WaniKani accepted-answer alternatives are kept;
 kana-only records keep missing readings rather than inventing them. Raw readings
@@ -33,7 +25,7 @@ inventory retains source subject IDs and exclusions.
 
 ## Configuration and optional work
 
-The complete TOML references are [application settings](../config/config.toml),
+The TOML references are [configuration location](../config/config.toml),
 [pipeline defaults](../config/default-pipeline.toml), and
 [story defaults](../config/default-story.toml). Their active values equal omission.
 They are not installed automatically. Flat files and old component CLI spellings are
@@ -41,29 +33,23 @@ rejected; old ENV names are ignored. There are no aliases or migrations.
 
 Storage uses `--data-dir` → `YOMIBU_DATA_DIR` → `$HOME/.yomibu`.
 `--config` → `YOMIBU_CONFIG` selects `config.toml`; otherwise use the data directory.
-The two defaults files are siblings of that selected file, even if it is absent.
+Keep `config.toml` empty. The two defaults files are its siblings, even if it is absent.
 Missing implicit files are empty; a missing explicit config or another read error
-fails. Each document is bounded to 64 KiB of UTF-8. Application paths are relative
-to the config directory; CLI/ENV paths use the working directory.
+fails. Each document is bounded to 64 KiB of UTF-8.
 
-Application settings own resources and sync policy.
 Pipeline settings own component choices (including source and storage), component
 options and selection ordering. Story settings own topic,
-targets, seed, limit, format and candidate count.
+vocabulary targets, seed, limit, format and candidate count.
 
 Ordinary precedence is CLI → ENV → saved defaults → built-ins, independently per
 field. Lists replace whole lists. Empty target lists clear targets; empty selection
 lists are invalid. Optional values accept exactly `{ clear = true }` in TOML or
-`Patch::Clear` in typed invocations. Clearing restores absence or the computed
-resource default, including implicit-path behavior. It does not clear related
-settings. Required fields use values, optional features use booleans; there is no
-ENV clear sentinel. Empty strings do not mean clear.
+`Patch::Clear` in typed invocations. Clearing restores absence or the default.
+It does not clear related settings. There is no ENV clear sentinel.
+Empty strings do not mean clear.
 
-The generation component's optional model resolves independently, then falls back
-to `pipeline.model` (`--model`). Thus a saved generation model beats a CLI shared
-model. `--openai-model` and `YOMIBU_OPENAI_MODEL` come from the component declaration.
-Automatic sync uses `--sync true|false`, `YOMIBU_SYNC`, or `[application].sync`
-(default `true`), in that order.
+`--openai-model`, `YOMIBU_OPENAI_MODEL`, and `pipeline.options.openai.model`
+select the model, with `gpt-6-luna` as the built-in default.
 
 Credentials belong to components. Names generate `--<component>-<credential>` and
 `YOMIBU_<COMPONENT>_<CREDENTIAL>` inputs. The components are `openai` and `wanikani`,
@@ -75,7 +61,7 @@ work.
 Values never belong in TOML, reports or Debug output. CLI diagnostics redact keys.
 Components receive credentials explicitly.
 
-On macOS, `yomibu auth` prompts for missing credentials of enabled integrations.
+On macOS, `yomibu auth` prompts for missing OpenAI and WaniKani credentials.
 `yomibu auth openai` prompts for its missing key; `yomibu auth openai.api-key`
 sets or replaces it. Enter skips any prompt.
 Keychain uses service `yomibu:<component>` and account `<credential>`.
@@ -85,15 +71,14 @@ Other platforms use CLI/ENV inputs. No plaintext fallback.
 WaniKani requires read access, OpenAI generation
 requires response creation and model access.
 
-All commands read application and relevant pipeline settings. Story also loads
-story defaults. Sync uses the selected source/store regardless of automatic-sync policy.
+All commands read relevant pipeline settings. Story also loads story defaults.
 Unknown paths and malformed loaded TOML fail
 without reflecting contents. Known unused fields are pruned before type checking;
 consumed lower-precedence inputs must still have valid types.
 
 `LocalApp::for_invocation(Invocation { pipeline, story }, operation)` resolves an
 independent snapshot through the same typed application logic as file/CLI loading.
-It shares immutable resource settings and credentials. Request overrides cannot
+It preserves resource settings and shares credentials. Request overrides cannot
 choose resource paths or authorization. No shared current pipeline is mutated.
 
 Default selection is `lexical-topic` then `seeded-order` (`builtin-v2`).
@@ -102,20 +87,13 @@ fail application validation. Library compositions remain unrestricted; core's
 target-first finalization is mandatory and the full allowed inventory stays
 separate from prompt selection.
 
-`application::run_story` takes resolved configuration, inputs and a `StoryResources`
-value. It borrows a reusable generation client. The caller owns the resources and
-reborrows them for each call. An optional mutable WaniKani client permits refresh
-only with a supplied store. Without that
-client, usable cached data still participates, but fetching is prohibited.
-Supplied calls never consult application WaniKani credentials or endpoints.
+`application::run_story` takes resolved configuration, a typed request and inventory,
+and a borrowed generation client. It neither reads storage nor accesses WaniKani.
 
 ## Topic and vocabulary
 
-`--topic` is optional and conflicts with `--request PATH`. Typed topic overrides,
-including clear, have the same conflict. Advanced request JSON
-uses `topic` plus target IDs. Omitted topic inherits saved defaults; `null` clears
-it. Both target arrays remain required and replace saved lists. The request file
-is invocation input, not a persisted defaults reference. Without a topic, the AI creates a coherent scene
+`--topic` is optional. Typed requests and saved defaults can specify practice targets.
+Without a topic, the AI creates a coherent scene
 around locally sampled vocabulary. `--seed` makes selection repeatable.
 With a topic, built-in selection matches lexical terms and Japanese written-form
 substrings. Readings still use exact terms. Explicit targets
@@ -124,20 +102,14 @@ it never drops targets. Simple grammar guidance does not infer grammar knowledge
 
 ## Cache
 
-A validated usable WaniKani cache from the last hour is reused without requests.
-Missing/stale data triggers a complete refresh, with freshness rechecked under
-the writer lock. Temporary transport/server/rate-limit failures or writer
-contention may reuse a validated usable cache with a warning. An old cache without
-a key also warns. Disabled sync requires usable cached/manual knowledge.
-Authentication, account mismatch, corruption, invalid data, expired content access,
-and persistence failures remain errors. `cache_max_age_seconds` can change the
-product default. `sync` always refreshes.
-WaniKani [recommends caching](https://docs.api.wanikani.com/20170710/#caching);
-conditional/incremental requests remain deferred.
+Run `yomibu sync` before generation. Local storage uses `<data-dir>/wanikani.json`.
+Story reads one snapshot without refreshing, writing, or looking up source credentials.
+Cache age alone does not warn or block generation. Missing data, corruption,
+invalid data and expired content access remain errors.
 
 ## Output
 
-Normal stdout contains the passage; warnings use stderr. `--verbose` adds progress,
+Normal stdout contains generated passages; errors use stderr. `--verbose` adds progress,
 monotonic step timings and generation details to stdout.
 Provider/preflight failures exit 1; parsing failures exit 2.
 Reports retain assembled text, provenance and sentence byte ranges. Terminal
@@ -145,7 +117,7 @@ escaping keeps Japanese readable. Prompt revision is `story-inventory-v3`.
 
 ## Limits and provider contract
 
-Limits: manual input 4 MiB; WaniKani cache 64 MiB; request file 64 KiB;
+Limits: WaniKani cache 64 MiB;
 10,000 vocabulary entries; 128 grammar descriptions; 512 bindings;
 16 vocabulary and 16 grammar targets; selection 1–16 entries; topic 2,048 bytes.
 Inventory IDs are at most 128 bytes; written forms 256; up to 32 readings of

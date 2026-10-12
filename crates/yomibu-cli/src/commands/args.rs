@@ -1,6 +1,6 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
-use yomibu::configuration::{KnowledgePolicy, ProcessOverrides, StoryFormat};
+use yomibu::configuration::{Invocation, StoryFormat};
 
 #[derive(Parser)]
 #[command(
@@ -28,7 +28,7 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
-    /// Save credentials in macOS Keychain; without a target, prompt for missing configured credentials.
+    /// Save credentials in macOS Keychain; without a target, prompt for missing credentials.
     Auth {
         /// Component namespace for missing credentials, or exact credential to set or replace. Enter skips.
         #[arg(value_name = "CREDENTIAL", value_parser = clap::builder::PossibleValuesParser::new(super::auth::targets()))]
@@ -43,33 +43,16 @@ pub(crate) enum Command {
 #[derive(Args, Default)]
 pub(crate) struct StoryArgs {
     /// Optional scene or subject. Otherwise create a scene around familiar words.
-    #[arg(long, conflicts_with = "request")]
+    #[arg(long)]
     topic: Option<String>,
     #[command(flatten)]
     options: super::options::ComponentArgs,
-    /// Advanced story request JSON with optional topic and explicit targets.
-    #[arg(long, value_name = "PATH")]
-    request: Option<PathBuf>,
-    /// Shared text-model fallback; env: YOMIBU_MODEL.
-    #[arg(long)]
-    model: Option<String>,
     /// Output format: passage (default) or sentence.
     #[arg(long)]
     format: Option<StoryFormat>,
     /// Number of alternatives in the single generation request (default: 1).
     #[arg(long)]
     candidates: Option<std::num::NonZeroUsize>,
-    /// Automatically refresh WaniKani when needed (default: true); env: YOMIBU_SYNC.
-    #[arg(long, action = clap::ArgAction::Set, value_name = "BOOL")]
-    sync: Option<bool>,
-    /// Manual inventory, optionally supplementing an explicit WaniKani cache.
-    #[arg(long, value_name = "PATH")]
-    inventory: Option<PathBuf>,
-    #[arg(long, value_name = "PATH")]
-    wanikani_cache: Option<PathBuf>,
-    /// WaniKani eligibility: lesson-started (default) or recorded-pass.
-    #[arg(long)]
-    knowledge_policy: Option<KnowledgePolicy>,
     /// Selected words including targets (1..=16; default: 12).
     #[arg(long, value_parser = clap::value_parser!(u8).range(1..=16))]
     select: Option<u8>,
@@ -79,20 +62,10 @@ pub(crate) struct StoryArgs {
 }
 
 impl StoryArgs {
-    pub fn overrides(self) -> ProcessOverrides {
-        let mut input = ProcessOverrides {
-            request: self.request,
-            ..Default::default()
-        };
-        let app = &mut input.application;
-        app.sync = self.sync;
-        app.inventory = self.inventory;
-        app.wanikani_cache = self.wanikani_cache;
-        let pipeline = &mut input.invocation.pipeline;
-        pipeline.model = self.model;
-        pipeline.options = self.options.0;
-        pipeline.knowledge_policy = self.knowledge_policy;
-        let story = &mut input.invocation.story;
+    pub fn overrides(self) -> Invocation {
+        let mut input = Invocation::default();
+        input.pipeline.options = self.options.0;
+        let story = &mut input.story;
         story.topic = self.topic.into();
         story.format = self.format;
         story.candidates = self.candidates.map(std::num::NonZeroUsize::get);

@@ -86,8 +86,4 @@ impl Credentials {
     pub(crate) fn generation(&self) -> Result<Option<&str>, CredentialError> {
         self.resolve(components::GENERATION_KEY)
     }
-
-    pub(crate) fn is_missing(&self, requirement: OptionKey<Secret>) -> bool {
-        matches!(self.resolve(requirement), Ok(None))
-    }
 }

@@ -1,5 +1,5 @@
 use super::{ApplicationError, LocalApp, SetupIssue};
-use crate::application::{SyncReport, source};
+use crate::application::SyncReport;
 use yomibu_components::wanikani_source as wanikani;
 use yomibu_core::capabilities::{LearningStore, SourceSyncWriter};
 
@@ -22,7 +22,7 @@ impl LocalApp {
             .pipeline
             .components
             .learning_store
-            .open(source::cache_path(&self.config))
+            .open(&self.config.data_dir)
             .begin_sync()?;
         let data = source.fetch().await?;
         let summary = crate::reports::summary::summarize(&data)?;

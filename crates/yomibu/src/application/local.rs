@@ -1,18 +1,11 @@
-use super::{
-    StoryInputs, inputs,
-    progress::RunProgress,
-    source,
-    story_workflow::{self, GenerationClient},
-};
-use crate::application::input_file;
+use super::{StoryInputs, progress::RunProgress, story_workflow};
 use crate::configuration::Configuration;
 use crate::configuration::components::OptionKey;
 use chrono::{DateTime, Utc};
 use yomibu_components::{
     file_learning_store::cache, openai_story_generation as openai, wanikani_source as wanikani,
 };
-use yomibu_core::capabilities::LearningStore;
-use yomibu_core::domain::{inventory::InventoryError, story::StoryError};
+use yomibu_core::domain::{inventory::InventoryError, learner::LearnerData, story::StoryError};
 mod explicit;
 
 use super::progress::{ProgressEvent, Step};
@@ -53,8 +46,6 @@ pub enum ApplicationError {
     #[error("Missing required setup.")]
     Setup { issues: Vec<SetupIssue> },
     #[error(transparent)]
-    Cache(#[from] cache::CacheError),
-    #[error(transparent)]
     Persistence(#[from] cache::WriteError),
     #[error(transparent)]
     Source(#[from] wanikani::Error),
@@ -63,21 +54,9 @@ pub enum ApplicationError {
     #[error(transparent)]
     Generation(#[from] yomibu_core::pipeline::story::GenerationError<openai::ProviderError>),
     #[error(transparent)]
-    Input(#[from] input_file::InputFileError),
-    #[error("Invalid {kind} JSON: {source}")]
-    InvalidJson {
-        kind: &'static str,
-        #[source]
-        source: serde_json::Error,
-    },
-    #[error(transparent)]
     Inventory(#[from] InventoryError),
     #[error(transparent)]
     Story(#[from] StoryError),
-    #[error(
-        "Recorded WaniKani content access has expired; run yomibu sync with a key to refresh access."
-    )]
-    AccessExpired,
     #[error(transparent)]
     Validation(#[from] yomibu_core::domain::source::ValidationError),
 }
@@ -109,40 +88,56 @@ impl LocalApp {
         })
     }
 
-    /// Load local story inputs and generate using the selected source store.
-    pub async fn story<Store: LearningStore>(
+    pub fn read_learner_data(&self) -> Result<Option<LearnerData>, cache::CacheError> {
+        self.config
+            .pipeline
+            .components
+            .learning_store
+            .open(&self.config.data_dir)
+            .read_learner_data()
+    }
+
+    pub async fn story(
         &self,
-        store: &Store,
+        data: Option<LearnerData>,
         now: DateTime<Utc>,
         seed: u64,
         emit: impl FnMut(ProgressEvent),
-    ) -> Result<StoryRunReport, ApplicationError>
-    where
-        ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
-    {
+    ) -> Result<StoryRunReport, ApplicationError> {
         let mut progress = RunProgress::new(emit);
         let started = progress.start(Step::Inputs);
-        let request = inputs::read_request(&self.config)?;
-        story_workflow::validate_story_request(&self.config, &request)?;
-        let manual = inputs::read_manual(self.config.application.inventory.as_deref())?;
-        let store =
-            (manual.is_none() || self.config.application.wanikani_cache.is_some()).then_some(store);
+        let request = self.config.story.request()?;
+        let inventory = data.map(|data| data.into_inventory(now)).transpose()?;
+        if let Some(inventory) = &inventory {
+            request.validate(inventory)?;
+        }
+        let key = self.credentials.generation()?;
+        let (inventory, key) = match (inventory, key) {
+            (Some(inventory), Some(key)) => (inventory, key),
+            (inventory, key) => {
+                let mut issues = Vec::new();
+                if inventory.is_none() {
+                    issues.push(SetupIssue::Inventory);
+                }
+                if key.is_none() {
+                    issues.push(SetupIssue::Credential(openai::API_KEY));
+                }
+                return Err(ApplicationError::Setup { issues });
+            }
+        };
+        let client = self
+            .config
+            .pipeline
+            .components
+            .generation
+            .client(key, &self.endpoints.openai)?;
+        progress.finish(Step::Inputs, started);
         story_workflow::execute_story(
             &self.config,
-            StoryInputs { request, manual },
-            store,
-            source::SourceClient::Local {
-                credentials: &self.credentials,
-                endpoint: &self.endpoints.wanikani,
-            },
-            GenerationClient::Local {
-                credentials: &self.credentials,
-                endpoint: &self.endpoints.openai,
-            },
-            now,
+            StoryInputs { request, inventory },
+            &client,
             seed,
             progress,
-            started,
         )
         .await
     }

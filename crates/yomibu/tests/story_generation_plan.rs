@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/story_inventory.rs"]
+mod story_inventory;
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use yomibu::application::selection::select_builtin_vocabulary;
@@ -5,16 +8,15 @@ use yomibu_components::{
     story_prompt_preparation::fit_selection_and_build_request, wanikani_source,
 };
 use yomibu_core::domain::{
-    inventory::{LearnerInventory, ManualInventory},
+    inventory::{
+        InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory, SourceOrigin,
+    },
     story::{StoryError, StoryRequest},
 };
 
 #[tokio::test]
 async fn current_story_request_matches_the_reviewed_prompt_and_payload_snapshot() {
-    let inventory = LearnerInventory::from_manual(
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
-    )
-    .unwrap();
+    let inventory = story_inventory::inventory();
     let request =
         serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
     let selection = select_builtin_vocabulary(&inventory, &request, 2, 7).unwrap();
@@ -49,13 +51,32 @@ fn request_for_review(body: &str) -> String {
     serde_json::to_string_pretty(&payload).unwrap()
 }
 fn inventory() -> LearnerInventory {
-    LearnerInventory::from_manual(serde_json::from_value::<ManualInventory>(json!({"version":1,
-        "vocabulary":[
-            {"id":"cat","written_form":"猫","readings":["ねこ"],"meanings":["cat"],"direct_object":null},
-            {"id":"station","written_form":"駅","readings":["えき"],"meanings":["station"],"direct_object":null},
-            {"id":"meet","written_form":"会う","readings":["あう"],"meanings":["meet"],"direct_object":null}],
-        "grammar_declarations":[{"id":"past","description":"polite past"}],
-        "grammar_bindings":[{"declaration_id":"past","rule":"PolitePast"}]})).unwrap()).unwrap()
+    LearnerInventory {
+        vocabulary: [
+            ("cat", "猫", "ねこ"),
+            ("station", "駅", "えき"),
+            ("meet", "会う", "あう"),
+        ]
+        .into_iter()
+        .map(|(id, written, reading)| InventoryWord {
+            id: id.into(),
+            written_form: written.into(),
+            readings: vec![reading.into()],
+            meanings: vec![id.into()],
+            direct_object: None,
+            origin: SourceOrigin::Manual,
+        })
+        .collect(),
+        grammar_declarations: vec![InventoryGrammar {
+            id: "past".into(),
+            description: "polite past".into(),
+        }],
+        grammar_bindings: vec![InventoryGrammarBinding {
+            declaration_id: "past".into(),
+            rule: yomibu_core::domain::grammar::GrammarRule::PolitePast,
+        }],
+        excluded: vec![],
+    }
 }
 fn request() -> StoryRequest {
     serde_json::from_value(json!({"version":1,"topic":"Meeting at a train station","targets":{"vocabulary":["cat"],"grammar":["past"]}})).unwrap()
@@ -79,28 +100,28 @@ fn targets_cannot_grant_inventory_entries_or_grammar_recognizers() {
 }
 
 #[tokio::test]
-async fn manual_and_wanikani_sources_share_prepared_request() {
+async fn provenance_does_not_change_the_prepared_request() {
     use yomibu_components::story_prompt_preparation::fit_selection_and_build_request;
-    use yomibu_core::domain::knowledge::LearnerKnowledgePolicy;
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(fixture["snapshot"].clone()).unwrap();
-    let wk = LearnerInventory::from_mapped(
-        wanikani_source::map_content_and_progress(&source).unwrap(),
-        &LearnerKnowledgePolicy::default(),
-    )
-    .unwrap();
-    let mut words = serde_json::to_value(&wk.vocabulary).unwrap();
-    for word in words.as_array_mut().unwrap() {
-        word.as_object_mut().unwrap().remove("origin");
-    }
-    let manual = LearnerInventory::from_manual(
-        serde_json::from_value(
-            json!({"version":1,"vocabulary":words,"grammar_declarations":[],"grammar_bindings":[]}),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    let wk =
+        LearnerInventory::from_mapped(wanikani_source::map_content_and_progress(&source).unwrap())
+            .unwrap();
+    let manual = LearnerInventory {
+        vocabulary: wk
+            .vocabulary
+            .iter()
+            .cloned()
+            .map(|mut word| {
+                word.origin = SourceOrigin::Manual;
+                word
+            })
+            .collect(),
+        grammar_declarations: vec![],
+        grammar_bindings: vec![],
+        excluded: vec![],
+    };
     let request: StoryRequest = serde_json::from_value(
         json!({"version":1,"topic":"one thing","targets":{"vocabulary":[],"grammar":[]}}),
     )

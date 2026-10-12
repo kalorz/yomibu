@@ -9,8 +9,8 @@ intent and constraints; [PLAN](PLAN.md) lists open work.
 | --- | --- | --- |
 | CLI arguments and output | [Commands](crates/yomibu-cli/src/commands/), [output](crates/yomibu-cli/src/output/) | [Executable tests](crates/yomibu-cli/tests/) |
 | Configuration and application workflows | [Configuration](crates/yomibu/src/configuration/), [story workflow](crates/yomibu/src/application/story_workflow.rs), [local application](crates/yomibu/src/application/local.rs), [explicit operations](crates/yomibu/src/application/local/explicit.rs) | [Configuration](crates/yomibu/tests/configuration.rs), [first run](crates/yomibu/tests/local_application.rs), [explicit operations](crates/yomibu/tests/explicit_operations.rs) |
-| Source refresh and storage | [Source policy](crates/yomibu/src/application/source.rs), [sync](crates/yomibu/src/application/mod.rs), [WaniKani](crates/yomibu-components/src/wanikani_source/), [file store](crates/yomibu-components/src/file_learning_store/) | [App](crates/yomibu/tests/app.rs), [stores](crates/yomibu-components/tests/stores.rs), [summaries](crates/yomibu/tests/summary.rs); fault tests live beside their components |
-| Input loading and allowed material | [Input preparation](crates/yomibu/src/application/inputs.rs), [WaniKani mapping](crates/yomibu-components/src/wanikani_source/inventory.rs), [knowledge policy](crates/yomibu-core/src/domain/knowledge.rs), [inventory preparation](crates/yomibu-core/src/domain/inventory.rs) | [Knowledge](crates/yomibu-core/tests/knowledge.rs), [inventory](crates/yomibu-core/tests/inventory.rs), [WaniKani integration](crates/yomibu-components/tests/wanikani_inventory.rs) |
+| Source refresh and storage | [sync](crates/yomibu/src/application/mod.rs), [WaniKani](crates/yomibu-components/src/wanikani_source/), [file store](crates/yomibu-components/src/file_learning_store/) | [App](crates/yomibu/tests/app.rs), [stores](crates/yomibu-components/tests/stores.rs), [summaries](crates/yomibu/tests/summary.rs); fault tests live beside their components |
+| Input loading and allowed material | [WaniKani mapping](crates/yomibu-components/src/wanikani_source/inventory.rs), [eligibility](crates/yomibu-core/src/domain/knowledge.rs), [inventory preparation](crates/yomibu-core/src/domain/inventory.rs) | [Knowledge](crates/yomibu-core/tests/knowledge.rs), [inventory](crates/yomibu-core/tests/inventory.rs), [WaniKani integration](crates/yomibu-components/tests/wanikani_inventory.rs) |
 | Progress and reports | [progress](crates/yomibu/src/application/progress.rs), [reports](crates/yomibu/src/reports/) | [First run](crates/yomibu/tests/local_application.rs), [CLI story](crates/yomibu-cli/src/story_tests.rs), [passages](crates/yomibu/tests/passage_generation.rs) |
 | Selection composition | [Capability](crates/yomibu-core/src/capabilities/mod.rs), [core finalization](crates/yomibu-core/src/pipeline/selection.rs), [learner operations](crates/yomibu-components/src/learner_vocabulary_selection/), [default pipelines](crates/yomibu/src/application/selection.rs) | [Boundaries and extension](crates/yomibu-core/tests/selection_composition.rs), [operations](crates/yomibu-components/tests/selection_composition.rs), [defaults](crates/yomibu/tests/first_run_selection.rs), [trimming](crates/yomibu/tests/selection_composition.rs) |
 | Story preparation and generation | [Typed plan](crates/yomibu-core/src/pipeline/story.rs), [prompt preparation](crates/yomibu-components/src/story_prompt_preparation/), [OpenAI](crates/yomibu-components/src/openai_story_generation/), [workflow and wiring](crates/yomibu/src/application/story_workflow.rs) | [Planning](crates/yomibu/tests/story_generation_plan.rs), [substitution](crates/yomibu/tests/story_capabilities.rs), [workflow](crates/yomibu/tests/local_application.rs), [OpenAI](crates/yomibu-components/tests/openai.rs) |
@@ -40,7 +40,7 @@ Component declarations also supply help and setup guidance.
 The CLI captures environment values, drives the runtime and renders results.
 The application resolves scoped settings, immutable invocation overrides and
 credentials, constructs components through explicit typed mappings, prepares resources,
-and applies refresh, authorization and optional-work policies. Constructors do no I/O.
+and applies authorization. Constructors do no I/O.
 Pure calculations and file operations are synchronous; network calls use the caller's
 executor. Current sync file operations run on that caller's thread.
 
@@ -51,8 +51,9 @@ request type and checks the caller's count and format. Library callers inject
 capabilities through `prepare_story` and `PreparedStory::generate`.
 Checked candidate construction preserves original text and complete UTF-8 sentence spans.
 
-File components own locking and complete publication; the application rechecks
-freshness while holding the writer.
+File components own locking and complete publication.
+The file adapter exposes normalized material, progress and access expiry.
+The file adapter owns WaniKani mapping; story generation has no source or writer.
 
 ## Files, packages, and repositories
 

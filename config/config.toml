@@ -1,10 +1,2 @@
-# Application resources and policy. No component choices or secret values.
 # Discovery: --config / YOMIBU_CONFIG, otherwise <data-dir>/config.toml.
-# Relative paths use this file's directory. Defaults files are its siblings.
-[application]
-sync = true
-cache_max_age_seconds = 3600
-# inventory = "inventory.json"          # optional manual inventory
-# wanikani_cache = "wanikani.json"       # computed: <data-dir>/wanikani.json
-# Optional paths accept { clear = true } to restore implicit behavior.
-# Explicit paths affect missing-resource diagnostics and inventory merging.
+# Keep this file empty; pipeline and story defaults are its siblings.

@@ -98,13 +98,7 @@ fn configuration_errors_escape_paths_redact_values_and_keep_one_line() {
 fn missing_inventory_setup_names_the_available_inputs_without_listing_tuning_flags() {
     let dir = tempfile::tempdir().unwrap();
     let output = cli(dir.path())
-        .args([
-            "story",
-            "--sync",
-            "false",
-            "--openai-api-key",
-            "synthetic-key",
-        ])
+        .args(["story", "--openai-api-key", "synthetic-key"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
@@ -114,8 +108,8 @@ fn missing_inventory_setup_names_the_available_inputs_without_listing_tuning_fla
         text.starts_with("error: Missing required setup:\n  Learner vocabulary:\n    "),
         "{text}"
     );
-    assert!(text.contains("--inventory"), "{text}");
-    assert!(text.contains("--sync true"), "{text}");
+    assert!(text.contains("yomibu sync"), "{text}");
+    assert!(!text.contains("--sync"), "{text}");
     assert!(!text.contains("--openai-model"));
     assert!(!text.contains("synthetic-key"));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
@@ -142,11 +136,11 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let text = String::from_utf8(output.stderr).unwrap();
-    assert!(text.contains("--wanikani-api-key"));
+    assert!(!text.contains("--wanikani-api-key"));
     assert!(text.contains("--openai-api-key"));
-    assert!(text.contains("Missing required setup:\n  wanikani.api-key:\n    "));
+    assert!(text.contains("Missing required setup:\n  Learner vocabulary:\n    "));
     assert!(!text.contains("--openai-model"));
-    assert!(text.contains("no write permissions"));
+    assert!(text.contains("yomibu sync"));
     assert!(!text.contains("old-secret"));
     let output = cli(dir.path())
         .args(["story", "--wanikani-api-key", "flag-secret"])
@@ -162,14 +156,9 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
 }
 
 #[test]
-fn missing_keys_recommend_component_auth_even_when_automatic_sync_is_disabled() {
+fn missing_keys_recommend_auth_for_the_requested_operation() {
     let dir = tempfile::tempdir().unwrap();
-    for (command, sync) in [("story", true), ("sync", false)] {
-        std::fs::write(
-            dir.path().join("config.toml"),
-            format!("[application]\nsync={sync}\n"),
-        )
-        .unwrap();
+    for command in ["story", "sync"] {
         let output = cli(dir.path())
             .arg("--data-dir")
             .arg(dir.path())
@@ -181,10 +170,18 @@ fn missing_keys_recommend_component_auth_even_when_automatic_sync_is_disabled() 
         let text = String::from_utf8(output.stderr).unwrap();
         assert!(text.contains("Missing required setup:\n  "), "{text}");
         assert!(
-            text.contains("On macOS, run yomibu auth wanikani."),
+            text.contains(if command == "sync" {
+                "On macOS, run yomibu auth wanikani."
+            } else {
+                "yomibu sync"
+            }),
             "{text}"
         );
         if command == "story" {
+            assert!(
+                text.contains("Use the same --data-dir for sync and story."),
+                "{text}"
+            );
             assert!(text.contains("On macOS, run yomibu auth openai."), "{text}");
         }
         assert!(!dir.path().join("wanikani.json.lock").exists());
@@ -200,29 +197,21 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     let text = String::from_utf8(help.stdout).unwrap();
     for flag in [
         "--topic",
-        "--model",
         "--openai-model",
-        "--sync",
         "--wanikani-api-key",
         "--openai-api-key",
     ] {
         assert!(text.contains(flag), "{text}");
     }
-    assert!(text.contains("Supply --inventory PATH or a usable cache;"));
-    for key in yomibu::configuration::components::credentials() {
-        assert!(text.contains(key.description), "{text}");
-        assert!(
-            text.contains(&format!(
-                "On macOS, run yomibu auth {}.",
-                key.name.component
-            )),
-            "{text}"
-        );
-    }
+    assert!(text.contains("Run yomibu sync to load learner vocabulary"));
+    assert!(!text.contains("On macOS, run yomibu auth wanikani."));
+    let key = yomibu::configuration::components::GENERATION_KEY;
+    assert!(text.contains(key.description), "{text}");
+    assert!(text.contains("On macOS, run yomibu auth openai."), "{text}");
     assert!(!text.contains("--enable"));
     assert!(!text.contains("--disable"));
     for (requirement, invalid_option) in yomibu::configuration::components::credentials()
-        .flat_map(|key| ["--format", "--candidates", "--sync"].map(|flag| (key, flag)))
+        .flat_map(|key| ["--format", "--candidates", "--select"].map(|flag| (key, flag)))
     {
         let output = cli(dir.path())
             .args([

@@ -1,7 +1,6 @@
 //! Focused contracts for explicitly wired components.
 //!
-//! The stored unit includes related source material and learner progress. It is
-//! currently WaniKani-specific; this is not a general learner or material catalog.
+//! Sync preserves source-specific state; story reads normalized learner data.
 
 use crate::domain::source::WaniKaniSyncData;
 use std::{error::Error, sync::Arc};
@@ -41,23 +40,13 @@ pub trait SourceSyncWriter {
 
 /// A physical store of coherent source material and learner progress.
 ///
-/// Reads never synchronize or mutate data. The writer excludes other writers
-/// for the entire fetch-and-replace operation; readers keep the prior version.
+/// The writer excludes other writers for the entire fetch-and-replace operation;
+/// readers keep the prior version.
 /// These synchronous operations suit memory and local files. Future SQL/remote
 /// contracts must account for asynchronous I/O rather than block this interface.
 pub trait LearningStore {
-    type ReadError: Error + Send + Sync + 'static;
     type WriteError: Error + Send + Sync + 'static;
     type Writer: SourceSyncWriter<Error = Self::WriteError>;
-
-    /// Read one immutable, validated version, independent of later replacements.
-    fn load(&self) -> Result<Arc<WaniKaniSyncData>, Self::ReadError>;
-
-    /// True only for absence, never unreadable or invalid stored data.
-    fn is_missing(&self, error: &Self::ReadError) -> bool;
-
-    /// True only when another writer holds the reservation.
-    fn is_locked(&self, error: &Self::WriteError) -> bool;
 
     /// Reserve a writer without waiting. Files may create a directory and lock
     /// file here. A failure must not replace existing source data.

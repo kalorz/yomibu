@@ -32,7 +32,7 @@ async fn sync_publishes_to_file_storage() {
         report.summary,
         yomibu::reports::summary::summarize(&fixture()).unwrap()
     );
-    assert_eq!(*store.load().unwrap(), fixture());
+    assert_eq!(store.load_snapshot().unwrap(), fixture());
 }
 
 #[tokio::test]
@@ -72,9 +72,9 @@ async fn real_http_source_can_publish_to_file_storage() {
             .unwrap();
     let mut app = App::new(store.clone()).with_source(client);
     let report = app.sync().await.unwrap();
-    assert_eq!(store.load().unwrap().subjects.len(), 4);
+    assert_eq!(store.load_snapshot().unwrap().subjects.len(), 4);
     assert_eq!(
-        yomibu::reports::summary::summarize(&store.load().unwrap()).unwrap(),
+        yomibu::reports::summary::summarize(&store.load_snapshot().unwrap()).unwrap(),
         report.summary
     );
 }
@@ -89,11 +89,7 @@ impl LearningSource for PendingSource {
     }
 }
 
-fn cancellation_preserves_data_and_releases_writer<Store>(store: Store)
-where
-    Store: LearningStore + Clone + Send,
-    Store::Writer: Send,
-{
+fn cancellation_preserves_data_and_releases_writer(store: FileLearningStore) {
     use std::{
         future::Future,
         task::{Context, Poll, Waker},
@@ -117,7 +113,7 @@ where
         Poll::Pending
     ));
     assert!(store.begin_sync().is_err());
-    assert_eq!(*store.load().unwrap(), fixture());
+    assert_eq!(store.load_snapshot().unwrap(), fixture());
     drop(operation);
     store
         .begin_sync()
@@ -125,7 +121,7 @@ where
         .replace(fixture().into())
         .unwrap();
     assert_eq!(
-        yomibu::reports::summary::summarize(&store.load().unwrap()).unwrap(),
+        yomibu::reports::summary::summarize(&store.load_snapshot().unwrap()).unwrap(),
         yomibu::reports::summary::summarize(&fixture()).unwrap()
     );
 }
@@ -164,14 +160,14 @@ async fn source_and_validation_failures_are_typed_and_preserve_data() {
     assert!(
         matches!(app.sync().await, Err(SyncError::Source(error)) if error.kind() == std::io::ErrorKind::TimedOut)
     );
-    assert_eq!(*store.load().unwrap(), fixture());
+    assert_eq!(store.load_snapshot().unwrap(), fixture());
     assert!(store.begin_sync().is_ok());
 
     let mut invalid = fixture();
     invalid.sync_completed_at = invalid.sync_started_at - chrono::Duration::seconds(1);
     let mut app = App::new(store.clone()).with_source(OneResultSource(Some(Ok(invalid))));
     assert!(matches!(app.sync().await, Err(SyncError::InvalidData(_))));
-    assert_eq!(*store.load().unwrap(), fixture());
+    assert_eq!(store.load_snapshot().unwrap(), fixture());
     assert!(store.begin_sync().is_ok());
 }
 

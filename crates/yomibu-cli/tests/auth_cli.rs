@@ -51,61 +51,82 @@ fn auth_rejects_noninteractive_use_without_exposing_secrets_or_writing_files() {
 fn exact_auth_warns_about_overrides_and_allows_skipping_in_a_terminal() {
     use std::{io::Write, process::Stdio};
     let dir = tempfile::tempdir().unwrap();
-    for flag in [false, true] {
-        let mut command = Command::new("/usr/bin/script");
-        command
-            .args([
-                "-q",
-                "/dev/null",
-                env!("CARGO_BIN_EXE_yomibu"),
-                "auth",
-                "openai.api-key",
-            ])
-            .env_clear()
-            .env("HOME", dir.path())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if flag {
-            command.args(["--openai-api-key", "synthetic-secret日本語\n\u{1b}"]);
-        } else {
-            command.env("YOMIBU_OPENAI_API_KEY", "synthetic-secret日本語\n\u{1b}");
+    for (namespace, purpose, requirement) in [
+        (
+            "openai",
+            "story generation",
+            yomibu::configuration::components::GENERATION_KEY,
+        ),
+        (
+            "wanikani",
+            "sync",
+            yomibu::configuration::components::SOURCE_KEY,
+        ),
+    ] {
+        for flag in [false, true] {
+            let mut command = Command::new("/usr/bin/script");
+            command
+                .args([
+                    "-q",
+                    "/dev/null",
+                    env!("CARGO_BIN_EXE_yomibu"),
+                    "auth",
+                    &requirement.name.key(),
+                ])
+                .env_clear()
+                .env("HOME", dir.path())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            if flag {
+                command.args([
+                    &format!("--{namespace}-api-key"),
+                    "synthetic-secret日本語\n\u{1b}",
+                ]);
+            } else {
+                command.env(
+                    requirement.name.environment(),
+                    "synthetic-secret日本語\n\u{1b}",
+                );
+            }
+            let mut child = command.spawn().unwrap();
+            let mut input = child.stdin.take().unwrap();
+            input.write_all(b"\n").unwrap();
+            let output = child.wait_with_output().unwrap();
+            drop(input);
+            let text = String::from_utf8(output.stdout)
+                .unwrap()
+                .replace("\r\n", "\n");
+            assert_eq!(
+                output.status.code(),
+                Some(0),
+                "{text}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                output.stderr.is_empty(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(text.contains(&format!("warning: {namespace}.api-key: CLI/environment input overrides the saved Keychain credential. Omit --{namespace}-api-key and unset {} to use it.\n", requirement.name.environment())), "{text}");
+            assert!(
+                text.contains(&format!(
+                    "{namespace}.api-key (required for {purpose})\n  {}",
+                    requirement.description
+                )),
+                "{text}"
+            );
+            assert!(text.contains("API key (Enter to skip): "), "{text}");
+            assert!(
+                text.contains(&format!(
+                    "Skipped {namespace}.api-key; {purpose} still needs a credential.\n"
+                )),
+                "{text}"
+            );
+            assert!(!text.contains("synthetic-secret"), "{text}");
+            assert!(!text.contains('\u{1b}'), "{text}");
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
         }
-        let mut child = command.spawn().unwrap();
-        let mut input = child.stdin.take().unwrap();
-        input.write_all(b"\n").unwrap();
-        let output = child.wait_with_output().unwrap();
-        drop(input);
-        let text = String::from_utf8(output.stdout)
-            .unwrap()
-            .replace("\r\n", "\n");
-        assert_eq!(
-            output.status.code(),
-            Some(0),
-            "{text}\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(
-            output.stderr.is_empty(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(text.contains("warning: openai.api-key: CLI/environment input overrides the saved Keychain credential. Omit --openai-api-key and unset YOMIBU_OPENAI_API_KEY to use it.\n"), "{text}");
-        assert!(
-            text.contains(&format!(
-                "openai.api-key (required for story generation)\n  {}",
-                yomibu::configuration::components::GENERATION_KEY.description
-            )),
-            "{text}"
-        );
-        assert!(text.contains("API key (Enter to skip): "), "{text}");
-        assert!(
-            text.contains("Skipped openai.api-key; story generation still needs a credential.\n"),
-            "{text}"
-        );
-        assert!(!text.contains("synthetic-secret"), "{text}");
-        assert!(!text.contains('\u{1b}'), "{text}");
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 }
 
@@ -127,4 +148,31 @@ fn explicit_only_credentials_do_not_consult_the_system_store() {
     assert!(stderr.contains("  wanikani.api-key:\n    "), "{stderr}");
     assert!(!stderr.contains("Cannot access"), "{stderr}");
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn auth_with_supplied_keys_ignores_unrelated_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("config.toml"), "invalid TOML").unwrap();
+    let output = Command::new("/usr/bin/script")
+        .args([
+            "-q",
+            "/dev/null",
+            env!("CARGO_BIN_EXE_yomibu"),
+            "auth",
+            "--data-dir",
+        ])
+        .arg(dir.path())
+        .env_clear()
+        .env("YOMIBU_OPENAI_API_KEY", "synthetic-openai")
+        .env("YOMIBU_WANIKANI_API_KEY", "synthetic-wanikani")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(!text.contains("synthetic"), "{text}");
+    assert!(!text.contains("API key (Enter to skip)"), "{text}");
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
 }

@@ -1,25 +1,16 @@
-use super::{ConfigError, Patch, ProcessOverrides, components};
+use super::{ConfigError, Invocation, Patch, components};
 use crate::application::Operation;
 use std::{io::Read, path::Path};
 
-const APPLICATION: &[&str] = &[
-    "application.sync",
-    "application.inventory",
-    "application.wanikani_cache",
-    "application.cache_max_age_seconds",
-];
 const PIPELINE: &[&str] = &[
     "pipeline.components.source",
     "pipeline.components.learning_store",
     "pipeline.components.preparation",
     "pipeline.components.generation",
     "pipeline.selection.steps",
-    "pipeline.model",
-    "pipeline.knowledge_policy",
 ];
 const STORY: &[&str] = &[
     "story.targets.vocabulary",
-    "story.targets.grammar",
     "story.topic",
     "story.select",
     "story.seed",
@@ -31,9 +22,12 @@ pub(super) fn load(
     path: &Path,
     explicit: bool,
     operation: &Operation,
-) -> Result<ProcessOverrides, ConfigError> {
+) -> Result<Invocation, ConfigError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let mut input = ProcessOverrides::default();
+    if !read(path, explicit)?.is_empty() {
+        return Err(ConfigError::Invalid { path: path.into() });
+    }
+    let mut input = Invocation::default();
     let paths: Vec<_> = super::components::options()
         .map(super::options::path)
         .collect();
@@ -43,7 +37,6 @@ pub(super) fn load(
         .chain(paths.iter().map(String::as_str))
         .collect();
     for (path, explicit, fields, scope) in [
-        (path.to_owned(), explicit, APPLICATION, "application"),
         (
             parent.join("default-pipeline.toml"),
             false,
@@ -57,11 +50,10 @@ pub(super) fn load(
         }
         let invalid = || ConfigError::Invalid { path: path.clone() };
         let table = prune(read(&path, explicit)?, "", fields, operation, &path)?;
-        let source: ProcessOverrides = table.try_into().map_err(|_| invalid())?;
+        let source: Invocation = table.try_into().map_err(|_| invalid())?;
         match scope {
-            "application" => input.application = source.application,
-            "pipeline" => input.invocation.pipeline = source.invocation.pipeline,
-            _ => input.invocation.story = source.invocation.story,
+            "pipeline" => input.pipeline = source.pipeline,
+            _ => input.story = source.story,
         }
     }
     Ok(input)
@@ -87,15 +79,6 @@ fn prune(
         };
         if fields.contains(&path.as_str()) {
             if operation.uses_setting(&path) {
-                if matches!(
-                    path.as_str(),
-                    "application.inventory" | "application.wanikani_cache"
-                ) && value.as_table().is_some_and(|table| {
-                    table.len() == 1
-                        && table.get("clear").and_then(toml::Value::as_bool) == Some(true)
-                }) {
-                    continue;
-                }
                 if let Some(setting) =
                     components::options().find(|setting| super::options::path(*setting) == path)
                 {

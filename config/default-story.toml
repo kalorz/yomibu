@@ -9,8 +9,6 @@ candidates = 1     # positive; must fit the generation output budget
 
 [story.targets]
 vocabulary = []   # allowed inventory IDs; order retained; max 16, no duplicates
-grammar = []      # allowed grammar IDs; order retained; max 16, no duplicates
-# Example alternatives, only for inventory containing these IDs:
-# vocabulary = ["cat"]
-# grammar = ["polite"]
+# Example, only when this subject is eligible:
+# vocabulary = ["wanikani:3"]
 # Lists replace whole lists. Explicit [] clears saved targets.

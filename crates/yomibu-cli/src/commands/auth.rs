@@ -102,13 +102,12 @@ pub(super) fn require_interactive() -> Result<()> {
 }
 
 fn save(requirement: OptionKey<Secret>) -> Result<()> {
-    let required = requirement.name == components::GENERATION_KEY.name;
-    let kind = if required {
-        "required for story generation"
+    let purpose = if requirement.name == components::GENERATION_KEY.name {
+        "story generation"
     } else {
-        "optional"
+        "sync"
     };
-    eprintln!("{} ({kind})", requirement.name.key());
+    eprintln!("{} (required for {purpose})", requirement.name.key());
     eprintln!("  {}", requirement.description);
     #[cfg(target_os = "macos")]
     {
@@ -121,12 +120,11 @@ fn save(requirement: OptionKey<Secret>) -> Result<()> {
                 super::keychain::write(&service, account, &value)?;
                 writeln!(out, "Saved {} in macOS Keychain.", requirement.name.key())
             }
-            None if required => writeln!(
+            None => writeln!(
                 out,
-                "Skipped {}; story generation still needs a credential.",
+                "Skipped {}; {purpose} still needs a credential.",
                 requirement.name.key()
             ),
-            None => writeln!(out, "Skipped {}.", requirement.name.key()),
         }?;
         Ok(())
     }

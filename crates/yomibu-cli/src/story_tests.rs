@@ -129,14 +129,16 @@ async fn source(server: &MockServer) {
 }
 
 #[tokio::test]
-async fn fresh_install_generates_once_in_every_presentation_with_identical_requests_and_correct_streams()
+async fn synced_data_generates_once_in_every_presentation_with_identical_requests_and_correct_streams()
  {
     let mut previous_body = None;
     for verbose in [false, true] {
         let server = MockServer::start().await;
-        source(&server).await;
         generation(&server, &["猫です。", "朝です。", "寝ます。"]).await;
         let dir = tempfile::tempdir().unwrap();
+        seed_cache(dir.path());
+        let cache_path = dir.path().join(".yomibu/wanikani.json");
+        let before = std::fs::read(&cache_path).unwrap();
         let mut flags = vec![];
         if verbose {
             flags.push("--verbose");
@@ -163,8 +165,11 @@ async fn fresh_install_generates_once_in_every_presentation_with_identical_reque
             assert_eq!(stdout, "猫です。朝です。寝ます。\n");
         }
         assert!(stderr.is_empty());
+        assert!(!stdout.contains("Sync"));
+        assert_eq!(std::fs::read(cache_path).unwrap(), before);
+        assert!(!dir.path().join(".yomibu/wanikani.json.lock").exists());
         let requests = server.received_requests().await.unwrap();
-        assert_eq!(requests.len(), 5);
+        assert_eq!(requests.len(), 1);
         let generated = requests
             .iter()
             .find(|request| request.method.as_str() == "POST")
@@ -185,18 +190,8 @@ async fn generated_controls_are_escaped_without_losing_readable_text() {
     let server = MockServer::start().await;
     generation(&server, &[HOSTILE, "猫です。", "寝ます。"]).await;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("inventory.json"),
-        include_bytes!("../../../tests/fixtures/story/inventory.json"),
-    )
-    .unwrap();
-    let output = child(
-        &server,
-        dir.path(),
-        &["--inventory", "inventory.json"],
-        false,
-    )
-    .await;
+    seed_cache(dir.path());
+    let output = child(&server, dir.path(), &[], false).await;
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8(output.stdout).unwrap();
     safe(&stdout);
@@ -212,22 +207,11 @@ async fn sentence_format_uses_the_selected_generation_model() {
     let server = MockServer::start().await;
     generation(&server, &["猫は寝ます。"]).await;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("inventory.json"),
-        include_bytes!("../../../tests/fixtures/story/inventory.json"),
-    )
-    .unwrap();
+    seed_cache(dir.path());
     let output = child(
         &server,
         dir.path(),
-        &[
-            "--inventory",
-            "inventory.json",
-            "--format",
-            "sentence",
-            "--openai-model",
-            "chosen-model",
-        ],
+        &["--format", "sentence", "--openai-model", "chosen-model"],
         false,
     )
     .await;
@@ -261,18 +245,8 @@ async fn provider_errors_and_invalid_passages_make_one_attempt_and_do_not_reflec
             .mount(&server)
             .await;
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("inventory.json"),
-            include_bytes!("../../../tests/fixtures/story/inventory.json"),
-        )
-        .unwrap();
-        let output = child(
-            &server,
-            dir.path(),
-            &["--inventory", "inventory.json"],
-            false,
-        )
-        .await;
+        seed_cache(dir.path());
+        let output = child(&server, dir.path(), &[], false).await;
         assert_eq!(output.status.code(), Some(1));
         assert!(output.stdout.is_empty());
         let stderr = String::from_utf8(output.stderr).unwrap();
@@ -282,59 +256,10 @@ async fn provider_errors_and_invalid_passages_make_one_attempt_and_do_not_reflec
 }
 
 #[tokio::test]
-async fn disabled_sync_keeps_cache_warnings_on_stderr_and_progress_in_verbose_output() {
-    for verbose in [false, true] {
-        let server = MockServer::start().await;
-        generation(&server, &["猫です。", "朝です。", "寝ます。"]).await;
-        let dir = tempfile::tempdir().unwrap();
-        let data = dir.path().join(".yomibu");
-        std::fs::create_dir(&data).unwrap();
-        let cache = include_bytes!("../../../tests/fixtures/mixed.json");
-        std::fs::write(data.join("wanikani.json"), cache).unwrap();
-        std::fs::write(
-            data.join("config.toml"),
-            "[application]\nsync=true\ncache_max_age_seconds=0\n",
-        )
-        .unwrap();
-        let mut flags = vec!["--sync", "false"];
-        if verbose {
-            flags.push("--verbose");
-        }
-        let output = child(&server, dir.path(), &flags, true).await;
-        assert_eq!(output.status.code(), Some(0), "{output:?}");
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let stderr = String::from_utf8(output.stderr).unwrap();
-        safe(&stdout);
-        safe(&stderr);
-        assert_eq!(
-            stderr,
-            "warning: Sync: Using an old WaniKani cache; sync is disabled or no key was supplied.\n"
-        );
-        if verbose {
-            assert!(stdout.contains("[Sync] skipped: Sync disabled or no WaniKani key\n"));
-            assert!(stdout.contains("[Generation] completed in"));
-            assert!(stdout.ends_with("猫です。朝です。寝ます。\n"));
-        } else {
-            assert_eq!(stdout, "猫です。朝です。寝ます。\n");
-        }
-        assert!(!stdout.contains("warning:"));
-        assert_eq!(server.received_requests().await.unwrap().len(), 1);
-        assert_eq!(std::fs::read(data.join("wanikani.json")).unwrap(), cache);
-        assert!(!data.join("wanikani.json.lock").exists());
-    }
-}
-
-#[tokio::test]
 async fn explicit_sync_prints_the_complete_publication_summary() {
     let server = MockServer::start().await;
     source(&server).await;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join(".yomibu")).unwrap();
-    std::fs::write(
-        dir.path().join(".yomibu/config.toml"),
-        "[application]\nsync=false\n",
-    )
-    .unwrap();
     let output = child_with_args(
         &server,
         dir.path(),
@@ -357,4 +282,77 @@ async fn explicit_sync_prints_the_complete_publication_summary() {
     }
     assert_eq!(server.received_requests().await.unwrap().len(), 4);
     assert!(dir.path().join(".yomibu/wanikani.json").exists());
+}
+
+fn seed_cache(dir: &std::path::Path) {
+    let data = dir.join(".yomibu");
+    std::fs::create_dir(&data).unwrap();
+    std::fs::write(
+        data.join("wanikani.json"),
+        include_bytes!("../../../tests/fixtures/mixed.json"),
+    )
+    .unwrap();
+}
+
+#[tokio::test]
+async fn candidates_share_one_request_and_each_result_is_printed() {
+    let server = MockServer::start().await;
+    let mut response = envelope(&["猫です。", "朝です。", "寝ます。"]);
+    response["output"][0]["content"][0]["text"] = json!(
+        json!({"candidates":[
+            {"sentences":["猫です。", "朝です。", "寝ます。"]},
+            {"sentences":["犬です。", "夜です。", "歩きます。"]}
+        ]})
+        .to_string()
+    );
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(response))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    seed_cache(dir.path());
+    let output = child(&server, dir.path(), &["--candidates", "2"], false).await;
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "猫です。朝です。寝ます。\n犬です。夜です。歩きます。\n"
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let body: Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(
+        body["text"]["format"]["schema"]["properties"]["candidates"]["minItems"],
+        2
+    );
+}
+
+#[tokio::test]
+async fn manual_sync_then_story_uses_published_data_without_a_source_key() {
+    let server = MockServer::start().await;
+    source(&server).await;
+    generation(&server, &["猫です。", "朝です。", "寝ます。"]).await;
+    let dir = tempfile::tempdir().unwrap();
+    let sync = child_with_args(
+        &server,
+        dir.path(),
+        vec!["yomibu".into(), "sync".into()],
+        true,
+    )
+    .await;
+    assert_eq!(sync.status.code(), Some(0), "{sync:?}");
+    assert!(sync.stderr.is_empty());
+    let path = dir.path().join(".yomibu/wanikani.json");
+    let before = std::fs::read(&path).unwrap();
+    let story = child(&server, dir.path(), &[], false).await;
+    assert_eq!(story.status.code(), Some(0), "{story:?}");
+    assert!(story.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8(story.stdout).unwrap(),
+        "猫です。朝です。寝ます。\n"
+    );
+    assert_eq!(std::fs::read(path).unwrap(), before);
+    assert_eq!(server.received_requests().await.unwrap().len(), 5);
 }
