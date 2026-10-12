@@ -284,6 +284,7 @@ fn reads_reject_corrupt_scoped_values_and_required_relationships() {
         "UPDATE source_learner_progress SET is_marked_known='true'",
         "UPDATE source_learner_progress SET learning_started_at='yesterday'",
         "UPDATE source_learner_progress SET first_passed_at=''",
+        "UPDATE source_learner_progress SET first_passed_at='2026-01-01T00:00:00'",
         "UPDATE source_learner_profiles SET access_expires_at='bad'",
         "UPDATE source_learner_profiles SET provider_account_id=''",
         "UPDATE source_collections SET source_kind='unknown'",
@@ -314,6 +315,30 @@ fn reads_reject_corrupt_scoped_values_and_required_relationships() {
         connection.execute_batch(corruption).unwrap();
         assert!(store.read(&scope("a")).is_err(), "{corruption}");
     }
+}
+
+#[test]
+fn the_full_common_utc_timestamp_range_survives_publication() {
+    let (_directory, _path, store) = initialized_database();
+    let mut metadata = metadata();
+    metadata.access_expires_at = Some(chrono::DateTime::<chrono::Utc>::MAX_UTC);
+    let mut record = word("x");
+    record.progress = Some(LearnerProgress {
+        learning_started_at: Some(chrono::DateTime::<chrono::Utc>::MAX_UTC),
+        first_passed_at: Some(chrono::DateTime::<chrono::Utc>::MIN_UTC),
+        ..Default::default()
+    });
+    store.publish(&scope("a"), &metadata, &[record]).unwrap();
+    let stored = store.read(&scope("a")).unwrap();
+    assert_eq!(stored.metadata, metadata);
+    assert_eq!(
+        stored.records[0].progress.unwrap().learning_started_at,
+        metadata.access_expires_at
+    );
+    assert_eq!(
+        stored.records[0].progress.unwrap().first_passed_at,
+        Some(chrono::DateTime::<chrono::Utc>::MIN_UTC)
+    );
 }
 
 #[test]

@@ -483,8 +483,8 @@ fn decode_bool(value: Option<i64>) -> Result<Option<bool>, SqliteKnowledgeError>
 fn decode_date(value: Option<String>) -> Result<Option<DateTime<Utc>>, SqliteKnowledgeError> {
     value
         .map(|value| {
-            DateTime::parse_from_rfc3339(&value)
-                .map(|date| date.with_timezone(&Utc))
+            value
+                .parse::<DateTime<Utc>>()
                 .map_err(|_| SqliteKnowledgeError::Corrupt("invalid timestamp"))
         })
         .transpose()
