@@ -1,5 +1,21 @@
 use super::*;
 
+fn scope() -> KnowledgeScope {
+    KnowledgeScope {
+        learner_id: "learner".into(),
+        collection_id: "manual".into(),
+        profile_id: "profile".into(),
+    }
+}
+
+fn metadata() -> ScopeMetadata {
+    ScopeMetadata {
+        source_kind: SourceKind::Manual,
+        provider_account_id: None,
+        access_expires_at: None,
+    }
+}
+
 #[test]
 fn initialization_rechecks_journaling_after_acquiring_the_write_transaction() {
     let directory = tempfile::tempdir().unwrap();
@@ -8,7 +24,6 @@ fn initialization_rechecks_journaling_after_acquiring_the_write_transaction() {
     initializer
         .pragma_update(None, "journal_mode", "DELETE")
         .unwrap();
-    require_delete_journal(&initializer).unwrap();
     let external = Connection::open(&path).unwrap();
     external.pragma_update(None, "journal_mode", "WAL").unwrap();
     drop(external);
@@ -16,7 +31,11 @@ fn initialization_rechecks_journaling_after_acquiring_the_write_transaction() {
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .unwrap();
     assert!(matches!(
-        initialize_schema(&transaction),
+        schema_state(&transaction).unwrap(),
+        SchemaState::Empty
+    ));
+    assert!(matches!(
+        require_delete_journal(&transaction),
         Err(SqliteKnowledgeError::UnsupportedJournalMode)
     ));
     drop(transaction);
@@ -32,31 +51,16 @@ fn reads_recheck_journaling_within_their_snapshot() {
     let path = directory.path().join("knowledge.sqlite");
     let store = SqliteKnowledgeStore::new(&path);
     store.initialize().unwrap();
-    let scope = KnowledgeScope {
-        learner_id: "learner".into(),
-        collection_id: "manual".into(),
-        profile_id: "profile".into(),
-    };
-    store
-        .publish(
-            &scope,
-            &ScopeMetadata {
-                source_kind: SourceKind::Manual,
-                provider_account_id: None,
-                access_expires_at: None,
-            },
-            &[],
-        )
-        .unwrap();
+    let scope = scope();
+    store.publish(&scope, &metadata(), &[]).unwrap();
     let mut reader = store.open(OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-    require_delete_journal(&reader).unwrap();
     let external = Connection::open(&path).unwrap();
     external.pragma_update(None, "journal_mode", "WAL").unwrap();
     drop(external);
     let snapshot = reader.transaction().unwrap();
     require_schema(&snapshot).unwrap();
     assert!(matches!(
-        read_scope(&snapshot, &scope),
+        require_delete_journal(&snapshot),
         Err(SqliteKnowledgeError::UnsupportedJournalMode)
     ));
 }
@@ -66,16 +70,8 @@ fn adapter_connections_enforce_foreign_keys_and_readers_hold_one_snapshot_until_
     let directory = tempfile::tempdir().unwrap();
     let store = SqliteKnowledgeStore::new(directory.path().join("knowledge.sqlite"));
     store.initialize().unwrap();
-    let scope = KnowledgeScope {
-        learner_id: "learner".into(),
-        collection_id: "manual".into(),
-        profile_id: "profile".into(),
-    };
-    let mut metadata = ScopeMetadata {
-        source_kind: SourceKind::Manual,
-        provider_account_id: None,
-        access_expires_at: None,
-    };
+    let scope = scope();
+    let mut metadata = metadata();
     let mut records = [MappedKnowledgeRecord {
         external_id: "subject".into(),
         content: MappedContent::NonVocabulary(SourceOrigin::Manual),

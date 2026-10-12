@@ -202,7 +202,7 @@ fn shared_content_updates_preserve_other_profiles_facts_and_availability() {
 }
 
 #[test]
-fn a_late_database_constraint_failure_rolls_back_content_and_new_profile() {
+fn a_late_database_constraint_failure_rolls_back_content_and_profile_changes() {
     let (_directory, path, store) = initialized_database();
     store
         .publish(&scope("a"), &metadata(), &[word("x"), word("retained")])
@@ -217,17 +217,21 @@ fn a_late_database_constraint_failure_rolls_back_content_and_new_profile() {
     }
     let mut new_metadata = metadata();
     new_metadata.provider_account_id = Some("new-account".into());
-    let error = store
-        .publish(&scope("new-profile"), &new_metadata, &records)
-        .unwrap_err();
-    assert!(
-        matches!(error, SqliteKnowledgeError::Database(ref error) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ConstraintViolation))
-    );
-    assert_eq!(
-        std::fs::read(&path).unwrap(),
-        before,
-        "all database pages must roll back"
-    );
+    let existing_metadata = metadata();
+    for (scope, metadata) in [
+        (scope("new-profile"), &new_metadata),
+        (scope("a"), &existing_metadata),
+    ] {
+        let error = store.publish(&scope, metadata, &records).unwrap_err();
+        assert!(
+            matches!(error, SqliteKnowledgeError::Database(ref error) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ConstraintViolation))
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "all database pages must roll back"
+        );
+    }
     assert!(matches!(
         store.read(&scope("new-profile")),
         Err(SqliteKnowledgeError::MissingScope)
@@ -311,10 +315,7 @@ fn reads_reject_corrupt_scoped_values_and_required_relationships() {
         "DELETE FROM source_collections",
         "INSERT INTO source_learner_progress (profile_id,subject_id,is_hidden) VALUES ('a',999,0)",
     ] {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("knowledge.sqlite");
-        let store = SqliteKnowledgeStore::new(&path);
-        store.initialize().unwrap();
+        let (_directory, path, store) = initialized_database();
         store
             .publish(&scope("a"), &metadata(), &[word("x")])
             .unwrap();
@@ -645,9 +646,7 @@ fn ordered_observations_and_unpaired_alternatives_support_both_policies() {
 
 #[test]
 fn invalid_publications_do_not_change_existing_facts_or_bindings() {
-    let directory = tempfile::tempdir().unwrap();
-    let store = SqliteKnowledgeStore::new(directory.path().join("knowledge.sqlite"));
-    store.initialize().unwrap();
+    let (_directory, _path, store) = initialized_database();
     store
         .publish(&scope("a"), &metadata(), &[word("x")])
         .unwrap();

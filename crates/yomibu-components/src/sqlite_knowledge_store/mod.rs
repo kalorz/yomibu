@@ -137,9 +137,14 @@ impl SqliteKnowledgeStore {
             std::fs::set_permissions(&self.path, Permissions::from_mode(0o600))?;
         }
         connection.pragma_update(None, "journal_mode", "DELETE")?;
-        require_delete_journal(&connection)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        initialize_schema(&transaction)?;
+        let state = schema_state(&transaction)?;
+        require_delete_journal(&transaction)?;
+        if matches!(state, SchemaState::Empty) {
+            transaction.execute_batch(include_str!("001_initial.sql"))?;
+            transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
+            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        }
         commit_transaction(transaction)
     }
 
@@ -199,9 +204,9 @@ impl SqliteKnowledgeStore {
     pub fn read(&self, scope: &KnowledgeScope) -> Result<StoredKnowledge, SqliteKnowledgeError> {
         validate_scope(scope)?;
         let mut connection = self.open(OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        require_delete_journal(&connection)?;
         let transaction = connection.transaction()?;
         require_schema(&transaction)?;
+        require_delete_journal(&transaction)?;
         read_scope(&transaction, scope).map_err(|error| match error {
             SqliteKnowledgeError::Database(
                 rusqlite::Error::InvalidColumnType(..)
@@ -252,16 +257,6 @@ fn schema_state(connection: &Connection) -> Result<SchemaState, SqliteKnowledgeE
     } else {
         Err(SqliteKnowledgeError::UnsupportedSchema)
     }
-}
-
-fn initialize_schema(transaction: &Transaction<'_>) -> Result<(), SqliteKnowledgeError> {
-    require_delete_journal(transaction)?;
-    if matches!(schema_state(transaction)?, SchemaState::Empty) {
-        transaction.execute_batch(include_str!("001_initial.sql"))?;
-        transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
-        transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-    }
-    Ok(())
 }
 
 fn commit_transaction(transaction: Transaction<'_>) -> Result<(), SqliteKnowledgeError> {
@@ -321,6 +316,10 @@ fn publish_scope(
     records: &[MappedKnowledgeRecord],
 ) -> Result<(), SqliteKnowledgeError> {
     bind_scope(transaction, scope, metadata)?;
+    transaction.execute(
+        "DELETE FROM source_profile_subjects WHERE profile_id = ?1",
+        [&scope.profile_id],
+    )?;
     let mut insert_subject = transaction.prepare(
         "INSERT INTO source_subjects (collection_id, external_id) VALUES (?1, ?2)
          ON CONFLICT (collection_id, external_id) DO NOTHING",
@@ -338,14 +337,17 @@ fn publish_scope(
     let mut delete_meanings =
         transaction.prepare("DELETE FROM source_vocabulary_meanings WHERE subject_id = ?1")?;
     let mut insert_meanings = transaction.prepare("INSERT INTO source_vocabulary_meanings (subject_id, position, meaning) VALUES (?1, ?2, ?3)")?;
-    let mut subject_ids = Vec::with_capacity(records.len());
-    for record in records {
+    let mut insert_association = transaction.prepare(
+        "INSERT INTO source_profile_subjects (profile_id, subject_id, collection_id, position, content_kind) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+    let mut insert_progress = transaction.prepare(
+        "INSERT INTO source_learner_progress (profile_id, subject_id, is_marked_known, learning_started_at, first_passed_at, is_hidden)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+    for (position, record) in records.iter().enumerate() {
         insert_subject.execute(params![scope.collection_id, record.external_id])?;
         let subject_id: i64 = find_subject
             .query_row(params![scope.collection_id, record.external_id], |row| {
                 row.get(0)
             })?;
-        subject_ids.push(subject_id);
         if let MappedContent::Vocabulary(word) = &record.content {
             upsert_vocabulary.execute(params![
                 subject_id,
@@ -364,17 +366,6 @@ fn publish_scope(
                 }
             }
         }
-    }
-    transaction.execute(
-        "DELETE FROM source_profile_subjects WHERE profile_id = ?1",
-        [&scope.profile_id],
-    )?;
-    let mut insert_association = transaction.prepare(
-        "INSERT INTO source_profile_subjects (profile_id, subject_id, collection_id, position, content_kind) VALUES (?1, ?2, ?3, ?4, ?5)")?;
-    let mut insert_progress = transaction.prepare(
-        "INSERT INTO source_learner_progress (profile_id, subject_id, is_marked_known, learning_started_at, first_passed_at, is_hidden)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
-    for (position, (record, subject_id)) in records.iter().zip(subject_ids).enumerate() {
         let kind = match record.content {
             MappedContent::Vocabulary(_) => "vocabulary",
             MappedContent::NonVocabulary(_) => "non-vocabulary",
@@ -415,7 +406,6 @@ fn read_scope(
     scope: &KnowledgeScope,
 ) -> Result<StoredKnowledge, SqliteKnowledgeError> {
     let metadata = read_metadata(transaction, scope)?;
-    require_delete_journal(transaction)?;
     let mut statement = transaction.prepare(
         "SELECT a.subject_id, a.collection_id, a.position, a.content_kind, s.collection_id, s.external_id,
                 v.collection_id, v.word_id, v.written_form, v.direct_object,
