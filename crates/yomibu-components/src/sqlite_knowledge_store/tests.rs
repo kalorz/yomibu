@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn initialization_rechecks_journaling_after_acquiring_the_write_transaction() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("knowledge.sqlite");
+    let mut initializer = Connection::open(&path).unwrap();
+    initializer
+        .pragma_update(None, "journal_mode", "DELETE")
+        .unwrap();
+    require_delete_journal(&initializer).unwrap();
+    let external = Connection::open(&path).unwrap();
+    external.pragma_update(None, "journal_mode", "WAL").unwrap();
+    drop(external);
+    let transaction = initializer
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
+    assert!(matches!(
+        initialize_schema(&transaction),
+        Err(SqliteKnowledgeError::UnsupportedJournalMode)
+    ));
+    drop(transaction);
+    assert!(matches!(
+        schema_state(&initializer).unwrap(),
+        SchemaState::Empty
+    ));
+}
+
+#[test]
 fn adapter_connections_enforce_foreign_keys_and_readers_hold_one_snapshot_until_publication() {
     let directory = tempfile::tempdir().unwrap();
     let store = SqliteKnowledgeStore::new(directory.path().join("knowledge.sqlite"));

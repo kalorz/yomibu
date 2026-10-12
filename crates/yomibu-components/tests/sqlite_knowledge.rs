@@ -360,6 +360,18 @@ fn initialization_keeps_new_and_existing_empty_databases_private() {
 }
 
 #[test]
+fn initialization_preserves_supported_database_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_directory, path, store) = initialized_database();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    store.initialize().unwrap();
+    assert_eq!(
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+}
+
+#[test]
 fn a_duplicate_account_binding_rolls_back_the_new_profile() {
     let (_directory, _path, store) = initialized_database();
     let mut metadata = metadata();

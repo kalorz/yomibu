@@ -106,7 +106,8 @@ pub enum SqliteKnowledgeError {
 
 /// Operations block the caller; each SQLite lock wait is limited to five seconds.
 /// Connections and transactions end before returning owned values.
-/// Writes request DELETE journaling, EXTRA synchronization, and fullfsync.
+/// Initialization sets DELETE journaling; ordinary operations require it.
+/// Writes request EXTRA synchronization and fullfsync.
 /// Durability depends on the filesystem and hardware honoring those requests.
 #[derive(Debug, Clone)]
 pub struct SqliteKnowledgeStore {
@@ -132,16 +133,13 @@ impl SqliteKnowledgeStore {
             Err(error) => return Err(error.into()),
         }
         let mut connection = self.open(OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        schema_state(&connection)?;
-        std::fs::set_permissions(&self.path, Permissions::from_mode(0o600))?;
+        if matches!(schema_state(&connection)?, SchemaState::Empty) {
+            std::fs::set_permissions(&self.path, Permissions::from_mode(0o600))?;
+        }
         connection.pragma_update(None, "journal_mode", "DELETE")?;
         require_delete_journal(&connection)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if matches!(schema_state(&transaction)?, SchemaState::Empty) {
-            transaction.execute_batch(include_str!("001_initial.sql"))?;
-            transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
-            transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-        }
+        initialize_schema(&transaction)?;
         commit_transaction(transaction)
     }
 
@@ -181,11 +179,7 @@ impl SqliteKnowledgeStore {
                 }
                 MappedContent::NonVocabulary(origin) | MappedContent::Unavailable(origin) => origin,
             };
-            if source_origin(metadata.source_kind, &record.external_id)
-                .ok()
-                .as_ref()
-                != Some(origin)
-            {
+            if source_origin(metadata.source_kind, &record.external_id).as_ref() != Some(origin) {
                 return Err(SqliteKnowledgeError::InvalidInput(
                     "source provenance disagrees with external identity",
                 ));
@@ -259,6 +253,16 @@ fn schema_state(connection: &Connection) -> Result<SchemaState, SqliteKnowledgeE
     }
 }
 
+fn initialize_schema(transaction: &Transaction<'_>) -> Result<(), SqliteKnowledgeError> {
+    require_delete_journal(transaction)?;
+    if matches!(schema_state(transaction)?, SchemaState::Empty) {
+        transaction.execute_batch(include_str!("001_initial.sql"))?;
+        transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
+        transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+    Ok(())
+}
+
 fn commit_transaction(transaction: Transaction<'_>) -> Result<(), SqliteKnowledgeError> {
     if let Err(error) = transaction.execute_batch("COMMIT") {
         if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseBusy) {
@@ -297,26 +301,15 @@ fn validate_scope(scope: &KnowledgeScope) -> Result<(), SqliteKnowledgeError> {
     Ok(())
 }
 
-fn source_origin(
-    kind: SourceKind,
-    external_id: &str,
-) -> Result<SourceOrigin, SqliteKnowledgeError> {
+fn source_origin(kind: SourceKind, external_id: &str) -> Option<SourceOrigin> {
     match kind {
-        SourceKind::Manual if !external_id.trim().is_empty() => Ok(SourceOrigin::Manual),
+        SourceKind::Manual if !external_id.trim().is_empty() => Some(SourceOrigin::Manual),
         SourceKind::Wanikani => {
-            let subject_id: u64 = external_id
-                .parse()
-                .map_err(|_| SqliteKnowledgeError::Corrupt("invalid external subject identity"))?;
-            if subject_id == 0 || subject_id.to_string() != external_id {
-                return Err(SqliteKnowledgeError::Corrupt(
-                    "noncanonical external subject identity",
-                ));
-            }
-            Ok(SourceOrigin::Wanikani { subject_id })
+            let subject_id: u64 = external_id.parse().ok()?;
+            (subject_id != 0 && subject_id.to_string() == external_id)
+                .then_some(SourceOrigin::Wanikani { subject_id })
         }
-        _ => Err(SqliteKnowledgeError::Corrupt(
-            "blank external subject identity",
-        )),
+        _ => None,
     }
 }
 
@@ -334,7 +327,7 @@ fn publish_scope(
     let mut find_subject = transaction.prepare(
         "SELECT subject_id FROM source_subjects WHERE collection_id = ?1 AND external_id = ?2",
     )?;
-    let mut vocabulary = transaction.prepare(
+    let mut upsert_vocabulary = transaction.prepare(
         "INSERT INTO source_vocabulary (subject_id, collection_id, word_id, written_form, direct_object)
          VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (subject_id) DO UPDATE SET
          word_id = excluded.word_id, written_form = excluded.written_form, direct_object = excluded.direct_object")?;
@@ -353,7 +346,7 @@ fn publish_scope(
             })?;
         subject_ids.push(subject_id);
         if let MappedContent::Vocabulary(word) = &record.content {
-            vocabulary.execute(params![
+            upsert_vocabulary.execute(params![
                 subject_id,
                 scope.collection_id,
                 word.id,
@@ -375,9 +368,9 @@ fn publish_scope(
         "DELETE FROM source_profile_subjects WHERE profile_id = ?1",
         [&scope.profile_id],
     )?;
-    let mut associations = transaction.prepare(
+    let mut insert_association = transaction.prepare(
         "INSERT INTO source_profile_subjects (profile_id, subject_id, collection_id, position, content_kind) VALUES (?1, ?2, ?3, ?4, ?5)")?;
-    let mut progress = transaction.prepare(
+    let mut insert_progress = transaction.prepare(
         "INSERT INTO source_learner_progress (profile_id, subject_id, is_marked_known, learning_started_at, first_passed_at, is_hidden)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
     for (position, (record, subject_id)) in records.iter().zip(subject_ids).enumerate() {
@@ -386,7 +379,7 @@ fn publish_scope(
             MappedContent::NonVocabulary(_) => "non-vocabulary",
             MappedContent::Unavailable(_) => "unavailable",
         };
-        associations.execute(params![
+        insert_association.execute(params![
             scope.profile_id,
             subject_id,
             scope.collection_id,
@@ -394,7 +387,7 @@ fn publish_scope(
             kind
         ])?;
         if let Some(observation) = record.progress {
-            progress.execute(params![
+            insert_progress.execute(params![
                 scope.profile_id,
                 subject_id,
                 observation.is_marked_known,
@@ -450,7 +443,9 @@ fn read_scope(
             return Err(SqliteKnowledgeError::Corrupt("invalid subject order"));
         }
         let external_id: String = row.get(5)?;
-        let origin = source_origin(metadata.source_kind, &external_id)?;
+        let origin = source_origin(metadata.source_kind, &external_id).ok_or(
+            SqliteKnowledgeError::Corrupt("invalid external subject identity"),
+        )?;
         let vocabulary_collection: Option<String> = row.get(6)?;
         if vocabulary_collection
             .as_ref()
