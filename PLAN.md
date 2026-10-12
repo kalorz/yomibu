@@ -13,8 +13,8 @@ exercises or assess naturalness, meaning in context, or comprehension.
 ## Remaining work
 
 - Align vocabulary content with explicit spelling, reading, and sense; preserve
-  unresolved source alternatives. Add SQLite import/write and common learner-read
-  paths, replacing generation-time source refresh. See the
+  unresolved source alternatives. Wire CLI imports and preparation to SQLite, replacing
+  generation-time source refresh. See the
   [knowledge storage direction](SPEC.md#knowledge-storage-direction).
 - Compare local dense and hosted retrieval before choosing a default model.
   Only the nonsemantic lexical baseline has been measured. See [retrieval](docs/RETRIEVAL.md).

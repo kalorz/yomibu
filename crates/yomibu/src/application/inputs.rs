@@ -8,13 +8,44 @@ use crate::configuration::modules::ModuleId;
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 use std::path::Path;
+use yomibu_components::sqlite_knowledge_store::StoredKnowledge;
 use yomibu_components::wanikani_source as wanikani;
 use yomibu_core::domain::{
-    inventory::{LearnerInventory, ManualInventory},
+    inventory::{InventoryError, LearnerInventory, ManualInventory},
     knowledge::LearnerKnowledgePolicy,
     source::WaniKaniSyncData,
     story::{PracticeTargets, StoryRequest, StoryTopic},
 };
+
+#[derive(Debug, thiserror::Error)]
+pub enum KnowledgePreparationError {
+    #[error("Recorded content access has expired.")]
+    AccessExpired,
+    #[error(transparent)]
+    Inventory(#[from] InventoryError),
+}
+
+/// Apply access and knowledge policy to owned observations after storage closes.
+pub fn prepare_stored_inventory(
+    stored: StoredKnowledge,
+    policy: &LearnerKnowledgePolicy,
+    now: DateTime<Utc>,
+) -> Result<LearnerInventory, KnowledgePreparationError> {
+    if stored
+        .metadata
+        .access_expires_at
+        .is_some_and(|expiry| now >= expiry)
+    {
+        return Err(KnowledgePreparationError::AccessExpired);
+    }
+    Ok(LearnerInventory::from_mapped(
+        stored
+            .records
+            .into_iter()
+            .map(|record| (record.content, record.progress)),
+        policy,
+    )?)
+}
 
 pub(super) fn read_manual(
     path: Option<&Path>,

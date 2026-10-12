@@ -6,6 +6,7 @@ mod credentials;
 pub use credentials::{CredentialError, Credentials, Secret};
 mod embeddings;
 mod inputs;
+pub use inputs::{KnowledgePreparationError, prepare_stored_inventory};
 mod local;
 pub use local::{ApplicationError, LocalApp, ServiceEndpoints, SetupIssue};
 pub mod input_file;

@@ -29,6 +29,22 @@ pub struct InventoryWord {
 }
 
 impl InventoryWord {
+    pub fn validate(&self) -> Result<(), InventoryError> {
+        let text = |s: &str, limit: usize| !s.trim().is_empty() && s.len() <= limit;
+        if !text(&self.id, 128)
+            || !text(&self.written_form, 256)
+            || self.readings.len() > 32
+            || self.meanings.len() > 32
+            || self.readings.iter().any(|r| !text(r, 256))
+            || self.meanings.iter().any(|m| !text(m, 1024))
+        {
+            return Err(InventoryError::Invalid(
+                "invalid or duplicate vocabulary entry",
+            ));
+        }
+        Ok(())
+    }
+
     /// Hiragana-to-katakana comparison form; original source readings stay intact.
     pub fn analyzer_readings(&self) -> Vec<String> {
         self.readings
@@ -169,14 +185,8 @@ impl LearnerInventory {
         }
         let mut ids = BTreeSet::new();
         for word in &self.vocabulary {
-            if !text(&word.id, 128)
-                || !ids.insert(&word.id)
-                || !text(&word.written_form, 256)
-                || word.readings.len() > 32
-                || word.meanings.len() > 32
-                || word.readings.iter().any(|r| !text(r, 256))
-                || word.meanings.iter().any(|m| !text(m, 1024))
-            {
+            word.validate()?;
+            if !ids.insert(&word.id) {
                 return Err(InventoryError::Invalid(
                     "invalid or duplicate vocabulary entry",
                 ));

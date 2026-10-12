@@ -8,6 +8,7 @@ pub mod japanese_constraint_checks;
 pub mod learner_vocabulary_selection;
 pub mod lexical_embeddings;
 pub mod openai_story_generation;
+pub mod sqlite_knowledge_store;
 pub mod story_prompt_preparation;
 pub mod sudachi_dictionary;
 pub mod wanikani_source;

@@ -22,6 +22,23 @@ fn manual_inventory_keeps_original_readings_and_unknown_evidence() {
 }
 
 #[test]
+fn vocabulary_validation_preserves_empty_lists_and_rejects_invalid_words() {
+    let mut word: InventoryWord =
+        serde_json::from_value(manual()["vocabulary"][0].clone()).unwrap();
+    word.readings.clear();
+    word.meanings.clear();
+    word.validate().unwrap();
+    word.written_form = "x".repeat(257);
+    assert!(word.validate().is_err());
+    let word: InventoryWord = serde_json::from_value(manual()["vocabulary"][0].clone()).unwrap();
+    for invalid in ["", " ", &"x".repeat(1025)] {
+        let mut word = word.clone();
+        word.meanings = vec![invalid.into()];
+        assert!(word.validate().is_err());
+    }
+}
+
+#[test]
 fn common_preparation_uses_each_learners_progress_for_shared_content() {
     let content: InventoryWord = serde_json::from_value(manual()["vocabulary"][0].clone()).unwrap();
     for (first_progress, second_progress, reason) in [

@@ -292,8 +292,14 @@ The common progress facts are `is_marked_known`, `learning_started_at`,
 declarations override milestone policy; neither milestones nor declarations prove mastery.
 Provider stages and raw observations remain preserved source data.
 
-Stored vocabulary entries identify spelling, reading, and sense. Preserve
-unresolved source alternatives until their mapping is supported.
+Precise spelling/reading/sense mapping remains future work. SQLite schema 1 stores
+the current mapped vocabulary with independent reading and meaning alternatives.
+It does not store grammar or vectors.
+
+SQLite publication replaces one explicit profile's membership, availability,
+ordering, progress, and access deadline. Content is shared within its collection;
+the last committed publication supplying vocabulary wins. Other profiles retain
+their facts. Missing observations do not erase shared content.
 
 Explicit imports will own fetching, mapping, and transactional writes. Knowledge
 preparation will read common content and progress for an explicit learner, without
