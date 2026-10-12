@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use yomibu_core::domain::{
-    inventory::{InventoryWord, MappedContent, SourceOrigin},
+    inventory::{InventoryWord, MappedContent, SourceOrigin, UnresolvedVocabulary},
     knowledge::LearnerProgress,
     source::{
         Assignment, LexicalContent, ReviewStatistic, Subject, ValidationError, WaniKaniSyncData,
@@ -30,40 +30,51 @@ pub fn map_content_and_progress(
     for unavailable in &source.unavailable_subjects {
         subjects.insert(unavailable.id, None);
     }
-    Ok(subjects.into_iter().map(move |(subject_id, subject)| {
-        let origin = SourceOrigin::Wanikani { subject_id };
-        let assignment = assignments.get(&subject_id).copied();
-        let statistic = statistics.get(&subject_id).copied();
-        let progress = learner_progress(subject, assignment, statistic);
-        let Some(subject) = subject else {
-            return (MappedContent::Unavailable(origin), progress);
-        };
-        let readings = match &subject.lexical {
-            LexicalContent::Kanji { .. } => {
-                return (MappedContent::NonVocabulary(origin), progress);
-            }
-            LexicalContent::Vocabulary { readings, .. } => readings
-                .iter()
-                .filter(|reading| reading.accepted_answer)
-                .map(|reading| reading.reading.clone())
-                .collect(),
-            LexicalContent::KanaVocabulary { .. } => Vec::new(),
-        };
-        let word = InventoryWord {
-            id: format!("wanikani:{subject_id}"),
-            written_form: subject.characters.clone(),
-            readings,
-            meanings: subject
-                .meanings
-                .iter()
-                .filter(|meaning| meaning.accepted_answer)
-                .map(|meaning| meaning.meaning.clone())
-                .collect(),
-            direct_object: None,
-            origin,
-        };
-        (MappedContent::Vocabulary(word), progress)
-    }))
+    let mapped = subjects
+        .into_iter()
+        .map(|(subject_id, subject)| {
+            let origin = SourceOrigin::Wanikani { subject_id };
+            let assignment = assignments.get(&subject_id).copied();
+            let statistic = statistics.get(&subject_id).copied();
+            let progress = learner_progress(subject, assignment, statistic);
+            let Some(subject) = subject else {
+                return Ok((MappedContent::Unavailable(origin), progress));
+            };
+            let readings = match &subject.lexical {
+                LexicalContent::Kanji { .. } => {
+                    return Ok((MappedContent::NonVocabulary(origin), progress));
+                }
+                LexicalContent::Vocabulary { readings, .. } => readings
+                    .iter()
+                    .filter(|reading| reading.accepted_answer)
+                    .map(|reading| reading.reading.clone())
+                    .collect(),
+                LexicalContent::KanaVocabulary { .. } => Vec::new(),
+            };
+            let word = InventoryWord {
+                id: format!("wanikani:{subject_id}"),
+                written_form: subject.characters.clone(),
+                readings,
+                meanings: subject
+                    .meanings
+                    .iter()
+                    .filter(|meaning| meaning.accepted_answer)
+                    .map(|meaning| meaning.meaning.clone())
+                    .collect(),
+                direct_object: None,
+                origin,
+            };
+            let observation =
+                serde_json::to_value(subject).map_err(|_| ValidationError::InvalidField {
+                    field: "subject observation",
+                })?;
+            Ok((
+                MappedContent::UnresolvedVocabulary(UnresolvedVocabulary { word, observation }),
+                progress,
+            ))
+        })
+        .collect::<Result<Vec<_>, ValidationError>>()?;
+    Ok(mapped.into_iter())
 }
 
 fn learner_progress(

@@ -2,15 +2,18 @@ use super::*;
 
 fn scope() -> KnowledgeScope {
     KnowledgeScope {
-        learner_id: "learner".into(),
-        source_collection_id: "manual".into(),
-        source_learner_profile_id: "profile".into(),
+        learner_id: 1,
+        source_collection_id: 1,
+        source_learner_profile_id: 1,
     }
 }
 
 fn metadata() -> ScopeMetadata {
     ScopeMetadata {
         provider: Provider::Manual,
+        learner_name: "Fixture learner".into(),
+        source_collection_name: "Manual".into(),
+        owner_learner_id: None,
         external_account_id: None,
         access_expires_at: None,
     }

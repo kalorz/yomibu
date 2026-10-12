@@ -1,6 +1,9 @@
 use serde_json::{Value, json};
 use yomibu_core::domain::{
-    inventory::{InventoryWord, LearnerInventory, ManualInventory, MappedContent, SourceOrigin},
+    inventory::{
+        InventoryWord, LearnerInventory, ManualInventory, MappedContent, SourceOrigin,
+        UnresolvedVocabulary,
+    },
     knowledge::{ExclusionReason, LearnerKnowledgePolicy, LearnerProgress},
 };
 
@@ -65,7 +68,10 @@ fn common_preparation_uses_each_learners_progress_for_shared_content() {
         let policy = LearnerKnowledgePolicy::LessonStarted;
         let first = LearnerInventory::from_mapped(
             [(
-                MappedContent::Vocabulary(content.clone()),
+                MappedContent::UnresolvedVocabulary(UnresolvedVocabulary {
+                    word: content.clone(),
+                    observation: Value::Null,
+                }),
                 Some(first_progress),
             )],
             &policy,
@@ -73,7 +79,10 @@ fn common_preparation_uses_each_learners_progress_for_shared_content() {
         .unwrap();
         let second = LearnerInventory::from_mapped(
             [(
-                MappedContent::Vocabulary(content.clone()),
+                MappedContent::UnresolvedVocabulary(UnresolvedVocabulary {
+                    word: content.clone(),
+                    observation: Value::Null,
+                }),
                 Some(second_progress),
             )],
             &policy,
@@ -99,7 +108,13 @@ fn common_preparation_preserves_content_availability_and_input_order() {
     for is_hidden in [false, true] {
         let inventory = LearnerInventory::from_mapped(
             [
-                (MappedContent::Vocabulary(content.clone()), None),
+                (
+                    MappedContent::UnresolvedVocabulary(UnresolvedVocabulary {
+                        word: content.clone(),
+                        observation: Value::Null,
+                    }),
+                    None,
+                ),
                 (
                     MappedContent::NonVocabulary(SourceOrigin::Manual),
                     Some(progress),

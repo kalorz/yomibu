@@ -41,12 +41,15 @@ fn published() -> (
     )
     .unwrap();
     let scope = KnowledgeScope {
-        learner_id: "yomibu-learner".into(),
-        source_collection_id: "wanikani".into(),
-        source_learner_profile_id: "connection".into(),
+        learner_id: 1,
+        source_collection_id: 1,
+        source_learner_profile_id: 1,
     };
     let metadata = ScopeMetadata {
         provider: Provider::Wanikani,
+        learner_name: "Fixture learner".into(),
+        source_collection_name: "WaniKani".into(),
+        owner_learner_id: None,
         external_account_id: Some(source.learner.id.clone()),
         access_expires_at: source
             .learner
@@ -58,10 +61,7 @@ fn published() -> (
     let records: Vec<_> = map_content_and_progress(&source)
         .unwrap()
         .map(|(content, progress)| {
-            let origin = match &content {
-                MappedContent::Vocabulary(word) => &word.origin,
-                MappedContent::NonVocabulary(origin) | MappedContent::Unavailable(origin) => origin,
-            };
+            let origin = content.origin();
             let SourceOrigin::Wanikani { subject_id } = origin else {
                 panic!("WaniKani fixture")
             };
@@ -77,6 +77,40 @@ fn published() -> (
     let store = SqliteKnowledgeStore::new(&database);
     store.initialize().unwrap();
     store.publish(&scope, &metadata, &records).unwrap();
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    let aggregate_tables: i64 = connection.query_row(
+        "SELECT count(*) FROM sqlite_schema WHERE name IN ('source_vocabulary','source_vocabulary_readings','source_vocabulary_meanings')",
+        [], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(aggregate_tables, 0);
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM vocabulary_entries", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    let unresolved: String = connection
+        .query_row(
+            "SELECT source_data FROM source_subjects WHERE external_id='3'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let unresolved: Value = serde_json::from_str(&unresolved).unwrap();
+    assert_eq!(
+        unresolved["observation"],
+        serde_json::to_value(
+            source
+                .subjects
+                .iter()
+                .find(|subject| subject.id == 3)
+                .unwrap()
+        )
+        .unwrap()
+    );
+    assert_eq!(unresolved["word"]["id"], "wanikani:3");
+    drop(connection);
     drop(store);
     (
         directory,
@@ -130,8 +164,20 @@ fn expired_metadata_is_readable_but_preparation_enforces_the_boundary() {
 async fn reopened_sqlite_knowledge_generates_through_supplied_inventory_without_source_requests() {
     let (directory, store, scope, expected, now) = published();
     let stored = store.read(&scope).unwrap();
+    assert!(
+        stored
+            .records
+            .iter()
+            .any(|record| matches!(record.content, MappedContent::UnresolvedVocabulary(_)))
+    );
+    assert!(
+        !stored
+            .records
+            .iter()
+            .any(|record| matches!(record.content, MappedContent::Vocabulary { .. }))
+    );
     assert_ne!(
-        stored.scope.learner_id,
+        stored.scope.learner_id.to_string(),
         stored
             .metadata
             .external_account_id

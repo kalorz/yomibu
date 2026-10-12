@@ -292,9 +292,10 @@ The common progress facts are `is_marked_known`, `learning_started_at`,
 declarations override milestone policy; neither milestones nor declarations prove mastery.
 Provider stages and raw observations remain preserved source data.
 
-Precise spelling/reading/sense mapping remains future work. SQLite schema 1 stores
-the current mapped vocabulary with independent reading and meaning alternatives.
-It does not store grammar or vectors.
+The [agreed schema target and reconciliation](docs/KNOWLEDGE_SCHEMA.md) record
+implemented relationships and deferred fields. SQLite schema 2 stores evidenced
+vocabulary entries and translations. Ambiguous source observations remain explicitly
+unresolved in subject source data. It does not store grammar or vectors.
 
 SQLite publication replaces one explicit profile's membership, availability,
 ordering, progress, and access deadline. Content is shared within its collection;

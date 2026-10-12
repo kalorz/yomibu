@@ -30,19 +30,12 @@ pub struct InventoryWord {
 
 impl InventoryWord {
     pub fn validate(&self) -> Result<(), InventoryError> {
-        let text = |s: &str, limit: usize| !s.trim().is_empty() && s.len() <= limit;
-        if !text(&self.id, 128)
-            || !text(&self.written_form, 256)
-            || self.readings.len() > 32
-            || self.meanings.len() > 32
-            || self.readings.iter().any(|r| !text(r, 256))
-            || self.meanings.iter().any(|m| !text(m, 1024))
-        {
-            return Err(InventoryError::Invalid(
-                "invalid or duplicate vocabulary entry",
-            ));
-        }
-        Ok(())
+        validate_word(
+            &self.id,
+            &self.written_form,
+            self.readings.iter().map(String::as_str),
+            self.meanings.iter().map(String::as_str),
+        )
     }
 
     /// Hiragana-to-katakana comparison form; original source readings stay intact.
@@ -54,12 +47,131 @@ impl InventoryWord {
     }
 }
 
-/// Mapped content retains provenance even when it cannot supply vocabulary.
+fn validate_word<'a>(
+    id: &str,
+    spelling: &str,
+    mut readings: impl ExactSizeIterator<Item = &'a str>,
+    mut meanings: impl ExactSizeIterator<Item = &'a str>,
+) -> Result<(), InventoryError> {
+    let text = |s: &str, limit: usize| !s.trim().is_empty() && s.len() <= limit;
+    if !text(id, 128)
+        || !text(spelling, 256)
+        || readings.len() > 32
+        || meanings.len() > 32
+        || readings.any(|reading| !text(reading, 256))
+        || meanings.any(|meaning| !text(meaning, 1024))
+    {
+        return Err(InventoryError::Invalid(
+            "invalid or duplicate vocabulary entry",
+        ));
+    }
+    Ok(())
+}
+
+/// Source alternatives without evidence linking each reading to its translations.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnresolvedVocabulary {
+    pub word: InventoryWord,
+    pub observation: serde_json::Value,
+}
+
+/// One evidence-backed spelling/reading and its explicitly associated translations.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VocabularyEntry {
+    pub id: i64,
+    pub spelling: String,
+    pub reading: String,
+    pub parts_of_speech: Vec<String>,
+    pub is_primary_reading_in_source: Option<bool>,
+    /// Identifies the supplied association evidence; no resolver is implied.
+    pub mapping_method: String,
+    pub has_direct_object_evidence: Option<bool>,
+    pub translations: Vec<VocabularyTranslation>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VocabularyTranslation {
+    pub id: i64,
+    pub language_code: String,
+    pub text: String,
+    pub display_order: i64,
+    pub is_primary_in_source: Option<bool>,
+    pub origin: String,
+}
+
+impl VocabularyEntry {
+    pub fn inventory_id(&self) -> String {
+        format!("vocabulary_entry:{}", self.id)
+    }
+
+    pub fn into_inventory_word(mut self, origin: SourceOrigin) -> InventoryWord {
+        self.translations.sort_by(|a, b| {
+            (&a.language_code, a.display_order).cmp(&(&b.language_code, b.display_order))
+        });
+        InventoryWord {
+            id: self.inventory_id(),
+            written_form: self.spelling,
+            readings: vec![self.reading],
+            meanings: self
+                .translations
+                .into_iter()
+                .map(|translation| translation.text)
+                .collect(),
+            direct_object: self.has_direct_object_evidence,
+            origin,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), InventoryError> {
+        validate_word(
+            &self.inventory_id(),
+            &self.spelling,
+            std::iter::once(self.reading.as_str()),
+            self.translations
+                .iter()
+                .map(|translation| translation.text.as_str()),
+        )?;
+        if self.mapping_method.trim().is_empty()
+            || self
+                .parts_of_speech
+                .iter()
+                .any(|part| part.trim().is_empty())
+            || self.translations.iter().any(|translation| {
+                translation.language_code.trim().is_empty() || translation.origin.trim().is_empty()
+            })
+        {
+            return Err(InventoryError::Invalid(
+                "missing vocabulary association evidence",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Unresolved source observations stay distinct from evidence-backed entries.
 #[derive(Debug)]
 pub enum MappedContent {
-    Vocabulary(InventoryWord),
+    Vocabulary {
+        entries: Vec<VocabularyEntry>,
+        origin: SourceOrigin,
+    },
+    UnresolvedVocabulary(UnresolvedVocabulary),
     NonVocabulary(SourceOrigin),
     Unavailable(SourceOrigin),
+}
+
+impl MappedContent {
+    pub fn origin(&self) -> &SourceOrigin {
+        match self {
+            Self::Vocabulary { origin, .. }
+            | Self::NonVocabulary(origin)
+            | Self::Unavailable(origin) => origin,
+            Self::UnresolvedVocabulary(unresolved) => &unresolved.word.origin,
+        }
+    }
 }
 
 pub fn analyzer_reading(reading: &str) -> String {
@@ -112,7 +224,8 @@ pub enum InventoryError {
     Invalid(&'static str),
 }
 impl LearnerInventory {
-    /// Prepare one learner's mapped values in input order and validate the result.
+    /// Prepare subjects in input order, with resolved entries ordered by ID.
+    /// Translations use language/display order; unresolved alternatives stay independent.
     /// Unavailable content takes precedence over progress. Eligible non-vocabulary is omitted.
     pub fn from_mapped(
         records: impl IntoIterator<Item = (MappedContent, Option<LearnerProgress>)>,
@@ -131,17 +244,26 @@ impl LearnerInventory {
                 policy.decide(progress.as_ref())
             };
             match decision {
-                KnowledgeDecision::Eligible => {
-                    if let MappedContent::Vocabulary(word) = content {
-                        inventory.vocabulary.push(word);
+                KnowledgeDecision::Eligible => match content {
+                    MappedContent::Vocabulary {
+                        mut entries,
+                        origin,
+                    } => {
+                        entries.sort_by_key(|entry| entry.id);
+                        for entry in entries {
+                            entry.validate()?;
+                            inventory
+                                .vocabulary
+                                .push(entry.into_inventory_word(origin.clone()));
+                        }
                     }
-                }
+                    MappedContent::UnresolvedVocabulary(unresolved) => {
+                        inventory.vocabulary.push(unresolved.word)
+                    }
+                    MappedContent::NonVocabulary(_) | MappedContent::Unavailable(_) => {}
+                },
                 KnowledgeDecision::Excluded(reason) => {
-                    let origin = match content {
-                        MappedContent::Vocabulary(word) => word.origin,
-                        MappedContent::NonVocabulary(origin)
-                        | MappedContent::Unavailable(origin) => origin,
-                    };
+                    let origin = content.origin().clone();
                     inventory.excluded.push(ExcludedMaterial { origin, reason });
                 }
             }
