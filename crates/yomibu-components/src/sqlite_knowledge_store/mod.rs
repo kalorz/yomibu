@@ -414,6 +414,7 @@ fn read_scope(
     scope: &KnowledgeScope,
 ) -> Result<StoredKnowledge, SqliteKnowledgeError> {
     let metadata = read_metadata(transaction, scope)?;
+    require_delete_journal(transaction)?;
     let mut statement = transaction.prepare(
         "SELECT a.subject_id, a.collection_id, a.position, a.content_kind, s.collection_id, s.external_id,
                 v.collection_id, v.word_id, v.written_form, v.direct_object,
