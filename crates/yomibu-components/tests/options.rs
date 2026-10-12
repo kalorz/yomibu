@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use yomibu_components::COMPONENTS;
 
 #[test]
-fn registered_components_have_unique_names_owned_settings_and_valid_defaults() {
+fn registered_components_have_unique_names_and_owned_settings() {
     let mut ids = BTreeSet::new();
     let mut flags = BTreeSet::new();
     let identifier = |name: &str| {
@@ -25,7 +25,6 @@ fn registered_components_have_unique_names_owned_settings_and_valid_defaults() {
                 "{}",
                 name.key()
             );
-            setting.default_value().unwrap();
         }
     }
 }
@@ -45,7 +44,7 @@ fn providers_read_only_their_scoped_options_and_keep_domain_configuration_typed(
             .model,
         "fallback"
     );
-    values.set(openai::MODEL, "text-model".into()).unwrap();
+    values.set(openai::MODEL, "text-model".into());
     assert_eq!(
         openai::generation_options(values.for_component(&openai::COMPONENT), defaults.clone())
             .unwrap()

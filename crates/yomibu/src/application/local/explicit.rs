@@ -30,10 +30,7 @@ impl LocalApp {
             .begin_sync()?;
         let data = source.fetch().await?;
         let summary = crate::reports::summary::summarize(&data)?;
-        let persistence = writer.replace(data.into())?;
-        Ok(SyncReport {
-            summary,
-            persistence,
-        })
+        writer.replace(data.into())?;
+        Ok(SyncReport { summary })
     }
 }

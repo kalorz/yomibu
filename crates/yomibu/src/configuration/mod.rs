@@ -235,10 +235,6 @@ impl Configuration {
         let topic_conflict = !matches!(flags.invocation.story.topic, Patch::Inherit)
             || !matches!(env.invocation.story.topic, Patch::Inherit);
         let request = flags.request.or(env.request);
-        let mut options = components::Options::default();
-        for setting in components::options() {
-            options.clear(setting)?;
-        }
         let mut resolved = Self {
             application: std::sync::Arc::new(ApplicationSettings {
                 inventory: setting!(inventory),
@@ -259,7 +255,7 @@ impl Configuration {
                 },
                 knowledge_policy: LearnerKnowledgePolicy::default(),
                 model: StoryGenerationOptions::default().model,
-                options,
+                options: components::Options::default(),
             },
             story: StorySettings {
                 request,

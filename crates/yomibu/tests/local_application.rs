@@ -693,13 +693,15 @@ async fn cancelling_supplied_source_refresh_preserves_data_and_releases_the_writ
 }
 
 #[tokio::test]
-async fn two_keys_generate_once_without_optional_resources_and_the_second_run_uses_cache() {
+async fn invocation_overrides_leave_the_base_app_unchanged_and_reuse_its_cache() {
     source_stores!(dir, store, {
         let server = MockServer::start().await;
         mount_source(&server, 1).await;
         mount_generation(&server, 2).await;
+        let base = config(dir.path(), ProcessOverrides::default());
+        let base_model = base.generation().unwrap().model;
         let app = LocalApp::new(
-            config(dir.path(), ProcessOverrides::default()),
+            base,
             supplied_credentials(Some("synthetic-wk".into()), Some("synthetic-ai".into())),
         )
         .with_endpoints(ServiceEndpoints {
@@ -707,8 +709,12 @@ async fn two_keys_generate_once_without_optional_resources_and_the_second_run_us
             openai: format!("{}/v1/", server.uri()),
         });
         let now = SystemTime::now().into();
+        let mut invocation = Invocation::default();
+        invocation.story.topic = Patch::Set("猫".into());
+        invocation.pipeline.model = Some("invocation-model".into());
+        let changed = app.for_invocation(invocation, &Operation::Story).unwrap();
         let mut events = Vec::new();
-        let report = { app.story(&store, now, 7, |event| events.push(event)) }
+        let report = { changed.story(&store, now, 7, |event| events.push(event)) }
             .await
             .unwrap();
         assert!(
@@ -723,12 +729,21 @@ async fn two_keys_generate_once_without_optional_resources_and_the_second_run_us
             report.generated.passages()[0].text,
             "猫です。寝ます。朝です。"
         );
-        assert!(report.request.topic.is_none());
+        assert_eq!(report.request.topic.as_ref().unwrap().text(), "猫");
+        assert_eq!(
+            report.generated.provenance().requested_model,
+            "invocation-model"
+        );
         assert!(!events.is_empty());
         assert_completed_steps(&events);
         let cached_report = { app.story(&store, SystemTime::now().into(), 7, |_| {}) }
             .await
             .unwrap();
+        assert!(cached_report.request.topic.is_none());
+        assert_eq!(
+            cached_report.generated.provenance().requested_model,
+            base_model
+        );
         assert!(
             !cached_report
                 .modules
@@ -745,11 +760,21 @@ async fn two_keys_generate_once_without_optional_resources_and_the_second_run_us
                 .count(),
             4
         );
-        for request in requests.iter().filter(|r| r.method.as_str() == "POST") {
+        for (request, report) in requests
+            .iter()
+            .filter(|r| r.method.as_str() == "POST")
+            .zip([&report, &cached_report])
+        {
             let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
             let input: serde_json::Value =
                 serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
-            assert!(input.get("topic").is_none());
+            let topic = report
+                .request
+                .topic
+                .as_ref()
+                .map(|topic| json!(topic.text()));
+            assert_eq!(input.get("topic"), topic.as_ref());
+            assert_eq!(body["model"], report.generated.provenance().requested_model);
         }
         assert!(
             !serde_json::to_string(&report)

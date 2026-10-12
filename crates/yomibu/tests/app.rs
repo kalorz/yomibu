@@ -1,7 +1,7 @@
 use yomibu::App;
 use yomibu_components::file_learning_store::FileLearningStore;
 use yomibu_core::{
-    capabilities::{LearningSource, LearningStore, Persistence},
+    capabilities::{LearningSource, LearningStore},
     domain::source::WaniKaniSyncData,
 };
 
@@ -21,30 +21,18 @@ impl LearningSource for FixtureSource {
     }
 }
 
-async fn sync_and_summary(store: impl LearningStore, persistence: Persistence) {
-    let mut app = App::new(store).with_source(FixtureSource);
+#[tokio::test]
+async fn sync_publishes_to_file_storage() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(directory.path());
+    let mut app = App::new(store.clone()).with_source(FixtureSource);
     let report = app.sync().await.unwrap();
-    assert_eq!(report.persistence, persistence);
+    drop(app);
     assert_eq!(
         report.summary,
         yomibu::reports::summary::summarize(&fixture()).unwrap()
     );
-    let summary = yomibu::reports::summary::summarize(&fixture()).unwrap();
-    drop(app);
-    assert_eq!(
-        summary, report.summary,
-        "results outlive application and input data"
-    );
-}
-
-#[tokio::test]
-async fn sync_publishes_to_file_storage() {
-    let directory = tempfile::tempdir().unwrap();
-    sync_and_summary(
-        FileLearningStore::new(directory.path()),
-        Persistence::Durable,
-    )
-    .await;
+    assert_eq!(*store.load().unwrap(), fixture());
 }
 
 #[tokio::test]
@@ -84,7 +72,6 @@ async fn real_http_source_can_publish_to_file_storage() {
             .unwrap();
     let mut app = App::new(store.clone()).with_source(client);
     let report = app.sync().await.unwrap();
-    assert_eq!(report.persistence, Persistence::Durable);
     assert_eq!(store.load().unwrap().subjects.len(), 4);
     assert_eq!(
         yomibu::reports::summary::summarize(&store.load().unwrap()).unwrap(),

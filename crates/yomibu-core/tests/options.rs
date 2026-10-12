@@ -1,31 +1,21 @@
 use yomibu_core::component::{
     Component,
     credentials::Secret,
-    options::{OptionKey, Options, Setting, Value},
+    options::{OptionError, OptionKey, Options, Setting, Value},
 };
 
 const MODEL: OptionKey<String> = OptionKey::new("test", "model", "Model");
-const SIZE: OptionKey<usize> = OptionKey::new("test", "size", "Size").validate(|value| {
-    if (1..=8).contains(value) {
-        Ok(())
-    } else {
-        Err("Size must be between 1 and 8.")
-    }
-});
 const KEY: OptionKey<Secret> = OptionKey::new("test", "api-key", "API key");
 const COMPONENT: Component = Component {
     id: "test",
-    settings: &[MODEL.setting(), SIZE.setting(), KEY.setting()],
+    settings: &[MODEL.setting(), KEY.setting()],
 };
 
 #[test]
-fn typed_keys_parse_validate_and_read_from_shared_scoped_options() {
+fn typed_keys_parse_and_read_from_shared_scoped_options() {
     let mut options = Options::default();
     options
         .insert(MODEL.setting(), MODEL.setting().parse("日本語").unwrap())
-        .unwrap();
-    options
-        .insert(SIZE.setting(), SIZE.setting().parse("4").unwrap())
         .unwrap();
     assert_eq!(
         options
@@ -35,45 +25,22 @@ fn typed_keys_parse_validate_and_read_from_shared_scoped_options() {
             .map(String::as_str),
         Some("日本語")
     );
-    assert_eq!(
-        options.for_component(&COMPONENT).get(SIZE).unwrap(),
-        Some(&4)
-    );
-    for invalid in ["0", "9", "-1", "not-an-integer"] {
-        assert!(SIZE.setting().parse(invalid).is_err());
-    }
-    assert!(
-        options
-            .insert(SIZE.setting(), Value::String("4".into()))
-            .is_err()
-    );
-    assert!(options.set(SIZE, 9).is_err());
-    assert_eq!(
-        options.for_component(&COMPONENT).get(SIZE).unwrap(),
-        Some(&4)
-    );
-    let wrong_type = OptionKey::<String>::new("test", "size", "Wrong type");
-    let wrong_component = OptionKey::<usize>::new("other", "size", "Wrong component");
-    assert!(options.for_component(&COMPONENT).get(wrong_type).is_err());
-    assert!(
-        options
-            .for_component(&COMPONENT)
-            .get(wrong_component)
-            .is_err()
-    );
+    assert!(serde_json::from_str::<Value>("42").is_err());
 }
 
 #[test]
-fn values_are_per_invocation() {
+fn values_are_per_invocation_and_clear_does_not_change_the_base() {
     let mut options = Options::default();
-    options.set(MODEL, "first".into()).unwrap();
+    options.set(MODEL, "first".into());
     let mut next = options.clone();
-    next.set(MODEL, "second".into()).unwrap();
+    next.set(MODEL, "second".into());
+    assert_eq!(next.get(MODEL).unwrap().map(String::as_str), Some("second"));
+    next.clear(MODEL.setting());
+    assert!(next.get(MODEL).unwrap().is_none());
     assert_eq!(
         options.get(MODEL).unwrap().map(String::as_str),
         Some("first")
     );
-    assert_eq!(next.get(MODEL).unwrap().map(String::as_str), Some("second"));
     assert!(matches!(KEY.setting(), Setting::Secret(_)));
 }
 
@@ -83,37 +50,39 @@ fn ordinary_options_reject_credential_values_without_reflecting_them() {
     let error = KEY.setting().parse(token).unwrap_err();
     assert!(!format!("{error:?} {error}").contains(token));
     assert!(!format!("{:?}", Secret::from(token)).contains(token));
-    assert!(KEY.setting().default_value().unwrap().is_none());
+    assert!(
+        Options::default()
+            .insert(KEY.setting(), Value::String(token.into()))
+            .is_err()
+    );
 }
 
 #[test]
 fn required_reads_name_missing_settings_and_keep_scope_and_type_checks() {
-    use yomibu_core::component::options::OptionError;
     let mut values = Options::default();
-    let error = values.for_component(&COMPONENT).required(SIZE).unwrap_err();
-    assert!(matches!(error, OptionError::Missing { name, .. } if name == SIZE.name));
-    assert_eq!(error.to_string(), "Supply --test-size. Size");
+    let error = values
+        .for_component(&COMPONENT)
+        .required(MODEL)
+        .unwrap_err();
+    assert!(matches!(error, OptionError::Missing { name, .. } if name == MODEL.name));
+    assert_eq!(error.to_string(), "Supply --test-model. Model");
     assert!(
         values
             .for_component(&COMPONENT)
-            .get(SIZE)
+            .get(MODEL)
             .unwrap()
             .is_none()
     );
 
-    values.set(SIZE, 4).unwrap();
-    const OTHER: OptionKey<usize> = OptionKey::new("other", "size", "Other size");
-    values.set(OTHER, 7).unwrap();
+    values.set(MODEL, "selected".into());
+    const OTHER: OptionKey<String> = OptionKey::new("other", "model", "Other model");
+    values.set(OTHER, "other".into());
     let options = values.for_component(&COMPONENT);
-    let size: &usize = options.required(SIZE).unwrap();
-    assert_eq!(*size, 4);
-    assert!(matches!(
-        options.required(OTHER),
-        Err(OptionError::Invalid { .. })
-    ));
-    let wrong_type = OptionKey::<String>::new("test", "size", "Wrong type");
-    assert!(matches!(
-        options.required(wrong_type),
-        Err(OptionError::Invalid { .. })
-    ));
+    assert_eq!(options.required(MODEL).unwrap(), "selected");
+    for key in [OTHER, OptionKey::new("test", "api-key", "Wrong type")] {
+        assert!(matches!(
+            options.required(key),
+            Err(OptionError::Invalid { .. })
+        ));
+    }
 }

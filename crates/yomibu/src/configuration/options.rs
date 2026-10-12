@@ -41,10 +41,10 @@ impl OptionOverrides {
                 continue;
             }
             match self.0.remove(&setting.name()) {
-                Some(Patch::Set(value)) => options.insert(setting, value),
+                Some(Patch::Set(value)) => options.insert(setting, value)?,
                 Some(Patch::Clear) => options.clear(setting),
-                _ => Ok(()),
-            }?;
+                _ => {}
+            }
         }
         Ok(())
     }

@@ -4,23 +4,8 @@ Retrieval is retired. Reproduce this probe with the [pinned code](https://github
 
 The public synthetic [cases](https://github.com/kalorz/yomibu/blob/7239de7517ab5be23193030b6d12f64a1f57fac3/tests/fixtures/story/retrieval-cases.json) have
 10 vocabulary documents and six topics, with labeled relevant IDs and no forced
-targets. Run the same inputs for each backend, independently of generation:
-
-```sh
-cargo build --locked
-python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider lexical-baseline
-
-# Substitute an actually installed, pinned OpenAI-compatible local model:
-python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider local --http-embeddings-endpoint http://127.0.0.1:11434/v1/ \
-  --http-embeddings-model MODEL --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS
-
-# Explicit paid/data-transmitting comparison; supply YOMIBU_HTTP_EMBEDDINGS_API_KEY:
-python3 scripts/compare_story_retrieval.py target/debug/yomibu \
-  --embedding-provider openai --http-embeddings-model MODEL \
-  --http-embeddings-revision REVISION --http-embeddings-dimensions DIMENSIONS --allow-embedding-call
-```
+targets. Use a checkout of commit `7239de7517ab5be23193030b6d12f64a1f57fac3`
+and follow its [reproduction instructions](https://github.com/kalorz/yomibu/blob/7239de7517ab5be23193030b6d12f64a1f57fac3/docs/RETRIEVAL.md).
 
 The script fails if the requested encoder is unavailable; it never substitutes
 another one. It uses a fresh temporary cache per run, reusing documents between

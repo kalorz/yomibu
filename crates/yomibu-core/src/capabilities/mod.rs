@@ -28,14 +28,6 @@ impl<Source: LearningSource + ?Sized> LearningSource for &mut Source {
     }
 }
 
-/// What a successful replacement promises about the new version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Persistence {
-    /// The backend completed its durability operations, including directory sync.
-    Durable,
-}
-
 /// One exclusive synchronization attempt; dropping it releases the writer slot.
 pub trait SourceSyncWriter {
     type Error: Error + Send + Sync + 'static;
@@ -43,7 +35,8 @@ pub trait SourceSyncWriter {
     /// Validate and atomically publish a complete source version for the same
     /// account. Backend errors must distinguish failure before replacement from
     /// uncertain durability after replacement; an error need not mean rollback.
-    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<Persistence, Self::Error>;
+    /// Success means durability operations, including directory sync, completed.
+    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<(), Self::Error>;
 }
 
 /// A physical store of coherent source material and learner progress.

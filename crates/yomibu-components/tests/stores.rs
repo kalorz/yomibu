@@ -1,6 +1,6 @@
 use yomibu_components::file_learning_store::FileLearningStore;
 use yomibu_core::{
-    capabilities::{LearningStore, Persistence, SourceSyncWriter},
+    capabilities::{LearningStore, SourceSyncWriter},
     domain::source::WaniKaniSyncData,
 };
 
@@ -10,10 +10,10 @@ fn fixture() -> WaniKaniSyncData {
     serde_json::from_value(envelope["snapshot"].clone()).unwrap()
 }
 
-fn stores_a_complete_version(store: &impl LearningStore, persistence: Persistence) {
+fn stores_a_complete_version(store: &impl LearningStore) {
     assert!(store.is_missing(&store.load().unwrap_err()));
     let writer = store.begin_sync().unwrap();
-    assert_eq!(writer.replace(fixture().into()).unwrap(), persistence);
+    let _: () = writer.replace(fixture().into()).unwrap();
     let first = store.load().unwrap();
     assert_eq!(*first, fixture());
 
@@ -34,7 +34,7 @@ fn file_store_is_lazy_and_preserves_schema_one() {
     let directory = root.path().join("data");
     let store = FileLearningStore::new(&directory);
     assert!(!directory.exists());
-    stores_a_complete_version(&store, Persistence::Durable);
+    stores_a_complete_version(&store);
     let reloaded = FileLearningStore::new(&directory).load().unwrap();
     assert_eq!(reloaded.learner.username, "updated username");
     let envelope: serde_json::Value =

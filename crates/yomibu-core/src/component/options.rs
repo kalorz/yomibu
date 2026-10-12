@@ -1,6 +1,6 @@
 use super::{Component, credentials::Secret};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct OptionName {
@@ -49,14 +49,11 @@ impl OptionName {
     }
 }
 
-type Validator<T> = fn(&T) -> Result<(), &'static str>;
-
 #[derive(Debug)]
 pub struct OptionKey<T> {
     pub name: OptionName,
     pub description: &'static str,
-    default: Option<&'static str>,
-    validator: Option<Validator<T>>,
+    value_type: PhantomData<fn() -> T>,
 }
 impl<T> Copy for OptionKey<T> {}
 impl<T> Clone for OptionKey<T> {
@@ -73,52 +70,26 @@ impl<T> OptionKey<T> {
         Self {
             name: OptionName::new(component, option),
             description,
-            default: None,
-            validator: None,
+            value_type: PhantomData,
         }
-    }
-    pub const fn validate(mut self, validator: Validator<T>) -> Self {
-        self.validator = Some(validator);
-        self
-    }
-    fn check(self, value: &T) -> Result<(), OptionError> {
-        self.validator
-            .map_or(Ok(()), |validate| validate(value))
-            .map_err(|reason| self.name.invalid(reason))
-    }
-}
-impl<T: OptionType> OptionKey<T> {
-    /// ```compile_fail
-    /// use yomibu_core::component::{credentials::Secret, options::OptionKey};
-    /// let key = OptionKey::<Secret>::new("test", "api-key", "API key");
-    /// key.default("secret");
-    /// ```
-    pub const fn default(mut self, value: &'static str) -> Self {
-        self.default = Some(value);
-        self
     }
 }
 impl<T: std::str::FromStr> OptionKey<T> {
     pub fn parse(self, text: &str) -> Result<T, OptionError> {
-        let value = text
-            .parse()
-            .map_err(|_| self.name.invalid("Invalid component option value."))?;
-        self.check(&value)?;
-        Ok(value)
+        text.parse()
+            .map_err(|_| self.name.invalid("Invalid component option value."))
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Setting {
     String(OptionKey<String>),
-    Integer(OptionKey<usize>),
     Secret(OptionKey<Secret>),
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum Value {
     String(String),
-    Integer(usize),
 }
 
 mod sealed {
@@ -129,33 +100,24 @@ pub trait OptionType: sealed::Sealed + Sized {
     fn read(value: &Value) -> Option<&Self>;
     fn matches(setting: Setting) -> bool;
 }
-macro_rules! option_type {
-    ($type:ty, $variant:ident) => {
-        impl sealed::Sealed for $type {}
-        impl OptionType for $type {
-            fn value(self) -> Value {
-                Value::$variant(self)
-            }
-            fn read(value: &Value) -> Option<&Self> {
-                if let Value::$variant(value) = value {
-                    Some(value)
-                } else {
-                    None
-                }
-            }
-            fn matches(setting: Setting) -> bool {
-                matches!(setting, Setting::$variant(_))
-            }
-        }
-        impl OptionKey<$type> {
-            pub const fn setting(self) -> Setting {
-                Setting::$variant(self)
-            }
-        }
-    };
+impl sealed::Sealed for String {}
+impl OptionType for String {
+    fn value(self) -> Value {
+        Value::String(self)
+    }
+    fn read(value: &Value) -> Option<&Self> {
+        let Value::String(value) = value;
+        Some(value)
+    }
+    fn matches(setting: Setting) -> bool {
+        matches!(setting, Setting::String(_))
+    }
 }
-option_type!(String, String);
-option_type!(usize, Integer);
+impl OptionKey<String> {
+    pub const fn setting(self) -> Setting {
+        Setting::String(self)
+    }
+}
 impl OptionKey<Secret> {
     pub const fn setting(self) -> Setting {
         Setting::Secret(self)
@@ -166,14 +128,12 @@ impl Setting {
     pub fn name(self) -> OptionName {
         match self {
             Self::String(key) => key.name,
-            Self::Integer(key) => key.name,
             Self::Secret(key) => key.name,
         }
     }
     pub fn description(self) -> &'static str {
         match self {
             Self::String(key) => key.description,
-            Self::Integer(key) => key.description,
             Self::Secret(key) => key.description,
         }
     }
@@ -187,7 +147,6 @@ impl Setting {
     pub fn parse(self, text: &str) -> Result<Value, OptionError> {
         match self {
             Self::String(key) => key.parse(text).map(Value::String),
-            Self::Integer(key) => key.parse(text).map(Value::Integer),
             Self::Secret(key) => Err(key
                 .name
                 .invalid("Credentials cannot be stored in ordinary options.")),
@@ -195,18 +154,9 @@ impl Setting {
     }
     pub fn check(self, value: &Value) -> Result<(), OptionError> {
         match (self, value) {
-            (Self::String(key), Value::String(value)) => key.check(value),
-            (Self::Integer(key), Value::Integer(value)) => key.check(value),
+            (Self::String(_), Value::String(_)) => Ok(()),
             _ => Err(self.name().invalid("Wrong component option type.")),
         }
-    }
-    pub fn default_value(self) -> Result<Option<Value>, OptionError> {
-        let text = match self {
-            Self::String(key) => key.default,
-            Self::Integer(key) => key.default,
-            Self::Secret(_) => None,
-        };
-        text.map(|text| self.parse(text)).transpose()
     }
 }
 
@@ -221,22 +171,16 @@ impl Options {
             })
             .transpose()
     }
-    pub fn set<T: OptionType>(&mut self, key: OptionKey<T>, value: T) -> Result<(), OptionError> {
-        key.check(&value)?;
+    pub fn set<T: OptionType>(&mut self, key: OptionKey<T>, value: T) {
         self.0.insert(key.name, value.value());
-        Ok(())
     }
     pub fn insert(&mut self, setting: Setting, value: Value) -> Result<(), OptionError> {
         setting.check(&value)?;
         self.0.insert(setting.name(), value);
         Ok(())
     }
-    pub fn clear(&mut self, setting: Setting) -> Result<(), OptionError> {
+    pub fn clear(&mut self, setting: Setting) {
         self.0.remove(&setting.name());
-        if let Some(value) = setting.default_value()? {
-            self.insert(setting, value)?;
-        }
-        Ok(())
     }
     pub fn for_component<'a>(&'a self, component: &'a Component) -> ComponentOptions<'a> {
         ComponentOptions {

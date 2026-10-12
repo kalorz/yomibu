@@ -18,7 +18,7 @@ intent and constraints; [PLAN](PLAN.md) lists open work.
 ## Execution and ownership
 
 Production dependencies point `yomibu-cli → yomibu → yomibu-components → yomibu-core`,
-with `yomibu → yomibu-core` also explicit. CLI tests use core/components directly
+with `yomibu → yomibu-core` also explicit. CLI tests use components directly
 for fixtures and adapter comparisons. Core imports no concrete components;
 components import no application code.
 

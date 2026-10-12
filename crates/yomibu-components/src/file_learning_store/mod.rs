@@ -8,7 +8,7 @@ pub mod cache;
 
 use std::{path::PathBuf, sync::Arc};
 use yomibu_core::{
-    capabilities::{LearningStore, Persistence, SourceSyncWriter},
+    capabilities::{LearningStore, SourceSyncWriter},
     domain::source::WaniKaniSyncData,
 };
 
@@ -64,8 +64,7 @@ pub struct FileSyncWriter {
 impl SourceSyncWriter for FileSyncWriter {
     type Error = cache::WriteError;
 
-    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<Persistence, Self::Error> {
-        self.guard.replace(&data)?;
-        Ok(Persistence::Durable)
+    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<(), Self::Error> {
+        self.guard.replace(&data)
     }
 }

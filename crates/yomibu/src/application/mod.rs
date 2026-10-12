@@ -17,7 +17,7 @@ pub use story_workflow::{StoryInputs, StoryResources, run_story};
 use crate::reports::summary::Summary;
 use thiserror::Error;
 use yomibu_core::{
-    capabilities::{LearningSource, LearningStore, Persistence, SourceSyncWriter},
+    capabilities::{LearningSource, LearningStore, SourceSyncWriter},
     domain::source::ValidationError,
 };
 
@@ -96,11 +96,8 @@ impl<Store: LearningStore, Source: LearningSource> App<Store, Source> {
         let writer = self.store.begin_sync().map_err(SyncError::Write)?;
         let data = self.source.fetch().await.map_err(SyncError::Source)?;
         let summary = crate::reports::summary::summarize(&data).map_err(SyncError::InvalidData)?;
-        let persistence = writer.replace(data.into()).map_err(SyncError::Write)?;
-        Ok(SyncReport {
-            summary,
-            persistence,
-        })
+        writer.replace(data.into()).map_err(SyncError::Write)?;
+        Ok(SyncReport { summary })
     }
 }
 
@@ -108,7 +105,6 @@ impl<Store: LearningStore, Source: LearningSource> App<Store, Source> {
 #[derive(Debug, PartialEq, serde::Serialize)]
 pub struct SyncReport {
     pub summary: Summary,
-    pub persistence: Persistence,
 }
 
 #[derive(Debug, Error)]

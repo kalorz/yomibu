@@ -118,6 +118,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn request_file_topic_inherits_when_omitted_and_clears_when_null() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = Configuration::from_overrides(
+            dir.path().into(),
+            Default::default(),
+            &crate::application::Operation::Story,
+        )
+        .unwrap();
+        let path = dir.path().join("request.json");
+        config.story.request = Some(path.clone());
+        config.story.topic = Some("saved topic".into());
+        for (topic, expected) in [("", Some("saved topic")), ("\"topic\":null,", None)] {
+            std::fs::write(
+                &path,
+                format!(r#"{{"version":1,{topic}"targets":{{"vocabulary":[],"grammar":[]}}}}"#),
+            )
+            .unwrap();
+            let request = read_request(&config).unwrap();
+            assert_eq!(request.topic.as_ref().map(StoryTopic::text), expected);
+        }
+    }
+
+    #[test]
     fn source_preparation_preserves_mapping_and_inventory_error_categories() {
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../../../tests/fixtures/mixed.json")).unwrap();

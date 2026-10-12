@@ -49,6 +49,52 @@ fn bare_help_and_help_command_list_every_command_without_setup_or_writes() {
 }
 
 #[test]
+fn configuration_errors_escape_paths_redact_values_and_keep_one_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("日本語\n\u{1b}");
+    std::fs::create_dir(&data).unwrap();
+    let path = data.join("default-pipeline.toml");
+    let private = "synthetic-private\n\u{1b}";
+    let invalid_model = private.repeat(20);
+    for (file, environment, value, expected) in [
+        (
+            format!("[pipeline.options.openai]\nmodel=[{}]\n", serde_json::to_string(private).unwrap()),
+            "YOMIBU_SELECT",
+            "2",
+            format!("Invalid configuration at {}: Invalid openai.model: Wrong component option type.", path.display()),
+        ),
+        (
+            String::new(),
+            "YOMIBU_SELECT",
+            private,
+            "Invalid value for YOMIBU_SELECT; check its format in yomibu help story.".into(),
+        ),
+        (
+            String::new(),
+            "YOMIBU_OPENAI_MODEL",
+            invalid_model.as_str(),
+            "Choose a nonblank text model and a positive candidate count that fits the output budget.".into(),
+        ),
+    ] {
+        std::fs::write(&path, file).unwrap();
+        let output = cli(dir.path())
+            .arg("--data-dir")
+            .arg(&data)
+            .arg("story")
+            .env(environment, value)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(error, format!("error: {}\n", expected.escape_debug()));
+        assert_eq!(error.lines().count(), 1);
+        assert!(!error.contains("synthetic-private"));
+        assert!(!error.contains('\u{1b}'));
+    }
+}
+
+#[test]
 fn missing_inventory_setup_names_the_available_inputs_without_listing_tuning_flags() {
     let dir = tempfile::tempdir().unwrap();
     let output = cli(dir.path())

@@ -26,7 +26,6 @@ rpassword = "7.5"
 
 [dev-dependencies]
 serde_json.workspace = true
-yomibu-core.workspace = true
 yomibu-components.workspace = true
 tempfile.workspace = true
 wiremock.workspace = true
