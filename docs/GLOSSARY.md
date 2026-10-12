@@ -5,8 +5,8 @@
 | Term | Meaning |
 | --- | --- |
 | Source observations | Saved provider facts about progress; not proof of mastery |
-| Knowledge policy | Rules that choose usable material from saved evidence |
-| Inventory | All material allowed for an attempt, from manual input or WaniKani |
+| Eligibility | Usable material derived from saved learner evidence |
+| Inventory | All material allowed for an attempt |
 | Grammar declaration / binding | Free-text familiarity / an explicit supported rule; text does not enable rules |
 | Target | An existing vocabulary or grammar ID requested for practice |
 | Selection | Vocabulary sent in the prompt |

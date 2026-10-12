@@ -1,22 +1,19 @@
+#[path = "../../../tests/support/story_inventory.rs"]
+mod story_inventory;
+
 use serde_json::json;
 use yomibu_components::{
     learner_vocabulary_selection::SeededOrdering,
     story_prompt_preparation::fit_selection_and_build_request,
 };
 use yomibu_core::{
-    domain::{
-        inventory::LearnerInventory,
-        story::{SelectionInput, StoryRequest},
-    },
+    domain::story::{SelectionInput, StoryRequest},
     pipeline::selection::select_target_first,
 };
 
 #[test]
 fn custom_composition_keeps_provenance_and_full_inventory_after_support_trimming() {
-    let mut inventory = LearnerInventory::from_manual(
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
-    )
-    .unwrap();
+    let mut inventory = story_inventory::inventory();
     for word in &mut inventory.vocabulary {
         word.meanings = vec!["x".repeat(1024); 5];
     }

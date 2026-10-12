@@ -28,18 +28,6 @@ pub fn credential_guidance(key: OptionKey<Secret>) -> String {
     )
 }
 
-impl super::Configuration {
-    pub fn credential_requirements(&self) -> impl Iterator<Item = OptionKey<Secret>> + '_ {
-        credentials().filter(|requirement| {
-            if requirement.name == SOURCE_KEY.name {
-                self.application.sync
-            } else {
-                true
-            }
-        })
-    }
-}
-
 macro_rules! choice {
     ($name:ident, $variant:ident, $id:literal) => {
         #[derive(Debug, Clone, Copy, Default, Deserialize)]

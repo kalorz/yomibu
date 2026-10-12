@@ -15,10 +15,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use yomibu::{
-    application::{Credentials, LocalApp, Operation, ServiceEndpoints, source_cache_path},
-    configuration::{
-        Configuration, ConfigurationInput, ProcessOverrides, components, environment_names,
-    },
+    application::{Credentials, LocalApp, Operation, ServiceEndpoints},
+    configuration::{Configuration, ConfigurationInput, Invocation, components, environment_names},
 };
 
 pub(crate) fn run(
@@ -38,16 +36,7 @@ pub(crate) fn run(
             let target = if let Some(target) = credential {
                 auth::select(&target)?
             } else {
-                auth::Target::Missing(
-                    load_configuration(
-                        cli.data_dir,
-                        cli.config,
-                        ProcessOverrides::default(),
-                        &Operation::Auth,
-                    )?
-                    .credential_requirements()
-                    .collect(),
-                )
+                auth::Target::Missing(components::credentials().collect())
             };
             credentials::environment(&mut credentials, target.requirements());
             if matches!(target, auth::Target::Missing(_)) {
@@ -56,19 +45,17 @@ pub(crate) fn run(
             return auth::configure(&target, &credentials);
         }
         Command::Story(args) => (Operation::Story, args.overrides()),
-        Command::Sync => (Operation::Sync, ProcessOverrides::default()),
+        Command::Sync => (Operation::Sync, Invocation::default()),
     };
     let config = load_configuration(cli.data_dir, cli.config, flags, &operation)?;
-    let requirements: Vec<_> = components::credentials().collect();
+    let requirements = [match operation {
+        Operation::Story => components::GENERATION_KEY,
+        Operation::Sync => components::SOURCE_KEY,
+    }];
     credentials::environment(&mut credentials, &requirements);
     if !cli.no_keychain {
         auth::install(&mut credentials, &requirements);
     }
-    let store = config
-        .pipeline
-        .components
-        .learning_store
-        .open(source_cache_path(&config));
     let app = LocalApp::new(config, credentials).with_endpoints(endpoints);
     let clock = SystemTime::now();
     let seed = clock
@@ -76,12 +63,11 @@ pub(crate) fn run(
         .context("System clock")?
         .as_nanos() as u64;
     let mut out = io::stdout().lock();
-    let mut err = io::stderr().lock();
     match operation {
-        Operation::Auth => bail!("Credential setup must run through yomibu auth."),
         Operation::Story => {
+            let data = app.read_learner_data()?;
             let mut progress_error = None;
-            let report = runtime()?.block_on(app.story(&store, clock.into(), seed, |event| {
+            let report = runtime()?.block_on(app.story(data, clock.into(), seed, |event| {
                 if cli.verbose {
                     let result = output::story::write_progress(&mut out, &event);
                     if let Err(error) = result {
@@ -92,7 +78,7 @@ pub(crate) fn run(
             if let Some(error) = progress_error {
                 return Err(error.into());
             }
-            output::story::write_run(&mut out, &mut err, &report, cli.verbose)?;
+            output::story::write_run(&mut out, &report, cli.verbose)?;
         }
         Operation::Sync => {
             let report = runtime()?.block_on(app.sync())?;
@@ -105,7 +91,7 @@ pub(crate) fn run(
 fn load_configuration(
     data_dir: Option<PathBuf>,
     config: Option<PathBuf>,
-    flags: ProcessOverrides,
+    flags: Invocation,
     operation: &Operation,
 ) -> Result<Configuration> {
     let environment: BTreeMap<_, _> = environment_names()

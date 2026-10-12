@@ -1,8 +1,4 @@
 # Saved defaults, resolved per invocation. Lists replace; they never concatenate.
-[pipeline]
-knowledge_policy = "lesson-started" # alternative: "recorded-pass"
-model = "gpt-6-luna"                # shared text-model fallback
-
 [pipeline.components]
 source = "wanikani"
 learning_store = "file-learning-store"
@@ -14,6 +10,6 @@ steps = ["lexical-topic", "seeded-order"] # alternative: ["seeded-order"]
 # Empty/repeated steps are invalid. Core target finalization is always mandatory.
 
 [pipeline.options.openai]
-# model = "gpt-6-luna" # optional override; otherwise inherit pipeline.model
+# model = "gpt-6-luna" # optional override; default gpt-6-luna
 # model = { clear = true }
 # Credential: --openai-api-key / YOMIBU_OPENAI_API_KEY

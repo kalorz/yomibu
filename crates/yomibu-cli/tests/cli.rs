@@ -15,6 +15,12 @@ fn cli() -> Command {
 fn removed_commands_and_options_are_rejected_without_side_effects() {
     let dir = tempfile::tempdir().unwrap();
     for args in [
+        vec!["story", "--sync", "false"],
+        vec!["story", "--model", "unused"],
+        vec!["story", "--inventory", "unused.json"],
+        vec!["story", "--request", "unused.json"],
+        vec!["story", "--knowledge-policy", "lesson-started"],
+        vec!["story", "--wanikani-cache", "unused.json"],
         vec!["preview-story"],
         vec!["prepare-retrieval"],
         vec!["analyze"],
@@ -50,8 +56,8 @@ fn parser_diagnostics_escape_values_and_preserve_trusted_usage_layout() {
     for args in [
         vec![hostile],
         vec!["story", "--candidates", hostile],
-        vec!["story", "--knowledge-policy", hostile],
-        vec!["story", "--sync", hostile],
+        vec!["story", "--select", hostile],
+        vec!["story", "--format", hostile],
     ] {
         let mut command = cli();
         #[cfg(unix)]
@@ -271,8 +277,8 @@ fn component_model_options_and_provider_keys_have_safe_parser_diagnostics() {
                 "synthetic-secret",
                 "--topic",
                 "猫",
-                "--request",
-                "story.json",
+                "--topic",
+                "犬",
             ],
         ] {
             let output = cli().args(args).output().unwrap();
@@ -393,4 +399,57 @@ fn removed_configuration_spellings_have_no_compatibility_paths() {
             .unwrap()
             .contains("Invalid configuration")
     );
+}
+
+#[test]
+fn synced_but_ineligible_vocabulary_is_not_reported_as_missing_setup() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut data: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/mixed.json")).unwrap();
+    for assignment in data["snapshot"]["assignments"].as_array_mut().unwrap() {
+        assignment["hidden"] = true.into();
+    }
+    cache(dir.path(), &data.to_string());
+    let before = fs::read(dir.path().join("wanikani.json")).unwrap();
+    let output = cli()
+        .args(["story", "--data-dir"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: Invalid story request: no available vocabulary.\n"
+    );
+    assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn sync_help_explains_its_credential_and_required_permissions() {
+    for args in [["help", "sync"], ["sync", "--help"]] {
+        let output = cli().args(args).output().unwrap();
+        assert_eq!(output.status.code(), Some(0));
+        let help = stdout(&output);
+        assert!(
+            help.starts_with(
+                "Explicitly refresh the complete WaniKani cache\n\nUsage: yomibu sync [OPTIONS]\n"
+            ),
+            "{help}"
+        );
+        assert!(
+            help.contains("Use a WaniKani API key with read access and no write permissions."),
+            "{help}"
+        );
+        assert!(
+            help.contains("Supply --wanikani-api-key or YOMIBU_WANIKANI_API_KEY."),
+            "{help}"
+        );
+        assert!(
+            help.contains("On macOS, run yomibu auth wanikani."),
+            "{help}"
+        );
+        assert!(!help.contains("Use an OpenAI key"), "{help}");
+    }
 }

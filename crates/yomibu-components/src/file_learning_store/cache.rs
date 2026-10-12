@@ -61,7 +61,7 @@ struct Envelope {
 
 /// Read a schema-1 cache without creating files, locking, or accessing the environment.
 pub fn load(data_dir: &Path) -> Result<WaniKaniSyncData, CacheError> {
-    load_path(&data_dir.join("wanikani.json"))
+    load_path(&data_dir.join(super::CACHE_FILE))
 }
 
 pub fn load_path(cache_path: &Path) -> Result<WaniKaniSyncData, CacheError> {
@@ -158,7 +158,7 @@ impl SyncGuard {
     /// Creates private directories and a lock file if needed. Keep this guard
     /// alive throughout retrieval and replacement; offline readers need no lock.
     pub fn acquire(data_dir: &Path) -> Result<Self, WriteError> {
-        Self::acquire_path(&data_dir.join("wanikani.json"))
+        Self::acquire_path(&data_dir.join(super::CACHE_FILE))
     }
 
     pub fn acquire_path(cache_path: &Path) -> Result<Self, WriteError> {

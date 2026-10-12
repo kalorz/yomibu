@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/story_inventory.rs"]
+mod story_inventory;
+
 use serde_json::{Value, json};
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 use yomibu::application::selection::select_builtin_vocabulary;
@@ -84,12 +87,8 @@ fn invalid_text_models_report_the_model_instead_of_the_candidate_count() {
 #[test]
 fn story_prompt_uses_complete_instructions_for_each_format_and_candidate_count() {
     use yomibu_components::story_prompt_preparation::fit_selection_and_build_request;
-    use yomibu_core::domain::inventory::LearnerInventory;
     use yomibu_core::domain::story::StoryRequest;
-    let inventory = LearnerInventory::from_manual(
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
-    )
-    .unwrap();
+    let inventory = story_inventory::inventory();
     let request: StoryRequest =
         serde_json::from_value(json!({"version":1,"targets":{"vocabulary":[],"grammar":[]}}))
             .unwrap();

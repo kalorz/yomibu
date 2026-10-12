@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/story_inventory.rs"]
+mod story_inventory;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use yomibu_core::{
     capabilities::{CandidateGenerator, StoryPreparer},
@@ -85,10 +88,7 @@ impl CandidateGenerator for TestGenerator {
 }
 
 fn inputs() -> (LearnerInventory, StoryRequest) {
-    let inventory = LearnerInventory::from_manual(
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
-    )
-    .unwrap();
+    let inventory = story_inventory::inventory();
     let request = serde_json::from_value(
         serde_json::json!({"version":1,"targets":{"vocabulary":["cat"],"grammar":[]}}),
     )

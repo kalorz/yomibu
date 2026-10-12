@@ -1,67 +1,24 @@
 use super::*;
-use yomibu::{
-    application::Operation,
-    configuration::{Configuration, ConfigurationInput, ProcessOverrides},
-};
-
-fn configuration(application: &str, pipeline: &str, environment: &[(&str, &str)]) -> Configuration {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("config.toml"), application).unwrap();
-    std::fs::write(dir.path().join("default-pipeline.toml"), pipeline).unwrap();
-    std::fs::write(dir.path().join("default-story.toml"), "broken story TOML").unwrap();
-    Configuration::load(
-        ConfigurationInput {
-            data_dir: Some(dir.path().into()),
-            config: None,
-            home: None,
-            environment: environment
-                .iter()
-                .map(|(name, value)| ((*name).into(), (*value).into()))
-                .collect(),
-            flags: ProcessOverrides::default(),
-        },
-        &Operation::Auth,
-    )
-    .unwrap()
-}
-
 #[test]
-fn setup_honors_sync_setting_and_keeps_component_keys_separate() {
-    let config = configuration("", "", &[("YOMIBU_SYNC", "false")]);
+fn setup_keeps_source_and_generation_keys_separate() {
     let needs = pending(
-        &Target::Missing(config.credential_requirements().collect()),
+        &Target::Missing(components::credentials().collect()),
         &Credentials::default(),
         &mut Vec::new(),
     )
     .unwrap();
     let keys: Vec<_> = needs.iter().map(|need| need.name.key()).collect();
-    assert_eq!(keys, ["openai.api-key"]);
+    assert_eq!(keys, ["openai.api-key", "wanikani.api-key"]);
     let mut credentials = Credentials::default();
     credentials.supply(components::GENERATION_KEY, "generation-only".into());
     let needs = pending(
-        &Target::Missing(config.credential_requirements().collect()),
-        &credentials,
-        &mut Vec::new(),
-    )
-    .unwrap();
-    assert!(needs.is_empty());
-}
-
-#[test]
-fn disabled_sync_does_not_read_or_request_its_credential() {
-    let config = configuration("[application]\nsync=false\n", "", &[]);
-    let mut credentials = Credentials::default();
-    credentials.supply_with(components::SOURCE_KEY, || {
-        panic!("Disabled sync read a credential")
-    });
-    let needs = pending(
-        &Target::Missing(config.credential_requirements().collect()),
+        &Target::Missing(components::credentials().collect()),
         &credentials,
         &mut Vec::new(),
     )
     .unwrap();
     assert_eq!(needs.len(), 1);
-    assert_eq!(needs[0].name, components::GENERATION_KEY.name);
+    assert_eq!(needs[0].name, components::SOURCE_KEY.name);
 }
 
 #[test]
@@ -208,20 +165,4 @@ fn keychain_names_follow_component_and_credential_names() {
             requirement.name
         );
     }
-}
-
-#[test]
-fn auth_configuration_ignores_story_inputs_and_unused_model_options() {
-    let config = configuration(
-        "[application]\nsync=false\n",
-        "[pipeline]\nmodel=7\n[pipeline.selection]\nsteps=[]\n",
-        &[],
-    );
-    let needs = pending(
-        &Target::Missing(config.credential_requirements().collect()),
-        &Credentials::default(),
-        &mut Vec::new(),
-    )
-    .unwrap();
-    assert_eq!(needs.len(), 1);
 }

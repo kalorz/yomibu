@@ -1,7 +1,7 @@
 //! Source-independent material available for practice, with explicit uncertainty.
 use crate::domain::{
     grammar::GrammarRule,
-    knowledge::{ExclusionReason, KnowledgeDecision, LearnerKnowledgePolicy, LearnerProgress},
+    knowledge::{ExclusionReason, KnowledgeDecision, LearnerProgress, vocabulary_eligibility},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -48,14 +48,6 @@ pub struct InventoryGrammarBinding {
     pub declaration_id: String,
     pub rule: GrammarRule,
 }
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManualInventory {
-    pub version: u32,
-    pub vocabulary: Vec<InventoryWord>,
-    pub grammar_declarations: Vec<InventoryGrammar>,
-    pub grammar_bindings: Vec<InventoryGrammarBinding>,
-}
 #[derive(Debug, Serialize)]
 pub struct ExcludedMaterial {
     pub origin: SourceOrigin,
@@ -70,6 +62,8 @@ pub struct LearnerInventory {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum InventoryError {
+    #[error("Recorded content access has expired; run yomibu sync to refresh access.")]
+    AccessExpired,
     #[error("Invalid learner inventory: {0}.")]
     Invalid(&'static str),
 }
@@ -78,7 +72,6 @@ impl LearnerInventory {
     /// Unavailable content takes precedence over progress. Eligible non-vocabulary is omitted.
     pub fn from_mapped(
         records: impl IntoIterator<Item = (MappedContent, Option<LearnerProgress>)>,
-        policy: &LearnerKnowledgePolicy,
     ) -> Result<Self, InventoryError> {
         let mut inventory = Self {
             vocabulary: Vec::new(),
@@ -90,7 +83,7 @@ impl LearnerInventory {
             let decision = if matches!(content, MappedContent::Unavailable(_)) {
                 KnowledgeDecision::Excluded(ExclusionReason::ContentUnavailable)
             } else {
-                policy.decide(progress.as_ref())
+                vocabulary_eligibility(progress.as_ref())
             };
             match decision {
                 KnowledgeDecision::Eligible => {
@@ -112,31 +105,6 @@ impl LearnerInventory {
         Ok(inventory)
     }
 
-    pub fn from_manual(input: ManualInventory) -> Result<Self, InventoryError> {
-        if input.version != 1 {
-            return Err(InventoryError::Invalid("expected version 1"));
-        }
-        let result = Self {
-            vocabulary: input.vocabulary,
-            grammar_declarations: input.grammar_declarations,
-            grammar_bindings: input.grammar_bindings,
-            excluded: Vec::new(),
-        };
-        result.validate()?;
-        Ok(result)
-    }
-    pub fn with_manual(self, input: ManualInventory) -> Result<Self, InventoryError> {
-        self.merge(Self::from_manual(input)?)
-    }
-    pub fn merge(mut self, manual: Self) -> Result<Self, InventoryError> {
-        self.vocabulary.extend(manual.vocabulary);
-        self.grammar_declarations
-            .extend(manual.grammar_declarations);
-        self.grammar_bindings.extend(manual.grammar_bindings);
-        self.excluded.extend(manual.excluded);
-        self.validate()?;
-        Ok(self)
-    }
     pub fn validate(&self) -> Result<(), InventoryError> {
         let text = |s: &str, limit: usize| !s.trim().is_empty() && s.len() <= limit;
         if self.vocabulary.len() > 10_000

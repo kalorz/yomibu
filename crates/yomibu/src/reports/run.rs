@@ -8,11 +8,6 @@ pub struct StepTiming {
     pub elapsed_ms: f64,
 }
 #[derive(Debug, Serialize)]
-pub struct Warning {
-    pub step: Step,
-    pub message: String,
-}
-#[derive(Debug, Serialize)]
 pub struct SelectionReport {
     pub selector_revision: &'static str,
     pub vocabulary_ids: Vec<String>,
@@ -42,5 +37,4 @@ pub struct StoryRunReport {
     pub selection: SelectionReport,
     pub generated: GeneratedCandidates,
     pub timings: Vec<StepTiming>,
-    pub warnings: Vec<Warning>,
 }

@@ -1,15 +1,9 @@
-use serde_json::{Value, json};
 use std::{fs, path::Path, process::Command};
 fn setup() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
-        dir.path().join("inventory.json"),
-        include_str!("../../../tests/fixtures/story/inventory.json"),
-    )
-    .unwrap();
-    fs::write(
-        dir.path().join("request.json"),
-        include_str!("../../../tests/fixtures/story/request.json"),
+        dir.path().join("wanikani.json"),
+        include_bytes!("../../../tests/fixtures/mixed.json"),
     )
     .unwrap();
     dir
@@ -19,16 +13,8 @@ fn cli(dir: &Path, command: &str) -> Command {
     c.arg("--no-keychain");
     c.env_clear()
         .current_dir(dir)
-        .env("YOMIBU_DATA_DIR", dir.join("data"))
-        .args([
-            command,
-            "--inventory",
-            "inventory.json",
-            "--request",
-            "request.json",
-            "--select",
-            "2",
-        ]);
+        .env("YOMIBU_DATA_DIR", dir)
+        .args([command, "--select", "2"]);
     c
 }
 #[test]
@@ -61,16 +47,42 @@ fn story_invocation_authorizes_generation_and_rejects_the_removed_opt_in_flag() 
     }
 }
 #[test]
-fn malformed_and_oversized_inputs_fail_before_credentials() {
-    let dir = setup();
-    for input in ["{".to_owned(), " ".repeat(4_194_305)] {
-        fs::write(dir.path().join("inventory.json"), input).unwrap();
-        let o = cli(dir.path(), "story").output().unwrap();
-        assert_eq!(o.status.code(), Some(1));
-        assert!(o.stdout.is_empty());
-        let e = String::from_utf8(o.stderr).unwrap();
-        assert!(e.contains("inventory"), "{e}");
-        assert!(!e.contains("OPENAI_API_KEY"));
+fn malformed_and_oversized_cache_fails_before_credentials() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("日本語\n\u{1b}");
+    fs::create_dir(&data).unwrap();
+    let cache = data.join("wanikani.json");
+    let escaped = cache.display().to_string().escape_debug().to_string();
+    for oversized in [false, true] {
+        let diagnostic = if oversized {
+            fs::File::create(&cache)
+                .unwrap()
+                .set_len(67_108_865)
+                .unwrap();
+            format!(
+                "Cache at {escaped} exceeds 64 MiB; preserve it and select a bounded complete cache."
+            )
+        } else {
+            fs::write(&cache, "{").unwrap();
+            format!(
+                "Corrupt cache at {escaped}; preserve the file and restore a valid backup or select another --data-dir PATH.: EOF while parsing an object at line 1 column 1"
+            )
+        };
+        let before = fs::metadata(&cache).unwrap();
+        let output = cli(&data, "story").output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stdout.is_empty());
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!("error: {diagnostic}\n")
+        );
+        let after = fs::metadata(&cache).unwrap();
+        assert_eq!(after.len(), before.len());
+        assert_eq!(after.modified().unwrap(), before.modified().unwrap());
+        if !oversized {
+            assert_eq!(fs::read_to_string(&cache).unwrap(), "{");
+        }
+        assert_eq!(fs::read_dir(&data).unwrap().count(), 1);
     }
 }
 #[test]
@@ -99,12 +111,14 @@ fn obsolete_generation_commands_are_removed_without_aliases() {
 }
 
 #[test]
-fn impossible_selection_fails_before_generation() {
+fn impossible_selection_fails_before_cache_read_or_generation() {
     let dir = setup();
-    let mut request: Value =
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
-    request["targets"]["vocabulary"] = json!(["cat", "sleep", "dog"]);
-    fs::write(dir.path().join("request.json"), request.to_string()).unwrap();
+    fs::write(
+        dir.path().join("default-story.toml"),
+        "[story.targets]\nvocabulary=['one','two','three']\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("wanikani.json"), "{").unwrap();
     let out = cli(dir.path(), "story")
         .args(["--openai-api-key", "unused"])
         .output()
@@ -113,7 +127,10 @@ fn impossible_selection_fails_before_generation() {
     assert!(!dir.path().join("vectors.json").exists());
     assert!(out.stdout.is_empty());
     let error = String::from_utf8(out.stderr).unwrap();
-    assert!(error.contains("selection limit"), "{error}");
+    assert_eq!(
+        error,
+        "error: Invalid story request: selection limit must include all targets and be at most 16.\n"
+    );
 }
 
 #[test]
@@ -146,7 +163,6 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
     let before = fs::read_dir(dir.path()).unwrap().count();
     for key in [None, Some("synthetic-secret\nInjected")] {
         let mut command = cli(dir.path(), "story");
-        command.args(["--data-dir", "ignored"]);
         if let Some(key) = key {
             command.env("YOMIBU_OPENAI_API_KEY", key);
         }
@@ -167,4 +183,24 @@ fn generation_credentials_are_explicit_after_local_preflight_without_discovery_o
         assert!(!stderr.contains("Injected"));
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), before);
     }
+}
+
+#[test]
+fn expired_access_reports_refresh_guidance_without_credentials_or_writes() {
+    let dir = setup();
+    let cache = dir.path().join("wanikani.json");
+    let mut data: serde_json::Value = serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap();
+    data["snapshot"]["learner"]["subscription"]["active"] = true.into();
+    data["snapshot"]["learner"]["subscription"]["period_ends_at"] = "1970-01-01T00:00:00Z".into();
+    fs::write(&cache, data.to_string()).unwrap();
+    let before = fs::read(&cache).unwrap();
+    let output = cli(dir.path(), "story").output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: Recorded content access has expired; run yomibu sync to refresh access.\n"
+    );
+    assert_eq!(fs::read(&cache).unwrap(), before);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }

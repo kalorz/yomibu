@@ -12,11 +12,13 @@ in Keychain. Other platforms use environment variables:
 ```sh
 export YOMIBU_WANIKANI_API_KEY=...
 export YOMIBU_OPENAI_API_KEY=...
+target/debug/yomibu sync
 target/debug/yomibu story
 ```
 
 Usable vocabulary is required.
-Run `yomibu` for all commands or `yomibu help story` for setup and permissions.
+Run `yomibu` for all commands. See `yomibu help sync` and `yomibu help story`
+for credential setup and permissions.
 See [story settings](docs/STORY_GENERATION.md#configuration-and-optional-work).
 
 ## Current commands

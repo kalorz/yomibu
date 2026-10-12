@@ -1,8 +1,8 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 use yomibu_components::wanikani_source::map_content_and_progress;
 use yomibu_core::domain::{
-    inventory::{LearnerInventory, ManualInventory, MappedContent, SourceOrigin},
-    knowledge::{ExclusionReason, LearnerKnowledgePolicy},
+    inventory::{LearnerInventory, MappedContent, SourceOrigin},
+    knowledge::ExclusionReason,
     source::WaniKaniSyncData,
 };
 
@@ -12,8 +12,8 @@ fn source() -> WaniKaniSyncData {
     serde_json::from_value(value["snapshot"].clone()).unwrap()
 }
 
-fn prepare_inventory(data: &WaniKaniSyncData, policy: &LearnerKnowledgePolicy) -> LearnerInventory {
-    LearnerInventory::from_mapped(map_content_and_progress(data).unwrap(), policy).unwrap()
+fn prepare_inventory(data: &WaniKaniSyncData) -> LearnerInventory {
+    LearnerInventory::from_mapped(map_content_and_progress(data).unwrap()).unwrap()
 }
 
 fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
@@ -26,9 +26,9 @@ fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
 
 #[test]
 fn preparation_retains_exclusion_reasons_in_source_subject_order() {
-    use ExclusionReason::{ContentUnavailable, Hidden, NoProgress, NoRecordedPass};
+    use ExclusionReason::{ContentUnavailable, Hidden, NoProgress};
     let data = source();
-    let inventory = prepare_inventory(&data, &LearnerKnowledgePolicy::default());
+    let inventory = prepare_inventory(&data);
     assert_eq!(inventory.vocabulary.len(), 1);
     assert_eq!(inventory.vocabulary[0].written_form, "これ");
     assert_eq!(
@@ -47,8 +47,6 @@ fn preparation_retains_exclusion_reasons_in_source_subject_order() {
             )
         ]
     );
-    let passed = prepare_inventory(&data, &LearnerKnowledgePolicy::RecordedPass);
-    assert_eq!(exclusion(&passed, 3), Some(NoRecordedPass));
 }
 
 #[test]
@@ -56,7 +54,7 @@ fn eligible_kanji_are_neither_vocabulary_nor_excluded() {
     let mut data = source();
     data.subjects[0].hidden_at = None;
     data.assignments[0].started_at = Some(data.sync_completed_at);
-    let inventory = prepare_inventory(&data, &LearnerKnowledgePolicy::default());
+    let inventory = prepare_inventory(&data);
     assert_eq!(exclusion(&inventory, 1), None);
     assert_eq!(
         inventory
@@ -99,8 +97,7 @@ fn lifecycle_evidence_not_stage_accuracy_or_burned_state_controls_eligibility() 
     data.subjects[0].hidden_at = None;
     data.assignments[1].hidden = false;
     data.assignments[2].srs_stage = 999;
-    let policy = LearnerKnowledgePolicy::default();
-    let inventory = prepare_inventory(&data, &policy);
+    let inventory = prepare_inventory(&data);
     assert_eq!(
         exclusion(&inventory, 1),
         Some(ExclusionReason::NoRecordedLessonStart)
@@ -114,21 +111,19 @@ fn lifecycle_evidence_not_stage_accuracy_or_burned_state_controls_eligibility() 
         ["wanikani:2", "wanikani:3"]
     );
     assert!(data.assignments[1].burned_at.is_some());
-    let passed = prepare_inventory(&data, &LearnerKnowledgePolicy::RecordedPass);
-    assert_eq!(passed.vocabulary[0].id, "wanikani:2");
     data.review_statistics[1].hidden = true;
     assert_eq!(
-        exclusion(&prepare_inventory(&data, &policy), 2),
+        exclusion(&prepare_inventory(&data), 2),
         Some(ExclusionReason::Hidden)
     );
     data.assignments[2].started_at = None;
     assert_eq!(
-        exclusion(&prepare_inventory(&data, &policy), 3),
+        exclusion(&prepare_inventory(&data), 3),
         Some(ExclusionReason::NoRecordedLessonStart)
     );
     data.review_statistics[2].hidden = true;
     assert_eq!(
-        exclusion(&prepare_inventory(&data, &policy), 4),
+        exclusion(&prepare_inventory(&data), 4),
         Some(ExclusionReason::Hidden)
     );
 }
@@ -136,13 +131,12 @@ fn lifecycle_evidence_not_stage_accuracy_or_burned_state_controls_eligibility() 
 #[test]
 fn preparation_order_is_stable_and_invalid_direct_input_is_rejected() {
     let mut data = source();
-    let policy = LearnerKnowledgePolicy::default();
-    let expected = serde_json::to_value(prepare_inventory(&data, &policy)).unwrap();
+    let expected = serde_json::to_value(prepare_inventory(&data)).unwrap();
     data.subjects.reverse();
     data.assignments.reverse();
     data.review_statistics.reverse();
     assert_eq!(
-        serde_json::to_value(prepare_inventory(&data, &policy)).unwrap(),
+        serde_json::to_value(prepare_inventory(&data)).unwrap(),
         expected
     );
     data.subjects.clear();
@@ -176,7 +170,7 @@ fn preparation_preserves_unpaired_reading_and_meaning_alternatives() {
             accepted_answer: true,
         })
         .collect();
-    let inventory = prepare_inventory(&data, &LearnerKnowledgePolicy::default());
+    let inventory = prepare_inventory(&data);
     let words: Vec<_> = inventory
         .vocabulary
         .iter()
@@ -188,11 +182,11 @@ fn preparation_preserves_unpaired_reading_and_meaning_alternatives() {
 }
 
 #[test]
-fn preparation_keeps_missing_readings_and_manual_grammar() {
+fn preparation_keeps_missing_readings() {
     let value: Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(value["snapshot"].clone()).unwrap();
-    let inventory = prepare_inventory(&source, &LearnerKnowledgePolicy::default());
+    let inventory = prepare_inventory(&source);
     assert!(
         inventory
             .vocabulary
@@ -215,13 +209,4 @@ fn preparation_keeps_missing_readings_and_manual_grammar() {
             .readings
             .is_empty()
     );
-    let supplement: ManualInventory = serde_json::from_value(json!({
-        "version": 1, "vocabulary": [],
-        "grammar_declarations": [{"id": "topic", "description": "は topic"}],
-        "grammar_bindings": [{"declaration_id": "topic", "rule": "TopicWa"}]
-    }))
-    .unwrap();
-    let combined = inventory.with_manual(supplement).unwrap();
-    assert_eq!(combined.grammar_declarations[0].id, "topic");
-    assert_eq!(combined.grammar_bindings[0].declaration_id, "topic");
 }

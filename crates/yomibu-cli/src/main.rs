@@ -20,14 +20,18 @@ fn entry(
     args: impl IntoIterator<Item = impl Into<std::ffi::OsString> + Clone>,
     endpoints: ServiceEndpoints,
 ) -> u8 {
-    let guidance = std::iter::once(output::INVENTORY_GUIDANCE.to_owned())
-        .chain(components::credentials().map(components::credential_guidance))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let guidance = format!(
+        "{}\n{}",
+        output::INVENTORY_GUIDANCE,
+        components::credential_guidance(components::GENERATION_KEY),
+    );
     let (args, credentials) = commands::credentials::capture(args);
     let mut command = Cli::command()
         .args(commands::options::arguments(true))
-        .mut_subcommand("story", |command| command.after_help(guidance));
+        .mut_subcommand("story", |command| command.after_help(guidance))
+        .mut_subcommand("sync", |command| {
+            command.after_help(components::credential_guidance(components::SOURCE_KEY))
+        });
     let cli = match command
         .try_get_matches_from_mut(args)
         .and_then(|matches| Cli::from_arg_matches(&matches))

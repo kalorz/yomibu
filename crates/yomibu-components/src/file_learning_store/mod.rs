@@ -6,10 +6,12 @@ pub const COMPONENT: yomibu_core::component::Component = yomibu_core::component:
 
 pub mod cache;
 
+const CACHE_FILE: &str = "wanikani.json";
+
 use std::{path::PathBuf, sync::Arc};
 use yomibu_core::{
     capabilities::{LearningStore, SourceSyncWriter},
-    domain::source::WaniKaniSyncData,
+    domain::{learner::LearnerData, source::WaniKaniSyncData},
 };
 
 /// One WaniKani account per cache file, persisted using cache schema 1.
@@ -21,11 +23,9 @@ pub struct FileLearningStore {
 impl FileLearningStore {
     /// Configure a path without creating or reading files.
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
-        Self::at_path(data_dir.into().join("wanikani.json"))
-    }
-
-    pub fn at_path(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: data_dir.into().join(CACHE_FILE),
+        }
     }
 
     pub fn load_snapshot(&self) -> Result<WaniKaniSyncData, cache::CacheError> {
@@ -34,21 +34,8 @@ impl FileLearningStore {
 }
 
 impl LearningStore for FileLearningStore {
-    type ReadError = cache::CacheError;
     type WriteError = cache::WriteError;
     type Writer = FileSyncWriter;
-
-    fn load(&self) -> Result<Arc<WaniKaniSyncData>, Self::ReadError> {
-        self.load_snapshot().map(Arc::new)
-    }
-
-    fn is_missing(&self, error: &Self::ReadError) -> bool {
-        matches!(error, cache::CacheError::Missing { .. })
-    }
-
-    fn is_locked(&self, error: &Self::WriteError) -> bool {
-        matches!(error, cache::WriteError::Locked)
-    }
 
     fn begin_sync(&self) -> Result<Self::Writer, Self::WriteError> {
         cache::SyncGuard::acquire_path(&self.path).map(|guard| FileSyncWriter { guard })
@@ -66,5 +53,30 @@ impl SourceSyncWriter for FileSyncWriter {
 
     fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<(), Self::Error> {
         self.guard.replace(&data)
+    }
+}
+
+impl FileLearningStore {
+    /// Read normalized data without writes. Only an absent cache returns `None`.
+    pub fn read_learner_data(&self) -> Result<Option<LearnerData>, cache::CacheError> {
+        let source = match self.load_snapshot() {
+            Ok(source) => source,
+            Err(cache::CacheError::Missing { .. }) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let records = crate::wanikani_source::map_content_and_progress(&source)
+            .map_err(|error| cache::CacheError::Invalid {
+                path: self.path.clone(),
+                source: error,
+            })?
+            .collect();
+        let subscription = &source.learner.subscription;
+        Ok(Some(LearnerData {
+            records,
+            access_expires_at: subscription
+                .active
+                .then_some(subscription.period_ends_at)
+                .flatten(),
+        }))
     }
 }

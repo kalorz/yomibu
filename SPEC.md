@@ -136,10 +136,8 @@ Their original contracts describe those revisions, not current behavior.
 
 ## Shared learner-inventory story path
 
-[Story generation](docs/STORY_GENERATION.md) owns the inventory/request formats,
-planning contracts, provider limits, and CLI behavior.
-Manual and WaniKani material use this same path. The application handles optional
-auto-sync; the story guide defines cache and first-run policies.
+[Story generation](docs/STORY_GENERATION.md) owns planning contracts, provider
+limits, normalized inputs, and CLI behavior.
 
 ## Design vocabulary and composition
 
@@ -149,7 +147,7 @@ Name implemented responsibilities consistently:
   durability and failures. `Search` retrieves by criteria. `Client` communicates
   with a service. `Policy` makes deterministic decisions.
 - Use `InMemory...` for volatile adapters and provider/backend names for others.
-- Source progress is evidence; `LearnerKnowledgePolicy` derives eligibility.
+- Source progress is evidence; eligibility is derived from it.
   Inventory is the complete allowed material; selection is only the prompt subset.
 - Prompt templates are reusable content. `openai_story_generation::PreparedRequest`
   is one finalized Responses payload.
@@ -248,7 +246,7 @@ secret values in configuration files; see [credential setup](docs/STORY_GENERATI
 ```
 
 `wanikani.json.lock` is a separate advisory lock file; its existence alone does not
-indicate a running sync. Optional `config.toml` holds non-secret application settings;
+indicate a running sync. `config.toml` selects the directory containing defaults;
 see [story configuration](docs/STORY_GENERATION.md#configuration-and-optional-work).
 
 ### Synchronization behavior

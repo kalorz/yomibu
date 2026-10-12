@@ -5,7 +5,7 @@ use std::{
 use yomibu::{
     application::Operation,
     configuration::{
-        ConfigError, Configuration, ConfigurationInput, Patch, ProcessOverrides,
+        ConfigError, Configuration, ConfigurationInput, Invocation, Patch,
         components::GENERATION_MODEL,
     },
 };
@@ -13,7 +13,7 @@ use yomibu::{
 fn load_config(
     dir: &Path,
     operation: &Operation,
-    flags: ProcessOverrides,
+    flags: Invocation,
     environment: BTreeMap<String, String>,
 ) -> Result<Configuration, ConfigError> {
     Configuration::load(
@@ -35,16 +35,13 @@ fn typed_construction_ignores_malformed_local_defaults_and_preserves_files() {
     for name in names {
         std::fs::write(dir.path().join(name), "[").unwrap();
     }
-    let mut overrides = ProcessOverrides::default();
-    overrides.application.inventory = Some("typed.json".into());
-    overrides.invocation.pipeline.model = Some("shared".into());
-    let options = &mut overrides.invocation.pipeline.options;
+    let mut overrides = Invocation::default();
+    let options = &mut overrides.pipeline.options;
     options.set(GENERATION_MODEL, "generation".into()).unwrap();
-    overrides.invocation.story.topic = Patch::Set("typed topic".into());
-    overrides.invocation.story.select = Some(4);
+    overrides.story.topic = Patch::Set("typed topic".into());
+    overrides.story.select = Some(4);
     let config =
         Configuration::from_overrides(dir.path().into(), overrides, &Operation::Story).unwrap();
-    assert_eq!(config.application.inventory, Some("typed.json".into()));
     assert_eq!(config.generation().unwrap().model, "generation");
     assert_eq!(config.story.topic.as_deref(), Some("typed topic"));
     assert_eq!(config.story.select, 4);
@@ -57,15 +54,10 @@ fn typed_construction_ignores_malformed_local_defaults_and_preserves_files() {
 fn typed_construction_keeps_defaults_without_creating_the_data_directory() {
     let dir = tempfile::tempdir().unwrap();
     let data_dir = dir.path().join("nonexistent");
-    let config = Configuration::from_overrides(
-        data_dir.clone(),
-        ProcessOverrides::default(),
-        &Operation::Story,
-    )
-    .unwrap();
-    let application = &config.application;
-    assert_eq!(application.data_dir, data_dir);
-    assert!(application.sync);
+    let config =
+        Configuration::from_overrides(data_dir.clone(), Invocation::default(), &Operation::Story)
+            .unwrap();
+    assert_eq!(config.data_dir, data_dir);
     assert_eq!(config.story.select, 12);
     assert!(!data_dir.exists());
 }
@@ -75,9 +67,13 @@ fn typed_construction_keeps_operation_filtering_and_validation_order() {
     let dir = tempfile::tempdir().unwrap();
     for model in ["", "typed"] {
         let overrides = || {
-            let mut input = ProcessOverrides::default();
-            input.invocation.pipeline.model = Some(model.into());
-            input.invocation.story.select = Some(0);
+            let mut input = Invocation::default();
+            input
+                .pipeline
+                .options
+                .set(GENERATION_MODEL, model.into())
+                .unwrap();
+            input.story.select = Some(0);
             input
         };
         let error =
@@ -98,8 +94,8 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("default-story.toml");
     let load = |environment| {
-        let mut flags = ProcessOverrides::default();
-        flags.invocation.story.select = Some(4);
+        let mut flags = Invocation::default();
+        flags.story.select = Some(4);
         load_config(dir.path(), &Operation::Story, flags, environment)
     };
     std::fs::write(&path, "[story]\nselect='wrong-type'\n").unwrap();
@@ -112,9 +108,6 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
         "YOMIBU_SEED",
         "YOMIBU_FORMAT",
         "YOMIBU_CANDIDATES",
-        "YOMIBU_KNOWLEDGE_POLICY",
-        "YOMIBU_CACHE_MAX_AGE_SECONDS",
-        "YOMIBU_SYNC",
     ] {
         let environment = BTreeMap::from([(name.into(), "wrong-type".into())]);
         assert!(
@@ -124,7 +117,7 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
             load_config(
                 dir.path(),
                 &Operation::Sync,
-                ProcessOverrides::default(),
+                Invocation::default(),
                 environment
             )
             .is_ok()
@@ -132,37 +125,6 @@ fn consumed_lower_precedence_values_must_have_valid_types() {
     }
     std::fs::write(&path, "[story]\nselect=0\n").unwrap();
     assert_eq!(load(BTreeMap::new()).unwrap().story.select, 4);
-}
-
-#[test]
-fn auth_reads_credential_selection_but_ignores_component_tuning() {
-    use yomibu::configuration::components::{GENERATION_KEY, SOURCE_KEY};
-    let dir = tempfile::tempdir().unwrap();
-    for sync in [false, true] {
-        std::fs::write(
-            dir.path().join("config.toml"),
-            format!("[application]\nsync={sync}\n"),
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("default-pipeline.toml"),
-            "[pipeline.options.openai]\nmodel=42\n",
-        )
-        .unwrap();
-        let config = load_config(
-            dir.path(),
-            &Operation::Auth,
-            ProcessOverrides::default(),
-            BTreeMap::new(),
-        )
-        .unwrap();
-        let requirements: Vec<_> = config
-            .credential_requirements()
-            .map(|key| key.name)
-            .collect();
-        assert!(requirements.contains(&GENERATION_KEY.name));
-        assert_eq!(requirements.contains(&SOURCE_KEY.name), sync);
-    }
 }
 
 #[test]
@@ -180,7 +142,7 @@ fn unknown_fields_in_loaded_unused_pipeline_scopes_are_rejected() {
         let error = load_config(
             dir.path(),
             &Operation::Sync,
-            ProcessOverrides::default(),
+            Invocation::default(),
             BTreeMap::new(),
         )
         .unwrap_err();
@@ -198,7 +160,7 @@ fn configuration_errors_preserve_diagnostic_order_without_reflecting_contents() 
         load_config(
             dir.path(),
             &Operation::Story,
-            ProcessOverrides::default(),
+            Invocation::default(),
             BTreeMap::from([
                 ("YOMIBU_SELECT".into(), "wrong-type".into()),
                 ("YOMIBU_CANDIDATES".into(), "wrong-type".into()),
@@ -224,16 +186,12 @@ fn configuration_errors_preserve_diagnostic_order_without_reflecting_contents() 
 }
 
 #[test]
-fn scoped_defaults_resolve_component_options_and_file_relative_resources() {
+fn scoped_defaults_resolve_component_options_and_story_settings() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "[application]\ninventory = 'inventory.json'\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("config.toml"), "").unwrap();
     std::fs::write(
         dir.path().join("default-pipeline.toml"),
-        "[pipeline]\nmodel = 'shared'\n[pipeline.options.openai]\nmodel = 'generation'\n",
+        "[pipeline.options.openai]\nmodel = 'generation'\n",
     )
     .unwrap();
     std::fs::write(
@@ -241,8 +199,8 @@ fn scoped_defaults_resolve_component_options_and_file_relative_resources() {
         "[story]\nselect = 8\nseed = 7\nformat = 'sentence'\n",
     )
     .unwrap();
-    let mut flags = ProcessOverrides::default();
-    flags.invocation.story.select = Some(4);
+    let mut flags = Invocation::default();
+    flags.story.select = Some(4);
     let config = load_config(
         dir.path(),
         &Operation::Story,
@@ -253,10 +211,6 @@ fn scoped_defaults_resolve_component_options_and_file_relative_resources() {
         )]),
     )
     .unwrap();
-    assert_eq!(
-        config.application.inventory,
-        Some(dir.path().join("inventory.json"))
-    );
     assert_eq!(config.generation().unwrap().model, "environment-generation");
     assert_eq!(config.story.select, 4);
     assert_eq!(config.story.seed, Some(7));
@@ -269,14 +223,10 @@ fn scoped_defaults_resolve_component_options_and_file_relative_resources() {
 #[test]
 fn sync_validates_its_resources_without_parsing_unused_story_settings() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "[application]\nwanikani_cache='source.json'\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("config.toml"), "").unwrap();
     std::fs::write(
         dir.path().join("default-pipeline.toml"),
-        "[pipeline]\nmodel=7\n",
+        "[pipeline.options.openai]\nmodel=7\n",
     )
     .unwrap();
     std::fs::write(
@@ -284,39 +234,13 @@ fn sync_validates_its_resources_without_parsing_unused_story_settings() {
         "[story]\nformat='unused-invalid'\nselect=2\ncandidates=0\n",
     )
     .unwrap();
-    let config = load_config(
+    let _config = load_config(
         dir.path(),
         &Operation::Sync,
-        ProcessOverrides::default(),
+        Invocation::default(),
         BTreeMap::new(),
     )
     .unwrap();
-    assert_eq!(
-        config.application.wanikani_cache,
-        Some(dir.path().join("source.json"))
-    );
-}
-
-#[test]
-fn resolves_each_model_setting_before_job_fallback_and_paths_relative_to_config() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("config.toml");
-    std::fs::write(&file, "[application]\ninventory='inventory.json'\n").unwrap();
-    std::fs::write(
-        dir.path().join("default-pipeline.toml"),
-        "[pipeline]\nmodel='file-default'\n[pipeline.options.openai]\nmodel='file-generation'\n",
-    )
-    .unwrap();
-    let env = BTreeMap::from([("YOMIBU_MODEL".into(), "environment-default".into())]);
-    let mut flags = ProcessOverrides::default();
-    flags.invocation.pipeline.model = Some("flag-default".into());
-    let config = load_config(dir.path(), &Operation::Story, flags, env).unwrap();
-    assert_eq!(config.generation().unwrap().model, "file-generation");
-    assert_eq!(
-        config.application.inventory,
-        Some(dir.path().join("inventory.json"))
-    );
-    assert_eq!(config.application.cache_max_age.as_secs(), 3600);
 }
 
 #[test]
@@ -329,15 +253,12 @@ fn construction_with_defaults_neither_creates_files_nor_reads_environment() {
             config: None,
             home: Some(data_dir.clone()),
             environment: BTreeMap::new(),
-            flags: ProcessOverrides::default(),
+            flags: Invocation::default(),
         },
         &yomibu::application::Operation::Story,
     )
     .unwrap();
-    assert_eq!(
-        config.application.data_dir,
-        PathBuf::from(&data_dir).join(".yomibu")
-    );
+    assert_eq!(config.data_dir, PathBuf::from(&data_dir).join(".yomibu"));
     assert!(!data_dir.exists());
 }
 
@@ -346,13 +267,12 @@ fn flags_override_environment_and_environment_overrides_file_for_each_setting() 
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("default-pipeline.toml"),
-        "[pipeline]\nmodel='file-model'\n[pipeline.options.openai]\nmodel='file-generation'\n",
+        "[pipeline.options.openai]\nmodel='file-generation'\n",
     )
     .unwrap();
     std::fs::write(dir.path().join("default-story.toml"), "[story]\nselect=2\n").unwrap();
-    let mut flags = ProcessOverrides::default();
+    let mut flags = Invocation::default();
     flags
-        .invocation
         .pipeline
         .options
         .set(GENERATION_MODEL, "flag-generation".into())
@@ -379,7 +299,7 @@ fn component_choices_belong_to_pipeline_scope() {
         load_config(
             dir.path(),
             &Operation::Story,
-            ProcessOverrides::default(),
+            Invocation::default(),
             BTreeMap::new(),
         )
     };
@@ -402,11 +322,11 @@ fn credential_bindings_are_rejected_for_every_operation() {
             format!("[application.credentials]\n\"openai.api-key\"={value}\n"),
         )
         .unwrap();
-        for operation in [Operation::Auth, Operation::Story, Operation::Sync] {
+        for operation in [Operation::Story, Operation::Sync] {
             let error = load_config(
                 dir.path(),
                 &operation,
-                ProcessOverrides::default(),
+                Invocation::default(),
                 BTreeMap::new(),
             )
             .unwrap_err();
@@ -427,7 +347,7 @@ fn sync_does_not_open_story_defaults_but_story_requires_bounded_valid_documents(
                 config,
                 home: None,
                 environment: BTreeMap::new(),
-                flags: ProcessOverrides::default(),
+                flags: Invocation::default(),
             },
             &operation,
         )
@@ -443,13 +363,13 @@ fn sync_does_not_open_story_defaults_but_story_requires_bounded_valid_documents(
 }
 
 #[test]
-fn shipped_references_and_resource_clears_preserve_implicit_defaults() {
+fn shipped_references_preserve_implicit_defaults() {
     let dir = tempfile::tempdir().unwrap();
     let load = || {
         load_config(
             dir.path(),
             &Operation::Story,
-            ProcessOverrides::default(),
+            Invocation::default(),
             BTreeMap::new(),
         )
         .unwrap()
@@ -468,12 +388,6 @@ fn shipped_references_and_resource_clears_preserve_implicit_defaults() {
     ] {
         std::fs::write(dir.path().join(name), text).unwrap();
     }
-    assert_eq!(format!("{:?}", load()), omitted);
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "[application]\ninventory={clear=true}\nwanikani_cache={clear=true}\n",
-    )
-    .unwrap();
     assert_eq!(format!("{:?}", load()), omitted);
 }
 
@@ -494,7 +408,7 @@ fn invalid_compositions_unknown_paths_and_secrets_are_static_errors_even_when_di
         let error = load_config(
             dir.path(),
             &Operation::Story,
-            ProcessOverrides::default(),
+            Invocation::default(),
             BTreeMap::new(),
         )
         .unwrap_err();
@@ -515,100 +429,93 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
         assert!(serde_json::from_str::<Invocation>(input).is_err());
     }
     let dir = tempfile::tempdir().unwrap();
-    let mut flags = ProcessOverrides::default();
-    flags.invocation.pipeline.model = Some("shared".into());
+    let mut flags = Invocation::default();
     flags
-        .invocation
         .pipeline
         .options
         .set(GENERATION_MODEL, "specific".into())
         .unwrap();
     let config = load_config(dir.path(), &Operation::Story, flags, BTreeMap::new()).unwrap();
-    let input: Invocation = serde_json::from_str(
-        r#"{"pipeline":{"model":"new-shared","options":{"openai":{"model":{"clear":true}}}}}"#,
-    )
-    .unwrap();
+    let input: Invocation =
+        serde_json::from_str(r#"{"pipeline":{"options":{"openai":{"model":{"clear":true}}}}}"#)
+            .unwrap();
     let changed = config.for_invocation(input, &Operation::Story).unwrap();
-    assert_eq!(changed.generation().unwrap().model, "new-shared");
+    assert_eq!(changed.generation().unwrap().model, "gpt-6-luna");
     assert_eq!(config.generation().unwrap().model, "specific");
-    assert!(std::sync::Arc::ptr_eq(
-        &config.application,
-        &changed.application
-    ));
+    assert_eq!(config.data_dir, changed.data_dir);
 }
 
 #[test]
-fn typed_topic_overrides_conflict_with_request_files_after_option_validation() {
-    use yomibu::configuration::Invocation;
+fn candidate_count_still_resolves_flags_then_environment_then_file() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join("default-story.toml"),
-        "[story]\ntopic='saved'\n",
+        "[story]\ncandidates=2\n",
     )
     .unwrap();
-    for operation in [Operation::Story] {
-        let config = load_config(
-            dir.path(),
-            &operation,
-            ProcessOverrides {
-                request: Some(dir.path().join("unopened.json")),
-                ..Default::default()
-            },
-            BTreeMap::new(),
-        )
-        .unwrap();
-        let inherited = config
-            .for_invocation(Invocation::default(), &operation)
-            .unwrap();
-        assert_eq!(inherited.story.topic.as_deref(), Some("saved"));
-        for topic in [Patch::Set("overridden".into()), Patch::Clear] {
-            let mut invocation = Invocation::default();
-            invocation.story.topic = topic;
-            assert!(
-                matches!(
-                    config.for_invocation(invocation, &operation),
-                    Err(ConfigError::InvalidSetting(
-                        "--topic and --request conflict; put the topic in the request file."
-                    ))
-                ),
-                "{operation:?}"
-            );
-        }
-        let mut invalid = Invocation::default();
-        invalid.story.topic = Patch::Clear;
-        invalid.story.select = Some(0);
-        assert!(matches!(
-            config.for_invocation(invalid, &operation),
-            Err(ConfigError::InvalidSetting(
-                "--select must be between 1 and 16."
-            ))
-        ));
-        assert_eq!(config.story.topic.as_deref(), Some("saved"));
-    }
-    assert!(!dir.path().join("unopened.json").exists());
-}
-
-#[test]
-fn sync_boolean_resolves_flags_then_environment_then_file() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("config.toml"),
-        "[application]\nsync=false\n",
-    )
-    .unwrap();
-    for (flag, environment, expected) in [
-        (None, None, false),
-        (None, Some("true"), true),
-        (Some(false), Some("true"), false),
-        (Some(true), Some("false"), true),
+    for (flag, env, expected) in [
+        (None, None, 2),
+        (None, Some("3"), 3),
+        (Some(4), Some("3"), 4),
     ] {
-        let mut flags = ProcessOverrides::default();
-        flags.application.sync = flag;
-        let environment = environment
-            .map(|value| ("YOMIBU_SYNC".into(), value.into()))
+        let mut flags = Invocation::default();
+        flags.story.candidates = flag;
+        let environment = env
+            .map(|value| ("YOMIBU_CANDIDATES".into(), value.into()))
             .into_iter()
             .collect();
         let config = load_config(dir.path(), &Operation::Story, flags, environment).unwrap();
-        assert_eq!(config.application.sync, expected);
+        assert_eq!(config.generation().unwrap().candidate_count, expected);
     }
+}
+
+#[test]
+fn removed_settings_are_rejected_in_files_and_ignored_in_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let load = |environment| {
+        Configuration::load(
+            ConfigurationInput {
+                data_dir: Some(dir.path().into()),
+                config: None,
+                home: None,
+                environment,
+                flags: Invocation::default(),
+            },
+            &Operation::Story,
+        )
+    };
+    for (file, text) in [
+        ("config.toml", "[application]\nsync=false"),
+        ("config.toml", "[application]\ninventory='unused'"),
+        ("config.toml", "[application]\nwanikani_cache='unused'"),
+        ("config.toml", "[application]\ncache_max_age_seconds=60"),
+        ("default-pipeline.toml", "[pipeline]\nmodel='unused'"),
+        (
+            "default-pipeline.toml",
+            "[pipeline]\nknowledge_policy='recorded-pass'",
+        ),
+        ("default-story.toml", "[story]\nrequest='unused'"),
+        ("default-story.toml", "[story.targets]\ngrammar=['polite']"),
+    ] {
+        let path = dir.path().join(file);
+        std::fs::write(&path, text).unwrap();
+        assert!(load(BTreeMap::new()).is_err(), "accepted {text}");
+        std::fs::remove_file(path).unwrap();
+    }
+    let config = load(
+        [
+            "SYNC",
+            "INVENTORY",
+            "WANIKANI_CACHE",
+            "CACHE_MAX_AGE_SECONDS",
+            "MODEL",
+            "KNOWLEDGE_POLICY",
+            "REQUEST",
+        ]
+        .map(|name| (format!("YOMIBU_{name}"), "invalid-unused".into()))
+        .into(),
+    )
+    .unwrap();
+    assert_eq!(config.generation().unwrap().model, "gpt-6-luna");
+    assert_eq!(config.story.candidates, 1);
 }

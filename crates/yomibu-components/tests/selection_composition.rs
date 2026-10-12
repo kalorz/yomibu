@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/story_inventory.rs"]
+mod story_inventory;
+
 use serde_json::json;
 use yomibu_components::learner_vocabulary_selection::{LexicalTopicScoring, SeededOrdering};
 use yomibu_core::{
@@ -12,10 +15,7 @@ use yomibu_core::{
 };
 
 fn inventory() -> LearnerInventory {
-    LearnerInventory::from_manual(
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
-    )
-    .unwrap()
+    story_inventory::inventory()
 }
 fn request(topic: Option<&str>, targets: &[&str]) -> StoryRequest {
     serde_json::from_value(

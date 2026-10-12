@@ -14,8 +14,8 @@ cargo run --locked -- --data-dir /path/to/data sync
 
 The default directory is `$HOME/.yomibu`. Use a separate directory for each account.
 
-Explicit sync always refreshes. Story auto-sync follows the
-[story cache policy](STORY_GENERATION.md#cache). Sync locks the writer before fetching and validates data before replacing the cache.
+Sync always refreshes. It locks the writer before fetching and validates data
+before replacing the cache.
 Failures before replacement preserve the old cache. `DurabilityUncertain` means
 replacement happened but directory synchronization failed; it does not mean rollback.
 
@@ -32,7 +32,7 @@ let mut app = App::new(FileLearningStore::new("/path/to/data"))
 let report = app.sync().await?;
 ```
 
-`report.persistence` states what the write guarantees. Constructors do no I/O.
+Constructors do no I/O.
 
 See [SPEC](../SPEC.md#wanikani-synchronization) for cache and sync contracts,
 and [Rustdoc](../crates/yomibu/src/application/mod.rs) for errors and cancellation. Direct file

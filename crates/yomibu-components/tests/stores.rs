@@ -1,4 +1,7 @@
-use yomibu_components::file_learning_store::FileLearningStore;
+use yomibu_components::file_learning_store::{
+    FileLearningStore,
+    cache::{CacheError, WriteError},
+};
 use yomibu_core::{
     capabilities::{LearningStore, SourceSyncWriter},
     domain::source::WaniKaniSyncData,
@@ -10,19 +13,25 @@ fn fixture() -> WaniKaniSyncData {
     serde_json::from_value(envelope["snapshot"].clone()).unwrap()
 }
 
-fn stores_a_complete_version(store: &impl LearningStore) {
-    assert!(store.is_missing(&store.load().unwrap_err()));
+fn stores_a_complete_version(store: &FileLearningStore) {
+    assert!(matches!(
+        store.load_snapshot(),
+        Err(CacheError::Missing { .. })
+    ));
     let writer = store.begin_sync().unwrap();
     let _: () = writer.replace(fixture().into()).unwrap();
-    let first = store.load().unwrap();
-    assert_eq!(*first, fixture());
+    let first = store.load_snapshot().unwrap();
+    assert_eq!(first, fixture());
 
     let mut next = fixture();
     next.learner.username = "updated username".into();
     store.begin_sync().unwrap().replace(next.into()).unwrap();
-    assert_eq!(store.load().unwrap().learner.username, "updated username");
     assert_eq!(
-        *first,
+        store.load_snapshot().unwrap().learner.username,
+        "updated username"
+    );
+    assert_eq!(
+        first,
         fixture(),
         "a reader keeps its original coherent version"
     );
@@ -35,17 +44,20 @@ fn file_store_is_lazy_and_preserves_schema_one() {
     let store = FileLearningStore::new(&directory);
     assert!(!directory.exists());
     stores_a_complete_version(&store);
-    let reloaded = FileLearningStore::new(&directory).load().unwrap();
+    let reloaded = FileLearningStore::new(&directory).load_snapshot().unwrap();
     assert_eq!(reloaded.learner.username, "updated username");
     let envelope: serde_json::Value =
         serde_json::from_slice(&std::fs::read(directory.join("wanikani.json")).unwrap()).unwrap();
     assert_eq!(envelope["schema_version"], 1);
     assert!(envelope.get("snapshot").is_some());
     std::fs::write(directory.join("wanikani.json"), b"corrupt").unwrap();
-    assert!(!store.is_missing(&store.load().unwrap_err()));
+    assert!(matches!(
+        store.load_snapshot(),
+        Err(CacheError::Corrupt { .. })
+    ));
 }
 
-fn rejects_invalid_replacements(store: &impl LearningStore) {
+fn rejects_invalid_replacements(store: &FileLearningStore) {
     store
         .begin_sync()
         .unwrap()
@@ -58,8 +70,8 @@ fn rejects_invalid_replacements(store: &impl LearningStore) {
         .unwrap()
         .replace(invalid.into())
         .unwrap_err();
-    assert!(!store.is_locked(&error));
-    assert_eq!(*store.load().unwrap(), fixture());
+    assert!(matches!(error, WriteError::InvalidSyncData(_)));
+    assert_eq!(store.load_snapshot().unwrap(), fixture());
 
     let mut wrong_account = fixture();
     wrong_account.learner.id = "different-account".into();
@@ -68,8 +80,8 @@ fn rejects_invalid_replacements(store: &impl LearningStore) {
         .unwrap()
         .replace(wrong_account.into())
         .unwrap_err();
-    assert!(!store.is_locked(&error));
-    assert_eq!(*store.load().unwrap(), fixture());
+    assert!(matches!(error, WriteError::AccountMismatch));
+    assert_eq!(store.load_snapshot().unwrap(), fixture());
     // A failed publication must release the writer reservation.
     store
         .begin_sync()
@@ -84,10 +96,7 @@ fn file_store_preserves_the_previous_account_and_valid_version() {
     rejects_invalid_replacements(&FileLearningStore::new(directory.path()));
 }
 
-fn writer_reservation_keeps_reads_available(
-    store: &impl LearningStore,
-    other: &impl LearningStore,
-) {
+fn writer_reservation_keeps_reads_available(store: &FileLearningStore, other: &FileLearningStore) {
     store
         .begin_sync()
         .unwrap()
@@ -95,10 +104,10 @@ fn writer_reservation_keeps_reads_available(
         .unwrap();
     let writer = store.begin_sync().unwrap();
     assert!(
-        other.is_locked(&other.begin_sync().err().unwrap()),
+        matches!(other.begin_sync(), Err(WriteError::Locked)),
         "another handle must not reserve a writer"
     );
-    assert_eq!(*other.load().unwrap(), fixture());
+    assert_eq!(other.load_snapshot().unwrap(), fixture());
     drop(writer);
     other
         .begin_sync()
@@ -112,4 +121,36 @@ fn file_writer_reservation_is_shared_and_released_on_drop() {
     let directory = tempfile::tempdir().unwrap();
     let store = FileLearningStore::new(directory.path());
     writer_reservation_keeps_reads_available(&store, &FileLearningStore::new(directory.path()));
+}
+
+#[test]
+fn normalized_reads_keep_progress_and_remain_coherent_after_replacement() {
+    use yomibu_core::domain::inventory::MappedContent;
+    let dir = tempfile::tempdir().unwrap();
+    let store = FileLearningStore::new(dir.path());
+    assert!(store.read_learner_data().unwrap().is_none());
+    let data = fixture();
+    store
+        .begin_sync()
+        .unwrap()
+        .replace(fixture().into())
+        .unwrap();
+    let first = store.read_learner_data().unwrap().unwrap();
+    let (_, progress) = first.records.iter().find(|(content, _)| matches!(content, MappedContent::Vocabulary(word) if word.id == "wanikani:3")).unwrap();
+    assert_eq!(
+        progress.unwrap().learning_started_at,
+        data.assignments[2].started_at
+    );
+    let mut next = fixture();
+    next.subjects[2].characters = "updated".into();
+    store.begin_sync().unwrap().replace(next.into()).unwrap();
+    let inventory = first.into_inventory(data.sync_completed_at).unwrap();
+    assert_eq!(inventory.vocabulary[0].written_form, "これ");
+    let updated = store
+        .read_learner_data()
+        .unwrap()
+        .unwrap()
+        .into_inventory(data.sync_completed_at)
+        .unwrap();
+    assert_eq!(updated.vocabulary[0].written_form, "updated");
 }

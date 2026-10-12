@@ -13,7 +13,7 @@ exercises or assess naturalness, meaning in context, or comprehension.
 
 - Align vocabulary content with explicit spelling, reading, and sense; preserve
   unresolved source alternatives. Add SQLite import/write and common learner-read
-  paths, replacing generation-time source refresh. See the
+  paths. See the
   [knowledge storage direction](SPEC.md#knowledge-storage-direction).
 - Validated generation needs better linguistic evidence, quality review, candidate
   selection, and bounded repair. See [future design](ARCHITECTURE.md#future-composition).

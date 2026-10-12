@@ -17,9 +17,9 @@ impl components::Source {
     }
 }
 impl components::LearningStore {
-    pub fn open(self, path: impl Into<PathBuf>) -> FileLearningStore {
+    pub fn open(self, data_dir: impl Into<PathBuf>) -> FileLearningStore {
         match self {
-            Self::File => FileLearningStore::at_path(path),
+            Self::File => FileLearningStore::new(data_dir),
         }
     }
 }

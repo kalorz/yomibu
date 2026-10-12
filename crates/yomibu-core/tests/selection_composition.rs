@@ -1,3 +1,6 @@
+#[path = "../../../tests/support/story_inventory.rs"]
+mod story_inventory;
+
 use yomibu_core::{
     capabilities::SelectionStep,
     domain::{
@@ -11,10 +14,7 @@ use yomibu_core::{
 };
 
 fn inventory() -> LearnerInventory {
-    LearnerInventory::from_manual(
-        serde_json::from_str(include_str!("../../../tests/fixtures/story/inventory.json")).unwrap(),
-    )
-    .unwrap()
+    story_inventory::inventory()
 }
 fn request() -> StoryRequest {
     StoryRequest {

@@ -3,16 +3,12 @@
 mod construction;
 mod credentials;
 pub use credentials::{CredentialError, Credentials, Secret};
-mod inputs;
 mod local;
 pub use local::{ApplicationError, LocalApp, ServiceEndpoints, SetupIssue};
-pub mod input_file;
 pub mod progress;
 pub mod selection;
-mod source;
-pub use source::cache_path as source_cache_path;
 mod story_workflow;
-pub use story_workflow::{StoryInputs, StoryResources, run_story};
+pub use story_workflow::{StoryInputs, run_story};
 
 use crate::reports::summary::Summary;
 use thiserror::Error;
@@ -23,7 +19,6 @@ use yomibu_core::{
 
 #[derive(Debug)]
 pub enum Operation {
-    Auth,
     Story,
     Sync,
 }
@@ -31,14 +26,6 @@ pub enum Operation {
 impl Operation {
     pub(crate) fn uses_setting(&self, name: &str) -> bool {
         use Operation::*;
-        if matches!(self, Auth) {
-            return matches!(
-                name,
-                "application.sync"
-                    | "pipeline.components.source"
-                    | "pipeline.components.generation"
-            );
-        }
         if let Some(option) = name.strip_prefix("pipeline.options.") {
             return matches!(
                 option.split_once('.').map(|(component, _)| component),
@@ -46,9 +33,8 @@ impl Operation {
             ) && matches!(self, Story);
         }
         match name {
-            "pipeline.components.source"
-            | "pipeline.components.learning_store"
-            | "application.wanikani_cache" => matches!(self, Story | Sync),
+            "pipeline.components.source" => matches!(self, Sync),
+            "pipeline.components.learning_store" => matches!(self, Story | Sync),
             _ => matches!(self, Story),
         }
     }

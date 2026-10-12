@@ -6,8 +6,7 @@ pub(crate) mod candidate;
 pub(crate) mod status;
 pub(crate) mod story;
 
-pub(crate) const INVENTORY_GUIDANCE: &str =
-    "Supply --inventory PATH or a usable cache; use --sync true with a WaniKani key to refresh it.";
+pub(crate) const INVENTORY_GUIDANCE: &str = "Run yomibu sync to load learner vocabulary before generating a story. Use the same --data-dir for sync and story.";
 
 pub(crate) fn escape_argument_error(mut error: clap::Error) -> clap::Error {
     // Escape supplied values before Clap adds its diagnostic layout.
