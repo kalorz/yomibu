@@ -157,6 +157,7 @@ async fn fresh_install_generates_once_in_every_presentation_with_identical_reque
         assert!(!dir.path().join(".yomibu/dictionaries").exists());
         if verbose {
             assert!(stdout.contains("[Generation] completed in"));
+            assert!(!stdout.contains("Available (required)"));
             assert!(stdout.ends_with("猫です。朝です。寝ます。\n"));
         } else {
             assert_eq!(stdout, "猫です。朝です。寝ます。\n");
@@ -281,10 +282,59 @@ async fn provider_errors_and_invalid_passages_make_one_attempt_and_do_not_reflec
 }
 
 #[tokio::test]
+async fn disabled_sync_keeps_cache_warnings_on_stderr_and_progress_in_verbose_output() {
+    for verbose in [false, true] {
+        let server = MockServer::start().await;
+        generation(&server, &["猫です。", "朝です。", "寝ます。"]).await;
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join(".yomibu");
+        std::fs::create_dir(&data).unwrap();
+        let cache = include_bytes!("../../../tests/fixtures/mixed.json");
+        std::fs::write(data.join("wanikani.json"), cache).unwrap();
+        std::fs::write(
+            data.join("config.toml"),
+            "[application]\nsync=true\ncache_max_age_seconds=0\n",
+        )
+        .unwrap();
+        let mut flags = vec!["--sync", "false"];
+        if verbose {
+            flags.push("--verbose");
+        }
+        let output = child(&server, dir.path(), &flags, true).await;
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        safe(&stdout);
+        safe(&stderr);
+        assert_eq!(
+            stderr,
+            "warning: Sync: Using an old WaniKani cache; sync is disabled or no key was supplied.\n"
+        );
+        if verbose {
+            assert!(stdout.contains("[Sync] skipped: Sync disabled or no WaniKani key\n"));
+            assert!(stdout.contains("[Generation] completed in"));
+            assert!(stdout.ends_with("猫です。朝です。寝ます。\n"));
+        } else {
+            assert_eq!(stdout, "猫です。朝です。寝ます。\n");
+        }
+        assert!(!stdout.contains("warning:"));
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        assert_eq!(std::fs::read(data.join("wanikani.json")).unwrap(), cache);
+        assert!(!data.join("wanikani.json.lock").exists());
+    }
+}
+
+#[tokio::test]
 async fn explicit_sync_prints_the_complete_publication_summary() {
     let server = MockServer::start().await;
     source(&server).await;
     let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".yomibu")).unwrap();
+    std::fs::write(
+        dir.path().join(".yomibu/config.toml"),
+        "[application]\nsync=false\n",
+    )
+    .unwrap();
     let output = child_with_args(
         &server,
         dir.path(),

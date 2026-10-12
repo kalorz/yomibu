@@ -1,9 +1,8 @@
 use super::{
-    local::{ApplicationError, SetupIssue},
+    local::ApplicationError,
     progress::{ProgressEvent, RunProgress, Step},
 };
 use crate::configuration::Configuration;
-use crate::configuration::modules::{ModuleId, ModuleState};
 use chrono::{DateTime, Utc};
 use std::{path::PathBuf, sync::Arc};
 use yomibu_components::wanikani_source as wanikani;
@@ -65,7 +64,7 @@ fn can_reuse_cache(config: &Configuration, data: &WaniKaniSyncData, now: DateTim
 
 pub(super) async fn prepare_source<Store: LearningStore, F: FnMut(ProgressEvent)>(
     config: &Configuration,
-    source_client: SourceClient<'_>,
+    mut source_client: SourceClient<'_>,
     store: Option<&Store>,
     previous: Option<Arc<WaniKaniSyncData>>,
     now: DateTime<Utc>,
@@ -75,14 +74,6 @@ where
     ApplicationError: From<Store::ReadError> + From<Store::WriteError>,
 {
     let Some(store) = store else {
-        if config.enabled(ModuleId::Sync) {
-            progress.state(
-                ModuleId::Sync,
-                ModuleState::Skipped {
-                    reason: "Manual inventory selected".into(),
-                },
-            );
-        }
         progress.skip(Step::Sync, "Manual inventory selected");
         return Ok(None);
     };
@@ -90,32 +81,30 @@ where
         .as_ref()
         .is_some_and(|data| can_reuse_cache(config, data, now))
     {
-        progress.state(
-            ModuleId::Sync,
-            if config.enabled(ModuleId::Sync) {
-                ModuleState::Skipped {
-                    reason: "Cache is fresh".into(),
-                }
-            } else {
-                ModuleState::Disabled
-            },
-        );
         progress.skip(Step::Sync, "Cache is fresh");
         return Ok(previous);
     }
-    let key = match &source_client {
-        SourceClient::Local { credentials, .. } if config.enabled(ModuleId::Sync) => {
-            credentials.source()?
+    let mut local_client;
+    let client = if config.application.sync {
+        match &mut source_client {
+            SourceClient::Local {
+                credentials,
+                endpoint,
+            } => {
+                if let Some(key) = credentials.source()? {
+                    local_client = config.pipeline.components.source.client(key, endpoint)?;
+                    Some(&mut local_client)
+                } else {
+                    None
+                }
+            }
+            SourceClient::Supplied(client) => Some(&mut **client),
+            SourceClient::Unavailable => None,
         }
-        _ => None,
+    } else {
+        None
     };
-    let available = config.enabled(ModuleId::Sync)
-        && match &source_client {
-            SourceClient::Local { .. } => key.is_some(),
-            SourceClient::Supplied(_) => true,
-            SourceClient::Unavailable => false,
-        };
-    if !available {
+    let Some(client) = client else {
         if previous
             .as_ref()
             .is_some_and(|data| access_expired(data, now))
@@ -133,34 +122,12 @@ where
             ),
         };
         if previous.is_some() {
-            progress.warn(ModuleId::Sync, warning.into());
+            progress.warn(Step::Sync, warning.into());
         }
         progress.skip(Step::Sync, reason);
         return Ok(previous);
-    }
-    let started = progress.start(Step::Sync);
-    let mut local_client;
-    let client = match source_client {
-        SourceClient::Local { endpoint, .. } => {
-            local_client = config.pipeline.components.source.client(
-                key.ok_or_else(|| ApplicationError::Setup {
-                    issues: vec![SetupIssue {
-                        module: ModuleId::Sync,
-                    }],
-                })?,
-                endpoint,
-            )?;
-            &mut local_client
-        }
-        SourceClient::Supplied(client) => client,
-        SourceClient::Unavailable => {
-            return Err(ApplicationError::Setup {
-                issues: vec![SetupIssue {
-                    module: ModuleId::Knowledge,
-                }],
-            });
-        }
     };
+    let started = progress.start(Step::Sync);
     let guard = match store.begin_sync() {
         Ok(guard) => guard,
         Err(error)
@@ -170,14 +137,8 @@ where
                 }) =>
         {
             progress.warn(
-                ModuleId::Sync,
+                Step::Sync,
                 "Another writer is refreshing WaniKani; using the previous usable cache.".into(),
-            );
-            progress.state(
-                ModuleId::Sync,
-                ModuleState::Skipped {
-                    reason: "Writer contention".into(),
-                },
             );
             progress.skip(Step::Sync, "Writer contention");
             progress.finish(Step::Sync, started);
@@ -190,12 +151,7 @@ where
         .as_ref()
         .is_some_and(|data| can_reuse_cache(config, data, now))
     {
-        progress.state(
-            ModuleId::Sync,
-            ModuleState::Skipped {
-                reason: "Another writer refreshed the cache".into(),
-            },
-        );
+        progress.skip(Step::Sync, "Another writer refreshed the cache");
         progress.finish(Step::Sync, started);
         return Ok(rechecked);
     }
@@ -207,7 +163,6 @@ where
             }
             let data = Arc::new(data);
             guard.replace(Arc::clone(&data))?;
-            progress.state(ModuleId::Sync, ModuleState::Available);
             progress.finish(Step::Sync, started);
             Ok(Some(data))
         }
@@ -218,14 +173,8 @@ where
                 }) =>
         {
             progress.warn(
-                ModuleId::Sync,
+                Step::Sync,
                 format!("{error} Using the previous usable cache."),
-            );
-            progress.state(
-                ModuleId::Sync,
-                ModuleState::Unavailable {
-                    error: error.to_string(),
-                },
             );
             progress.finish(Step::Sync, started);
             Ok(previous)

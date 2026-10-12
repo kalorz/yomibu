@@ -4,7 +4,7 @@ use std::{
     io::{self, Write},
     process::ExitCode,
 };
-use yomibu::{application::ServiceEndpoints, configuration::modules::MODULES};
+use yomibu::{application::ServiceEndpoints, configuration::components};
 
 mod commands;
 mod output;
@@ -20,9 +20,8 @@ fn entry(
     args: impl IntoIterator<Item = impl Into<std::ffi::OsString> + Clone>,
     endpoints: ServiceEndpoints,
 ) -> u8 {
-    let guidance = MODULES
-        .iter()
-        .map(|module| format!("{}: {}\n  {}", module.name, module.purpose, module.guidance))
+    let guidance = std::iter::once(output::INVENTORY_GUIDANCE.to_owned())
+        .chain(components::credentials().map(components::credential_guidance))
         .collect::<Vec<_>>()
         .join("\n");
     let (args, credentials) = commands::credentials::capture(args);

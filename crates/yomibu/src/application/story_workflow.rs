@@ -4,7 +4,6 @@ use super::{
     selection, source,
 };
 use crate::configuration::Configuration;
-use crate::configuration::modules::{ModuleId, ModuleReport, ModuleState};
 use crate::reports::run::{SelectionReport, StoryRunReport};
 use chrono::{DateTime, Utc};
 use yomibu_components::{openai_story_generation as openai, wanikani_source as wanikani};
@@ -50,16 +49,14 @@ where
         source_client,
         generation_client,
     } = resources;
-    let mut progress = RunProgress::new(config, emit);
+    let mut progress = RunProgress::new(emit);
     let started = progress.start(Step::Inputs);
     validate_story_request(config, &inputs.request)?;
     if let Some(manual) = &inputs.manual {
         manual.validate()?;
     } else if store.is_none() {
         return Err(ApplicationError::Setup {
-            issues: vec![SetupIssue {
-                module: ModuleId::Knowledge,
-            }],
+            issues: vec![SetupIssue::Inventory],
         });
     }
     execute_story(
@@ -112,13 +109,7 @@ where
         .as_ref()
         .is_some_and(|data| source::usable_cache(data, &config.pipeline.knowledge_policy, now));
     let needs_source = manual.is_none() && !usable;
-    validate_story_setup(
-        config,
-        needs_source,
-        &source_client,
-        &generation_client,
-        &mut progress.modules,
-    )?;
+    validate_story_setup(config, needs_source, &source_client, &generation_client)?;
     let local_client;
     let client = match generation_client {
         GenerationClient::Supplied(client) => client,
@@ -130,16 +121,13 @@ where
                 credentials
                     .generation()?
                     .ok_or_else(|| ApplicationError::Setup {
-                        issues: vec![SetupIssue {
-                            module: ModuleId::Generation,
-                        }],
+                        issues: vec![SetupIssue::Credential(openai::API_KEY)],
                     })?,
                 endpoint,
             )?;
             &local_client
         }
     };
-    progress.state(ModuleId::Generation, ModuleState::Available);
     progress.finish(Step::Inputs, started);
     let source =
         source::prepare_source(config, source_client, store, cached, now, &mut progress).await?;
@@ -150,7 +138,6 @@ where
         manual,
         now,
     )?;
-    progress.state(ModuleId::Knowledge, ModuleState::Available);
     progress.finish(Step::Knowledge, started);
     let seed = config.story.seed.unwrap_or(seed);
     request.validate(&inventory)?;
@@ -182,41 +169,22 @@ fn validate_story_setup(
     needs_source: bool,
     source_client: &source::SourceClient<'_>,
     generation_client: &GenerationClient<'_>,
-    modules: &mut [ModuleReport],
 ) -> Result<(), ApplicationError> {
-    let issues: Vec<_> = modules
-        .iter_mut()
-        .filter_map(|module| {
-            let missing = match module.metadata.id {
-                ModuleId::Knowledge => {
-                    needs_source
-                        && (!config.enabled(ModuleId::Sync)
-                            || matches!(source_client, source::SourceClient::Unavailable))
-                }
-                ModuleId::Sync => {
-                    module.required = needs_source
-                        && config.enabled(ModuleId::Sync)
-                        && !matches!(source_client, source::SourceClient::Unavailable);
-                    module.required
-                        && match source_client {
-                            source::SourceClient::Local { credentials, .. } => {
-                                credentials.is_missing(crate::configuration::components::SOURCE_KEY)
-                            }
-                            _ => false,
-                        }
-                }
-                ModuleId::Generation => match generation_client {
-                    GenerationClient::Local { credentials, .. } => {
-                        credentials.is_missing(crate::configuration::components::GENERATION_KEY)
-                    }
-                    GenerationClient::Supplied(_) => false,
-                },
-            };
-            missing.then_some(SetupIssue {
-                module: module.metadata.id,
-            })
-        })
-        .collect();
+    let mut issues = Vec::new();
+    if needs_source {
+        if !config.application.sync || matches!(source_client, source::SourceClient::Unavailable) {
+            issues.push(SetupIssue::Inventory);
+        } else if let source::SourceClient::Local { credentials, .. } = source_client
+            && credentials.is_missing(wanikani::API_KEY)
+        {
+            issues.push(SetupIssue::Credential(wanikani::API_KEY));
+        }
+    }
+    if let GenerationClient::Local { credentials, .. } = generation_client
+        && credentials.is_missing(openai::API_KEY)
+    {
+        issues.push(SetupIssue::Credential(openai::API_KEY));
+    }
     if !issues.is_empty() {
         return Err(ApplicationError::Setup { issues });
     }

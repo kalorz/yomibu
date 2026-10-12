@@ -1,4 +1,3 @@
-use crate::configuration::modules::{ModuleId, ModuleReport};
 use serde::Serialize;
 use yomibu_core::domain::{candidate::GeneratedCandidates, story::StoryRequest};
 
@@ -10,7 +9,7 @@ pub struct StepTiming {
 }
 #[derive(Debug, Serialize)]
 pub struct Warning {
-    pub module: ModuleId,
+    pub step: Step,
     pub message: String,
 }
 #[derive(Debug, Serialize)]
@@ -42,7 +41,6 @@ pub struct StoryRunReport {
     pub request: StoryRequest,
     pub selection: SelectionReport,
     pub generated: GeneratedCandidates,
-    pub modules: Vec<ModuleReport>,
     pub timings: Vec<StepTiming>,
     pub warnings: Vec<Warning>,
 }

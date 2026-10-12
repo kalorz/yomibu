@@ -34,9 +34,7 @@ impl Operation {
         if matches!(self, Auth) {
             return matches!(
                 name,
-                "enable"
-                    | "disable"
-                    | "application.sync"
+                "application.sync"
                     | "pipeline.components.source"
                     | "pipeline.components.generation"
             );

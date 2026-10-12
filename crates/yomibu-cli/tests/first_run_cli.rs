@@ -100,8 +100,8 @@ fn missing_inventory_setup_names_the_available_inputs_without_listing_tuning_fla
     let output = cli(dir.path())
         .args([
             "story",
-            "--disable",
-            "sync",
+            "--sync",
+            "false",
             "--openai-api-key",
             "synthetic-key",
         ])
@@ -115,7 +115,7 @@ fn missing_inventory_setup_names_the_available_inputs_without_listing_tuning_fla
         "{text}"
     );
     assert!(text.contains("--inventory"), "{text}");
-    assert!(text.contains("--enable sync"), "{text}");
+    assert!(text.contains("--sync true"), "{text}");
     assert!(!text.contains("--openai-model"));
     assert!(!text.contains("synthetic-key"));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
@@ -144,7 +144,7 @@ fn story_collects_minimum_setup_and_only_accepts_prefixed_environment_bindings()
     let text = String::from_utf8(output.stderr).unwrap();
     assert!(text.contains("--wanikani-api-key"));
     assert!(text.contains("--openai-api-key"));
-    assert!(text.contains("Missing required setup:\n  WaniKani sync:\n    "));
+    assert!(text.contains("Missing required setup:\n  wanikani.api-key:\n    "));
     assert!(!text.contains("--openai-model"));
     assert!(text.contains("no write permissions"));
     assert!(!text.contains("old-secret"));
@@ -202,16 +202,27 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
         "--topic",
         "--model",
         "--openai-model",
-        "--enable",
-        "--disable",
+        "--sync",
         "--wanikani-api-key",
         "--openai-api-key",
     ] {
         assert!(text.contains(flag), "{text}");
     }
-    assert!(text.contains("api.responses.write"));
+    assert!(text.contains("Supply --inventory PATH or a usable cache;"));
+    for key in yomibu::configuration::components::credentials() {
+        assert!(text.contains(key.description), "{text}");
+        assert!(
+            text.contains(&format!(
+                "On macOS, run yomibu auth {}.",
+                key.name.component
+            )),
+            "{text}"
+        );
+    }
+    assert!(!text.contains("--enable"));
+    assert!(!text.contains("--disable"));
     for (requirement, invalid_option) in yomibu::configuration::components::credentials()
-        .flat_map(|key| ["--format", "--candidates"].map(|flag| (key, flag)))
+        .flat_map(|key| ["--format", "--candidates", "--sync"].map(|flag| (key, flag)))
     {
         let output = cli(dir.path())
             .args([

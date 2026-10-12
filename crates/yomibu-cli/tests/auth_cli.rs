@@ -124,7 +124,7 @@ fn explicit_only_credentials_do_not_consult_the_system_store() {
         stderr.starts_with("error: Missing required setup:\n"),
         "{stderr}"
     );
-    assert!(stderr.contains("WaniKani sync"), "{stderr}");
+    assert!(stderr.contains("  wanikani.api-key:\n    "), "{stderr}");
     assert!(!stderr.contains("Cannot access"), "{stderr}");
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
