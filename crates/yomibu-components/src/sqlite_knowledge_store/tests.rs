@@ -39,6 +39,12 @@ fn adapter_connections_enforce_foreign_keys_and_readers_hold_one_snapshot_until_
     );
     assert_eq!(
         writer
+            .pragma_query_value(None, "fullfsync", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        writer
             .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
             .unwrap(),
         "delete"
@@ -63,12 +69,8 @@ fn adapter_connections_enforce_foreign_keys_and_readers_hold_one_snapshot_until_
         ..Default::default()
     });
     publish_scope(&publication, &scope, &metadata, &records).unwrap();
-    assert_eq!(
-        publication
-            .execute_batch("COMMIT")
-            .unwrap_err()
-            .sqlite_error_code(),
-        Some(rusqlite::ErrorCode::DatabaseBusy)
+    assert!(
+        matches!(commit_transaction(publication), Err(SqliteKnowledgeError::Database(ref error)) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseBusy))
     );
     let old = read_scope(&snapshot, &scope).unwrap();
     assert_eq!(old.metadata.access_expires_at, None);
@@ -78,7 +80,8 @@ fn adapter_connections_enforce_foreign_keys_and_readers_hold_one_snapshot_until_
     ));
     assert_eq!(old.records[0].progress, None);
     drop(snapshot);
-    publication.commit().unwrap();
+    assert_eq!(store.read(&scope).unwrap().metadata.access_expires_at, None);
+    store.publish(&scope, &metadata, &records).unwrap();
     let new = store.read(&scope).unwrap();
     assert_eq!(new.metadata, metadata);
     assert!(matches!(

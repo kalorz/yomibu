@@ -243,7 +243,7 @@ fn ordinary_reads_do_not_adopt_unmarked_or_unsupported_databases() {
         "CREATE TABLE foreign_data (value TEXT)",
         "PRAGMA application_id=123",
         "PRAGMA user_version=2",
-        "PRAGMA application_id=1498361161; PRAGMA user_version=2",
+        "PRAGMA application_id=0x594f4d49; PRAGMA user_version=2",
     ] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("knowledge.sqlite");
@@ -272,7 +272,9 @@ fn ordinary_reads_do_not_adopt_unmarked_or_unsupported_databases() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("corrupt.sqlite");
     std::fs::write(&path, b"not a SQLite database").unwrap();
-    assert!(SqliteKnowledgeStore::new(&path).initialize().is_err());
+    assert!(
+        matches!(SqliteKnowledgeStore::new(&path).initialize(), Err(SqliteKnowledgeError::Database(ref error)) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::NotADatabase))
+    );
     assert_eq!(std::fs::read(path).unwrap(), b"not a SQLite database");
 }
 
@@ -285,6 +287,9 @@ fn reads_reject_corrupt_scoped_values_and_required_relationships() {
         "UPDATE source_learner_progress SET learning_started_at='yesterday'",
         "UPDATE source_learner_progress SET first_passed_at=''",
         "UPDATE source_learner_progress SET first_passed_at='2026-01-01T00:00:00'",
+        "UPDATE source_learner_progress SET first_passed_at='2026-01-01 09:00:00+09:00'",
+        "UPDATE source_learner_progress SET first_passed_at='2026-01-01T00:00:00 UTC'",
+        "UPDATE source_learner_progress SET first_passed_at='2026-01-01T00:00:00Z'",
         "UPDATE source_learner_profiles SET access_expires_at='bad'",
         "UPDATE source_learner_profiles SET provider_account_id=''",
         "UPDATE source_collections SET source_kind='unknown'",
@@ -299,6 +304,7 @@ fn reads_reject_corrupt_scoped_values_and_required_relationships() {
         "DELETE FROM source_vocabulary",
         "DELETE FROM source_subjects",
         "DELETE FROM learners",
+        "DELETE FROM source_collections",
         "INSERT INTO source_learner_progress (profile_id,subject_id,is_hidden) VALUES ('a',999,0)",
     ] {
         let directory = tempfile::tempdir().unwrap();
@@ -313,8 +319,33 @@ fn reads_reject_corrupt_scoped_values_and_required_relationships() {
             .pragma_update(None, "foreign_keys", false)
             .unwrap();
         connection.execute_batch(corruption).unwrap();
-        assert!(store.read(&scope("a")).is_err(), "{corruption}");
+        assert!(
+            matches!(
+                store.read(&scope("a")),
+                Err(SqliteKnowledgeError::Corrupt(_))
+            ),
+            "{corruption}"
+        );
     }
+}
+
+#[test]
+fn publication_replaces_a_malformed_deadline_without_rebinding_the_profile() {
+    let (_directory, path, store) = initialized_database();
+    store
+        .publish(&scope("a"), &metadata(), &[word("x")])
+        .unwrap();
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .execute(
+            "UPDATE source_learner_profiles SET access_expires_at='bad'",
+            [],
+        )
+        .unwrap();
+    store
+        .publish(&scope("a"), &metadata(), &[word("x")])
+        .unwrap();
+    assert_eq!(store.read(&scope("a")).unwrap().metadata, metadata());
 }
 
 #[test]
@@ -539,19 +570,20 @@ fn invalid_publications_do_not_change_existing_facts_or_bindings() {
     if let MappedContent::Vocabulary(word) = &mut invalid.content {
         word.written_form = "x".repeat(257);
     }
-    assert!(store.publish(&scope("a"), &metadata(), &[invalid]).is_err());
-    assert!(
-        store
-            .publish(&scope("a"), &metadata(), &[word("x"), word("x")])
-            .is_err()
-    );
+    assert!(matches!(
+        store.publish(&scope("a"), &metadata(), &[invalid]),
+        Err(SqliteKnowledgeError::Inventory(_))
+    ));
+    assert!(matches!(
+        store.publish(&scope("a"), &metadata(), &[word("x"), word("x")]),
+        Err(SqliteKnowledgeError::InvalidInput(_))
+    ));
     let mut wrong_origin = word("x");
     wrong_origin.content = MappedContent::Unavailable(SourceOrigin::Wanikani { subject_id: 1 });
-    assert!(
-        store
-            .publish(&scope("a"), &metadata(), &[wrong_origin])
-            .is_err()
-    );
+    assert!(matches!(
+        store.publish(&scope("a"), &metadata(), &[wrong_origin]),
+        Err(SqliteKnowledgeError::InvalidInput(_))
+    ));
     let mut changed = metadata();
     changed.source_kind = SourceKind::Wanikani;
     assert!(matches!(
@@ -566,10 +598,19 @@ fn invalid_publications_do_not_change_existing_facts_or_bindings() {
     ));
     let mut wrong_scope = scope("a");
     wrong_scope.learner_id = "another".into();
-    assert!(store.publish(&wrong_scope, &metadata(), &[]).is_err());
-    assert!(store.read(&wrong_scope).is_err());
+    assert!(matches!(
+        store.publish(&wrong_scope, &metadata(), &[]),
+        Err(SqliteKnowledgeError::BindingMismatch)
+    ));
+    assert!(matches!(
+        store.read(&wrong_scope),
+        Err(SqliteKnowledgeError::BindingMismatch)
+    ));
     wrong_scope = scope("a");
     wrong_scope.collection_id.clear();
-    assert!(store.publish(&wrong_scope, &metadata(), &[]).is_err());
+    assert!(matches!(
+        store.publish(&wrong_scope, &metadata(), &[]),
+        Err(SqliteKnowledgeError::InvalidInput(_))
+    ));
     assert_eq!(facts(&store.read(&scope("a")).unwrap()), previous);
 }
