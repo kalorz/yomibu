@@ -69,6 +69,15 @@ fn adapter_connections_enforce_foreign_keys_and_readers_hold_one_snapshot_until_
         ..Default::default()
     });
     publish_scope(&publication, &scope, &metadata, &records).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(directory.path().join("knowledge.sqlite-journal"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o077,
+        0
+    );
     assert!(
         matches!(commit_transaction(publication), Err(SqliteKnowledgeError::Database(ref error)) if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseBusy))
     );

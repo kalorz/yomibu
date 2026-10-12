@@ -7,7 +7,13 @@ use chrono::{DateTime, Utc};
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Statement, Transaction, TransactionBehavior, params,
 };
-use std::{collections::BTreeSet, path::PathBuf, time::Duration};
+use std::{
+    collections::BTreeSet,
+    fs::{OpenOptions, Permissions},
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::PathBuf,
+    time::Duration,
+};
 use yomibu_core::domain::{
     inventory::{InventoryError, InventoryWord, MappedContent, SourceOrigin},
     knowledge::LearnerProgress,
@@ -15,6 +21,11 @@ use yomibu_core::domain::{
 
 const APPLICATION_ID: i64 = 0x594f4d49;
 const SCHEMA_VERSION: i64 = 1;
+
+enum SchemaState {
+    Empty,
+    Supported,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceKind {
@@ -75,9 +86,11 @@ pub enum SqliteKnowledgeError {
     MissingScope,
     #[error("Unsupported or uninitialized knowledge database.")]
     UnsupportedSchema,
+    #[error("Knowledge database requires DELETE journaling; initialize it explicitly.")]
+    UnsupportedJournalMode,
     #[error("Knowledge scope binding disagrees with the stored identity.")]
     BindingMismatch,
-    #[error("Invalid knowledge publication: {0}.")]
+    #[error("Invalid knowledge input: {0}.")]
     InvalidInput(&'static str),
     #[error("Corrupt stored knowledge: {0}.")]
     Corrupt(&'static str),
@@ -108,12 +121,23 @@ impl SqliteKnowledgeStore {
 
     /// Create schema 1 in an empty database, or verify its application/version IDs.
     pub fn initialize(&self) -> Result<(), SqliteKnowledgeError> {
-        let mut connection =
-            self.open(OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE)?;
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&self.path)
+        {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        let mut connection = self.open(OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         schema_state(&connection)?;
+        std::fs::set_permissions(&self.path, Permissions::from_mode(0o600))?;
         connection.pragma_update(None, "journal_mode", "DELETE")?;
+        require_delete_journal(&connection)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if schema_state(&transaction)? {
+        if matches!(schema_state(&transaction)?, SchemaState::Empty) {
             transaction.execute_batch(include_str!("001_initial.sql"))?;
             transaction.pragma_update(None, "application_id", APPLICATION_ID)?;
             transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -170,6 +194,7 @@ impl SqliteKnowledgeStore {
         let mut connection = self.open(OpenFlags::SQLITE_OPEN_READ_WRITE)?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         require_schema(&transaction)?;
+        require_delete_journal(&transaction)?;
         publish_scope(&transaction, scope, metadata, records)?;
         commit_transaction(transaction)
     }
@@ -179,29 +204,29 @@ impl SqliteKnowledgeStore {
     pub fn read(&self, scope: &KnowledgeScope) -> Result<StoredKnowledge, SqliteKnowledgeError> {
         validate_scope(scope)?;
         let mut connection = self.open(OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        require_delete_journal(&connection)?;
         let transaction = connection.transaction()?;
         require_schema(&transaction)?;
         read_scope(&transaction, scope).map_err(|error| match error {
             SqliteKnowledgeError::Database(
                 rusqlite::Error::InvalidColumnType(..)
                 | rusqlite::Error::FromSqlConversionFailure(..)
-                | rusqlite::Error::IntegralValueOutOfRange(..),
+                | rusqlite::Error::IntegralValueOutOfRange(..)
+                | rusqlite::Error::Utf8Error(..),
             ) => SqliteKnowledgeError::Corrupt("invalid stored value type"),
             error => error,
         })
     }
 
     fn open(&self, flags: OpenFlags) -> Result<Connection, SqliteKnowledgeError> {
-        if !flags.contains(OpenFlags::SQLITE_OPEN_CREATE) {
-            match std::fs::metadata(&self.path) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    return Err(SqliteKnowledgeError::MissingDatabase);
-                }
-                Err(error) => return Err(error.into()),
-                Ok(_) => {}
+        match std::fs::metadata(&self.path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(SqliteKnowledgeError::MissingDatabase);
             }
+            Err(error) => return Err(error.into()),
+            Ok(_) => {}
         }
-        let connection = Connection::open_with_flags(&self.path, flags)?;
+        let connection = Connection::open_with_flags(std::path::absolute(&self.path)?, flags)?;
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.pragma_update(None, "foreign_keys", true)?;
         if connection.pragma_query_value(None, "foreign_keys", |row| row.get::<_, i64>(0))? != 1 {
@@ -215,12 +240,12 @@ impl SqliteKnowledgeStore {
     }
 }
 
-fn schema_state(connection: &Connection) -> Result<bool, SqliteKnowledgeError> {
+fn schema_state(connection: &Connection) -> Result<SchemaState, SqliteKnowledgeError> {
     let application_id: i64 =
         connection.pragma_query_value(None, "application_id", |row| row.get(0))?;
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if application_id == APPLICATION_ID && version == SCHEMA_VERSION {
-        return Ok(false);
+        return Ok(SchemaState::Supported);
     }
     let empty: bool = connection.query_row(
         "SELECT NOT EXISTS(SELECT 1 FROM sqlite_schema)",
@@ -228,7 +253,7 @@ fn schema_state(connection: &Connection) -> Result<bool, SqliteKnowledgeError> {
         |row| row.get(0),
     )?;
     if application_id == 0 && version == 0 && empty {
-        Ok(true)
+        Ok(SchemaState::Empty)
     } else {
         Err(SqliteKnowledgeError::UnsupportedSchema)
     }
@@ -248,11 +273,18 @@ fn commit_transaction(transaction: Transaction<'_>) -> Result<(), SqliteKnowledg
 }
 
 fn require_schema(connection: &Connection) -> Result<(), SqliteKnowledgeError> {
-    if schema_state(connection)? {
-        Err(SqliteKnowledgeError::UnsupportedSchema)
-    } else {
-        Ok(())
+    match schema_state(connection)? {
+        SchemaState::Empty => Err(SqliteKnowledgeError::UnsupportedSchema),
+        SchemaState::Supported => Ok(()),
     }
+}
+
+fn require_delete_journal(connection: &Connection) -> Result<(), SqliteKnowledgeError> {
+    let mode: String = connection.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+    if mode != "delete" {
+        return Err(SqliteKnowledgeError::UnsupportedJournalMode);
+    }
+    Ok(())
 }
 
 fn validate_scope(scope: &KnowledgeScope) -> Result<(), SqliteKnowledgeError> {
@@ -539,16 +571,16 @@ fn bind_scope(
     if SourceKind::decode(&kind)? != metadata.source_kind {
         return Err(SqliteKnowledgeError::BindingMismatch);
     }
-    transaction.execute("INSERT INTO source_learner_profiles (profile_id, learner_id, collection_id, provider_account_id) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (profile_id) DO NOTHING",
+    transaction.execute("INSERT INTO source_learner_profiles (profile_id, learner_id, collection_id, provider_account_id) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
         params![scope.profile_id, scope.learner_id, scope.collection_id, metadata.provider_account_id])?;
-    let binding = transaction.query_row(
+    let (learner_id, collection_id, account_id) = transaction.query_row(
         "SELECT learner_id, collection_id, provider_account_id FROM source_learner_profiles WHERE profile_id = ?1",
         [&scope.profile_id],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
-    )?;
-    if binding.0 != scope.learner_id
-        || binding.1 != scope.collection_id
-        || binding.2 != metadata.provider_account_id
+    ).optional()?.ok_or(SqliteKnowledgeError::BindingMismatch)?;
+    if learner_id != scope.learner_id
+        || collection_id != scope.collection_id
+        || account_id != metadata.provider_account_id
     {
         return Err(SqliteKnowledgeError::BindingMismatch);
     }
@@ -559,7 +591,7 @@ fn read_metadata(
     transaction: &Transaction<'_>,
     scope: &KnowledgeScope,
 ) -> Result<ScopeMetadata, SqliteKnowledgeError> {
-    let row = transaction.query_row(
+    let (learner_id, collection_id, account_id, deadline, source_kind, learner) = transaction.query_row(
         "SELECT p.learner_id, p.collection_id, p.provider_account_id, p.access_expires_at, c.source_kind, l.learner_id
          FROM source_learner_profiles p LEFT JOIN source_collections c ON c.collection_id = p.collection_id
          LEFT JOIN learners l ON l.learner_id = p.learner_id WHERE p.profile_id = ?1",
@@ -567,21 +599,19 @@ fn read_metadata(
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?)),
     ).optional()?.ok_or(SqliteKnowledgeError::MissingScope)?;
-    if row.0 != scope.learner_id || row.1 != scope.collection_id {
+    if learner_id != scope.learner_id || collection_id != scope.collection_id {
         return Err(SqliteKnowledgeError::BindingMismatch);
     }
-    if row.5.is_none() {
+    if learner.is_none() {
         return Err(SqliteKnowledgeError::Corrupt("missing learner"));
     }
-    let source_kind = row
-        .4
-        .ok_or(SqliteKnowledgeError::Corrupt("missing collection"))?;
-    if row.2.as_ref().is_some_and(|id| id.trim().is_empty()) {
+    let source_kind = source_kind.ok_or(SqliteKnowledgeError::Corrupt("missing collection"))?;
+    if account_id.as_ref().is_some_and(|id| id.trim().is_empty()) {
         return Err(SqliteKnowledgeError::Corrupt("blank provider account"));
     }
     Ok(ScopeMetadata {
         source_kind: SourceKind::decode(&source_kind)?,
-        provider_account_id: row.2,
-        access_expires_at: decode_date(row.3)?,
+        provider_account_id: account_id,
+        access_expires_at: decode_date(deadline)?,
     })
 }

@@ -266,7 +266,10 @@ fn ordinary_reads_do_not_adopt_unmarked_or_unsupported_databases() {
             ),
             "{setup}"
         );
-        assert!(store.publish(&scope("a"), &metadata(), &[]).is_err());
+        assert!(matches!(
+            store.publish(&scope("a"), &metadata(), &[]),
+            Err(SqliteKnowledgeError::UnsupportedSchema)
+        ));
         assert_eq!(std::fs::read(&path).unwrap(), before, "{setup}");
     }
     let directory = tempfile::tempdir().unwrap();
@@ -282,6 +285,7 @@ fn ordinary_reads_do_not_adopt_unmarked_or_unsupported_databases() {
 fn reads_reject_corrupt_scoped_values_and_required_relationships() {
     for corruption in [
         "UPDATE source_vocabulary SET direct_object=2",
+        "UPDATE source_vocabulary SET written_form=CAST(x'ff' AS TEXT)",
         "UPDATE source_learner_progress SET is_hidden=-1",
         "UPDATE source_learner_progress SET is_marked_known='true'",
         "UPDATE source_learner_progress SET learning_started_at='yesterday'",
@@ -327,6 +331,74 @@ fn reads_reject_corrupt_scoped_values_and_required_relationships() {
             "{corruption}"
         );
     }
+}
+
+#[test]
+fn initialization_keeps_new_and_existing_empty_databases_private() {
+    use std::os::unix::fs::PermissionsExt;
+    for existing in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("knowledge.sqlite");
+        if existing {
+            std::fs::write(&path, []).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let store = SqliteKnowledgeStore::new(&path);
+        store.initialize().unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o077,
+            0
+        );
+        store
+            .publish(&scope("a"), &metadata(), &[word("x")])
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o077,
+            0
+        );
+    }
+}
+
+#[test]
+fn a_duplicate_account_binding_rolls_back_the_new_profile() {
+    let (_directory, _path, store) = initialized_database();
+    let mut metadata = metadata();
+    metadata.provider_account_id = Some("account".into());
+    store.publish(&scope("a"), &metadata, &[]).unwrap();
+    let mut duplicate = scope("new-profile");
+    duplicate.learner_id = "a".into();
+    assert!(matches!(
+        store.publish(&duplicate, &metadata, &[]),
+        Err(SqliteKnowledgeError::BindingMismatch)
+    ));
+    assert!(matches!(
+        store.read(&duplicate),
+        Err(SqliteKnowledgeError::MissingScope)
+    ));
+}
+
+#[test]
+fn ordinary_operations_reject_changed_journaling_until_explicit_initialization() {
+    let (_directory, path, store) = initialized_database();
+    store
+        .publish(&scope("a"), &metadata(), &[word("x")])
+        .unwrap();
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let mode: String = connection
+        .query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(mode, "wal");
+    drop(connection);
+    assert!(matches!(
+        store.read(&scope("a")),
+        Err(SqliteKnowledgeError::UnsupportedJournalMode)
+    ));
+    assert!(matches!(
+        store.publish(&scope("a"), &metadata(), &[]),
+        Err(SqliteKnowledgeError::UnsupportedJournalMode)
+    ));
+    store.initialize().unwrap();
+    assert_eq!(store.read(&scope("a")).unwrap().records.len(), 1);
 }
 
 #[test]
@@ -392,7 +464,10 @@ fn read_integrity_is_scoped_and_database_bytes_remain_unchanged() {
     let before = std::fs::read(&path).unwrap();
     let stored = store.read(&scope("a")).unwrap();
     assert_eq!(stored.records.len(), 1);
-    assert!(store.read(&scope("b")).is_err());
+    assert!(matches!(
+        store.read(&scope("b")),
+        Err(SqliteKnowledgeError::Corrupt("missing learner"))
+    ));
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }
 
