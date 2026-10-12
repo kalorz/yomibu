@@ -193,7 +193,8 @@ impl SqliteKnowledgeStore {
         commit_transaction(transaction)
     }
 
-    /// Read a coherent scope without writes, creation, migration, or access policy.
+    /// Read a coherent scope without database writes, creation, migration, or access policy.
+    /// SQLite may create WAL side files before rejecting externally changed journaling.
     /// A hot rollback journal may require explicit writable initialization first.
     pub fn read(&self, scope: &KnowledgeScope) -> Result<StoredKnowledge, SqliteKnowledgeError> {
         validate_scope(scope)?;
