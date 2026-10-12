@@ -28,12 +28,12 @@ enum SchemaState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceKind {
+pub enum Provider {
     Manual,
     Wanikani,
 }
 
-impl SourceKind {
+impl Provider {
     fn tag(self) -> &'static str {
         match self {
             Self::Manual => "manual",
@@ -45,7 +45,7 @@ impl SourceKind {
         match value {
             "manual" => Ok(Self::Manual),
             "wanikani" => Ok(Self::Wanikani),
-            _ => Err(SqliteKnowledgeError::Corrupt("unknown source kind")),
+            _ => Err(SqliteKnowledgeError::Corrupt("unknown provider")),
         }
     }
 }
@@ -53,14 +53,14 @@ impl SourceKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnowledgeScope {
     pub learner_id: String,
-    pub collection_id: String,
-    pub profile_id: String,
+    pub source_collection_id: String,
+    pub source_learner_profile_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeMetadata {
-    pub source_kind: SourceKind,
-    pub provider_account_id: Option<String>,
+    pub provider: Provider,
+    pub external_account_id: Option<String>,
     pub access_expires_at: Option<DateTime<Utc>>,
 }
 
@@ -158,11 +158,11 @@ impl SqliteKnowledgeStore {
     ) -> Result<(), SqliteKnowledgeError> {
         validate_scope(scope)?;
         if metadata
-            .provider_account_id
+            .external_account_id
             .as_ref()
             .is_some_and(|id| id.trim().is_empty())
         {
-            return Err(SqliteKnowledgeError::InvalidInput("blank provider account"));
+            return Err(SqliteKnowledgeError::InvalidInput("blank external account"));
         }
         let mut external_ids = BTreeSet::new();
         let mut word_ids = BTreeSet::new();
@@ -184,7 +184,7 @@ impl SqliteKnowledgeStore {
                 }
                 MappedContent::NonVocabulary(origin) | MappedContent::Unavailable(origin) => origin,
             };
-            if source_origin(metadata.source_kind, &record.external_id).as_ref() != Some(origin) {
+            if source_origin(metadata.provider, &record.external_id).as_ref() != Some(origin) {
                 return Err(SqliteKnowledgeError::InvalidInput(
                     "source provenance disagrees with external identity",
                 ));
@@ -288,19 +288,23 @@ fn require_delete_journal(connection: &Connection) -> Result<(), SqliteKnowledge
 }
 
 fn validate_scope(scope: &KnowledgeScope) -> Result<(), SqliteKnowledgeError> {
-    if [&scope.learner_id, &scope.collection_id, &scope.profile_id]
-        .iter()
-        .any(|id| id.trim().is_empty())
+    if [
+        &scope.learner_id,
+        &scope.source_collection_id,
+        &scope.source_learner_profile_id,
+    ]
+    .iter()
+    .any(|id| id.trim().is_empty())
     {
         return Err(SqliteKnowledgeError::InvalidInput("blank scope identity"));
     }
     Ok(())
 }
 
-fn source_origin(kind: SourceKind, external_id: &str) -> Option<SourceOrigin> {
+fn source_origin(kind: Provider, external_id: &str) -> Option<SourceOrigin> {
     match kind {
-        SourceKind::Manual if !external_id.trim().is_empty() => Some(SourceOrigin::Manual),
-        SourceKind::Wanikani => {
+        Provider::Manual if !external_id.trim().is_empty() => Some(SourceOrigin::Manual),
+        Provider::Wanikani => {
             let subject_id: u64 = external_id.parse().ok()?;
             (subject_id != 0 && subject_id.to_string() == external_id)
                 .then_some(SourceOrigin::Wanikani { subject_id })
@@ -317,41 +321,41 @@ fn publish_scope(
 ) -> Result<(), SqliteKnowledgeError> {
     bind_scope(transaction, scope, metadata)?;
     transaction.execute(
-        "DELETE FROM source_profile_subjects WHERE profile_id = ?1",
-        [&scope.profile_id],
+        "DELETE FROM source_profile_subjects WHERE source_learner_profile_id = ?1",
+        [&scope.source_learner_profile_id],
     )?;
     let mut insert_subject = transaction.prepare(
-        "INSERT INTO source_subjects (collection_id, external_id) VALUES (?1, ?2)
-         ON CONFLICT (collection_id, external_id) DO NOTHING",
+        "INSERT INTO source_subjects (source_collection_id, external_id) VALUES (?1, ?2)
+         ON CONFLICT (source_collection_id, external_id) DO NOTHING",
     )?;
     let mut find_subject = transaction.prepare(
-        "SELECT subject_id FROM source_subjects WHERE collection_id = ?1 AND external_id = ?2",
+        "SELECT id FROM source_subjects WHERE source_collection_id = ?1 AND external_id = ?2",
     )?;
     let mut upsert_vocabulary = transaction.prepare(
-        "INSERT INTO source_vocabulary (subject_id, collection_id, word_id, written_form, direct_object)
-         VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (subject_id) DO UPDATE SET
-         word_id = excluded.word_id, written_form = excluded.written_form, direct_object = excluded.direct_object")?;
-    let mut delete_readings =
-        transaction.prepare("DELETE FROM source_vocabulary_readings WHERE subject_id = ?1")?;
-    let mut insert_readings = transaction.prepare("INSERT INTO source_vocabulary_readings (subject_id, position, reading) VALUES (?1, ?2, ?3)")?;
-    let mut delete_meanings =
-        transaction.prepare("DELETE FROM source_vocabulary_meanings WHERE subject_id = ?1")?;
-    let mut insert_meanings = transaction.prepare("INSERT INTO source_vocabulary_meanings (subject_id, position, meaning) VALUES (?1, ?2, ?3)")?;
+        "INSERT INTO source_vocabulary (source_subject_id, source_collection_id, word_id, spelling, has_direct_object_evidence)
+         VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (source_subject_id) DO UPDATE SET
+         word_id = excluded.word_id, spelling = excluded.spelling, has_direct_object_evidence = excluded.has_direct_object_evidence")?;
+    let mut delete_readings = transaction
+        .prepare("DELETE FROM source_vocabulary_readings WHERE source_subject_id = ?1")?;
+    let mut insert_readings = transaction.prepare("INSERT INTO source_vocabulary_readings (source_subject_id, position, reading) VALUES (?1, ?2, ?3)")?;
+    let mut delete_meanings = transaction
+        .prepare("DELETE FROM source_vocabulary_meanings WHERE source_subject_id = ?1")?;
+    let mut insert_meanings = transaction.prepare("INSERT INTO source_vocabulary_meanings (source_subject_id, position, meaning) VALUES (?1, ?2, ?3)")?;
     let mut insert_association = transaction.prepare(
-        "INSERT INTO source_profile_subjects (profile_id, subject_id, collection_id, position, content_kind) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+        "INSERT INTO source_profile_subjects (source_learner_profile_id, source_subject_id, source_collection_id, position, content_kind) VALUES (?1, ?2, ?3, ?4, ?5)")?;
     let mut insert_progress = transaction.prepare(
-        "INSERT INTO source_learner_progress (profile_id, subject_id, is_marked_known, learning_started_at, first_passed_at, is_hidden)
+        "INSERT INTO source_learner_progress (source_learner_profile_id, source_subject_id, is_marked_known, learning_started_at, first_passed_at, is_hidden)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
     for (position, record) in records.iter().enumerate() {
-        insert_subject.execute(params![scope.collection_id, record.external_id])?;
-        let subject_id: i64 = find_subject
-            .query_row(params![scope.collection_id, record.external_id], |row| {
-                row.get(0)
-            })?;
+        insert_subject.execute(params![scope.source_collection_id, record.external_id])?;
+        let subject_id: i64 = find_subject.query_row(
+            params![scope.source_collection_id, record.external_id],
+            |row| row.get(0),
+        )?;
         if let MappedContent::Vocabulary(word) = &record.content {
             upsert_vocabulary.execute(params![
                 subject_id,
-                scope.collection_id,
+                scope.source_collection_id,
                 word.id,
                 word.written_form,
                 word.direct_object
@@ -372,15 +376,15 @@ fn publish_scope(
             MappedContent::Unavailable(_) => "unavailable",
         };
         insert_association.execute(params![
-            scope.profile_id,
+            scope.source_learner_profile_id,
             subject_id,
-            scope.collection_id,
+            scope.source_collection_id,
             position as i64,
             kind
         ])?;
         if let Some(observation) = record.progress {
             insert_progress.execute(params![
-                scope.profile_id,
+                scope.source_learner_profile_id,
                 subject_id,
                 observation.is_marked_known,
                 observation
@@ -392,9 +396,9 @@ fn publish_scope(
         }
     }
     transaction.execute(
-        "UPDATE source_learner_profiles SET access_expires_at = ?2 WHERE profile_id = ?1",
+        "UPDATE source_learner_profiles SET access_expires_at = ?2 WHERE id = ?1",
         params![
-            scope.profile_id,
+            scope.source_learner_profile_id,
             metadata.access_expires_at.map(|date| date.to_rfc3339())
         ],
     )?;
@@ -407,18 +411,18 @@ fn read_scope(
 ) -> Result<StoredKnowledge, SqliteKnowledgeError> {
     let metadata = read_metadata(transaction, scope)?;
     let mut statement = transaction.prepare(
-        "SELECT a.subject_id, a.collection_id, a.position, a.content_kind, s.collection_id, s.external_id,
-                v.collection_id, v.word_id, v.written_form, v.direct_object,
-                p.subject_id, p.is_marked_known, p.learning_started_at, p.first_passed_at, p.is_hidden
-         FROM source_profile_subjects a LEFT JOIN source_subjects s ON s.subject_id = a.subject_id
-         LEFT JOIN source_vocabulary v ON v.subject_id = a.subject_id
-         LEFT JOIN source_learner_progress p ON p.profile_id = a.profile_id AND p.subject_id = a.subject_id
-         WHERE a.profile_id = ?1 ORDER BY a.position")?;
+        "SELECT a.source_subject_id, a.source_collection_id, a.position, a.content_kind, s.source_collection_id, s.external_id,
+                v.source_collection_id, v.word_id, v.spelling, v.has_direct_object_evidence,
+                p.source_subject_id, p.is_marked_known, p.learning_started_at, p.first_passed_at, p.is_hidden
+         FROM source_profile_subjects a LEFT JOIN source_subjects s ON s.id = a.source_subject_id
+         LEFT JOIN source_vocabulary v ON v.source_subject_id = a.source_subject_id
+         LEFT JOIN source_learner_progress p ON p.source_learner_profile_id = a.source_learner_profile_id AND p.source_subject_id = a.source_subject_id
+         WHERE a.source_learner_profile_id = ?1 ORDER BY a.position")?;
     let mut readings = transaction.prepare(
-        "SELECT position, reading FROM source_vocabulary_readings WHERE subject_id = ?1 ORDER BY position")?;
+        "SELECT position, reading FROM source_vocabulary_readings WHERE source_subject_id = ?1 ORDER BY position")?;
     let mut meanings = transaction.prepare(
-        "SELECT position, meaning FROM source_vocabulary_meanings WHERE subject_id = ?1 ORDER BY position")?;
-    let mut rows = statement.query([&scope.profile_id])?;
+        "SELECT position, meaning FROM source_vocabulary_meanings WHERE source_subject_id = ?1 ORDER BY position")?;
+    let mut rows = statement.query([&scope.source_learner_profile_id])?;
     let mut records = Vec::new();
     while let Some(row) = rows.next()? {
         let subject_id: i64 = row.get(0)?;
@@ -426,7 +430,7 @@ fn read_scope(
         let subject_collection: String = row
             .get::<_, Option<String>>(4)?
             .ok_or(SqliteKnowledgeError::Corrupt("missing subject"))?;
-        if collection != scope.collection_id || subject_collection != collection {
+        if collection != scope.source_collection_id || subject_collection != collection {
             return Err(SqliteKnowledgeError::Corrupt(
                 "cross-collection subject association",
             ));
@@ -435,7 +439,7 @@ fn read_scope(
             return Err(SqliteKnowledgeError::Corrupt("invalid subject order"));
         }
         let external_id: String = row.get(5)?;
-        let origin = source_origin(metadata.source_kind, &external_id).ok_or(
+        let origin = source_origin(metadata.provider, &external_id).ok_or(
             SqliteKnowledgeError::Corrupt("invalid external subject identity"),
         )?;
         let vocabulary_collection: Option<String> = row.get(6)?;
@@ -485,9 +489,9 @@ fn read_scope(
     }
     let orphan: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM source_learner_progress p LEFT JOIN source_profile_subjects a
-         ON a.profile_id = p.profile_id AND a.subject_id = p.subject_id
-         WHERE p.profile_id = ?1 AND a.subject_id IS NULL)",
-        [&scope.profile_id],
+         ON a.source_learner_profile_id = p.source_learner_profile_id AND a.source_subject_id = p.source_subject_id
+         WHERE p.source_learner_profile_id = ?1 AND a.source_subject_id IS NULL)",
+        [&scope.source_learner_profile_id],
         |row| row.get(0),
     )?;
     if orphan {
@@ -546,28 +550,31 @@ fn bind_scope(
     metadata: &ScopeMetadata,
 ) -> Result<(), SqliteKnowledgeError> {
     transaction.execute(
-        "INSERT INTO learners (learner_id) VALUES (?1) ON CONFLICT DO NOTHING",
+        "INSERT INTO learners (id) VALUES (?1) ON CONFLICT DO NOTHING",
         [&scope.learner_id],
     )?;
-    transaction.execute("INSERT INTO source_collections (collection_id, source_kind) VALUES (?1, ?2) ON CONFLICT DO NOTHING", params![scope.collection_id, metadata.source_kind.tag()])?;
+    transaction.execute(
+        "INSERT INTO source_collections (id, provider) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+        params![scope.source_collection_id, metadata.provider.tag()],
+    )?;
     let kind: String = transaction.query_row(
-        "SELECT source_kind FROM source_collections WHERE collection_id = ?1",
-        [&scope.collection_id],
+        "SELECT provider FROM source_collections WHERE id = ?1",
+        [&scope.source_collection_id],
         |row| row.get(0),
     )?;
-    if SourceKind::decode(&kind)? != metadata.source_kind {
+    if Provider::decode(&kind)? != metadata.provider {
         return Err(SqliteKnowledgeError::BindingMismatch);
     }
-    transaction.execute("INSERT INTO source_learner_profiles (profile_id, learner_id, collection_id, provider_account_id) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
-        params![scope.profile_id, scope.learner_id, scope.collection_id, metadata.provider_account_id])?;
-    let (learner_id, collection_id, account_id) = transaction.query_row(
-        "SELECT learner_id, collection_id, provider_account_id FROM source_learner_profiles WHERE profile_id = ?1",
-        [&scope.profile_id],
+    transaction.execute("INSERT INTO source_learner_profiles (id, learner_id, source_collection_id, external_account_id) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING",
+        params![scope.source_learner_profile_id, scope.learner_id, scope.source_collection_id, metadata.external_account_id])?;
+    let (learner_id, source_collection_id, account_id) = transaction.query_row(
+        "SELECT learner_id, source_collection_id, external_account_id FROM source_learner_profiles WHERE id = ?1",
+        [&scope.source_learner_profile_id],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)),
     ).optional()?.ok_or(SqliteKnowledgeError::BindingMismatch)?;
     if learner_id != scope.learner_id
-        || collection_id != scope.collection_id
-        || account_id != metadata.provider_account_id
+        || source_collection_id != scope.source_collection_id
+        || account_id != metadata.external_account_id
     {
         return Err(SqliteKnowledgeError::BindingMismatch);
     }
@@ -578,27 +585,27 @@ fn read_metadata(
     transaction: &Transaction<'_>,
     scope: &KnowledgeScope,
 ) -> Result<ScopeMetadata, SqliteKnowledgeError> {
-    let (learner_id, collection_id, account_id, deadline, source_kind, learner) = transaction.query_row(
-        "SELECT p.learner_id, p.collection_id, p.provider_account_id, p.access_expires_at, c.source_kind, l.learner_id
-         FROM source_learner_profiles p LEFT JOIN source_collections c ON c.collection_id = p.collection_id
-         LEFT JOIN learners l ON l.learner_id = p.learner_id WHERE p.profile_id = ?1",
-        [&scope.profile_id],
+    let (learner_id, source_collection_id, account_id, deadline, provider, learner) = transaction.query_row(
+        "SELECT p.learner_id, p.source_collection_id, p.external_account_id, p.access_expires_at, c.provider, l.id
+         FROM source_learner_profiles p LEFT JOIN source_collections c ON c.id = p.source_collection_id
+         LEFT JOIN learners l ON l.id = p.learner_id WHERE p.id = ?1",
+        [&scope.source_learner_profile_id],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?, row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?)),
     ).optional()?.ok_or(SqliteKnowledgeError::MissingScope)?;
-    if learner_id != scope.learner_id || collection_id != scope.collection_id {
+    if learner_id != scope.learner_id || source_collection_id != scope.source_collection_id {
         return Err(SqliteKnowledgeError::BindingMismatch);
     }
     if learner.is_none() {
         return Err(SqliteKnowledgeError::Corrupt("missing learner"));
     }
-    let source_kind = source_kind.ok_or(SqliteKnowledgeError::Corrupt("missing collection"))?;
+    let provider = provider.ok_or(SqliteKnowledgeError::Corrupt("missing collection"))?;
     if account_id.as_ref().is_some_and(|id| id.trim().is_empty()) {
-        return Err(SqliteKnowledgeError::Corrupt("blank provider account"));
+        return Err(SqliteKnowledgeError::Corrupt("blank external account"));
     }
     Ok(ScopeMetadata {
-        source_kind: SourceKind::decode(&source_kind)?,
-        provider_account_id: account_id,
+        provider: Provider::decode(&provider)?,
+        external_account_id: account_id,
         access_expires_at: decode_date(deadline)?,
     })
 }

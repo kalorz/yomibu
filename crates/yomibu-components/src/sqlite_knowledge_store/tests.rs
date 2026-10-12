@@ -3,15 +3,15 @@ use super::*;
 fn scope() -> KnowledgeScope {
     KnowledgeScope {
         learner_id: "learner".into(),
-        collection_id: "manual".into(),
-        profile_id: "profile".into(),
+        source_collection_id: "manual".into(),
+        source_learner_profile_id: "profile".into(),
     }
 }
 
 fn metadata() -> ScopeMetadata {
     ScopeMetadata {
-        source_kind: SourceKind::Manual,
-        provider_account_id: None,
+        provider: Provider::Manual,
+        external_account_id: None,
         access_expires_at: None,
     }
 }

@@ -1,5 +1,5 @@
 use yomibu_components::sqlite_knowledge_store::{
-    KnowledgeScope, MappedKnowledgeRecord, ScopeMetadata, SourceKind, SqliteKnowledgeError,
+    KnowledgeScope, MappedKnowledgeRecord, Provider, ScopeMetadata, SqliteKnowledgeError,
     SqliteKnowledgeStore, StoredKnowledge,
 };
 use yomibu_core::domain::{
@@ -71,15 +71,15 @@ fn prepare(stored: StoredKnowledge, policy: LearnerKnowledgePolicy) -> serde_jso
 fn scope(profile: &str) -> KnowledgeScope {
     KnowledgeScope {
         learner_id: profile.into(),
-        collection_id: "shared".into(),
-        profile_id: profile.into(),
+        source_collection_id: "shared".into(),
+        source_learner_profile_id: profile.into(),
     }
 }
 
 fn metadata() -> ScopeMetadata {
     ScopeMetadata {
-        source_kind: SourceKind::Manual,
-        provider_account_id: None,
+        provider: Provider::Manual,
+        external_account_id: None,
         access_expires_at: None,
     }
 }
@@ -136,7 +136,7 @@ fn shared_content_updates_preserve_other_profiles_facts_and_availability() {
     let mut b = [word("x"), word("u")];
     b[0].progress.as_mut().unwrap().is_marked_known = Some(false);
     let mut b_metadata = metadata();
-    b_metadata.provider_account_id = Some("b-account".into());
+    b_metadata.external_account_id = Some("b-account".into());
     b_metadata.access_expires_at = chrono::DateTime::from_timestamp(20, 0);
     store.publish(&scope("b"), &b_metadata, &b).unwrap();
     let before_b = facts(&store.read(&scope("b")).unwrap());
@@ -146,7 +146,7 @@ fn shared_content_updates_preserve_other_profiles_facts_and_availability() {
     let connection = rusqlite::Connection::open(&path).unwrap();
     let subject = sql_integer(
         &connection,
-        "SELECT subject_id FROM source_subjects WHERE external_id='x'",
+        "SELECT id FROM source_subjects WHERE external_id='x'",
     );
     assert_eq!(
         sql_integer(&connection, "SELECT count(*) FROM source_vocabulary"),
@@ -171,7 +171,7 @@ fn shared_content_updates_preserve_other_profiles_facts_and_availability() {
     assert_eq!(
         sql_integer(
             &connection,
-            "SELECT subject_id FROM source_subjects WHERE external_id='x'"
+            "SELECT id FROM source_subjects WHERE external_id='x'"
         ),
         subject
     );
@@ -216,7 +216,7 @@ fn a_late_database_constraint_failure_rolls_back_content_and_profile_changes() {
         word.id = "word:retained".into();
     }
     let mut new_metadata = metadata();
-    new_metadata.provider_account_id = Some("new-account".into());
+    new_metadata.external_account_id = Some("new-account".into());
     let existing_metadata = metadata();
     for (scope, metadata) in [
         (scope("new-profile"), &new_metadata),
@@ -288,8 +288,8 @@ fn ordinary_reads_do_not_adopt_unmarked_or_unsupported_databases() {
 #[test]
 fn reads_reject_corrupt_scoped_values_and_required_relationships() {
     for corruption in [
-        "UPDATE source_vocabulary SET direct_object=2",
-        "UPDATE source_vocabulary SET written_form=CAST(x'ff' AS TEXT)",
+        "UPDATE source_vocabulary SET has_direct_object_evidence=2",
+        "UPDATE source_vocabulary SET spelling=CAST(x'ff' AS TEXT)",
         "UPDATE source_learner_progress SET is_hidden=-1",
         "UPDATE source_learner_progress SET is_marked_known='true'",
         "UPDATE source_learner_progress SET learning_started_at='yesterday'",
@@ -299,21 +299,21 @@ fn reads_reject_corrupt_scoped_values_and_required_relationships() {
         "UPDATE source_learner_progress SET first_passed_at='2026-01-01T00:00:00 UTC'",
         "UPDATE source_learner_progress SET first_passed_at='2026-01-01T00:00:00Z'",
         "UPDATE source_learner_profiles SET access_expires_at='bad'",
-        "UPDATE source_learner_profiles SET provider_account_id=''",
-        "UPDATE source_collections SET source_kind='unknown'",
+        "UPDATE source_learner_profiles SET external_account_id=''",
+        "UPDATE source_collections SET provider='unknown'",
         "UPDATE source_profile_subjects SET content_kind='unknown'",
         "UPDATE source_profile_subjects SET position=-1",
         "UPDATE source_vocabulary_readings SET position=9 WHERE position=0",
         "UPDATE source_vocabulary_meanings SET meaning=' '",
         "UPDATE source_subjects SET external_id=''",
-        "UPDATE source_subjects SET collection_id='other'",
-        "UPDATE source_profile_subjects SET collection_id='other'",
-        "UPDATE source_vocabulary SET collection_id='other'",
+        "UPDATE source_subjects SET source_collection_id='other'",
+        "UPDATE source_profile_subjects SET source_collection_id='other'",
+        "UPDATE source_vocabulary SET source_collection_id='other'",
         "DELETE FROM source_vocabulary",
         "DELETE FROM source_subjects",
         "DELETE FROM learners",
         "DELETE FROM source_collections",
-        "INSERT INTO source_learner_progress (profile_id,subject_id,is_hidden) VALUES ('a',999,0)",
+        "INSERT INTO source_learner_progress (source_learner_profile_id,source_subject_id,is_hidden) VALUES ('a',999,0)",
     ] {
         let (_directory, path, store) = initialized_database();
         store
@@ -376,7 +376,7 @@ fn initialization_preserves_supported_database_permissions() {
 fn a_duplicate_account_binding_rolls_back_the_new_profile() {
     let (_directory, _path, store) = initialized_database();
     let mut metadata = metadata();
-    metadata.provider_account_id = Some("account".into());
+    metadata.external_account_id = Some("account".into());
     store.publish(&scope("a"), &metadata, &[]).unwrap();
     let mut duplicate = scope("new-profile");
     duplicate.learner_id = "a".into();
@@ -471,7 +471,7 @@ fn read_integrity_is_scoped_and_database_bytes_remain_unchanged() {
         .pragma_update(None, "foreign_keys", false)
         .unwrap();
     connection
-        .execute("DELETE FROM learners WHERE learner_id='b'", [])
+        .execute("DELETE FROM learners WHERE id='b'", [])
         .unwrap();
     drop(connection);
     let before = std::fs::read(&path).unwrap();
@@ -492,7 +492,7 @@ fn sql_enforces_relationships_uniqueness_and_required_values_without_rust_valida
     };
     let (_directory, path, store) = initialized_database();
     let mut account = metadata();
-    account.provider_account_id = Some("account".into());
+    account.external_account_id = Some("account".into());
     store
         .publish(&scope("a"), &account, &[word("x"), word("y")])
         .unwrap();
@@ -508,15 +508,15 @@ fn sql_enforces_relationships_uniqueness_and_required_values_without_rust_valida
         .unwrap();
     for (sql, expected) in [
         (
-            "INSERT INTO source_subjects (collection_id,external_id) VALUES ('missing','z')",
+            "INSERT INTO source_subjects (source_collection_id,external_id) VALUES ('missing','z')",
             FK,
         ),
         (
-            "INSERT INTO source_learner_profiles (profile_id,learner_id,collection_id) VALUES ('p','missing','shared')",
+            "INSERT INTO source_learner_profiles (id,learner_id,source_collection_id) VALUES ('p','missing','shared')",
             FK,
         ),
         (
-            "INSERT INTO source_learner_progress (profile_id,subject_id,is_hidden) VALUES ('missing',1,0)",
+            "INSERT INTO source_learner_progress (source_learner_profile_id,source_subject_id,is_hidden) VALUES ('missing',1,0)",
             FK,
         ),
         (
@@ -524,17 +524,17 @@ fn sql_enforces_relationships_uniqueness_and_required_values_without_rust_valida
             FK,
         ),
         (
-            "UPDATE source_profile_subjects SET collection_id='other'",
-            FK,
-        ),
-        ("UPDATE source_vocabulary SET collection_id='other'", FK),
-        ("DELETE FROM learners WHERE learner_id='a'", FK),
-        (
-            "DELETE FROM source_collections WHERE collection_id='shared'",
+            "UPDATE source_profile_subjects SET source_collection_id='other'",
             FK,
         ),
         (
-            "INSERT INTO source_subjects (collection_id,external_id) VALUES ('shared','x')",
+            "UPDATE source_vocabulary SET source_collection_id='other'",
+            FK,
+        ),
+        ("DELETE FROM learners WHERE id='a'", FK),
+        ("DELETE FROM source_collections WHERE id='shared'", FK),
+        (
+            "INSERT INTO source_subjects (source_collection_id,external_id) VALUES ('shared','x')",
             UNIQUE,
         ),
         ("UPDATE source_profile_subjects SET position=0", UNIQUE),
@@ -544,15 +544,15 @@ fn sql_enforces_relationships_uniqueness_and_required_values_without_rust_valida
             PK,
         ),
         (
-            "INSERT INTO source_learner_profiles (profile_id,learner_id,collection_id,provider_account_id) VALUES ('p','a','shared','account')",
+            "INSERT INTO source_learner_profiles (id,learner_id,source_collection_id,external_account_id) VALUES ('p','a','shared','account')",
             UNIQUE,
         ),
         ("INSERT INTO learners VALUES (NULL)", NULL),
         (
-            "INSERT INTO source_subjects (collection_id,external_id) VALUES ('shared',NULL)",
+            "INSERT INTO source_subjects (source_collection_id,external_id) VALUES ('shared',NULL)",
             NULL,
         ),
-        ("UPDATE source_vocabulary SET written_form=NULL", NULL),
+        ("UPDATE source_vocabulary SET spelling=NULL", NULL),
         ("UPDATE source_learner_progress SET is_hidden=NULL", NULL),
     ] {
         let error = connection.execute(sql, []).unwrap_err();
@@ -566,10 +566,10 @@ fn sql_enforces_relationships_uniqueness_and_required_values_without_rust_valida
     let mut second = scope("second");
     second.learner_id = "a".into();
     store.publish(&second, &metadata(), &[]).unwrap();
-    second.profile_id = "third".into();
+    second.source_learner_profile_id = "third".into();
     store.publish(&second, &metadata(), &[]).unwrap();
-    second.collection_id = "other".into();
-    second.profile_id = "separate-collection".into();
+    second.source_collection_id = "other".into();
+    second.source_learner_profile_id = "separate-collection".into();
     store.publish(&second, &metadata(), &[word("x")]).unwrap();
     assert_eq!(
         connection
@@ -671,13 +671,13 @@ fn invalid_publications_do_not_change_existing_facts_or_bindings() {
         Err(SqliteKnowledgeError::InvalidInput(_))
     ));
     let mut changed = metadata();
-    changed.source_kind = SourceKind::Wanikani;
+    changed.provider = Provider::Wanikani;
     assert!(matches!(
         store.publish(&scope("a"), &changed, &[]),
         Err(SqliteKnowledgeError::BindingMismatch)
     ));
     changed = metadata();
-    changed.provider_account_id = Some("account".into());
+    changed.external_account_id = Some("account".into());
     assert!(matches!(
         store.publish(&scope("a"), &changed, &[]),
         Err(SqliteKnowledgeError::BindingMismatch)
@@ -693,7 +693,7 @@ fn invalid_publications_do_not_change_existing_facts_or_bindings() {
         Err(SqliteKnowledgeError::BindingMismatch)
     ));
     wrong_scope = scope("a");
-    wrong_scope.collection_id.clear();
+    wrong_scope.source_collection_id.clear();
     assert!(matches!(
         store.publish(&wrong_scope, &metadata(), &[]),
         Err(SqliteKnowledgeError::InvalidInput(_))

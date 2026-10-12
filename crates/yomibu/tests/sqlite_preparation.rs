@@ -14,7 +14,7 @@ use yomibu_components::{
     in_memory_learning_store::InMemoryLearningStore,
     openai_story_generation::Client,
     sqlite_knowledge_store::{
-        KnowledgeScope, MappedKnowledgeRecord, ScopeMetadata, SourceKind, SqliteKnowledgeStore,
+        KnowledgeScope, MappedKnowledgeRecord, Provider, ScopeMetadata, SqliteKnowledgeStore,
     },
     wanikani_source::map_content_and_progress,
 };
@@ -42,12 +42,12 @@ fn published() -> (
     .unwrap();
     let scope = KnowledgeScope {
         learner_id: "yomibu-learner".into(),
-        collection_id: "wanikani".into(),
-        profile_id: "connection".into(),
+        source_collection_id: "wanikani".into(),
+        source_learner_profile_id: "connection".into(),
     };
     let metadata = ScopeMetadata {
-        source_kind: SourceKind::Wanikani,
-        provider_account_id: Some(source.learner.id.clone()),
+        provider: Provider::Wanikani,
+        external_account_id: Some(source.learner.id.clone()),
         access_expires_at: source
             .learner
             .subscription
@@ -134,7 +134,7 @@ async fn reopened_sqlite_knowledge_generates_through_supplied_inventory_without_
         stored.scope.learner_id,
         stored
             .metadata
-            .provider_account_id
+            .external_account_id
             .as_ref()
             .unwrap()
             .as_str()
