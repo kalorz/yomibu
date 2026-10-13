@@ -4,13 +4,17 @@ mod story_inventory;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use yomibu_core::domain::{
-    generation::{StoryError, StoryRequest},
+    generation::{StoryError, StoryFormat, StoryGenerationOptions, StoryRequest},
     knowledge::inventory::{
         InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory, SourceOrigin,
     },
 };
+use yomibu_core::extension::options::Options;
 use yomibu_ext::learner_vocabulary_selection::select_builtin_vocabulary;
-use yomibu_ext::{openai::preparation::fit_selection_and_build_request, wanikani};
+use yomibu_ext::{
+    openai::{self, preparation::fit_selection_and_build_request},
+    wanikani,
+};
 
 #[tokio::test]
 async fn current_story_request_matches_the_reviewed_prompt_and_payload_snapshot() {
@@ -18,9 +22,14 @@ async fn current_story_request_matches_the_reviewed_prompt_and_payload_snapshot(
     let request =
         serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
     let selection = select_builtin_vocabulary(&inventory, &request, 2, 7).unwrap();
+    let options = openai::generation_options(
+        Options::default().for_component(&openai::COMPONENT),
+        1,
+        StoryFormat::Passage,
+    )
+    .unwrap();
     let (_, prepared) =
-        fit_selection_and_build_request(&inventory, &request, selection, Default::default())
-            .unwrap();
+        fit_selection_and_build_request(&inventory, &request, selection, options).unwrap();
     let body = prepared.body_utf8();
     let snapshot = include_str!("../../../tests/fixtures/story/provider-request.json");
     assert!(
@@ -126,8 +135,17 @@ async fn provenance_does_not_change_the_prepared_request() {
     let mut requests = Vec::new();
     for inventory in [&wk, &manual] {
         let plan = select_builtin_vocabulary(inventory, &request, 4, 7).unwrap();
-        let (_, prepared_request) =
-            fit_selection_and_build_request(inventory, &request, plan, Default::default()).unwrap();
+        let (_, prepared_request) = fit_selection_and_build_request(
+            inventory,
+            &request,
+            plan,
+            StoryGenerationOptions {
+                candidate_count: 1,
+                format: StoryFormat::Passage,
+                model: "test-model".into(),
+            },
+        )
+        .unwrap();
         requests.push(prepared_request);
     }
     assert_eq!(requests[0].body_utf8(), requests[1].body_utf8());
@@ -138,8 +156,6 @@ async fn provenance_does_not_change_the_prepared_request() {
 
 #[test]
 fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() {
-    use yomibu_core::domain::generation::StoryGenerationOptions;
-    assert_eq!(StoryGenerationOptions::default().candidate_count, 1);
     assert!(
         serde_json::to_value(request())
             .unwrap()
@@ -150,7 +166,8 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
         assert!(
             yomibu_ext::openai::validate_options(&StoryGenerationOptions {
                 candidate_count: count,
-                ..Default::default()
+                format: StoryFormat::Passage,
+                model: "test-model".into(),
             })
             .is_ok()
         );
@@ -159,7 +176,8 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
         assert!(
             yomibu_ext::openai::validate_options(&StoryGenerationOptions {
                 candidate_count: count,
-                ..Default::default()
+                format: StoryFormat::Passage,
+                model: "test-model".into(),
             })
             .is_err()
         );
@@ -228,9 +246,17 @@ fn request_budget_drops_lowest_ranked_supports_and_keeps_targets_and_grammar() {
     let selection = select_builtin_vocabulary(&inventory, &request, 3, 7).unwrap();
     assert_eq!(selection.selected.len(), 3);
 
-    let (selection, prepared_request) =
-        fit_selection_and_build_request(&inventory, &request, selection, Default::default())
-            .unwrap();
+    let (selection, prepared_request) = fit_selection_and_build_request(
+        &inventory,
+        &request,
+        selection,
+        StoryGenerationOptions {
+            candidate_count: 1,
+            format: StoryFormat::Passage,
+            model: "test-model".into(),
+        },
+    )
+    .unwrap();
 
     assert_eq!(
         selection
@@ -272,7 +298,11 @@ fn request_budget_rejects_targets_that_cannot_fit() {
     let selection = select_builtin_vocabulary(&inventory, &request, 2, 7).unwrap();
 
     assert!(matches!(
-        fit_selection_and_build_request(&inventory, &request, selection, Default::default()),
+        fit_selection_and_build_request(&inventory, &request, selection, StoryGenerationOptions {
+            candidate_count: 1,
+            format: StoryFormat::Passage,
+            model: "test-model".into(),
+        }),
         Err(StoryError::RequiredMaterialTooLarge { bytes, limit: 16384 }) if bytes > 16384
     ));
 }

@@ -68,15 +68,6 @@ pub struct StoryGenerationOptions {
     pub format: StoryFormat,
     pub model: String,
 }
-impl Default for StoryGenerationOptions {
-    fn default() -> Self {
-        Self {
-            candidate_count: 1,
-            format: StoryFormat::Passage,
-            model: "gpt-6-luna".into(),
-        }
-    }
-}
 #[derive(Debug, thiserror::Error)]
 pub enum StoryError {
     #[error(transparent)]

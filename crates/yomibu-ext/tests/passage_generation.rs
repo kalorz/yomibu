@@ -4,15 +4,20 @@ mod story_inventory;
 use serde_json::{Value, json};
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::method};
 use yomibu_core::domain::generation::{StoryFormat, StoryGenerationOptions};
+use yomibu_core::extension::options::Options;
 use yomibu_ext::learner_vocabulary_selection::select_builtin_vocabulary;
-use yomibu_ext::openai::{Client, PreparedRequest};
+use yomibu_ext::openai::{self, Client, PreparedRequest};
 
 #[tokio::test]
 async fn passage_request_uses_selected_model_and_preserves_sentence_byte_ranges() {
-    let options = StoryGenerationOptions {
-        model: "chosen-model".into(),
-        ..Default::default()
-    };
+    let mut values = Options::default();
+    values.set(openai::MODEL, "chosen-model".into());
+    let options = openai::generation_options(
+        values.for_component(&openai::COMPONENT),
+        1,
+        StoryFormat::Passage,
+    )
+    .unwrap();
     let request = PreparedRequest::new("prompt", "{}", "test", &options, 16384).unwrap();
     let body: Value = serde_json::from_str(request.body_utf8()).unwrap();
     assert_eq!(body["model"], "chosen-model");
@@ -42,8 +47,9 @@ async fn passage_request_uses_selected_model_and_preserves_sentence_byte_ranges(
 #[test]
 fn sentence_mode_has_one_sentence_and_its_own_budget() {
     let options = StoryGenerationOptions {
+        candidate_count: 1,
         format: StoryFormat::Sentence,
-        ..Default::default()
+        model: "test-model".into(),
     };
     let request = PreparedRequest::new("prompt", "{}", "test", &options, 16384).unwrap();
     let body: Value = serde_json::from_str(request.body_utf8()).unwrap();
@@ -60,7 +66,8 @@ fn invalid_text_models_report_the_model_instead_of_the_candidate_count() {
     for model in [String::new(), " \n".into(), "x".repeat(257)] {
         let options = StoryGenerationOptions {
             model,
-            ..Default::default()
+            candidate_count: 1,
+            format: StoryFormat::Passage,
         };
         let validation = yomibu_ext::openai::validate_options(&options)
             .unwrap_err()
@@ -78,7 +85,8 @@ fn invalid_text_models_report_the_model_instead_of_the_candidate_count() {
     }
     let options = StoryGenerationOptions {
         model: "x".repeat(256),
-        ..Default::default()
+        candidate_count: 1,
+        format: StoryFormat::Passage,
     };
     assert!(yomibu_ext::openai::validate_options(&options).is_ok());
     assert!(PreparedRequest::new("prompt", "{}", "test", &options, 16384).is_ok());
@@ -105,7 +113,7 @@ fn story_prompt_uses_complete_instructions_for_each_format_and_candidate_count()
                 StoryGenerationOptions {
                     format,
                     candidate_count,
-                    ..Default::default()
+                    model: "test-model".into(),
                 },
             )
             .unwrap();

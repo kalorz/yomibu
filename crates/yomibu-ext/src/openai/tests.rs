@@ -220,6 +220,6 @@ fn sentence_options(candidate_count: usize) -> StoryGenerationOptions {
     StoryGenerationOptions {
         candidate_count,
         format: yomibu_core::domain::generation::StoryFormat::Sentence,
-        ..Default::default()
+        model: "test-model".into(),
     }
 }

@@ -31,27 +31,35 @@ fn registered_components_have_unique_names_and_owned_settings() {
 
 #[test]
 fn providers_read_only_their_scoped_options_and_keep_domain_configuration_typed() {
-    use yomibu_core::{domain::generation::StoryGenerationOptions, extension::options::Options};
+    use yomibu_core::{domain::generation::StoryFormat, extension::options::Options};
     use yomibu_ext::{openai, wanikani};
     let mut values = Options::default();
-    let defaults = StoryGenerationOptions {
-        model: "fallback".into(),
-        ..Default::default()
-    };
-    assert_eq!(
-        openai::generation_options(values.for_component(&openai::COMPONENT), defaults.clone())
-            .unwrap()
-            .model,
-        "fallback"
-    );
+    let options = openai::generation_options(
+        values.for_component(&openai::COMPONENT),
+        3,
+        StoryFormat::Sentence,
+    )
+    .unwrap();
+    assert_eq!(options.model, "gpt-6-luna");
+    assert_eq!(options.candidate_count, 3);
+    assert_eq!(options.format, StoryFormat::Sentence);
     values.set(openai::MODEL, "text-model".into());
     assert_eq!(
-        openai::generation_options(values.for_component(&openai::COMPONENT), defaults.clone())
-            .unwrap()
-            .model,
+        openai::generation_options(
+            values.for_component(&openai::COMPONENT),
+            3,
+            StoryFormat::Sentence
+        )
+        .unwrap()
+        .model,
         "text-model"
     );
     assert!(
-        openai::generation_options(values.for_component(&wanikani::COMPONENT), defaults).is_err()
+        openai::generation_options(
+            values.for_component(&wanikani::COMPONENT),
+            3,
+            StoryFormat::Sentence
+        )
+        .is_err()
     );
 }

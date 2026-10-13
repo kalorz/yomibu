@@ -247,7 +247,7 @@ fn preparation_cannot_bind_a_selection_that_drops_a_request_target() {
             &inventory,
             &request,
             selection,
-            Default::default()
+            sentence_options()
         ),
         Err(PreparationFailure(StoryError::Invalid(
             "plan does not match inventory and targets"
@@ -290,7 +290,7 @@ fn supplied_preparer_cannot_replace_the_callers_full_inventory() {
             &inventory,
             &request,
             selection,
-            Default::default()
+            sentence_options()
         ),
         Err(PreparationFailure(StoryError::Invalid(
             "plan does not match inventory and targets"

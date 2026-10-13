@@ -179,7 +179,7 @@ async fn candidate_count_and_format_mismatches_are_invalid_responses_without_ret
         let options = StoryGenerationOptions {
             candidate_count: 3,
             format,
-            ..Default::default()
+            model: "test-model".into(),
         };
         let request = PreparedRequest::new("prompt", "{}", "test", &options, 16384).unwrap();
         let payload = json!({"candidates": (0..candidates)
@@ -353,9 +353,11 @@ async fn redirects_and_http_errors_never_retry_or_forward_credentials() {
 fn sentence_options(
     candidate_count: usize,
 ) -> yomibu_core::domain::generation::StoryGenerationOptions {
-    yomibu_core::domain::generation::StoryGenerationOptions {
+    yomibu_ext::openai::generation_options(
+        yomibu_core::extension::options::Options::default()
+            .for_component(&yomibu_ext::openai::COMPONENT),
         candidate_count,
-        format: yomibu_core::domain::generation::StoryFormat::Sentence,
-        ..Default::default()
-    }
+        yomibu_core::domain::generation::StoryFormat::Sentence,
+    )
+    .unwrap()
 }

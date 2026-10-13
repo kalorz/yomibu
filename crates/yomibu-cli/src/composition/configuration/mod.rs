@@ -134,11 +134,8 @@ impl Configuration {
         use yomibu_ext::openai;
         openai::generation_options(
             self.pipeline.options.for_component(&openai::COMPONENT),
-            StoryGenerationOptions {
-                format: self.story.format,
-                candidate_count: self.story.candidates,
-                ..Default::default()
-            },
+            self.story.candidates,
+            self.story.format,
         )
     }
 }
