@@ -292,7 +292,14 @@ async fn concurrent_supplied_stories_share_a_client_and_keep_independent_inputs(
         }
     };
     tokio::join!(run("garden", 7), run("snow", 42));
-    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    let requests = server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 2);
+    for request in requests {
+        let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+        let data: serde_json::Value =
+            serde_json::from_str(body["input"][1]["content"].as_str().unwrap()).unwrap();
+        assert_eq!(body["model"], data["topic"]);
+    }
 }
 
 #[tokio::test]

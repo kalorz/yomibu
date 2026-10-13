@@ -16,7 +16,7 @@ use yomibu_core::domain::{
     generation::candidate::{
         GeneratedCandidates, GeneratedPassage, GenerationProvenance, TokenUsage,
     },
-    generation::{StoryError, StoryGenerationOptions},
+    generation::{StoryError, StoryFormat, StoryGenerationOptions},
 };
 
 use yomibu_core::extension::{
@@ -41,12 +41,17 @@ pub const COMPONENT: Component = Component {
 
 pub fn generation_options(
     options: ComponentOptions<'_>,
-    mut defaults: StoryGenerationOptions,
+    candidate_count: usize,
+    format: StoryFormat,
 ) -> Result<StoryGenerationOptions, OptionError> {
-    if let Some(model) = options.get(MODEL)? {
-        defaults.model = model.clone();
-    }
-    Ok(defaults)
+    Ok(StoryGenerationOptions {
+        candidate_count,
+        format,
+        model: options
+            .get(MODEL)?
+            .cloned()
+            .unwrap_or_else(|| "gpt-6-luna".into()),
+    })
 }
 
 const BASE_URL: &str = "https://api.openai.com/v1/";

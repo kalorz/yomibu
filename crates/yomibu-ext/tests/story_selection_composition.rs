@@ -4,7 +4,7 @@ mod story_inventory;
 use serde_json::json;
 use yomibu_core::{
     domain::generation::finalization::select_target_first,
-    domain::generation::{SelectionInput, StoryRequest},
+    domain::generation::{SelectionInput, StoryFormat, StoryGenerationOptions, StoryRequest},
 };
 use yomibu_ext::{
     learner_vocabulary_selection::SeededOrdering,
@@ -35,9 +35,17 @@ fn custom_composition_keeps_targets_and_full_inventory_after_support_trimming() 
             .collect::<Vec<_>>(),
         ["sleep", "dog", "cat", "walk"]
     );
-    let (selection, prepared) =
-        fit_selection_and_build_request(&inventory, &request, selection, Default::default())
-            .unwrap();
+    let (selection, prepared) = fit_selection_and_build_request(
+        &inventory,
+        &request,
+        selection,
+        StoryGenerationOptions {
+            candidate_count: 1,
+            format: StoryFormat::Passage,
+            model: "test-model".into(),
+        },
+    )
+    .unwrap();
     assert_eq!(
         selection
             .selected

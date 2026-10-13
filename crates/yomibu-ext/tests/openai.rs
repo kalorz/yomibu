@@ -85,7 +85,7 @@ async fn sends_one_explicit_request_and_preserves_pair_and_provenance() {
     );
     assert_eq!(request.headers["content-type"], "application/json");
     let body: Value = serde_json::from_slice(&request.body).unwrap();
-    assert_eq!(body["model"], "gpt-6-luna");
+    assert_eq!(body["model"], "test-model");
     assert_eq!(body["service_tier"], "default");
     assert_eq!(body["reasoning"], json!({"effort":"none"}));
     assert_eq!(body["max_output_tokens"], 1024);
@@ -129,7 +129,7 @@ async fn sends_one_explicit_request_and_preserves_pair_and_provenance() {
     );
     assert_eq!(provenance.request_bytes, request.body.len());
     assert_eq!(provenance.request_count, 1);
-    assert_eq!(provenance.requested_model, "gpt-6-luna");
+    assert_eq!(provenance.requested_model, "test-model");
     assert_eq!(provenance.returned_model, "provider-reported-model");
     assert_eq!(provenance.request_id.as_deref(), Some("req_synthetic"));
     assert_eq!(provenance.response_id, "resp_synthetic");
@@ -179,7 +179,7 @@ async fn candidate_count_and_format_mismatches_are_invalid_responses_without_ret
         let options = StoryGenerationOptions {
             candidate_count: 3,
             format,
-            ..Default::default()
+            model: "test-model".into(),
         };
         let request = PreparedRequest::new("prompt", "{}", "test", &options, 16384).unwrap();
         let payload = json!({"candidates": (0..candidates)
@@ -356,6 +356,6 @@ fn sentence_options(
     yomibu_core::domain::generation::StoryGenerationOptions {
         candidate_count,
         format: yomibu_core::domain::generation::StoryFormat::Sentence,
-        ..Default::default()
+        model: "test-model".into(),
     }
 }
