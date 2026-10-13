@@ -64,8 +64,15 @@ Root `tests/fixtures/` and `tests/support/` hold shared test data and helpers.
 
 ## Engineering rules
 
-- Make the smallest change that meets the request and architecture. Estimate scope;
-  reassess and simplify unexpected growth.
+- For structural refactors, move and reconnect existing code first. Add logic or
+  public APIs only to preserve required behavior or enforce an agreed architecture
+  boundary.
+- Before adding an abstraction, identify its current caller, required behavior or
+  invariant, and why existing code cannot serve it. Future flexibility alone is
+  insufficient.
+- Before delivery, review nonmechanical additions for removal: wrappers, generic
+  handling, configuration options, cloning and repeated validation. Remove additions
+  whose purpose disappears when callers are simplified.
 - Preserve compatibility only when requested. Add no aliases, migrations or fallback
   behavior solely for old versions.
 - Handle recoverable failures without panicking.
@@ -110,7 +117,7 @@ detail or essential contracts; preserve limits, errors and safety conditions.
   and leave the shared process environment unchanged. Select test doubles explicitly.
   Test backend guarantees on actual backends; report missing prerequisites.
   Do not silently substitute backends.
-- Simplify before delivery. Preserve behavior and boundaries, then rerun affected tests.
+- Rerun affected tests after simplification.
 
 Use [CI](.github/workflows/ci.yml) for required completion checks. Run focused checks
 during development and workspace checks when shared ports change.
@@ -118,3 +125,5 @@ For documentation-only changes, check the documentation.
 
 Report the checks you ran and any gaps. Explain new public contracts or unexpectedly
 large changes when the reviewer needs that context.
+For structural refactors, identify changes beyond file moves and explain why they
+are needed.
