@@ -2,8 +2,8 @@
 mod story_inventory;
 
 use yomibu_core::{
-    domain::story::{PracticeTargets, SelectionInput, StoryError, StoryRequest},
-    pipeline::selection::select_target_first,
+    domain::generation::finalization::select_target_first,
+    domain::generation::{PracticeTargets, SelectionInput, StoryError, StoryRequest},
 };
 
 #[test]

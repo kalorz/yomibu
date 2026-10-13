@@ -1,13 +1,16 @@
+use crate::composition::configuration::components::OptionKey;
+#[cfg(any(target_os = "macos", test))]
+use crate::composition::credentials::identity;
+use crate::composition::{Credentials, Secret, configuration::components};
 use anyhow::{Result, bail};
 use std::{
     collections::BTreeSet,
     io::{self, IsTerminal, Write},
 };
-use yomibu::configuration::components::OptionKey;
-use yomibu::{
-    application::{CredentialError, Credentials, Secret},
-    configuration::components,
-};
+#[cfg(target_os = "macos")]
+use yomibu_core::ports::infrastructure::credentials::SecretStore;
+#[cfg(target_os = "macos")]
+use yomibu_ext::macos_keychain::MacosKeychain;
 
 pub(super) fn targets() -> Vec<String> {
     components::credentials()
@@ -59,8 +62,9 @@ fn pending(
                 Ok(None) => {}
                 Err(error) => writeln!(
                     warnings,
-                    "warning: {}: {error} Continuing setup.",
-                    requirement.name.key()
+                    "warning: {}: {} Continuing setup.",
+                    requirement.name.key(),
+                    crate::output::credential_error(&error)
                 )?,
             }
         }
@@ -69,8 +73,8 @@ fn pending(
                 warnings,
                 "warning: {}: CLI/environment input overrides the saved Keychain credential. Omit --{} and unset {} to use it.",
                 requirement.name.key(),
-                requirement.name.cli(),
-                requirement.name.environment()
+                crate::composition::options::cli_name(requirement.name),
+                crate::composition::options::environment_name(requirement.name)
             )?;
         }
         needs.push(requirement);
@@ -117,7 +121,13 @@ fn save(requirement: OptionKey<Secret>) -> Result<()> {
         match api_key(token)? {
             Some(value) => {
                 let (service, account) = identity(requirement);
-                super::keychain::write(&service, account, &value)?;
+                MacosKeychain
+                    .write(&service, account, &value.into())
+                    .map_err(|_| {
+                        anyhow::anyhow!(
+                            "Cannot access macOS Keychain; unlock it and check access permissions."
+                        )
+                    })?;
                 writeln!(out, "Saved {} in macOS Keychain.", requirement.name.key())
             }
             None => writeln!(
@@ -143,26 +153,6 @@ pub(super) fn configure(target: &Target, credentials: &Credentials) -> Result<()
         save(requirement)?;
     }
     Ok(())
-}
-
-pub(super) fn install(credentials: &mut Credentials, requirements: &[OptionKey<Secret>]) {
-    if cfg!(target_os = "macos") {
-        for &requirement in requirements {
-            let (service, account) = identity(requirement);
-            credentials.supply_with(requirement, move || {
-                super::keychain::read(&service, account)
-                    .map(|value| value.map(Secret::from))
-                    .map_err(|_| CredentialError::StoreUnavailable)
-            });
-        }
-    }
-}
-
-fn identity(requirement: OptionKey<Secret>) -> (String, &'static str) {
-    (
-        format!("yomibu:{}", requirement.name.component),
-        requirement.name.option,
-    )
 }
 
 #[cfg(test)]

@@ -1981,20 +1981,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "yomibu"
+name = "yomibu-app"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "thiserror",
  "tokio",
- "toml",
  "wiremock",
- "yomibu-components",
  "yomibu-core",
+ "yomibu-ext",
 ]
 
 [[package]]
@@ -2002,33 +2000,19 @@ name = "yomibu-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "apple-native-keyring-store",
  "chrono",
  "clap",
- "keyring-core",
  "rpassword",
- "serde_json",
- "tempfile",
- "tokio",
- "wiremock",
- "yomibu",
- "yomibu-components",
-]
-
-[[package]]
-name = "yomibu-components"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "reqwest",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "thiserror",
  "tokio",
+ "toml",
  "wiremock",
+ "yomibu-app",
  "yomibu-core",
+ "yomibu-ext",
 ]
 
 [[package]]
@@ -2039,6 +2023,24 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "yomibu-ext"
+version = "0.1.0"
+dependencies = [
+ "apple-native-keyring-store",
+ "chrono",
+ "keyring-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "wiremock",
+ "yomibu-core",
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 //! Terminal-safe rendering; shared serializable report data belongs to the library.
+use crate::composition::{SetupIssue, configuration::components::credential_guidance};
 use anyhow::anyhow;
 use clap::error::{ContextKind, ContextValue};
-use yomibu::{application::SetupIssue, configuration::components::credential_guidance};
 pub(crate) mod candidate;
 pub(crate) mod status;
 pub(crate) mod story;
@@ -24,7 +24,7 @@ pub(crate) fn escape_argument_error(mut error: clap::Error) -> clap::Error {
 }
 
 pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
-    if let Some(yomibu::application::ApplicationError::Setup { issues }) = error.downcast_ref() {
+    if let Some(crate::composition::ApplicationError::Setup { issues }) = error.downcast_ref() {
         let mut message = String::from("Missing required setup:\n");
         for issue in issues {
             let (name, guidance) = match issue {
@@ -35,13 +35,71 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
         }
         return anyhow!("{}", message.trim_end());
     }
+    for cause in error.chain() {
+        let cause: &(dyn std::error::Error + 'static) =
+            match cause.downcast_ref::<crate::composition::ApplicationError>() {
+                Some(crate::composition::ApplicationError::Options(error)) => error,
+                Some(crate::composition::ApplicationError::Credential(error)) => error,
+                _ => cause,
+            };
+        if let Some(yomibu_core::extension::options::OptionError::Missing { name, description }) =
+            cause.downcast_ref()
+        {
+            return anyhow!(
+                "{}",
+                format!(
+                    "Supply --{}. {description}",
+                    crate::composition::options::cli_name(*name)
+                )
+                .escape_debug()
+            );
+        }
+        if let Some(error) =
+            cause.downcast_ref::<yomibu_core::ports::infrastructure::credentials::CredentialError>()
+        {
+            return anyhow!("{}", credential_error(error));
+        }
+    }
     anyhow!("{}", format!("{error:#}").escape_debug())
+}
+
+pub(crate) fn credential_error(
+    error: &yomibu_core::ports::infrastructure::credentials::CredentialError,
+) -> String {
+    match error {
+        yomibu_core::ports::infrastructure::credentials::CredentialError::StoreUnavailable => {
+            "Cannot access the credential store; unlock it or supply a CLI/environment credential."
+                .into()
+        }
+        _ => error.to_string(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yomibu::{application::ApplicationError, configuration::components::OptionKey};
+    use crate::composition::{ApplicationError, configuration::components::OptionKey};
+
+    #[test]
+    fn core_errors_keep_cli_remedies_through_the_command_error_wrapper() {
+        use yomibu_core::{
+            extension::options::OptionError, ports::infrastructure::credentials::CredentialError,
+        };
+        let key: OptionKey<String> = OptionKey::new("example", "model", "Model");
+        let missing = ApplicationError::Options(OptionError::Missing {
+            name: key.name,
+            description: key.description,
+        });
+        assert_eq!(
+            command_error(missing.into()).to_string(),
+            "Supply --example-model. Model"
+        );
+        let unavailable = ApplicationError::Credential(CredentialError::StoreUnavailable);
+        assert_eq!(
+            command_error(unavailable.into()).to_string(),
+            "Cannot access the credential store; unlock it or supply a CLI/environment credential."
+        );
+    }
 
     #[test]
     fn setup_guidance_preserves_trusted_punctuation_and_layout() {

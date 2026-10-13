@@ -2,15 +2,15 @@
 mod story_inventory;
 
 use yomibu_core::{
-    capabilities::SelectionStep,
+    domain::generation::finalization::select_target_first,
     domain::{
-        inventory::{InventoryWord, LearnerInventory},
-        story::{
+        generation::{
             PracticeTargets, SelectionCandidates, SelectionError, SelectionInput, StoryError,
             StoryRequest,
         },
+        knowledge::inventory::{InventoryWord, LearnerInventory},
     },
-    pipeline::selection::select_target_first,
+    ports::capabilities::SelectionStep,
 };
 
 fn inventory() -> LearnerInventory {

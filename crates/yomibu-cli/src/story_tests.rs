@@ -1,10 +1,10 @@
+use crate::composition::ServiceEndpoints;
 use serde_json::{Value, json};
 use std::process::{Command, Output};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{method, path},
 };
-use yomibu::application::ServiceEndpoints;
 const HOSTILE: &str = "猫\u{1b}\r\n\t\u{7f}\u{9b}\u{2028}\u{2029}\u{202e}\u{e0001}";
 
 #[test]

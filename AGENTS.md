@@ -2,8 +2,7 @@
 
 ## Architecture
 
-This is the target layout for a later code migration: `yomibu` becomes `yomibu-app`,
-and `yomibu-components` becomes `yomibu-ext`. Create directories only when needed.
+Create directories only when needed.
 
 In hexagonal architecture, driving adapters call application services; driven adapters
 implement core ports (interfaces). Domain-driven design (DDD) places business rules

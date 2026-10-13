@@ -4,13 +4,13 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{header, method, path},
 };
-use yomibu::App;
-use yomibu_components::{
-    file_learning_store::{
+use yomibu_app::application::sync::App;
+use yomibu_ext::{
+    file_store::{
         FileLearningStore,
         cache::{self, SyncGuard},
     },
-    wanikani_source::Client,
+    wanikani::Client,
 };
 
 const TOKEN: &str = "synthetic-flow-credential";
@@ -41,8 +41,8 @@ async fn refresh(client: &mut Client, dir: &Path) -> Result<(), Box<dyn std::err
         .await?;
     Ok(())
 }
-fn saved_summary(dir: &Path) -> yomibu::reports::summary::Summary {
-    yomibu::reports::summary::summarize(&cache::load(dir).unwrap()).unwrap()
+fn saved_summary(dir: &Path) -> yomibu_app::reports::summary::Summary {
+    yomibu_app::reports::summary::summarize(&cache::load(dir).unwrap()).unwrap()
 }
 
 #[tokio::test]

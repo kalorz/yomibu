@@ -169,8 +169,8 @@ fn sync_requires_an_environment_token_before_creating_files() {
 
 #[test]
 fn another_process_cannot_sync_while_the_cache_is_locked() {
-    use yomibu_components::file_learning_store::cache::SyncGuard;
-    use yomibu_components::file_learning_store::cache::load;
+    use yomibu_ext::file_store::cache::SyncGuard;
+    use yomibu_ext::file_store::cache::load;
     let dir = tempfile::tempdir().unwrap();
     cache(
         dir.path(),
@@ -246,17 +246,17 @@ fn component_model_options_and_provider_keys_have_safe_parser_diagnostics() {
         assert!(help.stderr.is_empty());
         let help = stdout(&help);
         assert!(help.contains(&format!("Usage: yomibu {command}")), "{help}");
-        for setting in yomibu::configuration::components::settings() {
-            assert!(
-                help.contains(&format!("--{}", setting.name().cli())),
-                "{help}"
-            );
-            assert!(help.contains(&setting.name().environment()), "{help}");
+        for (flag, env) in [
+            ("--openai-model", "YOMIBU_OPENAI_MODEL"),
+            ("--openai-api-key", "YOMIBU_OPENAI_API_KEY"),
+            ("--wanikani-api-key", "YOMIBU_WANIKANI_API_KEY"),
+        ] {
+            assert!(help.contains(flag), "{help}");
+            assert!(help.contains(env), "{help}");
         }
         assert!(!help.contains("--generation-model"));
     }
-    for requirement in yomibu::configuration::components::credentials() {
-        let flag = format!("--{}", requirement.name.cli());
+    for flag in ["--openai-api-key", "--wanikani-api-key"] {
         for args in [
             vec![
                 "story",
@@ -295,8 +295,8 @@ fn component_model_options_and_provider_keys_have_safe_parser_diagnostics() {
 
 #[test]
 fn credential_redaction_preserves_help_and_version() {
-    for requirement in yomibu::configuration::components::credentials() {
-        let key = format!("--{}=synthetic-secret", requirement.name.cli());
+    for credential in ["--openai-api-key", "--wanikani-api-key"] {
+        let key = format!("{credential}=synthetic-secret");
         for flag in ["--help", "--version"] {
             let output = cli().args([&key, flag]).output().unwrap();
             assert_eq!(output.status.code(), Some(0));
