@@ -119,7 +119,9 @@ async fn provenance_does_not_change_the_prepared_request() {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(fixture["snapshot"].clone()).unwrap();
-    let wk = LearnerInventory::from_mapped(wanikani::map_content_and_progress(&source).unwrap())
+    let wk = wanikani::map_learner_data(&source)
+        .unwrap()
+        .into_inventory(source.sync_completed_at)
         .unwrap();
     let manual = LearnerInventory {
         vocabulary: wk

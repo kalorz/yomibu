@@ -5,7 +5,7 @@ mod dto;
 mod inventory;
 pub mod summary;
 
-pub use inventory::map_content_and_progress;
+pub use inventory::map_learner_data;
 
 use chrono::{DateTime, Utc};
 use data::{Subject, UnavailableSubject, ValidationError, WaniKaniSyncData};

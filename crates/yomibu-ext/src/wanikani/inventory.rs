@@ -5,12 +5,11 @@ use std::collections::BTreeMap;
 use yomibu_core::domain::{
     knowledge::LearnerProgress,
     knowledge::inventory::{InventoryWord, MappedContent, SourceOrigin},
+    knowledge::learner::LearnerData,
 };
 
-/// Validate observations, then map content and progress in subject ID order.
-pub fn map_content_and_progress(
-    source: &WaniKaniSyncData,
-) -> Result<impl Iterator<Item = (MappedContent, Option<LearnerProgress>)> + '_, ValidationError> {
+/// Validate observations, then map learner data with records in subject ID order.
+pub fn map_learner_data(source: &WaniKaniSyncData) -> Result<LearnerData, ValidationError> {
     source.validate()?;
     let assignments: BTreeMap<_, _> = source
         .assignments
@@ -30,7 +29,7 @@ pub fn map_content_and_progress(
     for unavailable in &source.unavailable_subjects {
         subjects.insert(unavailable.id, None);
     }
-    Ok(subjects.into_iter().map(move |(subject_id, subject)| {
+    let records = subjects.into_iter().map(move |(subject_id, subject)| {
         let origin = SourceOrigin::External {
             source: crate::wanikani::ID.into(),
             id: subject_id.to_string(),
@@ -66,7 +65,15 @@ pub fn map_content_and_progress(
             origin,
         };
         (MappedContent::Vocabulary(word), progress)
-    }))
+    });
+    let subscription = &source.learner.subscription;
+    Ok(LearnerData {
+        records: records.collect(),
+        access_expires_at: subscription
+            .active
+            .then_some(subscription.period_ends_at)
+            .flatten(),
+    })
 }
 
 fn learner_progress(

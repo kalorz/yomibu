@@ -3,7 +3,7 @@ use yomibu_core::domain::{
     knowledge::ExclusionReason,
     knowledge::inventory::{LearnerInventory, MappedContent, SourceOrigin},
 };
-use yomibu_ext::wanikani::{data::WaniKaniSyncData, map_content_and_progress};
+use yomibu_ext::wanikani::{data::WaniKaniSyncData, map_learner_data};
 
 fn source() -> WaniKaniSyncData {
     let value: Value =
@@ -12,7 +12,10 @@ fn source() -> WaniKaniSyncData {
 }
 
 fn prepare_inventory(data: &WaniKaniSyncData) -> LearnerInventory {
-    LearnerInventory::from_mapped(map_content_and_progress(data).unwrap()).unwrap()
+    map_learner_data(data)
+        .unwrap()
+        .into_inventory(data.sync_completed_at)
+        .unwrap()
 }
 
 fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
@@ -25,6 +28,14 @@ fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
         .iter()
         .find(|entry| entry.origin == origin)
         .map(|entry| entry.reason)
+}
+
+#[test]
+fn active_subscription_without_an_end_date_has_no_expiry() {
+    let mut data = source();
+    data.learner.subscription.active = true;
+    data.learner.subscription.period_ends_at = None;
+    assert_eq!(map_learner_data(&data).unwrap().access_expires_at, None);
 }
 
 #[test]
@@ -108,8 +119,10 @@ fn mapping_preserves_progress_when_content_is_unavailable() {
         .unwrap();
     assignment.started_at = Some(data.sync_completed_at);
     assignment.passed_at = assignment.started_at;
-    let (_, progress) = map_content_and_progress(&data)
+    let (_, progress) = map_learner_data(&data)
         .unwrap()
+        .records
+        .into_iter()
         .find(|(content, _)| {
             matches!(
                 content,
@@ -173,7 +186,7 @@ fn preparation_order_is_stable_and_invalid_direct_input_is_rejected() {
         expected
     );
     data.subjects.clear();
-    assert!(map_content_and_progress(&data).is_err());
+    assert!(map_learner_data(&data).is_err());
 }
 
 #[test]
