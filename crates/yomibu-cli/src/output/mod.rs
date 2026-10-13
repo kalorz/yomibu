@@ -1,6 +1,8 @@
 //! Terminal-safe rendering; shared serializable report data belongs to the library.
 use crate::composition::{
-    ApplicationError, SetupIssue, configuration::components::credential_guidance,
+    ApplicationError, SetupIssue,
+    configuration::components::{SOURCE_KEY, credential_guidance},
+    options::environment_name,
 };
 use anyhow::anyhow;
 use clap::error::{ContextKind, ContextValue};
@@ -80,8 +82,9 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
 fn cache_error_message(error: &CacheError) -> Option<String> {
     let mut message = match error {
         CacheError::Missing { path } => format!(
-            "No cache at {}; run yomibu sync with YOMIBU_WANIKANI_API_KEY set, or select an existing cache with --data-dir PATH.",
-            path.display()
+            "No cache at {}; run yomibu sync with {} set, or select an existing cache with --data-dir PATH.",
+            path.display(),
+            environment_name(SOURCE_KEY.name)
         ),
         CacheError::Invalid { path, source } => format!(
             "Invalid cache at {}: {source}; preserve the file and restore a valid backup or select another --data-dir PATH.",
