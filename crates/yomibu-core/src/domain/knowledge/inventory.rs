@@ -11,8 +11,12 @@ use std::collections::BTreeSet;
 pub enum SourceOrigin {
     #[default]
     Manual,
-    Wanikani {
-        subject_id: u64,
+    /// Provenance whose namespace and record identifier are opaque to core.
+    External {
+        /// Namespace identifying the external source.
+        source: String,
+        /// Record identifier within that namespace; the source defines its stability.
+        id: String,
     },
 }
 
