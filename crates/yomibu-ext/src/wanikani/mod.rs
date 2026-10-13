@@ -37,7 +37,7 @@ const MAX_PAGE_BYTES: usize = 16 * 1024 * 1024;
 /// are deliberately omitted from both messages and underlying error chains.
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("WaniKani rate-limit reset exceeds 120 seconds; retry sync later.")]
+    #[error("WaniKani rate-limit reset exceeds 120 seconds.")]
     RateLimitWait,
     #[error("Conflicting duplicate {collection} identity {id} in WaniKani response.")]
     ConflictingDuplicate { collection: &'static str, id: u64 },

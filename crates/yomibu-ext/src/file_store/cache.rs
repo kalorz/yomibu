@@ -113,7 +113,7 @@ pub enum WriteError {
     ExistingCache(#[from] CacheError),
     #[error("Invalid new sync data; the previous cache has not been replaced: {0}")]
     InvalidSyncData(#[from] ValidationError),
-    #[error("This cache belongs to a different WaniKani account; use another --data-dir PATH.")]
+    #[error("This cache belongs to a different WaniKani account.")]
     AccountMismatch,
     #[error("Cannot prepare or replace cache; the previous cache has not been replaced: {0}")]
     BeforeReplacement(#[from] io::Error),
@@ -123,7 +123,7 @@ pub enum WriteError {
         "Cache was replaced, but synchronizing its directory failed; durability is uncertain: {0}"
     )]
     DurabilityUncertain(#[source] io::Error),
-    #[error("Another sync holds the lock; wait for it to finish or use another --data-dir PATH.")]
+    #[error("Another sync holds the lock.")]
     Locked,
 }
 

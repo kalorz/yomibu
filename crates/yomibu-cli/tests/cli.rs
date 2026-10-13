@@ -185,10 +185,13 @@ fn another_process_cannot_sync_while_the_cache_is_locked() {
         .arg(dir.path())
         .output()
         .unwrap();
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let error = String::from_utf8(output.stderr).unwrap();
-    assert!(error.contains("Another sync holds the lock"), "{error}");
+    assert_eq!(
+        error,
+        "error: Another sync holds the lock; wait for it to finish or use another --data-dir PATH.\n"
+    );
     assert!(!error.contains(token));
     assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), before);
     load(dir.path()).unwrap();

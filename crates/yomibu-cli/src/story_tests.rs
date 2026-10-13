@@ -284,6 +284,55 @@ async fn explicit_sync_prints_the_complete_publication_summary() {
     assert!(dir.path().join(".yomibu/wanikani.json").exists());
 }
 
+#[tokio::test]
+async fn sync_failures_keep_recovery_guidance_and_preserve_cached_data() {
+    for (account_mismatch, diagnostic) in [
+        (
+            true,
+            "This cache belongs to a different WaniKani account; use another --data-dir PATH.",
+        ),
+        (
+            false,
+            "WaniKani rate-limit reset exceeds 120 seconds; retry sync later.",
+        ),
+    ] {
+        let server = MockServer::start().await;
+        let dir = tempfile::tempdir().unwrap();
+        seed_cache(dir.path());
+        let cache_path = dir.path().join(".yomibu/wanikani.json");
+        if account_mismatch {
+            source(&server).await;
+            let mut cache: Value =
+                serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+            cache["snapshot"]["learner"]["id"] = json!("different-account");
+            std::fs::write(&cache_path, cache.to_string()).unwrap();
+        } else {
+            Mock::given(method("GET"))
+                .and(path("/v2/user"))
+                .respond_with(
+                    ResponseTemplate::new(429).insert_header("ratelimit-reset", "9999999999"),
+                )
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+        let before = std::fs::read(&cache_path).unwrap();
+        let output = child_with_args(
+            &server,
+            dir.path(),
+            vec!["yomibu".into(), "sync".into()],
+            true,
+        )
+        .await;
+        assert_eq!(output.status.code(), Some(1), "{diagnostic}");
+        assert!(output.stdout.is_empty(), "{diagnostic}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert_eq!(stderr, format!("error: {diagnostic}\n"), "{diagnostic}");
+        safe(&stderr);
+        assert_eq!(std::fs::read(&cache_path).unwrap(), before, "{diagnostic}");
+    }
+}
+
 fn seed_cache(dir: &std::path::Path) {
     let data = dir.join(".yomibu");
     std::fs::create_dir(&data).unwrap();
