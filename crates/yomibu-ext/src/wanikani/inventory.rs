@@ -31,7 +31,10 @@ pub fn map_content_and_progress(
         subjects.insert(unavailable.id, None);
     }
     Ok(subjects.into_iter().map(move |(subject_id, subject)| {
-        let origin = SourceOrigin::Wanikani { subject_id };
+        let origin = SourceOrigin::External {
+            source: crate::wanikani::ID.into(),
+            id: subject_id.to_string(),
+        };
         let assignment = assignments.get(&subject_id).copied();
         let statistic = statistics.get(&subject_id).copied();
         let progress = learner_progress(subject, assignment, statistic);
@@ -50,7 +53,7 @@ pub fn map_content_and_progress(
             LexicalContent::KanaVocabulary { .. } => Vec::new(),
         };
         let word = InventoryWord {
-            id: format!("wanikani:{subject_id}"),
+            id: format!("{}:{subject_id}", crate::wanikani::ID),
             written_form: subject.characters.clone(),
             readings,
             meanings: subject

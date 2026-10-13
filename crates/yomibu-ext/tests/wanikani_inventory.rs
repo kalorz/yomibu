@@ -16,10 +16,14 @@ fn prepare_inventory(data: &WaniKaniSyncData) -> LearnerInventory {
 }
 
 fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
+    let origin = SourceOrigin::External {
+        source: "wanikani".into(),
+        id: id.to_string(),
+    };
     inventory
         .excluded
         .iter()
-        .find(|entry| entry.origin == SourceOrigin::Wanikani { subject_id: id })
+        .find(|entry| entry.origin == origin)
         .map(|entry| entry.reason)
 }
 
@@ -30,6 +34,14 @@ fn preparation_retains_exclusion_reasons_in_source_subject_order() {
     let inventory = prepare_inventory(&data);
     assert_eq!(inventory.vocabulary.len(), 1);
     assert_eq!(inventory.vocabulary[0].written_form, "これ");
+    assert_eq!(inventory.vocabulary[0].id, "wanikani:3");
+    assert_eq!(
+        inventory.vocabulary[0].origin,
+        SourceOrigin::External {
+            source: "wanikani".into(),
+            id: "3".into(),
+        }
+    );
     assert_eq!(
         inventory
             .excluded
@@ -37,11 +49,32 @@ fn preparation_retains_exclusion_reasons_in_source_subject_order() {
             .map(|entry| (&entry.origin, entry.reason))
             .collect::<Vec<_>>(),
         [
-            (&SourceOrigin::Wanikani { subject_id: 1 }, Hidden),
-            (&SourceOrigin::Wanikani { subject_id: 2 }, Hidden),
-            (&SourceOrigin::Wanikani { subject_id: 4 }, NoProgress),
             (
-                &SourceOrigin::Wanikani { subject_id: 5 },
+                &SourceOrigin::External {
+                    source: "wanikani".into(),
+                    id: "1".into(),
+                },
+                Hidden,
+            ),
+            (
+                &SourceOrigin::External {
+                    source: "wanikani".into(),
+                    id: "2".into(),
+                },
+                Hidden,
+            ),
+            (
+                &SourceOrigin::External {
+                    source: "wanikani".into(),
+                    id: "4".into(),
+                },
+                NoProgress,
+            ),
+            (
+                &SourceOrigin::External {
+                    source: "wanikani".into(),
+                    id: "5".into(),
+                },
                 ContentUnavailable
             )
         ]
@@ -80,7 +113,8 @@ fn mapping_preserves_progress_when_content_is_unavailable() {
         .find(|(content, _)| {
             matches!(
                 content,
-                MappedContent::Unavailable(SourceOrigin::Wanikani { subject_id: 5 })
+                MappedContent::Unavailable(SourceOrigin::External { source, id })
+                    if source == "wanikani" && id == "5"
             )
         })
         .unwrap();

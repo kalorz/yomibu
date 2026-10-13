@@ -45,11 +45,26 @@ fn inventory_keeps_original_readings_and_unknown_evidence() {
     assert_eq!(inventory.vocabulary[0].direct_object, None);
     assert_eq!(inventory.vocabulary[0].origin, SourceOrigin::Manual);
     assert_eq!(inventory.grammar_bindings[0].declaration_id, "topic");
+
+    let mut serialized_word = serde_json::to_value(&inventory.vocabulary[0]).unwrap();
+    assert_eq!(serialized_word["origin"], json!({"kind":"manual"}));
+    serialized_word.as_object_mut().unwrap().remove("origin");
+    let word: InventoryWord = serde_json::from_value(serialized_word).unwrap();
+    assert_eq!(word.origin, SourceOrigin::Manual);
+
+    let mut serialized_word = serde_json::to_value(&word).unwrap();
+    serialized_word["origin"] =
+        json!({"kind":"external","source":"synthetic-source","id":"word:cat"});
+    assert!(serde_json::from_value::<InventoryWord>(serialized_word).is_err());
 }
 
 #[test]
 fn common_preparation_uses_each_learners_progress_for_shared_content() {
-    let content = inventory().vocabulary.remove(0);
+    let mut content = inventory().vocabulary.remove(0);
+    content.origin = SourceOrigin::External {
+        source: "synthetic-source".into(),
+        id: "word:cat".into(),
+    };
     for (first_progress, second_progress, reason) in [
         (
             LearnerProgress {
@@ -83,10 +98,15 @@ fn common_preparation_uses_each_learners_progress_for_shared_content() {
         .unwrap();
         assert_eq!(first.vocabulary.len(), 1);
         assert_eq!(first.vocabulary[0].id, "cat");
+        assert_eq!(first.vocabulary[0].origin, content.origin);
+        assert_eq!(
+            serde_json::to_value(&first).unwrap()["vocabulary"][0]["origin"],
+            json!({"kind":"external","source":"synthetic-source","id":"word:cat"})
+        );
         assert!(first.excluded.is_empty());
         assert!(second.vocabulary.is_empty());
         assert_eq!(second.excluded.len(), 1);
-        assert_eq!(second.excluded[0].origin, SourceOrigin::Manual);
+        assert_eq!(second.excluded[0].origin, content.origin);
         assert_eq!(second.excluded[0].reason, reason);
     }
 }
@@ -94,6 +114,10 @@ fn common_preparation_uses_each_learners_progress_for_shared_content() {
 #[test]
 fn common_preparation_preserves_content_availability_and_input_order() {
     let content = inventory().vocabulary.remove(0);
+    let origin = SourceOrigin::External {
+        source: "synthetic-source".into(),
+        id: "missing-record".into(),
+    };
     let progress = LearnerProgress {
         is_marked_known: Some(true),
         ..Default::default()
@@ -106,7 +130,7 @@ fn common_preparation_preserves_content_availability_and_input_order() {
                 Some(progress),
             ),
             (
-                MappedContent::Unavailable(SourceOrigin::Wanikani { subject_id: 42 }),
+                MappedContent::Unavailable(origin.clone()),
                 Some(LearnerProgress {
                     is_hidden,
                     learning_started_at: chrono::DateTime::from_timestamp(1, 0),
@@ -124,10 +148,7 @@ fn common_preparation_preserves_content_availability_and_input_order() {
                 .collect::<Vec<_>>(),
             [
                 (&SourceOrigin::Manual, ExclusionReason::NoProgress),
-                (
-                    &SourceOrigin::Wanikani { subject_id: 42 },
-                    ExclusionReason::ContentUnavailable
-                ),
+                (&origin, ExclusionReason::ContentUnavailable),
             ],
         );
     }
@@ -160,12 +181,15 @@ fn exclusions_serialize_source_identity_and_source_independent_reasons() {
         ),
     ] {
         let excluded = ExcludedMaterial {
-            origin: SourceOrigin::Wanikani { subject_id: 42 },
+            origin: SourceOrigin::External {
+                source: "synthetic-source".into(),
+                id: "record-alpha".into(),
+            },
             reason,
         };
         assert_eq!(
             serde_json::to_value(excluded).unwrap(),
-            json!({"origin":{"kind":"wanikani","subject_id":42},"reason":code})
+            json!({"origin":{"kind":"external","source":"synthetic-source","id":"record-alpha"},"reason":code})
         );
     }
 }
