@@ -324,12 +324,12 @@ async fn sync_failures_keep_recovery_guidance_and_preserve_cached_data() {
             true,
         )
         .await;
-        assert_eq!(output.status.code(), Some(1));
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.status.code(), Some(1), "{diagnostic}");
+        assert!(output.stdout.is_empty(), "{diagnostic}");
         let stderr = String::from_utf8(output.stderr).unwrap();
-        assert_eq!(stderr, format!("error: {diagnostic}\n"));
+        assert_eq!(stderr, format!("error: {diagnostic}\n"), "{diagnostic}");
         safe(&stderr);
-        assert_eq!(std::fs::read(&cache_path).unwrap(), before);
+        assert_eq!(std::fs::read(&cache_path).unwrap(), before, "{diagnostic}");
     }
 }
 
