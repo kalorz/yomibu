@@ -61,10 +61,9 @@ yomibu-cli -> yomibu-app + yomibu-ext (+ yomibu-core when needed)
   execute backend queries. Embedders produce vectors; vector-search adapters search;
   ranking capabilities coordinate both.
 
-### Tests and supporting directories
+### Supporting directories
 
-Crate tests cover domain rules, app workflows, extension conformance/backend guarantees
-and CLI behavior. Root `tests/{fixtures,support}/` holds shared inputs/helpers;
+Root `tests/{fixtures,support}/` holds shared test inputs/helpers;
 `config/` holds examples, and Cargo files build configuration.
 
 ## Engineering rules
@@ -97,28 +96,25 @@ instruction can prevent. Link instead of duplicating. Aim under 400 words per gu
 200 added per routine change across Markdown/comments/Rustdoc; exceed only for
 requested detail or essential contracts. Preserve limits, errors and safety conditions.
 
-## Strict TDD for behavioral changes
+## Testing and verification
 
-- RED: verify a behavioral test fails as expected before implementation.
-  GREEN: implement minimally and verify.
-  REFACTOR: review each cycle and the complete change; remove unnecessary types,
-  wrappers, options, stored state, fallbacks and duplicate tests. Rerun affected tests.
-  Reuse simple test setup; avoid implementation-mirroring tests and per-helper coverage.
+- Test changed behavior; reproduce bugs with a regression failing against old
+  behavior. Reuse coverage; avoid tests tied to implementation structure.
   Nonbehavioral changes need no artificial tests.
-- Tests must be deterministic and parallel-safe: local HTTP mocks, isolated temporary
-  directories, no real secrets or process-global environment mutation. Test backend
-  boundaries; memory adapters cannot prove durability. Never silently replace
-  unavailable production dependencies with test doubles.
-- Exercise CLI presentation/parser/diagnostic changes through the executable:
-  controls, Japanese readability, layout, stdout/stderr, exit status and help/version.
+- Cover core invariants, app workflows through ports, and extension/backend
+  contracts. Verify public ports with implementations outside production crates,
+  including invalid outputs.
+- Test driving adapters through their public interfaces for parsing, output, errors
+  and wiring; avoid duplicating domain scenarios.
+- Keep tests reproducible, isolated and parallel-safe. Use test-only credentials;
+  avoid shared process-environment mutation. Inject doubles explicitly; use actual
+  backends to test backend guarantees. Report missing prerequisites; never silently
+  substitute backends.
+- Simplify before delivery, preserve behavior and boundaries, and rerun affected tests.
 
-Before completing implementation, run:
+Use [CI](.github/workflows/ci.yml) for required completion checks. Run focused checks
+during development; shared-port changes require workspace verification.
+Documentation-only changes need documentation checks.
 
-```sh
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all
-```
-
-Report checks/limitations and, for code changes, files touched, production lines
-added/deleted and new public abstractions in PR/chat. Prioritize readability over line counts.
+Report checks and material limitations. Explain new public contracts or unexpectedly
+large scope when relevant to review.
