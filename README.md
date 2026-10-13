@@ -35,6 +35,8 @@ See [configuration examples](config/).
 Shared contracts live in `yomibu-core`; implementations live in `yomibu-ext`.
 The [architecture guide](AGENTS.md#architecture) describes the layout.
 The [glossary](GLOSSARY.md) explains domain terms.
+The [planned story request](docs/plan/story-generation-request.yml) is an annotated
+design draft, not configuration accepted by the current application.
 
 Run tests with `cargo test --locked --all`. They use local servers and invented
 data, so no account or model key is needed. [CI](.github/workflows/ci.yml) defines

@@ -1,0 +1,237 @@
+# Planned story-generation request, not runnable configuration.
+# Types/options are proposed; model names are placeholders.
+# Callers supply credentials and storage separately.
+# Flow: knowledge -> selection -> generation -> assessment -> optional repair.
+
+# Explicit learner scope; shared application objects have no current learner.
+learner: learner-123
+# Return up to this many acceptable candidates; report no_acceptable_candidate if none.
+return_count: 1
+
+# Optional practice IDs must be eligible and survive selection, or fail explicitly.
+targets:
+  vocabulary: []
+  grammar: []
+
+# Every generation run uses this same story plan and selected material.
+# Topics guide content; names and settings do not permit unfamiliar vocabulary.
+story:
+  topic: "Buying train tickets to Kyoto"
+
+  # Define identities once. Scene and dialogue lists reference these IDs.
+  actors:
+    - id: traveler
+      name: Hana
+      description: "A traveler buying tickets to Kyoto"
+
+    - id: friend
+      name: Ren
+      description: "Hana's traveling companion"
+
+    - id: station_staff
+      name: Mori
+      description: "An employee at the ticket counter"
+
+  # Scenes and blocks retain list order and scene IDs in each generated candidate.
+  # Scenes contain blocks, never scenes. Paragraphs contain sentences, never blocks.
+  scenes:
+    - id: arrival
+      actors: [traveler, friend]
+      setting: "The travelers entering a train station"
+      blocks:
+        # Generator chooses sentence content and a count within these bounds.
+        # Counts are positive integers or inclusive {min, max} ranges.
+        - type: paragraph
+          topic: "Introduce the station and the travelers"
+          sentence_count:
+            min: 1
+            max: 3
+
+    - id: ticket_counter
+      actors: [traveler, friend, station_staff]
+      setting: "The travelers speaking with station staff"
+      blocks:
+        # Sentence plans replace sentence_count; never provide both.
+        - type: planned_paragraph
+          sentences:
+            - topic: "The travelers join the queue"
+            - topic: "They reach the ticket counter"
+
+        # Speakers belong to the scene. The generator chooses turns and speakers.
+        - type: dialogue
+          speakers: [traveler, friend, station_staff]
+          topic: "Buying tickets to Kyoto"
+          turn_count:
+            min: 4
+            max: 6
+          sentences_per_turn:
+            min: 1
+            max: 2
+
+        # Turns fix count/order/speakers; turn_count is invalid here.
+        # Speakers must be allowed; turn counts override sentences_per_turn.
+        - type: planned_dialogue
+          speakers: [traveler, friend, station_staff]
+          topic: "Finding the correct train"
+          sentences_per_turn:
+            min: 1
+            max: 2
+          turns:
+            - speaker: traveler
+              topic: "Ask when the train leaves"
+              sentence_count: 1
+
+            - speaker: station_staff
+              topic: "Give the departure time"
+
+            - speaker: friend
+              topic: "Ask which platform to use"
+              sentence_count: 1
+
+            - speaker: station_staff
+              topic: "Give the platform number"
+
+    - id: platform
+      actors: [traveler, friend]
+      setting: "The travelers waiting on the platform"
+      blocks:
+        # Sentence is a leaf; topic is optional.
+        - type: sentence
+          topic: "Finish with the travelers ready to leave"
+
+# Read coherent stored data; import/refresh is separate.
+# Eligibility derives the full allowed inventory.
+knowledge:
+  sources: [wanikani, manual]
+
+  eligibility:
+    exclude_hidden: true
+    respect_explicit_known_unknown: true
+    # Used when no explicit declaration exists; source observations stay preserved.
+    progress_rule: first_passed
+
+selection:
+  # All vocabulary filters must match; missing metadata fails.
+  filters:
+    - type: external_level
+      source: wanikani
+      lte: 10
+
+    - type: jev_category
+      any_of: [travel, transport]
+
+  # Earlier rules take priority. Later rules order ties/groups; IDs break final ties.
+  order_by:
+    - type: category_preference
+      source: jev
+      preferred: [transport]
+
+    - type: embedding_similarity
+      space: yomibu/semantic-v1
+      # Embed plan topics/settings, not generated text. Vocabulary vectors already exist.
+      # Optional scene_ids restricts this query to named scenes.
+      query:
+        from: story
+      direction: desc
+
+  # Caps, not exact counts; omitted material remains known.
+  vocabulary_limit: 20
+  grammar_limit: 8
+
+generation:
+  execution: parallel
+  # Counts are complete stories per run. Pool successes, report failures.
+  # Retain each candidate's run/provider provenance.
+  runs:
+    - id: fast
+      preparation:
+        type: story_prompt
+        template: reading-practice-v1
+      generator:
+        type: openai
+        model: model-a
+        options:
+          effort: low
+        candidates: 3
+
+    - id: careful
+      preparation:
+        type: story_prompt
+        template: reading-practice-v1
+      generator:
+        type: openai
+        model: model-b
+        options:
+          effort: high
+        candidates: 3
+
+assessment:
+  # Sum(weight * score) / sum(weights); boolean pass/fail maps to 100/0.
+  # Implementations declare result types. Scores use 0-100 rubrics, not probabilities.
+  aggregation: weighted_average
+  # Overall threshold after individual gates; unweighted criteria are gate-only.
+  minimum_score: 80
+
+  # Thresholds reject candidates, not the whole run.
+  # Unresolved gates/scores prevent acceptance; errors/not-run stay distinct.
+  # Weights are nonnegative integers; at least one must be positive.
+  criteria:
+    - type: structure_constraints
+      minimum_score: 100
+
+    # Check the allowed inventory; morphology alone cannot establish contextual correctness.
+    - type: vocabulary_constraints
+      minimum_score: 100
+
+    - type: grammar_constraints
+      minimum_score: 100
+
+    - type: contains_a_question
+      weight: 1
+
+    # Compatible model criteria share one review call; oversized requests fail.
+    - type: naturalness
+      provider: openai
+      model: model-b
+      minimum_score: 60
+      weight: 3
+
+    - type: coherence
+      provider: openai
+      model: model-b
+      weight: 2
+
+    - type: topic_adherence
+      provider: openai
+      model: model-b
+      minimum_score: 70
+      weight: 1
+
+  # Rank acceptable candidates, apply return_count; retain rejected findings.
+  order_by:
+    - type: overall_score
+      direction: desc
+
+# Provisional repair example; omit to disable.
+# Revisions preserve constraints, create new candidates and require full reassessment.
+repair:
+  when: no_acceptable_candidates
+  max_rounds: 1
+
+  strategies:
+    - type: llm_revision
+      provider: openai
+      model: model-b
+      candidates: 3
+
+# Global limits include retries/repair. Never retry uncertain completion.
+# LLM calls: two generation + review + repair + reassessment = five.
+# Count embeddings separately; reuse the story-query embedding.
+budget:
+  max_llm_calls: 5
+  max_embedding_calls: 1
+  max_total_candidates: 9
+  deadline_seconds: 120
+
+# Open: grammar ordering, rubrics, repair strategy selection, persistence/replay,
+# and token/cost limits. This draft does not settle them.
