@@ -317,13 +317,11 @@ async fn transient_failures_retry_at_most_twice_and_rate_resets_are_bounded() {
         .expect(1)
         .mount(&server)
         .await;
-    assert!(
-        client(&server)
-            .fetch()
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("120 seconds")
+    let error = client(&server).fetch().await.unwrap_err();
+    assert!(matches!(error, Error::RateLimitWait));
+    assert_eq!(
+        error.to_string(),
+        "WaniKani rate-limit reset exceeds 120 seconds."
     );
 }
 

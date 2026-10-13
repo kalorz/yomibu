@@ -81,6 +81,10 @@ fn rejects_invalid_replacements(store: &FileLearningStore) {
         .replace(wrong_account.into())
         .unwrap_err();
     assert!(matches!(error, WriteError::AccountMismatch));
+    assert_eq!(
+        error.to_string(),
+        "This cache belongs to a different WaniKani account."
+    );
     assert_eq!(store.load_snapshot().unwrap(), fixture());
     // A failed publication must release the writer reservation.
     store
@@ -103,10 +107,12 @@ fn writer_reservation_keeps_reads_available(store: &FileLearningStore, other: &F
         .replace(fixture().into())
         .unwrap();
     let writer = store.begin_sync().unwrap();
+    let error = other.begin_sync().unwrap_err();
     assert!(
-        matches!(other.begin_sync(), Err(WriteError::Locked)),
+        matches!(error, WriteError::Locked),
         "another handle must not reserve a writer"
     );
+    assert_eq!(error.to_string(), "Another sync holds the lock.");
     assert_eq!(other.load_snapshot().unwrap(), fixture());
     drop(writer);
     other

@@ -257,7 +257,7 @@ fn rejects_blank_kanji_reading_classification() {
 
 #[test]
 fn writer_preserves_invalid_caches_and_rejects_other_accounts_or_invalid_sync_data() {
-    use yomibu_ext::file_store::cache::SyncGuard;
+    use yomibu_ext::file_store::cache::{SyncGuard, WriteError};
     let fixture = tempfile::tempdir().unwrap();
     fs::write(
         fixture.path().join("wanikani.json"),
@@ -280,12 +280,7 @@ fn writer_preserves_invalid_caches_and_rejects_other_accounts_or_invalid_sync_da
             contents
         );
         if contents.contains("synthetic-learner") {
-            assert!(
-                result
-                    .unwrap_err()
-                    .to_string()
-                    .contains("another --data-dir PATH")
-            );
+            assert!(matches!(result, Err(WriteError::AccountMismatch)));
         }
     }
     let dir = tempfile::tempdir().unwrap();

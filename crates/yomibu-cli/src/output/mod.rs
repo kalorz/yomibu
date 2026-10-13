@@ -8,6 +8,7 @@ use yomibu_core::{
     domain::{generation::StoryError, knowledge::inventory::InventoryError},
     ports::infrastructure::credentials::CredentialError,
 };
+use yomibu_ext::{file_store::cache::WriteError, wanikani};
 pub(crate) mod candidate;
 pub(crate) mod status;
 pub(crate) mod story;
@@ -47,6 +48,19 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
         Some(ApplicationError::Credential(error)) => anyhow!("{}", credential_error(error)),
         Some(ApplicationError::Story(StoryError::Inventory(InventoryError::AccessExpired))) => {
             anyhow!("Recorded content access has expired; run yomibu sync to refresh access.")
+        }
+        Some(ApplicationError::Persistence(WriteError::AccountMismatch)) => {
+            anyhow!(
+                "This cache belongs to a different WaniKani account; use another --data-dir PATH."
+            )
+        }
+        Some(ApplicationError::Persistence(WriteError::Locked)) => {
+            anyhow!(
+                "Another sync holds the lock; wait for it to finish or use another --data-dir PATH."
+            )
+        }
+        Some(ApplicationError::Source(wanikani::Error::RateLimitWait)) => {
+            anyhow!("WaniKani rate-limit reset exceeds 120 seconds; retry sync later.")
         }
         _ => anyhow!("{}", format!("{error:#}").escape_debug()),
     }

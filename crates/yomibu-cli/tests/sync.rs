@@ -77,7 +77,7 @@ async fn complete_http_sync_to_disk_and_repeat_refresh() {
         .await
         .unwrap_err()
         .to_string();
-    assert!(error.contains("another --data-dir PATH"), "{error}");
+    assert_eq!(error, "This cache belongs to a different WaniKani account.");
     assert_eq!(fs::read(dir.path().join("wanikani.json")).unwrap(), bytes);
 
     server.reset().await;
