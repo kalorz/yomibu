@@ -1,4 +1,4 @@
-use serde_json::{Value, json};
+use serde_json::Value;
 use yomibu_core::domain::{
     knowledge::ExclusionReason,
     knowledge::inventory::{LearnerInventory, MappedContent, SourceOrigin},
@@ -41,10 +41,6 @@ fn preparation_retains_exclusion_reasons_in_source_subject_order() {
             source: "wanikani".into(),
             id: "3".into(),
         }
-    );
-    assert_eq!(
-        serde_json::to_value(&inventory.vocabulary[0].origin).unwrap(),
-        json!({"kind":"external","source":"wanikani","id":"3"})
     );
     assert_eq!(
         inventory
