@@ -1,5 +1,6 @@
 //! Synchronous validated cache access and advisory writer locking on macOS/Linux.
 
+use crate::wanikani::data::{ValidationError, WaniKaniSyncData};
 use serde::Deserialize;
 use std::{
     fs,
@@ -7,7 +8,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use thiserror::Error;
-use yomibu_core::domain::knowledge::source::{ValidationError, WaniKaniSyncData};
 
 const MAX_CACHE_BYTES: u64 = 64 * 1024 * 1024;
 

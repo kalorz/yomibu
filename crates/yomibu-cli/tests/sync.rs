@@ -41,8 +41,8 @@ async fn refresh(client: &mut Client, dir: &Path) -> Result<(), Box<dyn std::err
         .await?;
     Ok(())
 }
-fn saved_summary(dir: &Path) -> yomibu_app::reports::summary::Summary {
-    yomibu_app::reports::summary::summarize(&cache::load(dir).unwrap()).unwrap()
+fn saved_summary(dir: &Path) -> yomibu_ext::wanikani::summary::Summary {
+    yomibu_ext::wanikani::summary::summarize(&cache::load(dir).unwrap()).unwrap()
 }
 
 #[tokio::test]

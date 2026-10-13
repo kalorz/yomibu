@@ -1,10 +1,10 @@
+use super::data::{
+    Assignment, LexicalContent, ReviewStatistic, Subject, ValidationError, WaniKaniSyncData,
+};
 use std::collections::BTreeMap;
 use yomibu_core::domain::{
     knowledge::LearnerProgress,
     knowledge::inventory::{InventoryWord, MappedContent, SourceOrigin},
-    knowledge::source::{
-        Assignment, LexicalContent, ReviewStatistic, Subject, ValidationError, WaniKaniSyncData,
-    },
 };
 
 /// Validate observations, then map content and progress in subject ID order.

@@ -1,6 +1,6 @@
+use super::data::{Learner, Subscription};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use yomibu_core::domain::knowledge::source::{Learner, Subscription};
 
 #[derive(Deserialize)]
 pub(super) struct User {
@@ -57,9 +57,8 @@ pub(super) struct Collection<T> {
     pub data: Vec<T>,
 }
 
-use yomibu_core::domain::{
-    knowledge::source as domain,
-    knowledge::source::{Assignment, LexicalContent, ReviewStatistic, Subject, SubjectKind},
+use super::data::{
+    self as domain, Assignment, LexicalContent, ReviewStatistic, Subject, SubjectKind,
 };
 
 #[derive(Deserialize)]

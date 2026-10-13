@@ -57,7 +57,7 @@ pub enum ApplicationError {
     #[error(transparent)]
     Story(#[from] StoryError),
     #[error(transparent)]
-    Validation(#[from] yomibu_core::domain::knowledge::source::ValidationError),
+    Validation(#[from] wanikani::data::ValidationError),
 }
 
 impl LocalApp {

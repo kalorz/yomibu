@@ -1,7 +1,7 @@
 //! Terminal presentation of cached observations.
 use chrono::SecondsFormat;
 use std::io::{self, Write};
-use yomibu_app::reports::summary::{Accuracy, Summary};
+use yomibu_ext::wanikani::summary::{Accuracy, Summary};
 
 pub(crate) fn write_status(out: &mut impl Write, summary: &Summary) -> io::Result<()> {
     writeln!(out, "Cached WaniKani observations")?;
