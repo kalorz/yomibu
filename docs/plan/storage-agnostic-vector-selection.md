@@ -1,79 +1,72 @@
 # Storage agnostic vector selection plan
 
-Proposed design for the [story request](story-generation-request.yml).
-Extensions produce vectors and selection rules. Shared repository ports isolate
-storage details, avoiding a backend adapter for every extension.
+Proposed design for the [story request](story-generation-request.yml), not an
+implemented API. PostgreSQL is a future backend; when SQL storage exists, reuse
+that database and shared adapters across extensions.
 
-## Vector spaces
+## Spaces and identity
 
-Use separate rows per purpose, rather than extension-specific vocabulary columns:
+Illustrative storage layout:
 
 ```text
-vector_spaces(id, owner, purpose, producer_revision, dimensions, metric)
-vocabulary_vectors(vocabulary_id, space_id, input_revision, vector)
-UNIQUE(vocabulary_id, space_id)
+vector_spaces(id, namespace, purpose, producer_profile, metric)
+vocabulary_vectors(material_key, space_id, input_revision, vector)
+UNIQUE(material_key, space_id)
 ```
 
-A space pins its query embedder and producer settings. Producer changes create
-a new immutable space profile. Reject incompatible dimensions and invalid vectors;
-stale vectors count as missing. A namespace identifies ownership, not authorization.
-Reuse the application's database and storage adapters.
+An immutable producer profile identifies the embedder/model, settings, input recipe
+version, and dimensions. Producer changes create a new profile/space. Query vectors
+must match the stored profile; reject incompatible dimensions or invalid values.
+
+Material keys identify catalog entries or source-collection/entry pairs, not bare
+inventory strings. Shared vocabulary vectors need not be learner-specific. Every
+query uses authorized eligible keys; namespaces identify ownership, not permission.
+
+## Vector preparation
+
+An explicit, bounded preparation/backfill operation embeds vocabulary after imports
+or profile changes. `input_revision` fingerprints the exact embedding input;
+the profile pins its transformation recipe. Generation does not silently backfill.
+It embeds the story outline once with the same profile.
+
+Compare expected input revisions when reading vectors. Missing/stale vectors sort
+last for similarity ranking and cannot pass distance filters. Report missing
+coverage; if no usable vectors exist, return a setup issue rather than silently
+ignoring similarity.
 
 ## Selection flow
 
-1. Read coherent learner data and derive the eligible inventory.
-2. Apply metadata filters through typed query expressions: comparisons, membership,
-   array containment, and explicit category ordering. Backend adapters interpret
-   them; extensions never supply SQL. Add operations only for demonstrated needs.
-3. Resolve the space and embed the requested story outline once. Query and stored
-   vectors must use the same profile.
-4. Obtain distances for authorized, filtered IDs and expected input revisions. A distance
-   threshold excludes missing vectors; ranking places them last for that rule.
-5. Combine ordering rules, break ties by vocabulary ID, then apply final caps.
-   Reserve target slots; target conflicts fail explicitly.
+Read coherent learner data. Apply metadata predicates through shared typed query
+ports: comparisons, membership and array containment. Category preference is an
+ordering rule, separate from filtering. Metadata/vector queries may run separately.
 
-Example:
+Prepare distance evidence, then run synchronous filtering/ranking steps through
+core's existing `select_target_first`. It retains targets and applies final caps;
+filter conflicts fail explicitly. Never truncate by similarity before another
+primary order or target reservation. Break final ties by material identity.
+
+Illustrative Ruby-like pseudocode; preparation APIs are provisional:
 
 ```ruby
-space = repositories.vectors.for_space("extension-x/topic-v1")
-query = embedders.for_space(space.id).embed(story_description)
-
-distances = space.distances(
-  query: query, within: filtered_ids, revisions: input_revisions
+distances = await vectors.distances(
+  space: profile.id, entries: scoped_entries, query: query_vector
 )
-selected = selection.finish(
-  ids: filtered_ids,
-  distances: distances,
-  order_by: [category_preference, distance_ascending],
-  targets: targets,
-  limit: 20
-)
-
-# Only when similarity narrowing is explicitly requested:
-neighbors = space.nearest(
-  query: query, within: filtered_ids, revisions: input_revisions,
-  max_distance: threshold, limit: 20
-)
+steps = prepare_steps(metadata, distances, threshold, order_by)
+selection = select_target_first(selection_input, steps)
 ```
 
-Distance reads support combined ranking. Use `nearest` only for explicit
-threshold/top-k narrowing; never truncate before another primary order.
+## Responsibilities and next work
 
-## Adapters and implementation
+The [composition root](../../AGENTS.md#dependencies-and-composition) constructs
+dependencies. The application coordinates async I/O, scope and budgets.
+`SelectionStep` stays synchronous. Core owns query/result/error contracts. PostgreSQL and in-memory
+adapters share those contracts; extensions implement producers and capabilities.
 
-Core owns typed query/result contracts. The application owns scope, composition
-and budgets. Extensions implement embedders and selection capabilities;
-`PostgresVectorRepository` and `InMemoryVectorRepository` implement shared storage
-ports. Follow the [architecture guide](../../AGENTS.md#architecture).
-
-Start with exact distances. PostgreSQL uses pgvector; in-memory storage uses the
-same metric, precision and error/missing-value rules. Approximate search needs an
-explicit accuracy contract: filtered approximate scans can miss qualifying results.
-See [pgvector filtering](https://github.com/pgvector/pgvector#filtering).
-
-Implement one metric/use case first. Add shared adapter-contract
-checks for profile validation, scope, missing/stale vectors, thresholds, ties and
-targets; test PostgreSQL on PostgreSQL. Provision per-space indexes in migrations
-as needed; pgvector's [dimension-specific indexes](https://github.com/pgvector/pgvector#can-i-store-vectors-with-different-dimensions-in-the-same-column)
-do not require new extension-specific Rust adapters. Result types, snapshot
-coordination, freshness and approximate-search limits remain implementation decisions.
+Start with exact calculations for one metric/precision contract. Test both adapters
+for profile, scope, freshness, thresholds, ties and targets; test PostgreSQL
+on PostgreSQL.
+Ordinary indexes support initial queries. Space creation is data, not a migration.
+Later approximate indexes need explicit provisioning and an accuracy contract;
+[filtered approximate scans](https://github.com/pgvector/pgvector#filtering)
+can miss qualifying results. Concrete core types, snapshot coordination,
+backfill scheduling and index provisioning remain open.
