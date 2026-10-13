@@ -1,126 +1,130 @@
-# Repository engineering rules
+# Repository guide
 
-- Use the [task map](ARCHITECTURE.md#current-module-map) to find code and tests.
-  Read those before changing behavior, then the relevant [SPEC](SPEC.md) section.
-  Use [README](README.md) for setup, [PLAN](PLAN.md) for open work, and history only
-  when a task needs earlier evidence. Do not load every document by default.
-  Future designs are not implementation scope.
-- Make routine reversible implementation decisions autonomously. Ask about
-  consequential product choices or difficult-to-reverse changes.
-- Backward compatibility is not a requirement for this single-developer project
-  unless the user explicitly instructs otherwise. Change APIs, CLI, JSON and
-  storage formats as needed for a cleaner design. Do not add aliases, migrations,
-  version switches or fallback paths solely for compatibility, or ask for
-  permission solely because a change breaks compatibility.
-- Preserve the CLI/library separation and explicit data flow. Prefer concrete
-  types, small public APIs, and idiomatic Rust.
-- Follow the design vocabulary in `SPEC.md`; use `InMemory...` for memory-backed
-  adapters and keep source progress distinct from derived learner knowledge.
-  Future vocabulary is not a requirement to create placeholder types or traits.
-- Preserve historical research packets, their fixture bytes, code pins and scoring
-  conclusions. Current code and engineering fixtures may change with the current
-  contract. Keep research inputs in history; repair links when moving them.
-- Use stable Rust, the repository toolchain pin once initialized, and cargo fmt.
-  Add dependencies, traits, or other abstractions only for demonstrated needs.
-- Use enums, newtypes, `Option`, and typed `Result` boundaries where they improve
-  correctness. Keep dynamic error reporting at the executable boundary.
-- Do not use production `unwrap()`/`expect()` for recoverable situations. Avoid
-  unnecessary cloning. Unsafe code requires compelling justification.
-- Keep deterministic logic synchronous. Confine async to operations that benefit
-  from it.
-- Treat external data as untrusted. Configure deadlines, protect credentials, and
-  preserve complete usable caches on failure. Distinguish pre-replacement failure
-  from uncertain durability after replacement.
-- Preserve safety and readability at terminal output boundaries. Escape untrusted
-  values before composing human-readable output; retain trusted line breaks,
-  indentation and usage/help structure. Do not blanket-escape an already formatted
-  multiline diagnostic. Include executable names and error content from dependencies
-  when reviewing which content is untrusted.
-- For CLI presentation changes, test safety and usability together through the
-  executable: ordinary Japanese text stays readable, hostile controls/newlines
-  stay escaped, and diagnostic layout, stdout/stderr, exit status and help/version
-  behavior remain correct. Extend these regressions when parser configuration or
-  error sources change; checking only forbidden characters or message substrings
-  is insufficient.
-- Keep tests deterministic, independent of external services, and parallel-safe.
-  Test real domain behavior; use local HTTP mock servers and isolated temporary
-  directories. Add regression tests for non-trivial bugs. Never use real secrets
-  in fixtures or mutate process-global environment for parallel tests.
-- In-memory adapters test application behavior, not backend durability. Keep
-  real adapter-boundary tests; do not require nullable factories or silently
-  substitute test responses for unavailable production dependencies.
-- Before declaring an implementation milestone complete, run:
+Read relevant code, tests and task contracts; load history only when needed.
 
-  ```sh
-  cargo fmt --check
-  cargo clippy --all-targets --all-features -- -D warnings
-  cargo test --all
-  ```
+## Architecture
 
-  Report checks actually executed and limitations. Cargo checks do not apply
-  before project initialization.
-- Do not add placeholders or infrastructure for deferred features. Preserve source
-  learner state rather than freezing a pedagogical definition of "known".
+Target layout; migration is pending in a separate PR: `yomibu` becomes `yomibu-app`,
+`yomibu-components` becomes `yomibu-ext`. Directories place necessary code;
+they do not require building every category or deferred example.
 
-## Code before prose
+Hexagonal architecture: driving adapters invoke application services; driven adapters
+implement core-owned ports. DDD entities, value objects and domain services hold
+business rules. Crates are dependency boundaries, not necessarily bounded contexts.
 
-- Before explaining code, improve its name, control flow or data model. Use domain
-  names and visible inputs, outputs and side effects. Avoid generic context objects.
-- Keep the main use case readable as explicit steps. Extract a helper when it
-  names a real operation; do not fragment the flow into one-line wrappers.
-- Describe observable behavior in test names and assertions, including failures.
-  Add a focused example for unclear behavior; reuse existing coverage where sufficient.
-- Comments explain reasons or obligations code/tests cannot express. Delete comments
-  that paraphrase code. Keep public API contracts and unsafe safety requirements.
-- Do not add language lessons, Ruby comparisons or implementation recaps.
+### Directory ownership
+
+Paths mean `crates/<crate>/src/...`.
+
+| Crate / directory | Put here |
+| --- | --- |
+| `yomibu-core/domain/<subject>/` | State and invariants, grouped by knowledge, generation and independent analysis concepts. Aggregates enforce consistency within their subject. |
+| `yomibu-core/ports/infrastructure/` | Store, repository/query, source and secret contracts. |
+| `yomibu-core/ports/capabilities/` | Selection, preparation, generation and assessment contracts. |
+| `yomibu-core/ports/resources/` | Shared dictionary/embedder contracts when independent consumers need them. |
+| `yomibu-core/extension/` | Extension declarations and typed settings contracts. |
+| `yomibu-app/application/<use_case>/` | Services and adjacent workflow steps: coordinate ports, ordering, budgets and failures; invoke core rules. |
+| `yomibu-app/configuration/` | Typed settings and immutable invocation overrides. |
+| `yomibu-app/reports/` | Result projections. |
+| `yomibu-ext/<extension>/` | Provider/package implementations, private integration clients, transport DTOs and backend details, including secret-store adapters. |
+| `yomibu-cli/composition/` | Configuration/environment/credentials; construct extensions and inject dependencies. |
+| `yomibu-cli/commands/`, `yomibu-cli/output/` | Parse requests, invoke services, render results. The executable owns the runtime and composition root. |
+
+### Dependencies and composition
+
+Allowed production dependencies:
+
+```text
+yomibu-app -> yomibu-core
+yomibu-ext -> yomibu-core
+yomibu-cli -> yomibu-app + yomibu-ext (+ yomibu-core when needed)
+```
+
+- App and extensions stay independent; core provides their shared contracts.
+- Port categories are project conventions. Capabilities are roles; pipelines order
+  them. Components implement one or more capabilities, including pure calculations.
+- One instance may serve multiple phases; one phase may use multiple configured
+  instances. Distinguish implementation identity, instance identity and settings.
+- Infrastructure is normally application-scoped; compose workflows per invocation, omitting
+  optional capabilities as needed. Core invariants always apply. Share resources;
+  isolate request scope and mutable execution state from shared clients.
+- Extensions package capability implementations, infrastructure adapters and resources.
+  External extensions depend on core, without built-ins or mandatory runtime loading/registries.
+- Repository/query ports expose domain types and define filter/ranking semantics; adapters
+  execute backend queries. Embedders produce vectors; vector-search adapters search;
+  ranking capabilities coordinate both.
+
+### Tests and supporting directories
+
+Crate tests cover domain rules, app workflows, extension conformance/backend guarantees
+and CLI behavior. Root `tests/{fixtures,support}/` holds shared inputs/helpers;
+`config/` holds examples, `docs/` references/history, and Cargo files build configuration.
+
+## Engineering rules
+
+- Implement the smallest sufficient use case. Estimate scope; reassess and simplify
+  unexpected growth.
+- Prefer direct functions and concrete types. Justify abstractions by an agreed
+  boundary, invariant or current problem. Extract helpers for meaningful operations
+  or actual duplication.
+- No backward compatibility unless requested; do not add compatibility-only aliases,
+  migrations or fallbacks. Read-only explanations/reviews do not authorize edits.
+- Preserve source progress separately from derived eligibility. Name volatile
+  adapters `InMemory...`. Preserve historical evidence, fixture bytes, code pins
+  and conclusions; current engineering fixtures may evolve.
+- Keep deterministic logic synchronous. Use typed recoverable errors, never
+  production `unwrap()`/`expect()` for them; dynamic errors belong at executable boundaries.
+- Bound external I/O and protect credentials. Preserve usable caches on failure;
+  distinguish pre-replacement failure from uncertain durability after replacement.
+- Escape untrusted values, including dependency errors and executable names, before
+  formatting. Preserve Japanese readability and trusted diagnostic layout; never
+  blanket-escape assembled output.
 
 ## Documentation: short, simple English
 
-- Default to no documentation change. Update only affected text when usage, a
-  contract, setup, or a key design decision changes. Do not restate the whole guide.
-- Use common words, active verbs and short sentences. Prefer one idea per sentence.
-  Explain necessary technical terms. Avoid jargon, repeated caveats and long tables.
-- Default budget: at most 200 new prose words across Markdown, comments and Rustdoc
-  combined for a routine change. Routine refactors should add no explanatory prose.
-  New guides should stay under 400 words. Exceed this only for user-requested detail
-  or essential contract information that cannot fit after removing repetition.
-  Keep required limits, errors and safety conditions. Do not pack text onto long lines.
-- Give each fact one home. Link to it instead of copying it into README, SPEC,
-  ARCHITECTURE and PLAN. Do not touch every document after every change.
-- Keep docs as working reference: intent, hard constraints, reasons for decisions,
-  and open questions. Code, tests and manifests supply implementation facts; verify
-  them there instead of maintaining prose copies. Do not catalog speculative APIs.
-- Group reference by task. Prefer short constraint bullets and links to code/tests.
-  For a decision worth retaining, write the choice and its reason in one or two
-  sentences beside the relevant constraint. No new document is needed by default.
-- README is a quick start. SPEC holds contracts. ARCHITECTURE maps code and key
-  boundaries. PLAN lists current status and next work; it is not a work log.
-- Put routine test results and delivery notes in the PR or chat, usually within
-  five bullets. Do not add milestone essays, per-step TDD logs, benchmark narratives,
-  or dated history files unless requested. Preserve real research evidence separately.
-- Before finishing, remove repetition and temporary status notes. Check whether
-  the doc change can be smaller. Do not add documentation to prove work happened.
+Document intent, guarantees, and decisions that code cannot explain.
+Use code, tests and manifests for implementation facts.
+
+Keep CLI descriptions, option help and examples in Clap command definitions,
+accessible through `help` / `--help`. Limit README usage to a quickstart;
+do not maintain separate Markdown command references.
+
+| Document | Purpose |
+| --- | --- |
+| `README.md` | Purpose, setup, quickstart, development commands. |
+| `AGENTS.md` | Architecture and engineering rules. |
+| `SPEC.md` | Product intent and constraints. |
+| `docs/GLOSSARY.md` | Domain terms. |
+| `docs/SYNC.md`, `docs/STORY_GENERATION.md` | Task guarantees. |
+| `docs/history/` | Frozen evidence. |
+
+Default to no docs; patch changed usage/contracts only. New prose needs a reader
+and purpose. Link instead of duplicating. Aim under 400 words per guide, 200 added
+per routine change across Markdown/comments/Rustdoc; exceed only for requested
+detail or essential contracts. Preserve limits, errors and safety conditions.
 
 ## Strict TDD for behavioral changes
 
-- Work in small Red-Green-Refactor cycles.
-- RED: write the smallest meaningful test for the next behavior and run it.
-  Confirm that it fails for the expected reason before writing production code.
-- GREEN: implement the smallest reasonable production change that makes the
-  focused test pass, then run it and confirm it is green.
-- REFACTOR: explicitly review production and test code for simplification,
-  duplication, naming, modelling, ownership/borrowing, and idiomatic Rust.
-  Refactor where worthwhile, then rerun tests.
-- Before delivery, review the full change again, beyond individual TDD cycles.
-  Look for unnecessary types, layers, wrappers, duplicated or stored derived
-  state, ownership machinery, and excessive test setup. Simplify worthwhile
-  cases autonomously; do not wait for a user prompt. Prefer fewer concepts and
-  clear data flow over fewer lines. Preserve intended behavior and meaningful
-  regression coverage, then rerun affected checks.
-- The refactor phase must not be skipped. Report its result briefly in the PR
-  or chat; do not add a repository work log.
-- Bug fixes start with a regression test that reproduces the bug.
-- Do not write production behavior ahead of its failing test.
-- Non-behavioral scaffolding such as Cargo/toolchain configuration, CI,
-  documentation, and test infrastructure required to make the first behavioral
-  test runnable is exempt from requiring an artificial failing test.
+- RED: verify a behavioral test fails as expected before implementation.
+  GREEN: implement minimally and verify.
+  REFACTOR: review each cycle and the complete change; remove unnecessary types,
+  wrappers, options, stored state, fallbacks and duplicate tests. Rerun affected tests.
+  Reuse simple test setup; avoid implementation-mirroring tests and per-helper coverage.
+  Nonbehavioral changes need no artificial tests.
+- Tests must be deterministic and parallel-safe: local HTTP mocks, isolated temporary
+  directories, no real secrets or process-global environment mutation. Test backend
+  boundaries; memory adapters cannot prove durability. Never silently replace
+  unavailable production dependencies with test doubles.
+- Exercise CLI presentation/parser/diagnostic changes through the executable:
+  controls, Japanese readability, layout, stdout/stderr, exit status and help/version.
+
+Before completing implementation, run:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all
+```
+
+Report checks/limitations and, for code changes, files touched, production lines
+added/deleted and new public abstractions in PR/chat. Prioritize readability over line counts.

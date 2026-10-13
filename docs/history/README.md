@@ -1,7 +1,7 @@
 # History and evidence
 
 These records describe old revisions. Use the current [README](../../README.md)
-and [plan](../../PLAN.md) for today's behavior. The old plan is preserved in
+and [specification](../../SPEC.md#current-contracts) for today's behavior. The old plan is preserved in
 [IMPLEMENTATION.md](IMPLEMENTATION.md); its "current" sections are old checkpoints.
 
 ## Delivery records

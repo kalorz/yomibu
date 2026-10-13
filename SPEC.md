@@ -1,8 +1,8 @@
 # Yomibu specification
 
-This records product intent and constraints. Use [the code map](ARCHITECTURE.md#current-module-map)
-for implementation and [PLAN](PLAN.md) for open work. Follow the documentation
-rules in [AGENTS](AGENTS.md). Future direction does not authorize implementation.
+This records product intent and constraints. [AGENTS](AGENTS.md#architecture) owns
+architecture and engineering rules.
+Future direction does not authorize implementation.
 
 ## Current contracts
 
@@ -12,8 +12,7 @@ rules in [AGENTS](AGENTS.md). Future direction does not authorize implementation
 | Learner inventory and story generation | [Story contract](docs/STORY_GENERATION.md) |
 
 Current commands are in [README](README.md#current-commands). They do not select
-accepted exercises. [The code map](ARCHITECTURE.md#current-module-map) locates
-implementation and tests; [the glossary](docs/GLOSSARY.md) defines terms.
+accepted exercises. [The glossary](docs/GLOSSARY.md) defines terms.
 
 ## Product
 
@@ -141,11 +140,14 @@ limits, normalized inputs, and CLI behavior.
 
 ## Design vocabulary and composition
 
-Name implemented responsibilities consistently:
+Use these names when a responsibility is needed:
 
 - `Store` accesses stored data; its contract specifies writes, consistency,
-  durability and failures. `Search` retrieves by criteria. `Client` communicates
-  with a service. `Policy` makes deterministic decisions.
+  durability and failures. A `Repository` exposes domain objects or aggregates
+  through a storage-independent contract. Query/search ports return projections
+  using shared filter/ranking semantics; adapters translate these to backend queries
+  and reject unsupported operations explicitly. `Client` communicates with a service.
+  `Policy` makes deterministic decisions.
 - Use `InMemory...` for volatile adapters and provider/backend names for others.
 - Source progress is evidence; eligibility is derived from it.
   Inventory is the complete allowed material; selection is only the prompt subset.
@@ -163,9 +165,10 @@ For future validated generation:
   sentences are text structure; tokens and grammar hypotheses belong to analysis.
 - Check titles and passages at their own scopes. Required checks gate acceptance;
   quality scores rank eligible candidates. Unresolved required checks prevent acceptance.
-- Combine compatible model tasks into at most one invocation per generation,
-  review or repair phase. Bound total calls, retries, repairs, candidates, time and
-  cost across the operation. Oversized/incompatible requests fail explicitly.
+- A phase may use multiple explicitly configured model instances, including parallel
+  calls to different models. Combine compatible tasks within an invocation where
+  useful. Bound total calls, retries, repairs, candidates, time and cost across the
+  operation. Oversized/incompatible requests fail explicitly.
   Do not retry after uncertain completion or hide calls inside checks.
 - Typed responses do not prove linguistic correctness. Checks combined in one
   model call are not independent judges; do not invent calibrated confidence.
@@ -175,7 +178,9 @@ For future validated generation:
 ### Data flow and storage boundaries
 
 - Keep settings, learner/source data, and exercise requests separate. Callers supply
-  credentials; the application resolves resources. Construction does not start work.
+  credentials and dependencies explicitly. Construction does not start work.
+  Follow the [target composition rules](AGENTS.md#dependencies-and-composition)
+  when migrating dependency assembly.
 - Calls select an explicit learner/source scope; shared objects have no mutable
   current user. A source connection identifies one provider account/input.
   The current WaniKani learner ID must not become a multi-source Yomibu identity.
@@ -445,8 +450,3 @@ the old cache survived.
 Abrupt termination can leave private staging files. Loading and later writes
 ignore them; there is no automatic cleanup. Existing readers retain a complete
 old version after replacement. Process-kill tests do not establish power-loss durability.
-
-## Code and repository structure
-
-[The code map](ARCHITECTURE.md) locates source, tests, ownership boundaries and
-build manifests. [AGENTS](AGENTS.md) holds engineering and documentation rules.

@@ -40,10 +40,10 @@ Use `cargo run --locked -- --help` for flags.
 
 `crates/yomibu` is the application library; `crates/yomibu-cli` builds `yomibu`.
 Shared contracts live in `yomibu-core`; implementations live in `yomibu-components`.
-Read [AGENTS](AGENTS.md), then use the [task map](ARCHITECTURE.md#current-module-map)
-to find code and tests. Read only the relevant [SPEC](SPEC.md) contract.
-[PLAN](PLAN.md) lists open work; the
-[glossary](docs/GLOSSARY.md) explains terms and milestone names.
+Read the [architecture and engineering guide](AGENTS.md#architecture), then the
+relevant code, tests and [SPEC](SPEC.md) contract. The guide describes the target
+layout; code migration is pending. The [glossary](docs/GLOSSARY.md) explains terms
+and milestone names.
 
 Tests use local servers and synthetic data; no account or model key is needed.
 

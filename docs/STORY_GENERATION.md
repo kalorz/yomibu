@@ -3,7 +3,8 @@
 `story` creates a passage of 3–5 short sentences with one generation attempt.
 Use `--format sentence` for one sentence. No topic is required.
 These readings remain experimental; verification, acceptance and repair
-have not run. See the [module map](../ARCHITECTURE.md#current-module-map).
+have not run. These are current behavior contracts;
+the [architecture guide](../AGENTS.md#architecture) describes the target organization.
 
 ## Inputs and meaning
 
@@ -40,6 +41,8 @@ fails. Each document is bounded to 64 KiB of UTF-8.
 Pipeline settings own component choices (including source and storage), component
 options and selection ordering. Story settings own topic,
 vocabulary targets, seed, limit, format and candidate count.
+Typed option declarations supply CLI/environment names, file validation, help and
+auth guidance. Components receive scoped options and explicit credentials.
 
 Ordinary precedence is CLI → ENV → saved defaults → built-ins, independently per
 field. Lists replace whole lists. Empty target lists clear targets; empty selection
@@ -86,9 +89,19 @@ Default selection is `lexical-topic` then `seeded-order` (`builtin-v2`).
 fail application validation. Library compositions remain unrestricted; core's
 target-first finalization is mandatory and the full allowed inventory stays
 separate from prompt selection.
+Core checks each step against the full allowed inventory; external steps may
+restore allowed entries. Built-in selection steps retain filtered subsets.
+
+## Library boundaries
 
 `application::run_story` takes resolved configuration, a typed request and inventory,
 and a borrowed generation client. It neither reads storage nor accesses WaniKani.
+
+`prepare_story` binds the finalized selection to a `PreparedStory<R>`.
+`PreparedStory::generate` requires a generator with the same associated request type
+and checks candidate count and format. OpenAI owns exact request bytes and model
+validation; prompt preparation owns content, byte limits and support trimming.
+Checked candidate construction preserves original text and complete UTF-8 sentence spans.
 
 ## Topic and vocabulary
 
@@ -103,6 +116,8 @@ it never drops targets. Simple grammar guidance does not infer grammar knowledge
 ## Cache
 
 Run `yomibu sync` before generation. Local storage uses `<data-dir>/wanikani.json`.
+The file adapter maps saved WaniKani data into normalized material, progress and
+access expiry before story generation.
 Story reads one snapshot without refreshing, writing, or looking up source credentials.
 Cache age alone does not warn or block generation. Missing data, corruption,
 invalid data and expired content access remain errors.

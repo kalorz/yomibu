@@ -2,7 +2,7 @@
 
 > Archived on 2026-10-07. These delivery records describe their dated checkouts.
 > Commands, paths, test counts, and sections labeled "current" may be obsolete.
-> Start with the repository [README](../../README.md) and [current plan](../../PLAN.md).
+> Start with the repository [README](../../README.md) and [current contracts](../../SPEC.md#current-contracts).
 > Use the [history index](README.md) to find a record by date or capability.
 
 `SPEC.md` is the authoritative product and architecture baseline. This document

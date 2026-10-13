@@ -13,7 +13,7 @@
 | Plan / model request | Complete offline preparation / exact bytes, hash, and options to send |
 | Candidate | A generated sentence awaiting checks |
 
-See the [module map](../ARCHITECTURE.md#current-module-map) and
+See the [architecture guide](../AGENTS.md#architecture) and
 [naming rules](../SPEC.md#design-vocabulary-and-composition).
 Story input uses string IDs.
 
