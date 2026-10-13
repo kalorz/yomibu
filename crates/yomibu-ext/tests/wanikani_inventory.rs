@@ -12,10 +12,7 @@ fn source() -> WaniKaniSyncData {
 }
 
 fn prepare_inventory(data: &WaniKaniSyncData) -> LearnerInventory {
-    map_learner_data(data)
-        .unwrap()
-        .into_inventory(data.sync_completed_at)
-        .unwrap()
+    LearnerInventory::from_mapped(map_learner_data(data).unwrap().records).unwrap()
 }
 
 fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
@@ -31,11 +28,19 @@ fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
 }
 
 #[test]
-fn active_subscription_without_an_end_date_has_no_expiry() {
+fn subscription_activity_controls_access_expiry() {
     let mut data = source();
-    data.learner.subscription.active = true;
-    data.learner.subscription.period_ends_at = None;
-    assert_eq!(map_learner_data(&data).unwrap().access_expires_at, None);
+    let end = data.sync_completed_at;
+    for (active, period_ends_at, expected) in [
+        (true, Some(end), Some(end)),
+        (true, None, None),
+        (false, Some(end), None),
+        (false, None, None),
+    ] {
+        data.learner.subscription.active = active;
+        data.learner.subscription.period_ends_at = period_ends_at;
+        assert_eq!(map_learner_data(&data).unwrap().access_expires_at, expected);
+    }
 }
 
 #[test]

@@ -9,6 +9,8 @@ use yomibu_core::domain::{
 };
 
 /// Validate observations, then map learner data with records in subject ID order.
+/// Active subscriptions use their end date; no end date means no expiry.
+/// Inactive subscriptions ignore their end date. This does not check expired access.
 pub fn map_learner_data(source: &WaniKaniSyncData) -> Result<LearnerData, ValidationError> {
     source.validate()?;
     let assignments: BTreeMap<_, _> = source
@@ -29,46 +31,49 @@ pub fn map_learner_data(source: &WaniKaniSyncData) -> Result<LearnerData, Valida
     for unavailable in &source.unavailable_subjects {
         subjects.insert(unavailable.id, None);
     }
-    let records = subjects.into_iter().map(move |(subject_id, subject)| {
-        let origin = SourceOrigin::External {
-            source: crate::wanikani::ID.into(),
-            id: subject_id.to_string(),
-        };
-        let assignment = assignments.get(&subject_id).copied();
-        let statistic = statistics.get(&subject_id).copied();
-        let progress = learner_progress(subject, assignment, statistic);
-        let Some(subject) = subject else {
-            return (MappedContent::Unavailable(origin), progress);
-        };
-        let readings = match &subject.lexical {
-            LexicalContent::Kanji { .. } => {
-                return (MappedContent::NonVocabulary(origin), progress);
-            }
-            LexicalContent::Vocabulary { readings, .. } => readings
-                .iter()
-                .filter(|reading| reading.accepted_answer)
-                .map(|reading| reading.reading.clone())
-                .collect(),
-            LexicalContent::KanaVocabulary { .. } => Vec::new(),
-        };
-        let word = InventoryWord {
-            id: format!("{}:{subject_id}", crate::wanikani::ID),
-            written_form: subject.characters.clone(),
-            readings,
-            meanings: subject
-                .meanings
-                .iter()
-                .filter(|meaning| meaning.accepted_answer)
-                .map(|meaning| meaning.meaning.clone())
-                .collect(),
-            direct_object: None,
-            origin,
-        };
-        (MappedContent::Vocabulary(word), progress)
-    });
+    let records = subjects
+        .into_iter()
+        .map(|(subject_id, subject)| {
+            let origin = SourceOrigin::External {
+                source: crate::wanikani::ID.into(),
+                id: subject_id.to_string(),
+            };
+            let assignment = assignments.get(&subject_id).copied();
+            let statistic = statistics.get(&subject_id).copied();
+            let progress = learner_progress(subject, assignment, statistic);
+            let Some(subject) = subject else {
+                return (MappedContent::Unavailable(origin), progress);
+            };
+            let readings = match &subject.lexical {
+                LexicalContent::Kanji { .. } => {
+                    return (MappedContent::NonVocabulary(origin), progress);
+                }
+                LexicalContent::Vocabulary { readings, .. } => readings
+                    .iter()
+                    .filter(|reading| reading.accepted_answer)
+                    .map(|reading| reading.reading.clone())
+                    .collect(),
+                LexicalContent::KanaVocabulary { .. } => Vec::new(),
+            };
+            let word = InventoryWord {
+                id: format!("{}:{subject_id}", crate::wanikani::ID),
+                written_form: subject.characters.clone(),
+                readings,
+                meanings: subject
+                    .meanings
+                    .iter()
+                    .filter(|meaning| meaning.accepted_answer)
+                    .map(|meaning| meaning.meaning.clone())
+                    .collect(),
+                direct_object: None,
+                origin,
+            };
+            (MappedContent::Vocabulary(word), progress)
+        })
+        .collect();
     let subscription = &source.learner.subscription;
     Ok(LearnerData {
-        records: records.collect(),
+        records,
         access_expires_at: subscription
             .active
             .then_some(subscription.period_ends_at)
