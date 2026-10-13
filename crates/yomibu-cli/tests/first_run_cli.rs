@@ -104,14 +104,10 @@ fn missing_inventory_setup_names_the_available_inputs_without_listing_tuning_fla
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
     let text = String::from_utf8(output.stderr).unwrap();
-    assert!(
-        text.starts_with("error: Missing required setup:\n  Learner vocabulary:\n    "),
-        "{text}"
+    assert_eq!(
+        text,
+        "error: Missing required setup:\n  Learner vocabulary:\n    Run yomibu sync to load learner vocabulary before generating a story. Use the same --data-dir for sync and story.\n"
     );
-    assert!(text.contains("yomibu sync"), "{text}");
-    assert!(!text.contains("--sync"), "{text}");
-    assert!(!text.contains("--openai-model"));
-    assert!(!text.contains("synthetic-key"));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 

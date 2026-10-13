@@ -333,6 +333,67 @@ async fn sync_failures_keep_recovery_guidance_and_preserve_cached_data() {
     }
 }
 
+#[tokio::test]
+async fn cache_read_failures_keep_complete_diagnostics_on_existing_command_routes() {
+    let server = MockServer::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("日本語\n\u{1b}");
+    std::fs::create_dir(&data).unwrap();
+    let cache_path = data.join("wanikani.json");
+    let mut invalid: Value =
+        serde_json::from_slice(include_bytes!("../../../tests/fixtures/mixed.json")).unwrap();
+    invalid["snapshot"]["learner"]["level"] = json!(0);
+    for (contents, diagnostic, commands) in [
+        (
+            invalid.to_string(),
+            format!(
+                "Invalid cache at {}: invalid learner.level; preserve the file and restore a valid backup or select another --data-dir PATH.: invalid learner.level",
+                cache_path.display()
+            ),
+            &["story", "sync"][..],
+        ),
+        (
+            r#"{"schema_version":999,"snapshot":null}"#.into(),
+            format!(
+                "Unsupported cache schema 999 at {}; upgrade Yomibu or select a supported cache with --data-dir PATH.",
+                cache_path.display()
+            ),
+            &["story", "sync"][..],
+        ),
+        (
+            "{".into(),
+            format!(
+                "Corrupt cache at {}; preserve the file and restore a valid backup or select another --data-dir PATH.: EOF while parsing an object at line 1 column 1",
+                cache_path.display()
+            ),
+            &["sync"][..],
+        ),
+    ] {
+        std::fs::write(&cache_path, &contents).unwrap();
+        for command in commands {
+            let output = child_with_args(
+                &server,
+                dir.path(),
+                vec![
+                    "yomibu".into(),
+                    (*command).into(),
+                    "--data-dir".into(),
+                    data.display().to_string(),
+                ],
+                true,
+            )
+            .await;
+            assert_eq!(output.status.code(), Some(1), "{command}");
+            assert!(output.stdout.is_empty(), "{command}");
+            assert_eq!(
+                String::from_utf8(output.stderr).unwrap(),
+                format!("error: {}\n", diagnostic.escape_debug()),
+                "{command}"
+            );
+        }
+    }
+}
+
 fn seed_cache(dir: &std::path::Path) {
     let data = dir.join(".yomibu");
     std::fs::create_dir(&data).unwrap();
