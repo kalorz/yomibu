@@ -66,19 +66,11 @@ impl FileLearningStore {
             Err(cache::CacheError::Missing { .. }) => return Ok(None),
             Err(error) => return Err(error),
         };
-        let records = crate::wanikani::map_content_and_progress(&source)
+        crate::wanikani::map_learner_data(&source)
+            .map(Some)
             .map_err(|error| cache::CacheError::Invalid {
                 path: self.path.clone(),
                 source: error,
-            })?
-            .collect();
-        let subscription = &source.learner.subscription;
-        Ok(Some(LearnerData {
-            records,
-            access_expires_at: subscription
-                .active
-                .then_some(subscription.period_ends_at)
-                .flatten(),
-        }))
+            })
     }
 }
