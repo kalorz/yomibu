@@ -5,9 +5,8 @@ use yomibu_app::application::generate_story::{
     progress::{ProgressEvent, RunProgress},
 };
 use yomibu_app::reports::run::StoryRunReport;
-use yomibu_core::ports::capabilities::SelectionStep as SelectionCapability;
 use yomibu_ext::{
-    learner_vocabulary_selection::{LexicalTopicScoring, SeededOrdering},
+    learner_vocabulary_selection::{SeededOrdering, selection_steps},
     openai,
 };
 
@@ -26,26 +25,16 @@ pub(crate) async fn run_story(
         .selection
         .steps
         .contains(&SelectionStep::LexicalTopic);
-    let mut steps: Vec<&dyn SelectionCapability> = Vec::new();
-    if lexical {
-        steps.push(&LexicalTopicScoring);
-    }
-    steps.push(&seeded);
+    let steps = selection_steps(&seeded, lexical);
     generate_story::run_story(
         inputs,
         StoryPipeline {
             selection: &steps,
-            selection_revision: if lexical {
-                "builtin-v2"
-            } else {
-                "seeded-only-v1"
-            },
             preparation: &config.pipeline.components.preparation.construct(),
             generation: client,
         },
         config.generation()?,
         config.story.select,
-        seeded.seed,
         progress,
     )
     .await

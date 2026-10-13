@@ -9,8 +9,7 @@ pub(crate) fn arguments(secret: bool) -> impl Iterator<Item = Arg> {
         .filter(move |s| s.secret().is_some() == secret)
         .map(move |setting| {
             let name = setting.name();
-            let argument = Arg::new(crate::composition::options::cli_name(name))
-                .long(crate::composition::options::cli_name(name));
+            let argument = Arg::new(cli_name(name)).long(cli_name(name));
             if secret {
                 argument
                     .global(true)
@@ -18,14 +17,14 @@ pub(crate) fn arguments(secret: bool) -> impl Iterator<Item = Arg> {
                     .value_name("KEY")
                     .help(format!(
                         "Secret credential; env: {}",
-                        crate::composition::options::environment_name(name)
+                        environment_name(name)
                     ))
             } else {
                 argument
                     .help(format!(
                         "{} env: {}",
                         setting.description(),
-                        crate::composition::options::environment_name(name)
+                        environment_name(name)
                     ))
                     .value_name("VALUE")
                     .value_parser(move |text: &str| setting.parse(text))
@@ -55,9 +54,7 @@ impl FromArgMatches for ComponentArgs {
 
     fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::Error> {
         for setting in components::options() {
-            if let Some(value) =
-                matches.get_one::<Value>(&crate::composition::options::cli_name(setting.name()))
-            {
+            if let Some(value) = matches.get_one::<Value>(&cli_name(setting.name())) {
                 self.0
                     .insert(setting.name(), Patch::Set(value.clone()))
                     .map_err(|message| {

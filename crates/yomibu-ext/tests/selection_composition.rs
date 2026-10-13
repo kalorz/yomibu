@@ -12,7 +12,9 @@ use yomibu_core::{
     },
     ports::capabilities::SelectionStep,
 };
-use yomibu_ext::learner_vocabulary_selection::{LexicalTopicScoring, SeededOrdering};
+use yomibu_ext::learner_vocabulary_selection::{
+    LexicalTopicScoring, SeededOrdering, selection_steps,
+};
 
 fn inventory() -> LearnerInventory {
     story_inventory::inventory()
@@ -39,15 +41,10 @@ fn callers_can_omit_scoring_or_change_step_order_without_an_implicit_reorder() {
         request: &request,
         limit: 2,
     };
-    let scored = select_target_first(
-        input,
-        &[&LexicalTopicScoring, &SeededOrdering { seed: 7 }],
-        "test-scored-v1",
-    )
-    .unwrap();
+    let ordering = SeededOrdering { seed: 7 };
+    let scored = select_target_first(input, &selection_steps(&ordering, true)).unwrap();
     assert_eq!(ids(&scored), ["walk", "dog"]);
-    let sampled =
-        select_target_first(input, &[&SeededOrdering { seed: 7 }], "test-seeded-only-v1").unwrap();
+    let sampled = select_target_first(input, &selection_steps(&ordering, false)).unwrap();
     assert_eq!(ids(&sampled), ["dog", "cat"]);
     assert!(sampled.selected.iter().all(|entry| entry.score.is_none()));
     assert!(
@@ -56,13 +53,8 @@ fn callers_can_omit_scoring_or_change_step_order_without_an_implicit_reorder() {
             .iter()
             .all(|entry| entry.reason == "local_sample")
     );
-    assert_eq!(sampled.selector_revision, "test-seeded-only-v1");
-    let ordered_before_scoring = select_target_first(
-        input,
-        &[&SeededOrdering { seed: 7 }, &LexicalTopicScoring],
-        "test-order-then-score-v1",
-    )
-    .unwrap();
+    let ordered_before_scoring =
+        select_target_first(input, &[&SeededOrdering { seed: 7 }, &LexicalTopicScoring]).unwrap();
     assert_eq!(ids(&ordered_before_scoring), ["dog", "cat"]);
     assert!(
         ordered_before_scoring
@@ -74,6 +66,10 @@ fn callers_can_omit_scoring_or_change_step_order_without_an_implicit_reorder() {
 
 struct KeepCatAndWalk;
 impl SelectionStep for KeepCatAndWalk {
+    fn revision(&self) -> &'static str {
+        "test-KeepCatAndWalk"
+    }
+
     fn apply<'a>(
         &self,
         _: SelectionInput<'a>,
@@ -103,7 +99,6 @@ fn existing_rankers_consume_an_external_steps_subset_without_restoring_removed_s
             &LexicalTopicScoring,
             &SeededOrdering { seed: 7 },
         ],
-        "test-filtered-lexical-v1",
     )
     .unwrap();
     assert_eq!(ids(&selection), ["cat", "walk"]);

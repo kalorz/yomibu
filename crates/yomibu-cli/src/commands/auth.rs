@@ -1,6 +1,7 @@
 use crate::composition::configuration::components::OptionKey;
 #[cfg(any(target_os = "macos", test))]
 use crate::composition::credentials::identity;
+use crate::composition::options::{cli_name, environment_name};
 use crate::composition::{Credentials, Secret, configuration::components};
 use anyhow::{Result, bail};
 use std::{
@@ -73,8 +74,8 @@ fn pending(
                 warnings,
                 "warning: {}: CLI/environment input overrides the saved Keychain credential. Omit --{} and unset {} to use it.",
                 requirement.name.key(),
-                crate::composition::options::cli_name(requirement.name),
-                crate::composition::options::environment_name(requirement.name)
+                cli_name(requirement.name),
+                environment_name(requirement.name)
             )?;
         }
         needs.push(requirement);

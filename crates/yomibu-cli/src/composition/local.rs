@@ -2,9 +2,7 @@ use crate::composition::configuration::Configuration;
 use crate::composition::configuration::components::OptionKey;
 use chrono::{DateTime, Utc};
 use yomibu_app::application::generate_story::StoryInputs;
-use yomibu_core::domain::{
-    generation::StoryError, knowledge::inventory::InventoryError, knowledge::learner::LearnerData,
-};
+use yomibu_core::domain::{generation::StoryError, knowledge::learner::LearnerData};
 use yomibu_ext::{file_store::cache, openai, wanikani};
 mod explicit;
 
@@ -57,8 +55,6 @@ pub enum ApplicationError {
         yomibu_core::domain::generation::preparation::GenerationError<openai::ProviderError>,
     ),
     #[error(transparent)]
-    Inventory(#[from] InventoryError),
-    #[error(transparent)]
     Story(#[from] StoryError),
     #[error(transparent)]
     Validation(#[from] yomibu_core::domain::knowledge::source::ValidationError),
@@ -96,16 +92,15 @@ impl LocalApp {
     ) -> Result<StoryRunReport, ApplicationError> {
         let progress = RunProgress::new(emit);
         let request = self.config.story.request()?;
-        let inventory = data.map(|data| data.into_inventory(now)).transpose()?;
-        if let Some(inventory) = &inventory {
-            request.validate(inventory)?;
-        }
+        let inputs = data
+            .map(|data| StoryInputs::from_learner_data(request, data, now))
+            .transpose()?;
         let key = self.credentials.generation()?;
-        let (inventory, key) = match (inventory, key) {
-            (Some(inventory), Some(key)) => (inventory, key),
-            (inventory, key) => {
+        let (inputs, key) = match (inputs, key) {
+            (Some(inputs), Some(key)) => (inputs, key),
+            (inputs, key) => {
                 let mut issues = Vec::new();
-                if inventory.is_none() {
+                if inputs.is_none() {
                     issues.push(SetupIssue::Inventory);
                 }
                 if key.is_none() {
@@ -120,13 +115,6 @@ impl LocalApp {
             .components
             .generation
             .client(key, &self.endpoints.openai)?;
-        super::selection::run_story(
-            &self.config,
-            StoryInputs { request, inventory },
-            &client,
-            seed,
-            progress,
-        )
-        .await
+        super::selection::run_story(&self.config, inputs, &client, seed, progress).await
     }
 }

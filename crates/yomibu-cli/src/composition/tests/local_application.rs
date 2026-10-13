@@ -194,7 +194,11 @@ async fn invalid_or_expired_data_fails_before_credentials_or_generation() {
             match mode {
                 "expired" => matches!(
                     result,
-                    Err(ApplicationError::Inventory(InventoryError::AccessExpired))
+                    Err(ApplicationError::Story(
+                        yomibu_core::domain::generation::StoryError::Inventory(
+                            InventoryError::AccessExpired
+                        )
+                    ))
                 ),
                 _ => matches!(
                     result,
@@ -281,7 +285,7 @@ async fn concurrent_supplied_stories_share_a_client_and_keep_independent_inputs(
             )
             .await
             .unwrap();
-            assert_eq!(report.selection.seed, seed);
+            assert_eq!(report.selection.steps.last().unwrap().seed, Some(seed));
             assert_eq!(report.request.topic.as_ref().unwrap().text(), topic);
             assert_eq!(report.generated.provenance().requested_model, topic);
             assert_eq!(steps.len(), 6);
@@ -329,11 +333,7 @@ async fn supplied_invalid_inventory_and_targets_fail_before_generation() {
         .unwrap_err();
         assert!(
             if invalid_inventory {
-                matches!(
-                    error,
-                    ApplicationError::Inventory(_)
-                        | ApplicationError::Story(StoryError::Inventory(_))
-                )
+                matches!(error, ApplicationError::Story(StoryError::Inventory(_)))
             } else {
                 matches!(
                     error,

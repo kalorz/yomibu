@@ -1,5 +1,6 @@
 pub mod progress;
 use crate::reports::run::{SelectionReport, StoryRunReport};
+use chrono::{DateTime, Utc};
 use progress::{ProgressEvent, RunProgress, Step};
 use yomibu_core::{
     domain::{
@@ -8,7 +9,7 @@ use yomibu_core::{
             finalization::select_target_first,
             preparation::{GenerationError, prepare_story},
         },
-        knowledge::inventory::LearnerInventory,
+        knowledge::{inventory::LearnerInventory, learner::LearnerData},
     },
     ports::capabilities::{CandidateGenerator, SelectionStep, StoryPreparer},
 };
@@ -18,9 +19,21 @@ pub struct StoryInputs {
     pub inventory: LearnerInventory,
 }
 
+impl StoryInputs {
+    /// Prepare and check learner data before resolving external dependencies.
+    pub fn from_learner_data(
+        request: StoryRequest,
+        data: LearnerData,
+        now: DateTime<Utc>,
+    ) -> Result<Self, StoryError> {
+        let inventory = data.into_inventory(now)?;
+        request.validate(&inventory)?;
+        Ok(Self { request, inventory })
+    }
+}
+
 pub struct StoryPipeline<'a, P, G> {
     pub selection: &'a [&'a dyn SelectionStep],
-    pub selection_revision: &'static str,
     pub preparation: &'a P,
     pub generation: &'a G,
 }
@@ -40,7 +53,6 @@ pub async fn run_story<P, G>(
     pipeline: StoryPipeline<'_, P, G>,
     options: StoryGenerationOptions,
     selection_limit: usize,
-    seed: u64,
     mut progress: RunProgress<impl FnMut(ProgressEvent)>,
 ) -> Result<StoryRunReport, StoryRunError<P::Error, G::Error>>
 where
@@ -48,9 +60,6 @@ where
     G: CandidateGenerator<PreparedRequest = P::PreparedRequest>,
 {
     let StoryInputs { request, inventory } = inputs;
-    request.validate_shape()?;
-    request.validate_selection_limit(selection_limit)?;
-    request.validate(&inventory)?;
     progress.finish_inputs();
     let started = progress.start(Step::Selection);
     let selection = select_target_first(
@@ -60,7 +69,6 @@ where
             limit: selection_limit,
         },
         pipeline.selection,
-        pipeline.selection_revision,
     )?;
     let plan = prepare_story(
         pipeline.preparation,
@@ -70,7 +78,7 @@ where
         options,
     )
     .map_err(StoryRunError::Preparation)?;
-    let selection = SelectionReport::from_selection(plan.selection(), seed);
+    let selection = SelectionReport::from_selection(plan.selection(), pipeline.selection);
     progress.finish(Step::Selection, started);
     let started = progress.start(Step::Generation);
     let generated = plan

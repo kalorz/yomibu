@@ -1,4 +1,5 @@
 use crate::composition::configuration::components::{self, OptionKey};
+use crate::composition::options::{cli_name, environment_name};
 use crate::composition::{Credentials, Secret};
 use std::ffi::OsString;
 
@@ -15,13 +16,8 @@ pub(crate) fn capture(
             break;
         }
         if let Some(requirement) = components::credentials().find(|requirement| {
-            text == format!(
-                "--{}",
-                crate::composition::options::cli_name(requirement.name)
-            ) || text.starts_with(&format!(
-                "--{}=",
-                crate::composition::options::cli_name(requirement.name)
-            ))
+            text == format!("--{}", cli_name(requirement.name))
+                || text.starts_with(&format!("--{}=", cli_name(requirement.name)))
         }) {
             if let Some((_, value)) = text.split_once('=') {
                 let secret = if args[index].to_str().is_some() {
@@ -30,11 +26,7 @@ pub(crate) fn capture(
                     Secret::invalid_encoding()
                 };
                 credentials.set_cli(requirement, secret);
-                args[index] = format!(
-                    "--{}=[REDACTED]",
-                    crate::composition::options::cli_name(requirement.name)
-                )
-                .into();
+                args[index] = format!("--{}=[REDACTED]", cli_name(requirement.name)).into();
             } else if index + 1 < args.len() {
                 let value = args[index + 1].to_string_lossy();
                 if !value.starts_with('-') {
@@ -47,13 +39,8 @@ pub(crate) fn capture(
                     args[index + 1] = "[REDACTED]".into();
                     index += 1;
                 } else if !matches!(value.as_ref(), "--help" | "-h" | "--version" | "-V")
-                    && !components::credentials().any(|requirement| {
-                        value
-                            == format!(
-                                "--{}",
-                                crate::composition::options::cli_name(requirement.name)
-                            )
-                    })
+                    && !components::credentials()
+                        .any(|requirement| value == format!("--{}", cli_name(requirement.name)))
                 {
                     // Keep a missing-value diagnostic without exposing a dash-prefixed key.
                     args[index + 1] = "--REDACTED".into();
@@ -66,9 +53,7 @@ pub(crate) fn capture(
 }
 pub(crate) fn environment(credentials: &mut Credentials, requirements: &[OptionKey<Secret>]) {
     for requirement in requirements {
-        if let Some(value) = std::env::var_os(crate::composition::options::environment_name(
-            requirement.name,
-        )) {
+        if let Some(value) = std::env::var_os(environment_name(requirement.name)) {
             let value = value
                 .into_string()
                 .map(Secret::new)

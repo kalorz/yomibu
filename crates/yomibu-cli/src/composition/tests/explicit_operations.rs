@@ -69,10 +69,11 @@ async fn saved_selection_and_story_targets_drive_generation() {
         )
         .await
         .unwrap();
-    assert_eq!(report.selection.selector_revision, "seeded-only-v1");
+    assert_eq!(report.selection.steps.len(), 1);
+    assert_eq!(report.selection.steps[0].revision, "seeded-order-v1");
     assert_eq!(report.request.targets.vocabulary, ["wanikani:3"]);
     assert_eq!(report.selection.vocabulary_ids[0], "wanikani:3");
-    assert_eq!(report.selection.seed, 7);
+    assert_eq!(report.selection.steps[0].seed, Some(7));
     assert!(report.request.topic.is_none());
     assert!(!dir.path().join("wanikani.json.lock").exists());
 }

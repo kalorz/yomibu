@@ -4,7 +4,7 @@ use crate::composition::{
 };
 use anyhow::anyhow;
 use clap::error::{ContextKind, ContextValue};
-use yomibu_core::extension::options::OptionError;
+use yomibu_core::ports::infrastructure::credentials::CredentialError;
 pub(crate) mod candidate;
 pub(crate) mod status;
 pub(crate) mod story;
@@ -41,28 +41,17 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
             }
             anyhow!("{}", message.trim_end())
         }
-        Some(ApplicationError::Options(OptionError::Missing { name, description })) => anyhow!(
-            "{}",
-            format!(
-                "Supply --{}. {description}",
-                crate::composition::options::cli_name(*name)
-            )
-            .escape_debug()
-        ),
         Some(ApplicationError::Credential(error)) => anyhow!("{}", credential_error(error)),
         _ => anyhow!("{}", format!("{error:#}").escape_debug()),
     }
 }
 
-pub(crate) fn credential_error(
-    error: &yomibu_core::ports::infrastructure::credentials::CredentialError,
-) -> String {
+pub(crate) fn credential_error(error: &CredentialError) -> &'static str {
     match error {
-        yomibu_core::ports::infrastructure::credentials::CredentialError::StoreUnavailable => {
+        CredentialError::StoreUnavailable => {
             "Cannot access the credential store; unlock it or supply a CLI/environment credential."
-                .into()
         }
-        _ => error.to_string(),
+        CredentialError::InvalidEncoding => "Invalid credential input; supply a UTF-8 credential.",
     }
 }
 
@@ -72,24 +61,22 @@ mod tests {
     use crate::composition::{ApplicationError, configuration::components::OptionKey};
 
     #[test]
-    fn core_errors_keep_cli_remedies_through_the_command_error_wrapper() {
-        use yomibu_core::{
-            extension::options::OptionError, ports::infrastructure::credentials::CredentialError,
-        };
-        let key: OptionKey<String> = OptionKey::new("example", "model", "Model");
-        let missing = ApplicationError::Options(OptionError::Missing {
-            name: key.name,
-            description: key.description,
-        });
-        assert_eq!(
-            command_error(missing.into()).to_string(),
-            "Supply --example-model. Model"
-        );
-        let unavailable = ApplicationError::Credential(CredentialError::StoreUnavailable);
-        assert_eq!(
-            command_error(unavailable.into()).to_string(),
-            "Cannot access the credential store; unlock it or supply a CLI/environment credential."
-        );
+    fn credential_errors_keep_cli_remedies_through_the_command_error_wrapper() {
+        for (error, expected) in [
+            (
+                CredentialError::StoreUnavailable,
+                "Cannot access the credential store; unlock it or supply a CLI/environment credential.",
+            ),
+            (
+                CredentialError::InvalidEncoding,
+                "Invalid credential input; supply a UTF-8 credential.",
+            ),
+        ] {
+            assert_eq!(
+                command_error(ApplicationError::Credential(error).into()).to_string(),
+                expected
+            );
+        }
     }
 
     #[test]

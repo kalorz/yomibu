@@ -6,6 +6,23 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use yomibu_core::ports::infrastructure::credentials::SecretStore;
+
+struct SuppliedStore {
+    reads: Arc<AtomicUsize>,
+    result: Result<Option<Secret>, CredentialError>,
+}
+impl SecretStore for SuppliedStore {
+    fn read(&self, service: &str, account: &str) -> Result<Option<Secret>, CredentialError> {
+        assert_eq!((service, account), ("yomibu:openai", "api-key"));
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.result.clone()
+    }
+
+    fn write(&self, _: &str, _: &str, _: &Secret) -> Result<(), CredentialError> {
+        panic!("credential lookup wrote to the store")
+    }
+}
 
 #[test]
 fn component_credentials_follow_precedence_without_cross_component_fallback() {
@@ -59,12 +76,13 @@ fn credential_lookup_is_lazy_and_caches_values_absence_and_errors() {
         ),
     ] {
         let reads = Arc::new(AtomicUsize::new(0));
-        let observed = Arc::clone(&reads);
+        let store = SuppliedStore {
+            reads: Arc::clone(&reads),
+            result,
+        };
         let mut credentials = Credentials::default();
-        credentials.supply_with(GENERATION_KEY, move || {
-            observed.fetch_add(1, Ordering::SeqCst);
-            result.clone()
-        });
+        let (service, account) = crate::composition::credentials::identity(GENERATION_KEY);
+        credentials.supply_with(GENERATION_KEY, move || store.read(&service, account));
         assert!(credentials.resolve(SOURCE_KEY).unwrap().is_none());
         assert_eq!(reads.load(Ordering::SeqCst), 0);
         let first = credentials

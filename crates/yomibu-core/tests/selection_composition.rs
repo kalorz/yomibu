@@ -29,6 +29,10 @@ fn request() -> StoryRequest {
 
 struct Reverse;
 impl SelectionStep for Reverse {
+    fn revision(&self) -> &'static str {
+        "test-Reverse"
+    }
+
     fn apply<'a>(
         &self,
         _: SelectionInput<'a>,
@@ -51,7 +55,7 @@ fn an_external_step_composes_with_target_first_finalization_and_full_inventory_a
         request: &request,
         limit: 3,
     };
-    let selection = select_target_first(input, &[&Reverse], "test-reverse-v1").unwrap();
+    let selection = select_target_first(input, &[&Reverse]).unwrap();
     assert_eq!(
         selection
             .selected
@@ -68,11 +72,9 @@ fn an_external_step_composes_with_target_first_finalization_and_full_inventory_a
             .collect::<Vec<_>>(),
         ["practice_target", "external_reverse", "external_reverse"]
     );
-    assert_eq!(selection.selector_revision, "test-reverse-v1");
     assert_eq!(selection.grammar_targets, ["polite"]);
     assert_eq!(inventory.vocabulary.len(), 4);
-    let twice =
-        select_target_first(input, &[&Reverse, &Reverse], "test-double-reverse-v1").unwrap();
+    let twice = select_target_first(input, &[&Reverse, &Reverse]).unwrap();
     assert_eq!(
         twice
             .selected
@@ -94,7 +96,6 @@ fn empty_composition_keeps_inventory_order_without_claiming_sampling() {
             limit: 3,
         },
         &[],
-        "test-inventory-order-v1",
     )
     .unwrap();
     assert_eq!(
@@ -113,6 +114,10 @@ fn empty_composition_keeps_inventory_order_without_claiming_sampling() {
 
 struct MislabelTargets;
 impl SelectionStep for MislabelTargets {
+    fn revision(&self) -> &'static str {
+        "test-MislabelTargets"
+    }
+
     fn apply<'a>(
         &self,
         _: SelectionInput<'a>,
@@ -160,7 +165,6 @@ fn finalization_assigns_target_reasons_only_from_the_request() {
                 limit: 3,
             },
             &[&MislabelTargets],
-            "test-mislabel-targets-v1",
         )
         .unwrap();
         assert_eq!(
@@ -182,6 +186,10 @@ enum Malformed {
     Empty,
 }
 impl SelectionStep for Malformed {
+    fn revision(&self) -> &'static str {
+        "test-Malformed"
+    }
+
     fn apply<'a>(
         &self,
         _: SelectionInput<'a>,
@@ -228,13 +236,17 @@ fn every_step_is_checked_before_another_step_or_finalization_can_hide_invalid_ca
         ),
         (Malformed::Empty, SelectionError::EmptyCandidates),
     ] {
-        let error = select_target_first(input, &[&step, &MustNotRun], "test-invalid").unwrap_err();
+        let error = select_target_first(input, &[&step, &MustNotRun]).unwrap_err();
         assert!(matches!(error, StoryError::Selection(actual) if actual == expected));
     }
 }
 
 struct MustNotRun;
 impl SelectionStep for MustNotRun {
+    fn revision(&self) -> &'static str {
+        "test-MustNotRun"
+    }
+
     fn apply<'a>(
         &self,
         _: SelectionInput<'a>,
@@ -256,7 +268,6 @@ fn input_validation_precedes_steps_and_empty_composition_still_finalizes_within_
                     limit
                 },
                 &[&MustNotRun],
-                "test"
             ),
             Err(StoryError::Invalid(
                 "selection limit must include all targets and be at most 16"
@@ -272,7 +283,6 @@ fn input_validation_precedes_steps_and_empty_composition_still_finalizes_within_
                 limit: 1
             },
             &[&MustNotRun],
-            "test"
         )
         .is_err()
     );
@@ -285,7 +295,6 @@ fn input_validation_precedes_steps_and_empty_composition_still_finalizes_within_
                 limit: 3
             },
             &[&MustNotRun],
-            "test"
         ),
         Err(StoryError::Invalid(
             "missing or duplicate vocabulary target"
@@ -301,7 +310,6 @@ fn input_validation_precedes_steps_and_empty_composition_still_finalizes_within_
                 limit: 3
             },
             &[&MustNotRun],
-            "test"
         )
         .is_err()
     );
@@ -313,7 +321,6 @@ fn input_validation_precedes_steps_and_empty_composition_still_finalizes_within_
             limit: 2,
         },
         &[],
-        "inventory-order-v1",
     )
     .unwrap();
     assert_eq!(
@@ -333,7 +340,6 @@ fn input_validation_precedes_steps_and_empty_composition_still_finalizes_within_
                 limit: 2
             },
             &[&MustNotRun],
-            "test"
         ),
         Err(StoryError::Inventory(_))
     ));

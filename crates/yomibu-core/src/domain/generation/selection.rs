@@ -9,7 +9,6 @@ pub struct VocabularyCandidate<'a> {
 }
 #[derive(Debug, Serialize)]
 pub struct StoryVocabularySelection<'a> {
-    pub selector_revision: &'static str,
     pub selected: Vec<VocabularyCandidate<'a>>,
     pub vocabulary_targets: &'a [String],
     pub grammar_targets: &'a [String],

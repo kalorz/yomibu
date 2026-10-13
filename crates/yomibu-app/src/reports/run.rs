@@ -9,23 +9,32 @@ pub struct StepTiming {
 }
 #[derive(Debug, Serialize)]
 pub struct SelectionReport {
-    pub selector_revision: &'static str,
     pub vocabulary_ids: Vec<String>,
-    pub seed: u64,
+    pub steps: Vec<SelectionStepReport>,
+}
+#[derive(Debug, Serialize)]
+pub struct SelectionStepReport {
+    pub revision: &'static str,
+    pub seed: Option<u64>,
 }
 impl SelectionReport {
     pub(crate) fn from_selection(
         selection: &yomibu_core::domain::generation::StoryVocabularySelection<'_>,
-        seed: u64,
+        steps: &[&dyn yomibu_core::ports::capabilities::SelectionStep],
     ) -> Self {
         Self {
-            selector_revision: selection.selector_revision,
             vocabulary_ids: selection
                 .selected
                 .iter()
                 .map(|entry| entry.word.id.clone())
                 .collect(),
-            seed,
+            steps: steps
+                .iter()
+                .map(|step| SelectionStepReport {
+                    revision: step.revision(),
+                    seed: step.seed(),
+                })
+                .collect(),
         }
     }
 }

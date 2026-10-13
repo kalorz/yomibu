@@ -12,7 +12,7 @@ use yomibu_ext::{
 };
 
 #[test]
-fn custom_composition_keeps_provenance_and_full_inventory_after_support_trimming() {
+fn custom_composition_keeps_targets_and_full_inventory_after_support_trimming() {
     let mut inventory = story_inventory::inventory();
     for word in &mut inventory.vocabulary {
         word.meanings = vec!["x".repeat(1024); 5];
@@ -26,8 +26,7 @@ fn custom_composition_keeps_provenance_and_full_inventory_after_support_trimming
         request: &request,
         limit: 4,
     };
-    let selection =
-        select_target_first(input, &[&SeededOrdering { seed: 7 }], "test-seeded-v1").unwrap();
+    let selection = select_target_first(input, &[&SeededOrdering { seed: 7 }]).unwrap();
     assert_eq!(
         selection
             .selected
@@ -47,7 +46,6 @@ fn custom_composition_keeps_provenance_and_full_inventory_after_support_trimming
             .collect::<Vec<_>>(),
         ["sleep", "dog"]
     );
-    assert_eq!(selection.selector_revision, "test-seeded-v1");
     assert_eq!(selection.vocabulary_targets, ["sleep"]);
     assert_eq!(selection.grammar_targets, ["polite"]);
     assert_eq!(selection.selected[0].reason, "practice_target");

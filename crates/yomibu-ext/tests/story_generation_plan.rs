@@ -240,7 +240,6 @@ fn request_budget_drops_lowest_ranked_supports_and_keeps_targets_and_grammar() {
             .collect::<Vec<_>>(),
         ["cat", "meet"]
     );
-    assert_eq!(selection.selector_revision, "builtin-v2");
     assert_eq!(selection.selected[0].reason, "practice_target");
     assert_eq!(selection.selected[1].reason, "local_sample");
     assert!(prepared_request.body_utf8().len() <= 16384);

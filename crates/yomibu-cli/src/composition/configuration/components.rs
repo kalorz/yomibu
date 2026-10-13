@@ -1,3 +1,4 @@
+use crate::composition::options::{cli_name, environment_name};
 use serde::Deserialize;
 pub use yomibu_core::extension::options::{OptionError, OptionKey, Options, Setting, Value};
 pub use yomibu_core::ports::infrastructure::credentials::Secret;
@@ -17,8 +18,8 @@ pub fn credential_guidance(key: OptionKey<Secret>) -> String {
     format!(
         "{} Supply --{} or {}. On macOS, run yomibu auth {}.",
         key.description,
-        crate::composition::options::cli_name(key.name),
-        crate::composition::options::environment_name(key.name),
+        cli_name(key.name),
+        environment_name(key.name),
         key.name.component
     )
 }

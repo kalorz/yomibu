@@ -23,7 +23,7 @@ impl From<&str> for Secret {
 }
 #[derive(Debug, Clone, Copy, thiserror::Error)]
 pub enum CredentialError {
-    #[error("Invalid credential input; supply a UTF-8 credential.")]
+    #[error("Credential is not valid UTF-8.")]
     InvalidEncoding,
     #[error("Cannot access the credential store.")]
     StoreUnavailable,

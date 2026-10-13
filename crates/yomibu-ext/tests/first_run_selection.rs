@@ -76,7 +76,6 @@ fn japanese_written_forms_match_inside_topics_without_dictionary_or_reading_subs
                 .take(matches.len())
                 .all(|entry| entry.score.is_some_and(|score| score > 0.))
         );
-        assert_eq!(selection.selector_revision, "builtin-v2");
     }
 }
 
@@ -195,7 +194,6 @@ fn seeded_orders_and_equal_lexical_scores_match_the_existing_sha256_strategy() {
                 .collect::<Vec<_>>(),
             reasons
         );
-        assert_eq!(selection.selector_revision, "builtin-v2");
         assert_eq!(selection.grammar_targets, ["polite"]);
     }
 }

@@ -18,6 +18,10 @@ use yomibu_core::{
 pub struct LexicalTopicScoring;
 
 impl SelectionStep for LexicalTopicScoring {
+    fn revision(&self) -> &'static str {
+        "lexical-topic-v1"
+    }
+
     fn apply<'a>(
         &self,
         input: SelectionInput<'a>,
@@ -62,6 +66,14 @@ pub struct SeededOrdering {
 }
 
 impl SelectionStep for SeededOrdering {
+    fn revision(&self) -> &'static str {
+        "seeded-order-v1"
+    }
+
+    fn seed(&self) -> Option<u64> {
+        Some(self.seed)
+    }
+
     fn apply<'a>(
         &self,
         _: SelectionInput<'a>,
@@ -107,6 +119,15 @@ fn lexical_terms(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
+pub fn selection_steps(ordering: &SeededOrdering, lexical_topic: bool) -> Vec<&dyn SelectionStep> {
+    let mut steps: Vec<&dyn SelectionStep> = Vec::new();
+    if lexical_topic {
+        steps.push(&LexicalTopicScoring);
+    }
+    steps.push(ordering);
+    steps
+}
+
 pub fn select_builtin_vocabulary<'a>(
     inventory: &'a LearnerInventory,
     request: &'a StoryRequest,
@@ -119,7 +140,6 @@ pub fn select_builtin_vocabulary<'a>(
             request,
             limit,
         },
-        &[&LexicalTopicScoring, &SeededOrdering { seed }],
-        "builtin-v2",
+        &selection_steps(&SeededOrdering { seed }, true),
     )
 }

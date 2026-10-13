@@ -32,12 +32,8 @@ fn prepare<'a>(
         request,
         limit: 2,
     };
-    let plan = yomibu_core::domain::generation::finalization::select_target_first(
-        input,
-        &[],
-        "test-inventory-order",
-    )
-    .unwrap();
+    let plan =
+        yomibu_core::domain::generation::finalization::select_target_first(input, &[]).unwrap();
     fit_selection_and_build_request(inventory, request, plan, sentence_options(2)).unwrap()
 }
 

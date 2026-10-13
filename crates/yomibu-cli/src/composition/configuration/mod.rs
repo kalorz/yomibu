@@ -1,3 +1,4 @@
+use crate::composition::options::environment_name;
 pub mod components;
 mod documents;
 mod invocation;
@@ -148,9 +149,7 @@ fn environment_settings(
 ) -> Result<Invocation, ConfigError> {
     let mut input = Invocation::default();
     for (name, text) in environment {
-        if let Some(setting) = components::options()
-            .find(|s| crate::composition::options::environment_name(s.name()) == name)
-        {
+        if let Some(setting) = components::options().find(|s| environment_name(s.name()) == name) {
             if operation.uses_setting(&options::path(setting)) {
                 setting
                     .parse(&text)
@@ -217,9 +216,7 @@ pub fn environment_names() -> Vec<String> {
     ENVIRONMENT_SETTINGS
         .iter()
         .map(|name| (*name).into())
-        .chain(
-            components::options().map(|s| crate::composition::options::environment_name(s.name())),
-        )
+        .chain(components::options().map(|s| environment_name(s.name())))
         .collect()
 }
 

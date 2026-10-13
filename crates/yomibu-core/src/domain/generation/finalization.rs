@@ -41,11 +41,9 @@ pub fn validate_selection(
 /// unique inventory references with finite scores (or absent scores).
 /// Candidates start with reason `inventory_entry`. Finalization reserves `practice_target`
 /// for requested targets and resets that reason on supports to `inventory_entry`.
-/// `selector_revision` identifies the whole composition; changed behavior needs a new revision.
 pub fn select_target_first<'a>(
     input: SelectionInput<'a>,
     steps: &[&dyn SelectionStep],
-    selector_revision: &'static str,
 ) -> Result<StoryVocabularySelection<'a>, StoryError> {
     input.request.validate(input.inventory)?;
     input.request.validate_selection_limit(input.limit)?;
@@ -96,7 +94,6 @@ pub fn select_target_first<'a>(
     );
     Ok(StoryVocabularySelection {
         selected,
-        selector_revision,
         vocabulary_targets: &input.request.targets.vocabulary,
         grammar_targets: &input.request.targets.grammar,
     })

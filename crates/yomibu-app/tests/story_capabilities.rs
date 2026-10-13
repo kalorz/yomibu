@@ -149,20 +149,18 @@ async fn supplied_preparer_binds_trimmed_selection_and_executes_matching_generat
         StoryInputs { inventory, request },
         StoryPipeline {
             selection: &[],
-            selection_revision: "test",
             preparation: &TestPreparer,
             generation: &generator,
         },
         sentence_options(),
         3,
-        7,
         RunProgress::new(|event| events.push(event)),
     )
     .await
     .unwrap();
     assert_eq!(generator.calls.load(Ordering::SeqCst), 1);
     assert_eq!(report.selection.vocabulary_ids, ["cat"]);
-    assert_eq!(report.selection.seed, 7);
+    assert!(report.selection.steps.is_empty());
     assert_eq!(report.generated.passages()[0].text, "猫。");
     let starts: Vec<_> = events
         .iter()
@@ -176,6 +174,38 @@ async fn supplied_preparer_binds_trimmed_selection_and_executes_matching_generat
 }
 
 #[tokio::test]
+async fn selection_report_keeps_each_applied_steps_seed_after_preparation_trims_supports() {
+    use yomibu_ext::learner_vocabulary_selection::{LexicalTopicScoring, SeededOrdering};
+    let (inventory, request) = inputs();
+    let report = run_story(
+        StoryInputs { inventory, request },
+        StoryPipeline {
+            selection: &[
+                &LexicalTopicScoring,
+                &SeededOrdering { seed: 7 },
+                &SeededOrdering { seed: 42 },
+            ],
+            preparation: &TestPreparer,
+            generation: &TestGenerator::default(),
+        },
+        sentence_options(),
+        3,
+        RunProgress::new(|_| {}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.selection.vocabulary_ids, ["cat"]);
+    assert_eq!(
+        serde_json::to_value(&report.selection.steps).unwrap(),
+        serde_json::json!([
+            {"revision": "lexical-topic-v1", "seed": null},
+            {"revision": "seeded-order-v1", "seed": 7},
+            {"revision": "seeded-order-v1", "seed": 42},
+        ])
+    );
+}
+
+#[tokio::test]
 async fn supplied_generator_failure_stays_typed_and_is_not_retried() {
     let (inventory, request) = inputs();
     let generator = TestGenerator {
@@ -186,13 +216,11 @@ async fn supplied_generator_failure_stays_typed_and_is_not_retried() {
         StoryInputs { inventory, request },
         StoryPipeline {
             selection: &[],
-            selection_revision: "test",
             preparation: &TestPreparer,
             generation: &generator,
         },
         sentence_options(),
         3,
-        7,
         RunProgress::new(|_| {}),
     )
     .await;
@@ -376,13 +404,11 @@ async fn request_overrides_leave_defaults_unchanged_and_reuse_the_supplied_gener
             StoryInputs { inventory, request },
             StoryPipeline {
                 selection: &[],
-                selection_revision: "test",
                 preparation: &TestPreparer,
                 generation: &generator,
             },
             sentence_options(),
             settings.select,
-            settings.seed.unwrap_or(0),
             RunProgress::new(|_| {}),
         )
         .await
