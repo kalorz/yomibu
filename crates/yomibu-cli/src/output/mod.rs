@@ -80,26 +80,24 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
 }
 
 fn cache_error_message(error: &CacheError) -> Option<String> {
-    let mut message = match error {
-        CacheError::Missing { path } => format!(
-            "No cache at {}; run yomibu sync with {} set, or select an existing cache with --data-dir PATH.",
-            path.display(),
+    let guidance = match error {
+        CacheError::Missing { .. } => format!(
+            "run yomibu sync with {} set, or select an existing cache with --data-dir PATH.",
             environment_name(SOURCE_KEY.name)
         ),
-        CacheError::Invalid { path, source } => format!(
-            "Invalid cache at {}: {source}; preserve the file and restore a valid backup or select another --data-dir PATH.",
-            path.display()
-        ),
-        CacheError::Corrupt { path, .. } => format!(
-            "Corrupt cache at {}; preserve the file and restore a valid backup or select another --data-dir PATH.",
-            path.display()
-        ),
-        CacheError::UnsupportedVersion { path, version } => format!(
-            "Unsupported cache schema {version} at {}; upgrade Yomibu or select a supported cache with --data-dir PATH.",
-            path.display()
-        ),
+        CacheError::Invalid { .. } | CacheError::Corrupt { .. } => {
+            "preserve the file and restore a valid backup or select another --data-dir PATH.".into()
+        }
+        CacheError::UnsupportedVersion { .. } => {
+            "upgrade Yomibu or select a supported cache with --data-dir PATH.".into()
+        }
         _ => return None,
     };
+    let failure = error.to_string();
+    let mut message = format!(
+        "{}; {guidance}",
+        failure.strip_suffix('.').unwrap_or(&failure)
+    );
     for cause in anyhow::Chain::new(error).skip(1) {
         message.push_str(&format!(": {cause}"));
     }
