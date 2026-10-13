@@ -1,6 +1,6 @@
 # Repository guide
 
-Read relevant code, tests and task contracts; load history only when needed.
+Read relevant code and tests.
 
 ## Architecture
 
@@ -58,7 +58,7 @@ yomibu-cli -> yomibu-app + yomibu-ext (+ yomibu-core when needed)
 
 Crate tests cover domain rules, app workflows, extension conformance/backend guarantees
 and CLI behavior. Root `tests/{fixtures,support}/` holds shared inputs/helpers;
-`config/` holds examples, `docs/` references/history, and Cargo files build configuration.
+`config/` holds examples, and Cargo files build configuration.
 
 ## Engineering rules
 
@@ -70,8 +70,7 @@ and CLI behavior. Root `tests/{fixtures,support}/` holds shared inputs/helpers;
 - No backward compatibility unless requested; do not add compatibility-only aliases,
   migrations or fallbacks. Read-only explanations/reviews do not authorize edits.
 - Preserve source progress separately from derived eligibility. Name volatile
-  adapters `InMemory...`. Preserve historical evidence, fixture bytes, code pins
-  and conclusions; current engineering fixtures may evolve.
+  adapters `InMemory...`.
 - Keep deterministic logic synchronous. Use typed recoverable errors, never
   production `unwrap()`/`expect()` for them; dynamic errors belong at executable boundaries.
 - Bound external I/O and protect credentials. Preserve usable caches on failure;
@@ -93,10 +92,7 @@ do not maintain separate Markdown command references.
 | --- | --- |
 | `README.md` | Purpose, setup, quickstart, development commands. |
 | `AGENTS.md` | Architecture and engineering rules. |
-| `SPEC.md` | Product intent and constraints. |
-| `docs/GLOSSARY.md` | Domain terms. |
-| `docs/SYNC.md`, `docs/STORY_GENERATION.md` | Task guarantees. |
-| `docs/history/` | Frozen evidence. |
+| `GLOSSARY.md` | Domain terms. |
 
 Default to no docs; patch changed usage/contracts only. New prose needs a reader
 and purpose. Link instead of duplicating. Aim under 400 words per guide, 200 added

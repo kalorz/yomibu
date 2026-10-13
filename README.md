@@ -19,7 +19,7 @@ target/debug/yomibu story
 Usable vocabulary is required.
 Run `yomibu` for all commands. See `yomibu help sync` and `yomibu help story`
 for credential setup and permissions.
-See [story settings](docs/STORY_GENERATION.md#configuration-and-optional-work).
+See [configuration examples](config/).
 
 ## Current commands
 
@@ -32,18 +32,13 @@ Use `cargo run --locked -- --help` for flags.
 | `sync` | Refresh the cache; needs `YOMIBU_WANIKANI_API_KEY` |
 | `story` | Generate one short passage with one AI request |
 
-## Usage guides
-
-[Sync](docs/SYNC.md) · [Story generation](docs/STORY_GENERATION.md)
-
 ## Developing
 
 `crates/yomibu` is the application library; `crates/yomibu-cli` builds `yomibu`.
 Shared contracts live in `yomibu-core`; implementations live in `yomibu-components`.
 Read the [architecture and engineering guide](AGENTS.md#architecture), then the
-relevant code, tests and [SPEC](SPEC.md) contract. The guide describes the target
-layout; code migration is pending. The [glossary](docs/GLOSSARY.md) explains terms
-and milestone names.
+relevant code and tests. The guide describes the target layout; code migration
+is pending. The [glossary](GLOSSARY.md) explains domain terms.
 
 Tests use local servers and synthetic data; no account or model key is needed.
 
@@ -58,4 +53,4 @@ git diff --check
 ```
 
 [CI](.github/workflows/ci.yml) runs on Linux and macOS. API docs build into
-`target/doc/yomibu`. [History](docs/history/README.md) holds earlier results and code pins.
+`target/doc/yomibu`.
