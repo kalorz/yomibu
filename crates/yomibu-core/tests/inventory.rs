@@ -1,8 +1,8 @@
 use serde_json::json;
 use yomibu_core::domain::{
     knowledge::inventory::{
-        InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory, MappedContent,
-        SourceOrigin,
+        InventoryError, InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory,
+        MappedContent, SourceOrigin,
     },
     knowledge::{ExclusionReason, LearnerProgress},
 };
@@ -27,6 +27,14 @@ fn inventory() -> LearnerInventory {
         }],
         excluded: vec![],
     }
+}
+
+#[test]
+fn expired_access_error_describes_the_failure_without_cli_guidance() {
+    assert_eq!(
+        InventoryError::AccessExpired.to_string(),
+        "Recorded content access has expired."
+    );
 }
 
 #[test]

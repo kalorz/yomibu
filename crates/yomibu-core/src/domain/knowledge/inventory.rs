@@ -62,7 +62,7 @@ pub struct LearnerInventory {
 }
 #[derive(Debug, thiserror::Error)]
 pub enum InventoryError {
-    #[error("Recorded content access has expired; run yomibu sync to refresh access.")]
+    #[error("Recorded content access has expired.")]
     AccessExpired,
     #[error("Invalid learner inventory: {0}.")]
     Invalid(&'static str),

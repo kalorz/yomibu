@@ -4,7 +4,10 @@ use crate::composition::{
 };
 use anyhow::anyhow;
 use clap::error::{ContextKind, ContextValue};
-use yomibu_core::ports::infrastructure::credentials::CredentialError;
+use yomibu_core::{
+    domain::{generation::StoryError, knowledge::inventory::InventoryError},
+    ports::infrastructure::credentials::CredentialError,
+};
 pub(crate) mod candidate;
 pub(crate) mod status;
 pub(crate) mod story;
@@ -42,6 +45,9 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
             anyhow!("{}", message.trim_end())
         }
         Some(ApplicationError::Credential(error)) => anyhow!("{}", credential_error(error)),
+        Some(ApplicationError::Story(StoryError::Inventory(InventoryError::AccessExpired))) => {
+            anyhow!("Recorded content access has expired; run yomibu sync to refresh access.")
+        }
         _ => anyhow!("{}", format!("{error:#}").escape_debug()),
     }
 }
