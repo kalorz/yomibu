@@ -432,20 +432,17 @@ fn typed_pipeline_cannot_bind_credentials_or_resources_and_clear_restores_model_
         assert!(serde_json::from_str::<Invocation>(input).is_err());
     }
     let dir = tempfile::tempdir().unwrap();
-    let mut flags = Invocation::default();
-    flags
-        .pipeline
-        .options
-        .set(GENERATION_MODEL, "specific".into())
-        .unwrap();
-    let config = load_config(dir.path(), &Operation::Story, flags, BTreeMap::new()).unwrap();
     let input: Invocation =
         serde_json::from_str(r#"{"pipeline":{"options":{"openai":{"model":{"clear":true}}}}}"#)
             .unwrap();
-    let changed = config.for_invocation(input, &Operation::Story).unwrap();
-    assert_eq!(changed.generation().unwrap().model, "gpt-6-luna");
-    assert_eq!(config.generation().unwrap().model, "specific");
-    assert_eq!(config.data_dir, changed.data_dir);
+    let config = load_config(
+        dir.path(),
+        &Operation::Story,
+        input,
+        BTreeMap::from([("YOMIBU_OPENAI_MODEL".into(), "specific".into())]),
+    )
+    .unwrap();
+    assert_eq!(config.generation().unwrap().model, "gpt-6-luna");
 }
 
 #[test]

@@ -123,10 +123,11 @@ impl Configuration {
                 vocabulary_targets: Vec::new(),
             },
         };
-        for source in [file, env] {
+        for source in [file, env, flags] {
             resolved.apply(source, operation)?;
         }
-        resolved.for_invocation(flags, operation)
+        resolved.validate(operation)?;
+        Ok(resolved)
     }
     pub fn generation(&self) -> Result<StoryGenerationOptions, components::OptionError> {
         use yomibu_ext::openai;

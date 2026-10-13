@@ -28,16 +28,6 @@ pub struct SelectionOverrides {
     pub steps: Option<Vec<SelectionStep>>,
 }
 impl Configuration {
-    pub fn for_invocation(
-        &self,
-        input: Invocation,
-        operation: &Operation,
-    ) -> Result<Self, ConfigError> {
-        let mut resolved = self.clone();
-        resolved.apply(input, operation)?;
-        resolved.validate(operation)?;
-        Ok(resolved)
-    }
     pub(super) fn apply(
         &mut self,
         input: Invocation,

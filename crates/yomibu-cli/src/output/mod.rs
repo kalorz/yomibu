@@ -1,7 +1,10 @@
 //! Terminal-safe rendering; shared serializable report data belongs to the library.
-use crate::composition::{SetupIssue, configuration::components::credential_guidance};
+use crate::composition::{
+    ApplicationError, SetupIssue, configuration::components::credential_guidance,
+};
 use anyhow::anyhow;
 use clap::error::{ContextKind, ContextValue};
+use yomibu_core::extension::options::OptionError;
 pub(crate) mod candidate;
 pub(crate) mod status;
 pub(crate) mod story;
@@ -24,43 +27,31 @@ pub(crate) fn escape_argument_error(mut error: clap::Error) -> clap::Error {
 }
 
 pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
-    if let Some(crate::composition::ApplicationError::Setup { issues }) = error.downcast_ref() {
-        let mut message = String::from("Missing required setup:\n");
-        for issue in issues {
-            let (name, guidance) = match issue {
-                SetupIssue::Inventory => ("Learner vocabulary".into(), INVENTORY_GUIDANCE.into()),
-                SetupIssue::Credential(key) => (key.name.key(), credential_guidance(*key)),
-            };
-            message.push_str(&format!("  {name}:\n    {guidance}\n"));
+    match error.downcast_ref::<ApplicationError>() {
+        Some(ApplicationError::Setup { issues }) => {
+            let mut message = String::from("Missing required setup:\n");
+            for issue in issues {
+                let (name, guidance) = match issue {
+                    SetupIssue::Inventory => {
+                        ("Learner vocabulary".into(), INVENTORY_GUIDANCE.into())
+                    }
+                    SetupIssue::Credential(key) => (key.name.key(), credential_guidance(*key)),
+                };
+                message.push_str(&format!("  {name}:\n    {guidance}\n"));
+            }
+            anyhow!("{}", message.trim_end())
         }
-        return anyhow!("{}", message.trim_end());
+        Some(ApplicationError::Options(OptionError::Missing { name, description })) => anyhow!(
+            "{}",
+            format!(
+                "Supply --{}. {description}",
+                crate::composition::options::cli_name(*name)
+            )
+            .escape_debug()
+        ),
+        Some(ApplicationError::Credential(error)) => anyhow!("{}", credential_error(error)),
+        _ => anyhow!("{}", format!("{error:#}").escape_debug()),
     }
-    for cause in error.chain() {
-        let cause: &(dyn std::error::Error + 'static) =
-            match cause.downcast_ref::<crate::composition::ApplicationError>() {
-                Some(crate::composition::ApplicationError::Options(error)) => error,
-                Some(crate::composition::ApplicationError::Credential(error)) => error,
-                _ => cause,
-            };
-        if let Some(yomibu_core::extension::options::OptionError::Missing { name, description }) =
-            cause.downcast_ref()
-        {
-            return anyhow!(
-                "{}",
-                format!(
-                    "Supply --{}. {description}",
-                    crate::composition::options::cli_name(*name)
-                )
-                .escape_debug()
-            );
-        }
-        if let Some(error) =
-            cause.downcast_ref::<yomibu_core::ports::infrastructure::credentials::CredentialError>()
-        {
-            return anyhow!("{}", credential_error(error));
-        }
-    }
-    anyhow!("{}", format!("{error:#}").escape_debug())
 }
 
 pub(crate) fn credential_error(

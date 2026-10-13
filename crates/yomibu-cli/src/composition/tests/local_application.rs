@@ -1,6 +1,6 @@
 use crate::composition::selection::run_story;
 use crate::composition::{
-    ApplicationError, Credentials, LocalApp, Operation, ServiceEndpoints, SetupIssue,
+    ApplicationError, Credentials, LocalApp, ServiceEndpoints, SetupIssue,
     configuration::{
         Configuration, ConfigurationInput, Invocation, Patch,
         components::{GENERATION_KEY, GENERATION_MODEL, SOURCE_KEY},
@@ -248,9 +248,7 @@ async fn concurrent_supplied_stories_share_a_client_and_keep_independent_inputs(
     let server = MockServer::start().await;
     mount_generation(&server, 2).await;
     let client = Client::with_base_url("ai", &format!("{}/v1/", server.uri())).unwrap();
-    let base = config(dir.path(), Invocation::default());
     let run = |topic: &'static str, seed| {
-        let base = &base;
         let client = &client;
         let dir = &dir;
         async move {
@@ -262,7 +260,7 @@ async fn concurrent_supplied_stories_share_a_client_and_keep_independent_inputs(
                 .options
                 .set(GENERATION_MODEL, topic.into())
                 .unwrap();
-            let config = base.for_invocation(invocation, &Operation::Story).unwrap();
+            let config = config(dir.path(), invocation);
             let inventory = FileLearningStore::new(dir.path())
                 .read_learner_data()
                 .unwrap()
@@ -290,8 +288,6 @@ async fn concurrent_supplied_stories_share_a_client_and_keep_independent_inputs(
         }
     };
     tokio::join!(run("garden", 7), run("snow", 42));
-    assert_eq!(base.generation().unwrap().model, "gpt-6-luna");
-    assert_eq!(base.story.seed, None);
     assert_eq!(server.received_requests().await.unwrap().len(), 2);
 }
 
