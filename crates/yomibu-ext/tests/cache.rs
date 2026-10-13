@@ -1,4 +1,5 @@
 use std::fs;
+use yomibu_core::domain::knowledge::source::ValidationError;
 use yomibu_ext::file_store::cache::{CacheError, load};
 
 #[test]
@@ -51,6 +52,20 @@ fn corrupt_cache_is_preserved_and_retains_its_parse_error() {
         "key must be a string at line 1 column 2"
     );
     assert_eq!(fs::read_to_string(path).unwrap(), "{truncated");
+}
+
+#[test]
+fn invalid_cache_error_describes_the_failure_without_cli_guidance() {
+    let error = CacheError::Invalid {
+        path: "wanikani.json".into(),
+        source: ValidationError::InvalidField {
+            field: "learner.level",
+        },
+    };
+    assert_eq!(
+        error.to_string(),
+        "Invalid cache at wanikani.json: invalid learner.level."
+    );
 }
 
 #[test]
@@ -138,12 +153,6 @@ fn rejects_change(pointer: &str, replacement: serde_json::Value) -> bool {
     let path = dir.path().join("wanikani.json");
     fs::write(&path, &bytes).unwrap();
     let result = load(dir.path());
-    if let Err(error @ CacheError::Invalid { source, .. }) = &result {
-        assert_eq!(
-            error.to_string(),
-            format!("Invalid cache at {}: {source}.", path.display())
-        );
-    }
     assert_eq!(fs::read(path).unwrap(), bytes);
     result.is_err()
 }
