@@ -1,34 +1,53 @@
-use crate::domain::knowledge::source::WaniKaniSyncData;
-use std::{error::Error, sync::Arc};
+use std::error::Error;
 
-/// Retrieves and normalizes one complete WaniKani account refresh.
+/// Retrieves and interprets one complete source account refresh.
 ///
-/// Retrieval may perform network I/O; it must not persist data. This current
-/// slice preserves provider-specific state rather than promising a generic
-/// provider ontology. Implementations document deadlines and retry behavior.
+/// Retrieval may perform network I/O; it must not persist data.
+/// Implementations document deadlines and retry behavior.
 pub trait LearningSource {
+    type Data;
+    type Summary;
     type Error: Error + Send + Sync + 'static;
+    type ValidationError: Error + Send + Sync + 'static;
 
-    fn fetch(&mut self) -> impl Future<Output = Result<WaniKaniSyncData, Self::Error>> + Send;
+    fn fetch(&mut self) -> impl Future<Output = Result<Self::Data, Self::Error>> + Send;
+
+    /// Validate the supplied snapshot and prepare an owned summary without external I/O.
+    fn validate_and_summarize(
+        &self,
+        data: &Self::Data,
+    ) -> Result<Self::Summary, Self::ValidationError>;
 }
 
 impl<Source: LearningSource + ?Sized> LearningSource for &mut Source {
+    type Data = Source::Data;
+    type Summary = Source::Summary;
     type Error = Source::Error;
+    type ValidationError = Source::ValidationError;
 
-    fn fetch(&mut self) -> impl Future<Output = Result<WaniKaniSyncData, Self::Error>> + Send {
+    fn fetch(&mut self) -> impl Future<Output = Result<Self::Data, Self::Error>> + Send {
         (**self).fetch()
+    }
+
+    fn validate_and_summarize(
+        &self,
+        data: &Self::Data,
+    ) -> Result<Self::Summary, Self::ValidationError> {
+        (**self).validate_and_summarize(data)
     }
 }
 
 /// One exclusive synchronization attempt; dropping it releases the writer slot.
 pub trait SourceSyncWriter {
+    type Data;
     type Error: Error + Send + Sync + 'static;
 
     /// Validate and atomically publish a complete source version for the same
     /// account. Backend errors must distinguish failure before replacement from
     /// uncertain durability after replacement; an error need not mean rollback.
     /// Success means durability operations, including directory sync, completed.
-    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<(), Self::Error>;
+    /// Validation must also protect callers that bypass the source workflow.
+    fn replace(self, data: Self::Data) -> Result<(), Self::Error>;
 }
 
 /// A physical store of coherent source material and learner progress.

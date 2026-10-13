@@ -8,9 +8,10 @@ pub mod cache;
 
 const CACHE_FILE: &str = "wanikani.json";
 
-use std::{path::PathBuf, sync::Arc};
+use crate::wanikani::data::WaniKaniSyncData;
+use std::path::PathBuf;
 use yomibu_core::{
-    domain::{knowledge::learner::LearnerData, knowledge::source::WaniKaniSyncData},
+    domain::knowledge::learner::LearnerData,
     ports::infrastructure::{LearningStore, SourceSyncWriter},
 };
 
@@ -49,9 +50,10 @@ pub struct FileSyncWriter {
 }
 
 impl SourceSyncWriter for FileSyncWriter {
+    type Data = WaniKaniSyncData;
     type Error = cache::WriteError;
 
-    fn replace(self, data: Arc<WaniKaniSyncData>) -> Result<(), Self::Error> {
+    fn replace(self, data: Self::Data) -> Result<(), Self::Error> {
         self.guard.replace(&data)
     }
 }

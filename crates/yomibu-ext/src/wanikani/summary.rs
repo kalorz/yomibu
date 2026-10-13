@@ -1,9 +1,9 @@
 //! Deterministic summaries of validated cached observations.
 
+use super::data::{SubjectKind, ValidationError, WaniKaniSyncData};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
-use yomibu_core::domain::knowledge::source::{SubjectKind, ValidationError, WaniKaniSyncData};
 
 #[derive(Debug, PartialEq, Serialize)]
 pub struct Summary {

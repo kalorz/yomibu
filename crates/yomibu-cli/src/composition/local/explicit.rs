@@ -3,7 +3,7 @@ use yomibu_app::application::sync::SyncReport;
 use yomibu_ext::wanikani;
 
 impl LocalApp {
-    pub async fn sync(&self) -> Result<SyncReport, ApplicationError> {
+    pub async fn sync(&self) -> Result<SyncReport<wanikani::summary::Summary>, ApplicationError> {
         let key = self
             .credentials
             .source()?

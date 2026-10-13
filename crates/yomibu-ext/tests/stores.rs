@@ -1,11 +1,9 @@
-use yomibu_core::{
-    domain::knowledge::source::WaniKaniSyncData,
-    ports::infrastructure::{LearningStore, SourceSyncWriter},
-};
+use yomibu_core::ports::infrastructure::{LearningStore, SourceSyncWriter};
 use yomibu_ext::file_store::{
     FileLearningStore,
     cache::{CacheError, WriteError},
 };
+use yomibu_ext::wanikani::data::WaniKaniSyncData;
 
 fn fixture() -> WaniKaniSyncData {
     let envelope: serde_json::Value =
@@ -19,13 +17,13 @@ fn stores_a_complete_version(store: &FileLearningStore) {
         Err(CacheError::Missing { .. })
     ));
     let writer = store.begin_sync().unwrap();
-    let _: () = writer.replace(fixture().into()).unwrap();
+    let _: () = writer.replace(fixture()).unwrap();
     let first = store.load_snapshot().unwrap();
     assert_eq!(first, fixture());
 
     let mut next = fixture();
     next.learner.username = "updated username".into();
-    store.begin_sync().unwrap().replace(next.into()).unwrap();
+    store.begin_sync().unwrap().replace(next).unwrap();
     assert_eq!(
         store.load_snapshot().unwrap().learner.username,
         "updated username"
@@ -58,18 +56,10 @@ fn file_store_is_lazy_and_preserves_schema_one() {
 }
 
 fn rejects_invalid_replacements(store: &FileLearningStore) {
-    store
-        .begin_sync()
-        .unwrap()
-        .replace(fixture().into())
-        .unwrap();
+    store.begin_sync().unwrap().replace(fixture()).unwrap();
     let mut invalid = fixture();
     invalid.sync_completed_at = invalid.sync_started_at - chrono::Duration::seconds(1);
-    let error = store
-        .begin_sync()
-        .unwrap()
-        .replace(invalid.into())
-        .unwrap_err();
+    let error = store.begin_sync().unwrap().replace(invalid).unwrap_err();
     assert!(matches!(error, WriteError::InvalidSyncData(_)));
     assert_eq!(store.load_snapshot().unwrap(), fixture());
 
@@ -78,7 +68,7 @@ fn rejects_invalid_replacements(store: &FileLearningStore) {
     let error = store
         .begin_sync()
         .unwrap()
-        .replace(wrong_account.into())
+        .replace(wrong_account)
         .unwrap_err();
     assert!(matches!(error, WriteError::AccountMismatch));
     assert_eq!(
@@ -87,11 +77,7 @@ fn rejects_invalid_replacements(store: &FileLearningStore) {
     );
     assert_eq!(store.load_snapshot().unwrap(), fixture());
     // A failed publication must release the writer reservation.
-    store
-        .begin_sync()
-        .unwrap()
-        .replace(fixture().into())
-        .unwrap();
+    store.begin_sync().unwrap().replace(fixture()).unwrap();
 }
 
 #[test]
@@ -101,11 +87,7 @@ fn file_store_preserves_the_previous_account_and_valid_version() {
 }
 
 fn writer_reservation_keeps_reads_available(store: &FileLearningStore, other: &FileLearningStore) {
-    store
-        .begin_sync()
-        .unwrap()
-        .replace(fixture().into())
-        .unwrap();
+    store.begin_sync().unwrap().replace(fixture()).unwrap();
     let writer = store.begin_sync().unwrap();
     let error = other.begin_sync().unwrap_err();
     assert!(
@@ -115,11 +97,7 @@ fn writer_reservation_keeps_reads_available(store: &FileLearningStore, other: &F
     assert_eq!(error.to_string(), "Another sync holds the lock.");
     assert_eq!(other.load_snapshot().unwrap(), fixture());
     drop(writer);
-    other
-        .begin_sync()
-        .unwrap()
-        .replace(fixture().into())
-        .unwrap();
+    other.begin_sync().unwrap().replace(fixture()).unwrap();
 }
 
 #[test]
@@ -136,11 +114,7 @@ fn normalized_reads_keep_progress_and_remain_coherent_after_replacement() {
     let store = FileLearningStore::new(dir.path());
     assert!(store.read_learner_data().unwrap().is_none());
     let data = fixture();
-    store
-        .begin_sync()
-        .unwrap()
-        .replace(fixture().into())
-        .unwrap();
+    store.begin_sync().unwrap().replace(fixture()).unwrap();
     let first = store.read_learner_data().unwrap().unwrap();
     let (_, progress) = first.records.iter().find(|(content, _)| matches!(content, MappedContent::Vocabulary(word) if word.id == "wanikani:3")).unwrap();
     assert_eq!(
@@ -149,7 +123,7 @@ fn normalized_reads_keep_progress_and_remain_coherent_after_replacement() {
     );
     let mut next = fixture();
     next.subjects[2].characters = "updated".into();
-    store.begin_sync().unwrap().replace(next.into()).unwrap();
+    store.begin_sync().unwrap().replace(next).unwrap();
     let inventory = first.into_inventory(data.sync_completed_at).unwrap();
     assert_eq!(inventory.vocabulary[0].written_form, "これ");
     let updated = store

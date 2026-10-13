@@ -1,11 +1,14 @@
 //! WaniKani retrieval and mapping. Transport shapes and credentials stay here.
 use yomibu_core::ports::infrastructure::credentials::Secret;
+pub mod data;
 mod dto;
 mod inventory;
+pub mod summary;
 
 pub use inventory::map_content_and_progress;
 
 use chrono::{DateTime, Utc};
+use data::{Subject, UnavailableSubject, ValidationError, WaniKaniSyncData};
 use reqwest::{
     Url,
     header::{AUTHORIZATION, HeaderMap, HeaderValue},
@@ -14,9 +17,6 @@ use serde::de::DeserializeOwned;
 use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use std::time::{Duration, SystemTime};
 use thiserror::Error;
-use yomibu_core::domain::knowledge::source::{
-    Subject, UnavailableSubject, ValidationError, WaniKaniSyncData,
-};
 
 use yomibu_core::extension::{Component, options::OptionKey};
 
@@ -72,10 +72,20 @@ pub struct Client {
 }
 
 impl yomibu_core::ports::infrastructure::LearningSource for Client {
+    type Data = WaniKaniSyncData;
+    type Summary = summary::Summary;
     type Error = Error;
+    type ValidationError = ValidationError;
 
     async fn fetch(&mut self) -> Result<WaniKaniSyncData, Self::Error> {
         Client::fetch(self).await
+    }
+
+    fn validate_and_summarize(
+        &self,
+        data: &Self::Data,
+    ) -> Result<Self::Summary, Self::ValidationError> {
+        summary::summarize(data)
     }
 }
 
@@ -179,7 +189,7 @@ impl Client {
             .map(|a| a.subject_id)
             .chain(review_statistics.iter().map(|r| r.subject_id))
             .collect();
-        let learner: yomibu_core::domain::knowledge::source::Learner = user.into();
+        let learner: data::Learner = user.into();
         let mut subjects = Vec::new();
 
         let ids: Vec<_> = ids.into_iter().collect();

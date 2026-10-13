@@ -1,9 +1,12 @@
 use yomibu_app::application::sync::App;
-use yomibu_core::{
-    domain::knowledge::source::WaniKaniSyncData,
-    ports::infrastructure::{LearningSource, LearningStore},
+use yomibu_core::ports::infrastructure::{LearningSource, LearningStore};
+use yomibu_ext::{
+    file_store::FileLearningStore,
+    wanikani::{
+        data::{ValidationError, WaniKaniSyncData},
+        summary::{Summary, summarize},
+    },
 };
-use yomibu_ext::file_store::FileLearningStore;
 
 fn fixture() -> WaniKaniSyncData {
     let envelope: serde_json::Value =
@@ -14,10 +17,20 @@ fn fixture() -> WaniKaniSyncData {
 struct FixtureSource;
 
 impl LearningSource for FixtureSource {
+    type Data = WaniKaniSyncData;
+    type Summary = Summary;
     type Error = std::convert::Infallible;
+    type ValidationError = ValidationError;
 
     async fn fetch(&mut self) -> Result<WaniKaniSyncData, Self::Error> {
         Ok(fixture())
+    }
+
+    fn validate_and_summarize(
+        &self,
+        data: &Self::Data,
+    ) -> Result<Self::Summary, Self::ValidationError> {
+        summarize(data)
     }
 }
 
@@ -28,10 +41,7 @@ async fn sync_publishes_to_file_storage() {
     let mut app = App::new(store.clone()).with_source(FixtureSource);
     let report = app.sync().await.unwrap();
     drop(app);
-    assert_eq!(
-        report.summary,
-        yomibu_app::reports::summary::summarize(&fixture()).unwrap()
-    );
+    assert_eq!(report.summary, summarize(&fixture()).unwrap());
     assert_eq!(store.load_snapshot().unwrap(), fixture());
 }
 
@@ -74,7 +84,7 @@ async fn real_http_source_can_publish_to_file_storage() {
     let report = app.sync().await.unwrap();
     assert_eq!(store.load_snapshot().unwrap().subjects.len(), 4);
     assert_eq!(
-        yomibu_app::reports::summary::summarize(&store.load_snapshot().unwrap()).unwrap(),
+        summarize(&store.load_snapshot().unwrap()).unwrap(),
         report.summary
     );
 }
@@ -82,10 +92,20 @@ async fn real_http_source_can_publish_to_file_storage() {
 struct PendingSource;
 
 impl LearningSource for PendingSource {
+    type Data = WaniKaniSyncData;
+    type Summary = Summary;
     type Error = std::convert::Infallible;
+    type ValidationError = ValidationError;
 
     async fn fetch(&mut self) -> Result<WaniKaniSyncData, Self::Error> {
         std::future::pending().await
+    }
+
+    fn validate_and_summarize(
+        &self,
+        data: &Self::Data,
+    ) -> Result<Self::Summary, Self::ValidationError> {
+        summarize(data)
     }
 }
 
@@ -96,11 +116,7 @@ fn cancellation_preserves_data_and_releases_writer(store: FileLearningStore) {
     };
     use yomibu_core::ports::infrastructure::SourceSyncWriter;
 
-    store
-        .begin_sync()
-        .unwrap()
-        .replace(fixture().into())
-        .unwrap();
+    store.begin_sync().unwrap().replace(fixture()).unwrap();
     let mut app = App::new(store.clone()).with_source(PendingSource);
     fn require_send<T: Send>(value: T) -> T {
         value
@@ -115,14 +131,10 @@ fn cancellation_preserves_data_and_releases_writer(store: FileLearningStore) {
     assert!(store.begin_sync().is_err());
     assert_eq!(store.load_snapshot().unwrap(), fixture());
     drop(operation);
-    store
-        .begin_sync()
-        .unwrap()
-        .replace(fixture().into())
-        .unwrap();
+    store.begin_sync().unwrap().replace(fixture()).unwrap();
     assert_eq!(
-        yomibu_app::reports::summary::summarize(&store.load_snapshot().unwrap()).unwrap(),
-        yomibu_app::reports::summary::summarize(&fixture()).unwrap()
+        summarize(&store.load_snapshot().unwrap()).unwrap(),
+        summarize(&fixture()).unwrap()
     );
 }
 
@@ -135,12 +147,22 @@ fn cancelling_sync_releases_file_writer_without_replacing_data() {
 struct OneResultSource(Option<Result<WaniKaniSyncData, std::io::Error>>);
 
 impl LearningSource for OneResultSource {
+    type Data = WaniKaniSyncData;
+    type Summary = Summary;
     type Error = std::io::Error;
+    type ValidationError = ValidationError;
 
     async fn fetch(&mut self) -> Result<WaniKaniSyncData, Self::Error> {
         self.0
             .take()
             .expect("source should be fetched exactly once")
+    }
+
+    fn validate_and_summarize(
+        &self,
+        data: &Self::Data,
+    ) -> Result<Self::Summary, Self::ValidationError> {
+        summarize(data)
     }
 }
 
@@ -150,11 +172,7 @@ async fn source_and_validation_failures_are_typed_and_preserve_data() {
     use yomibu_core::ports::infrastructure::SourceSyncWriter;
     let directory = tempfile::tempdir().unwrap();
     let store = FileLearningStore::new(directory.path());
-    store
-        .begin_sync()
-        .unwrap()
-        .replace(fixture().into())
-        .unwrap();
+    store.begin_sync().unwrap().replace(fixture()).unwrap();
     let source = OneResultSource(Some(Err(std::io::ErrorKind::TimedOut.into())));
     let mut app = App::new(store.clone()).with_source(source);
     assert!(

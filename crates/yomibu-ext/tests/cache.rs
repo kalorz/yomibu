@@ -1,6 +1,6 @@
 use std::fs;
-use yomibu_core::domain::knowledge::source::ValidationError;
 use yomibu_ext::file_store::cache::{CacheError, load};
+use yomibu_ext::wanikani::data::ValidationError;
 
 #[test]
 fn loads_an_empty_account_with_unicode_and_utc_times() {
@@ -97,7 +97,7 @@ fn io_failure_is_distinct_from_a_missing_or_corrupt_cache() {
 
 #[test]
 fn preserves_subject_variants_progress_and_absence() {
-    use yomibu_core::domain::knowledge::source::LexicalContent;
+    use yomibu_ext::wanikani::data::LexicalContent;
     let dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("wanikani.json"),
@@ -337,4 +337,48 @@ fn writer_lock_fails_promptly_and_status_can_read_until_guard_is_dropped() {
     assert_eq!(load(dir.path()).unwrap().learner.id, "synthetic-learner");
     drop(guard);
     assert!(SyncGuard::acquire(dir.path()).is_ok());
+}
+
+#[test]
+fn locked_writer_round_trips_and_fully_replaces_sync_data_privately() {
+    use std::os::unix::fs::PermissionsExt;
+    use yomibu_ext::file_store::cache::SyncGuard;
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("private/nested");
+    let fixture = tempfile::tempdir().unwrap();
+    fs::write(
+        fixture.path().join("wanikani.json"),
+        include_str!("../../../tests/fixtures/mixed.json"),
+    )
+    .unwrap();
+    let mixed = load(fixture.path()).unwrap();
+    let guard = SyncGuard::acquire(&dir).unwrap();
+    guard.replace(&mixed).unwrap();
+    let stored = load(&dir).unwrap();
+    assert_eq!(
+        yomibu_ext::wanikani::summary::summarize(&stored).unwrap(),
+        yomibu_ext::wanikani::summary::summarize(&mixed).unwrap()
+    );
+    assert_eq!(stored.subjects[1].characters, "一つ");
+    for path in [
+        &dir,
+        &root.path().join("private"),
+        &dir.join("wanikani.json"),
+        &dir.join("wanikani.json.lock"),
+    ] {
+        assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o077, 0);
+    }
+    fs::write(
+        fixture.path().join("wanikani.json"),
+        include_str!("../../../tests/fixtures/empty.json"),
+    )
+    .unwrap();
+    guard.replace(&load(fixture.path()).unwrap()).unwrap();
+    assert!(load(&dir).unwrap().subjects.is_empty());
+    let mut files: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    files.sort();
+    assert_eq!(files, ["wanikani.json", "wanikani.json.lock"]);
 }

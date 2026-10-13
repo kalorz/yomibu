@@ -1,9 +1,5 @@
-use crate::reports::summary::Summary;
 use thiserror::Error;
-use yomibu_core::{
-    domain::knowledge::source::ValidationError,
-    ports::infrastructure::{LearningSource, LearningStore, SourceSyncWriter},
-};
+use yomibu_core::ports::infrastructure::{LearningSource, LearningStore, SourceSyncWriter};
 
 /// Owns the selected store and optional source. Construction performs no I/O.
 ///
@@ -28,7 +24,12 @@ impl<Store> App<Store> {
     }
 }
 
-impl<Store: LearningStore, Source: LearningSource> App<Store, Source> {
+impl<Store, Source> App<Store, Source>
+where
+    Store: LearningStore,
+    Source: LearningSource,
+    Store::Writer: SourceSyncWriter<Data = Source::Data>,
+{
     /// Reserve a writer, fetch, validate, then atomically publish one version.
     ///
     /// Source/validation failures preserve the previous data. A write failure
@@ -41,23 +42,29 @@ impl<Store: LearningStore, Source: LearningSource> App<Store, Source> {
     /// needs storage contracts suited to async I/O or a bounded blocking executor.
     pub async fn sync(
         &mut self,
-    ) -> Result<SyncReport, SyncError<Source::Error, Store::WriteError>> {
+    ) -> Result<
+        SyncReport<Source::Summary>,
+        SyncError<Source::Error, Store::WriteError, Source::ValidationError>,
+    > {
         let writer = self.store.begin_sync().map_err(SyncError::Write)?;
         let data = self.source.fetch().await.map_err(SyncError::Source)?;
-        let summary = crate::reports::summary::summarize(&data).map_err(SyncError::InvalidData)?;
-        writer.replace(data.into()).map_err(SyncError::Write)?;
+        let summary = self
+            .source
+            .validate_and_summarize(&data)
+            .map_err(SyncError::InvalidData)?;
+        writer.replace(data).map_err(SyncError::Write)?;
         Ok(SyncReport { summary })
     }
 }
 
 /// A successful, complete publication; retention depends on the selected store.
 #[derive(Debug, PartialEq, serde::Serialize)]
-pub struct SyncReport {
+pub struct SyncReport<Summary> {
     pub summary: Summary,
 }
 
 #[derive(Debug, Error)]
-pub enum SyncError<SourceError, WriteError> {
+pub enum SyncError<SourceError, WriteError, ValidationError> {
     #[error(transparent)]
     Source(SourceError),
     #[error(transparent)]

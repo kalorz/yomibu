@@ -2,9 +2,8 @@ use serde_json::Value;
 use yomibu_core::domain::{
     knowledge::ExclusionReason,
     knowledge::inventory::{LearnerInventory, MappedContent, SourceOrigin},
-    knowledge::source::WaniKaniSyncData,
 };
-use yomibu_ext::wanikani::map_content_and_progress;
+use yomibu_ext::wanikani::{data::WaniKaniSyncData, map_content_and_progress};
 
 fn source() -> WaniKaniSyncData {
     let value: Value =
@@ -145,7 +144,7 @@ fn preparation_order_is_stable_and_invalid_direct_input_is_rejected() {
 
 #[test]
 fn preparation_preserves_unpaired_reading_and_meaning_alternatives() {
-    use yomibu_core::domain::knowledge::source::{LexicalContent, Meaning, Reading};
+    use yomibu_ext::wanikani::data::{LexicalContent, Meaning, Reading};
     let mut data = source();
     data.assignments[1].hidden = false;
     let subject = &mut data.subjects[1];
