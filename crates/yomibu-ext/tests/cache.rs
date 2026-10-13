@@ -1,5 +1,5 @@
 use std::fs;
-use yomibu_ext::file_store::cache::load;
+use yomibu_ext::file_store::cache::{CacheError, load};
 
 #[test]
 fn loads_an_empty_account_with_unicode_and_utc_times() {
@@ -23,23 +23,33 @@ fn loads_an_empty_account_with_unicode_and_utc_times() {
 }
 
 #[test]
-fn missing_cache_error_identifies_the_path_and_remedy() {
+fn missing_cache_error_identifies_the_path_without_cli_guidance() {
     let dir = tempfile::tempdir().unwrap();
-    let error = load(dir.path()).unwrap_err().to_string();
-    assert!(error.contains("No cache"), "{error}");
-    assert!(error.contains(&dir.path().display().to_string()), "{error}");
-    assert!(error.contains("--data-dir"), "{error}");
+    let error = load(dir.path()).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "No cache at {}.",
+            dir.path().join("wanikani.json").display()
+        )
+    );
     assert!(!dir.path().join("wanikani.json").exists());
 }
 
 #[test]
-fn corrupt_cache_is_preserved_and_has_recovery_guidance() {
+fn corrupt_cache_is_preserved_and_retains_its_parse_error() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("wanikani.json");
     fs::write(&path, "{truncated").unwrap();
-    let error = load(dir.path()).unwrap_err().to_string();
-    assert!(error.contains("Corrupt cache"), "{error}");
-    assert!(error.contains("restore"), "{error}");
+    let error = load(dir.path()).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        format!("Corrupt cache at {}.", path.display())
+    );
+    assert_eq!(
+        std::error::Error::source(&error).unwrap().to_string(),
+        "key must be a string at line 1 column 2"
+    );
     assert_eq!(fs::read_to_string(path).unwrap(), "{truncated");
 }
 
@@ -51,9 +61,14 @@ fn unsupported_schema_is_reported_before_decoding_its_payload() {
         r#"{"schema_version":999,"snapshot":null}"#,
     )
     .unwrap();
-    let error = load(dir.path()).unwrap_err().to_string();
-    assert!(error.contains("Unsupported cache schema 999"), "{error}");
-    assert!(error.contains("upgrade"), "{error}");
+    let error = load(dir.path()).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "Unsupported cache schema 999 at {}.",
+            dir.path().join("wanikani.json").display()
+        )
+    );
 }
 
 #[test]
@@ -123,6 +138,12 @@ fn rejects_change(pointer: &str, replacement: serde_json::Value) -> bool {
     let path = dir.path().join("wanikani.json");
     fs::write(&path, &bytes).unwrap();
     let result = load(dir.path());
+    if let Err(error @ CacheError::Invalid { source, .. }) = &result {
+        assert_eq!(
+            error.to_string(),
+            format!("Invalid cache at {}: {source}.", path.display())
+        );
+    }
     assert_eq!(fs::read(path).unwrap(), bytes);
     result.is_err()
 }

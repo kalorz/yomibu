@@ -8,7 +8,10 @@ use yomibu_core::{
     domain::{generation::StoryError, knowledge::inventory::InventoryError},
     ports::infrastructure::credentials::CredentialError,
 };
-use yomibu_ext::{file_store::cache::WriteError, wanikani};
+use yomibu_ext::{
+    file_store::cache::{CacheError, WriteError},
+    wanikani,
+};
 pub(crate) mod candidate;
 pub(crate) mod status;
 pub(crate) mod story;
@@ -31,7 +34,15 @@ pub(crate) fn escape_argument_error(mut error: clap::Error) -> clap::Error {
 }
 
 pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
-    match error.downcast_ref::<ApplicationError>() {
+    let application_error = error.downcast_ref::<ApplicationError>();
+    let cache_error = match application_error {
+        Some(ApplicationError::Persistence(WriteError::ExistingCache(error))) => Some(error),
+        _ => error.downcast_ref::<CacheError>(),
+    };
+    if let Some(message) = cache_error.and_then(cache_error_message) {
+        return anyhow!("{}", message.escape_debug());
+    }
+    match application_error {
         Some(ApplicationError::Setup { issues }) => {
             let mut message = String::from("Missing required setup:\n");
             for issue in issues {
@@ -66,6 +77,32 @@ pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
     }
 }
 
+fn cache_error_message(error: &CacheError) -> Option<String> {
+    let mut message = match error {
+        CacheError::Missing { path } => format!(
+            "No cache at {}; run yomibu sync with YOMIBU_WANIKANI_API_KEY set, or select an existing cache with --data-dir PATH.",
+            path.display()
+        ),
+        CacheError::Invalid { path, source } => format!(
+            "Invalid cache at {}: {source}; preserve the file and restore a valid backup or select another --data-dir PATH.",
+            path.display()
+        ),
+        CacheError::Corrupt { path, .. } => format!(
+            "Corrupt cache at {}; preserve the file and restore a valid backup or select another --data-dir PATH.",
+            path.display()
+        ),
+        CacheError::UnsupportedVersion { path, version } => format!(
+            "Unsupported cache schema {version} at {}; upgrade Yomibu or select a supported cache with --data-dir PATH.",
+            path.display()
+        ),
+        _ => return None,
+    };
+    for cause in anyhow::Chain::new(error).skip(1) {
+        message.push_str(&format!(": {cause}"));
+    }
+    Some(message)
+}
+
 pub(crate) fn credential_error(error: &CredentialError) -> &'static str {
     match error {
         CredentialError::StoreUnavailable => {
@@ -79,6 +116,46 @@ pub(crate) fn credential_error(error: &CredentialError) -> &'static str {
 mod tests {
     use super::*;
     use crate::composition::{ApplicationError, configuration::components::OptionKey};
+
+    #[test]
+    fn cache_guidance_preserves_missing_errors_and_hostile_cause_chains_on_both_routes() {
+        for wrapped in [false, true] {
+            let path = std::path::PathBuf::from("日本語\n\u{1b}/wanikani.json");
+            let source = serde_json::Error::io(std::io::Error::other(
+                anyhow!("underlying\n\u{1b}").context("日本語\n\u{1b}"),
+            ));
+            for (error, diagnostic) in [
+                (
+                    CacheError::Missing { path: path.clone() },
+                    format!(
+                        "No cache at {}; run yomibu sync with YOMIBU_WANIKANI_API_KEY set, or select an existing cache with --data-dir PATH.",
+                        path.display()
+                    ),
+                ),
+                (
+                    CacheError::Corrupt {
+                        path: path.clone(),
+                        source,
+                    },
+                    format!(
+                        "Corrupt cache at {}; preserve the file and restore a valid backup or select another --data-dir PATH.: 日本語\n\u{1b}: underlying\n\u{1b}",
+                        path.display()
+                    ),
+                ),
+            ] {
+                let error = if wrapped {
+                    ApplicationError::Persistence(WriteError::ExistingCache(error)).into()
+                } else {
+                    error.into()
+                };
+                assert_eq!(
+                    command_error(error).to_string(),
+                    diagnostic.escape_debug().to_string(),
+                    "wrapped={wrapped}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn credential_errors_keep_cli_remedies_through_the_command_error_wrapper() {

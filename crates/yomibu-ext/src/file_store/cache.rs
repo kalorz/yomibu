@@ -16,17 +16,13 @@ const MAX_CACHE_BYTES: u64 = 64 * 1024 * 1024;
 pub enum CacheError {
     #[error("Cache at {path} exceeds 64 MiB; preserve it and select a bounded complete cache.")]
     TooLarge { path: PathBuf },
-    #[error(
-        "Invalid cache at {path}: {source}; preserve the file and restore a valid backup or select another --data-dir PATH."
-    )]
+    #[error("Invalid cache at {path}: {source}.")]
     Invalid {
         path: PathBuf,
         #[source]
         source: ValidationError,
     },
-    #[error(
-        "No cache at {path}; run yomibu sync with YOMIBU_WANIKANI_API_KEY set, or select an existing cache with --data-dir PATH."
-    )]
+    #[error("No cache at {path}.")]
     Missing { path: PathBuf },
     #[error("Cannot read cache at {path}; check the path and file permissions.")]
     Read {
@@ -34,17 +30,13 @@ pub enum CacheError {
         #[source]
         source: io::Error,
     },
-    #[error(
-        "Corrupt cache at {path}; preserve the file and restore a valid backup or select another --data-dir PATH."
-    )]
+    #[error("Corrupt cache at {path}.")]
     Corrupt {
         path: PathBuf,
         #[source]
         source: serde_json::Error,
     },
-    #[error(
-        "Unsupported cache schema {version} at {path}; upgrade Yomibu or select a supported cache with --data-dir PATH."
-    )]
+    #[error("Unsupported cache schema {version} at {path}.")]
     UnsupportedVersion { path: PathBuf, version: u32 },
 }
 
