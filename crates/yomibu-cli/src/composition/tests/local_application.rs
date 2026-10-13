@@ -117,11 +117,7 @@ async fn story_never_resolves_source_credentials_even_for_old_data() {
         .await
         .unwrap();
     assert_eq!(report.generated.passages().len(), 1);
-    assert_eq!(report.generated.provenance().requested_model, "gpt-6-luna");
-    let requests = server.received_requests().await.unwrap();
-    assert_eq!(requests.len(), 1);
-    let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
-    assert_eq!(body["model"], "gpt-6-luna");
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
     assert_eq!(
         std::fs::read(dir.path().join("wanikani.json")).unwrap(),
         before

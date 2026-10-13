@@ -57,6 +57,13 @@ fn request_for_review(body: &str) -> String {
     }
     serde_json::to_string_pretty(&payload).unwrap()
 }
+fn passage_options(candidate_count: usize) -> StoryGenerationOptions {
+    StoryGenerationOptions {
+        candidate_count,
+        format: StoryFormat::Passage,
+        model: "test-model".into(),
+    }
+}
 fn inventory() -> LearnerInventory {
     LearnerInventory {
         vocabulary: [
@@ -135,17 +142,8 @@ async fn provenance_does_not_change_the_prepared_request() {
     let mut requests = Vec::new();
     for inventory in [&wk, &manual] {
         let plan = select_builtin_vocabulary(inventory, &request, 4, 7).unwrap();
-        let (_, prepared_request) = fit_selection_and_build_request(
-            inventory,
-            &request,
-            plan,
-            StoryGenerationOptions {
-                candidate_count: 1,
-                format: StoryFormat::Passage,
-                model: "test-model".into(),
-            },
-        )
-        .unwrap();
+        let (_, prepared_request) =
+            fit_selection_and_build_request(inventory, &request, plan, passage_options(1)).unwrap();
         requests.push(prepared_request);
     }
     assert_eq!(requests[0].body_utf8(), requests[1].body_utf8());
@@ -163,24 +161,10 @@ fn generation_options_keep_count_separate_and_validate_real_arithmetic_bounds() 
             .is_none()
     );
     for count in [1, 2, 8, 9, 100, usize::MAX / 2560] {
-        assert!(
-            yomibu_ext::openai::validate_options(&StoryGenerationOptions {
-                candidate_count: count,
-                format: StoryFormat::Passage,
-                model: "test-model".into(),
-            })
-            .is_ok()
-        );
+        assert!(yomibu_ext::openai::validate_options(&passage_options(count)).is_ok());
     }
     for count in [0, usize::MAX / 2560 + 1, usize::MAX] {
-        assert!(
-            yomibu_ext::openai::validate_options(&StoryGenerationOptions {
-                candidate_count: count,
-                format: StoryFormat::Passage,
-                model: "test-model".into(),
-            })
-            .is_err()
-        );
+        assert!(yomibu_ext::openai::validate_options(&passage_options(count)).is_err());
     }
 }
 
@@ -246,17 +230,9 @@ fn request_budget_drops_lowest_ranked_supports_and_keeps_targets_and_grammar() {
     let selection = select_builtin_vocabulary(&inventory, &request, 3, 7).unwrap();
     assert_eq!(selection.selected.len(), 3);
 
-    let (selection, prepared_request) = fit_selection_and_build_request(
-        &inventory,
-        &request,
-        selection,
-        StoryGenerationOptions {
-            candidate_count: 1,
-            format: StoryFormat::Passage,
-            model: "test-model".into(),
-        },
-    )
-    .unwrap();
+    let (selection, prepared_request) =
+        fit_selection_and_build_request(&inventory, &request, selection, passage_options(1))
+            .unwrap();
 
     assert_eq!(
         selection
@@ -298,11 +274,7 @@ fn request_budget_rejects_targets_that_cannot_fit() {
     let selection = select_builtin_vocabulary(&inventory, &request, 2, 7).unwrap();
 
     assert!(matches!(
-        fit_selection_and_build_request(&inventory, &request, selection, StoryGenerationOptions {
-            candidate_count: 1,
-            format: StoryFormat::Passage,
-            model: "test-model".into(),
-        }),
+        fit_selection_and_build_request(&inventory, &request, selection, passage_options(1)),
         Err(StoryError::RequiredMaterialTooLarge { bytes, limit: 16384 }) if bytes > 16384
     ));
 }

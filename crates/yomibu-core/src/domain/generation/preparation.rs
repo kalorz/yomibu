@@ -38,10 +38,15 @@ pub enum GenerationError<E> {
 ///
 /// Plans cannot be assembled from independently supplied request bytes and inputs.
 /// ```compile_fail
-/// use yomibu_core::{domain::{knowledge::inventory::LearnerInventory, generation::{StoryRequest, StoryVocabularySelection}}, domain::generation::preparation::PreparedStory};
+/// use yomibu_core::{domain::{knowledge::inventory::LearnerInventory, generation::{StoryFormat, StoryGenerationOptions, StoryRequest, StoryVocabularySelection}}, domain::generation::preparation::PreparedStory};
 /// fn rebind<'a>(inventory: &'a LearnerInventory, request: &'a StoryRequest,
 ///     selection: StoryVocabularySelection<'a>) {
-///     let _ = PreparedStory::new(inventory, request, selection, (), Default::default());
+///     let options = StoryGenerationOptions {
+///         candidate_count: 1,
+///         format: StoryFormat::Passage,
+///         model: "test-model".into(),
+///     };
+///     let _ = PreparedStory::new(inventory, request, selection, (), options);
 /// }
 /// ```
 #[derive(Debug)]
