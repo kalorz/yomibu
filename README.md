@@ -1,56 +1,44 @@
 # Yomibu
 
-Yomibu creates Japanese readings from vocabulary you have studied. It has a Rust
-CLI and library. Readings are experimental; generation does not prove naturalness or
-correct meaning in context.
+Yomibu creates Japanese reading passages from vocabulary you have studied. It has
+a Rust command-line interface (CLI) and library. The readings are experimental:
+they have not been checked for natural phrasing or correct meaning in context.
 
 ## First story
 
-Build with `cargo build --locked`. On macOS, run `yomibu auth` once to save keys
-in Keychain. Other platforms use environment variables:
+From the repository root, build with `cargo build --locked`.
+
+On macOS, save your API keys in Keychain with `target/debug/yomibu auth`. You can supply
+keys through environment variables on any supported platform:
 
 ```sh
 export YOMIBU_WANIKANI_API_KEY=...
 export YOMIBU_OPENAI_API_KEY=...
+```
+
+Replace `...` with your keys. Download your WaniKani data, then generate a story:
+
+```sh
 target/debug/yomibu sync
 target/debug/yomibu story
 ```
 
-Usable vocabulary is required.
-Run `yomibu` for all commands. See `yomibu help sync` and `yomibu help story`
-for credential setup and permissions.
+Generation needs vocabulary you have studied in WaniKani.
+Use `target/debug/yomibu --help` to list commands. Use
+`target/debug/yomibu help sync` or `target/debug/yomibu help story` for options,
+credential setup and permissions.
 See [configuration examples](config/).
-
-## Current commands
-
-Use `cargo run --locked -- --help` for flags.
-
-| Command | Purpose |
-| --- | --- |
-| `auth` | Set up credentials in macOS Keychain |
-| `help` | Show commands and options |
-| `sync` | Refresh the cache; needs `YOMIBU_WANIKANI_API_KEY` |
-| `story` | Generate one short passage with one AI request |
 
 ## Developing
 
 `crates/yomibu` is the application library; `crates/yomibu-cli` builds `yomibu`.
 Shared contracts live in `yomibu-core`; implementations live in `yomibu-components`.
-Read the [architecture and engineering guide](AGENTS.md#architecture), then the
-relevant code and tests. The guide describes the target layout; code migration
-is pending. The [glossary](GLOSSARY.md) explains domain terms.
+The [architecture guide](AGENTS.md#architecture) describes the planned layout;
+the code has not moved yet. The [glossary](GLOSSARY.md) explains domain terms.
 
-Tests use local servers and synthetic data; no account or model key is needed.
+Run tests with `cargo test --locked --all`. They use local servers and invented
+data, so no account or model key is needed. [CI](.github/workflows/ci.yml) defines
+the full checks and runs them on Linux and macOS.
 
-Repeat these checks:
-
-```sh
-cargo fmt --check
-cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --all
-RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps
-git diff --check
-```
-
-[CI](.github/workflows/ci.yml) runs on Linux and macOS. API docs build into
+Build API documentation with `cargo doc --locked --no-deps`; the output is in
 `target/doc/yomibu`.

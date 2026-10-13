@@ -1,46 +1,36 @@
-# Synthetic cache and API fixtures
+# Cache and API test data
 
-These are synthetic Yomibu schema-1 caches, created for milestone 1a. They contain
-no account export or credentials. Resource shapes and nullable dates are grounded
-in the [WaniKani v2 revision 20170710 reference](https://docs.api.wanikani.com/20170710/),
-checked on 2026-09-27. Fields are normalized to `crates/yomibu/src/domain.rs`, not copied API
-response envelopes. IDs, learner identity, times, and counters are invented.
+These fixtures contain invented learner data. They include no account exports or
+credentials. Cache files use Yomibu's schema 1 and its
+[source data types](../../crates/yomibu-core/src/domain/source.rs).
+The API structures and dates that can be null follow the
+[WaniKani v2 revision 20170710 reference](https://docs.api.wanikani.com/20170710/),
+checked on 2026-09-27.
 
-- `empty.json`: valid account with no subjects or progress.
-- `mixed.json`: two kanji, one vocabulary subject, one kana-only subject, and an
-  explicit unavailable vocabulary subject. Includes an unstarted assignment,
-  burned assignment, two SRS systems, a review-only subject, absent kana-only
-  review statistics, and hidden flags in each source collection. Hidden source
-  observations may differ across the synchronization interval.
-- `preparation.json`: copy of `mixed.json` with assignment 102's hidden flag
-  cleared, allowing the exact vocabulary target `一つ:ひとつ:one thing`. All
-  identities, dates, and progress are synthetic. Original fixtures are unchanged.
-- `mixed-status.txt`: deterministic sync summary for the mixed cache. Reading
-  accuracy is 9/11, meaning accuracy is 10/20; neither averages per-item rates.
+## Cache fixtures
 
-The tests write fixtures to isolated temporary directories as `wanikani.json`
-and call the production cache reader. Application code never loads these files
-as a fallback or fake source. Invalid cache cases mutate the mixed fixture only
-inside individual tests.
+| File | Purpose |
+| --- | --- |
+| `empty.json` | A valid account with no subjects or progress. |
+| `mixed.json` | Kanji and vocabulary with varied progress, hidden or unavailable subjects, and missing optional data. |
+| `preparation.json` | A copy of `mixed.json` with assignment 102 made visible, allowing the practice target `一つ:ひとつ:one thing`. |
+| `mixed-status.txt` | The expected sync summary. Reading accuracy is 9/11 and meaning accuracy is 10/20, calculated from totals rather than average item rates. |
 
-## API fixtures (1b)
+Tests copy the cache fixtures into separate temporary directories as `wanikani.json`
+and use the production cache reader. Tests change their own copies to create
+invalid inputs. The application never uses these fixtures as fallback data.
 
-`wanikani/{user,assignments,review_statistics,subjects}.json` are synthetic v2
-response shapes checked against the same official reference on 2026-09-27. They
-represent the observations in `mixed.json`: source fields use `data_updated_at`,
-`subject_type`, subscription/reading `type`, sentence `ja`/`en`, and
-`spaced_repetition_system_id`. The source fixtures also contain radical progress,
-a level-4 subject excluded by the level-3 access limit, and ignored preferences,
-mnemonic, and audio fields. None is retained in normalized output.
+## API fixtures
 
-Synthetic credentials exist only in test request setup, never in these fixtures.
-Tests mutate copies for pagination, duplication, invalid content, and resets.
-Requests go exclusively to isolated loopback mock servers, exercising the actual
-HTTP adapter and cache writer. The CLI sync test runs with a cleared child environment.
+The `wanikani/` JSON files represent API responses for the observations in
+`mixed.json`. They also include data that the importer excludes: radical progress,
+a level-4 subject beyond the account's level-3 access limit, and unused fields.
+Source observations collected during sync can have different hidden flags.
 
-Milestone 1c also derives later-page errors, access changes, and structural
-conflicts from these fixtures. Raw HTTP tests construct synthetic chunked,
-truncated, oversized, and stalled responses in memory. Storage tests stage
-synthetic partial files and inject operation-boundary errors; child-process tests
-use private temporary directories and per-child controls to stop at known write
-boundaries. None of these controls is part of the CLI or persisted cache schema.
+Tests modify copies to cover pagination, duplicates, invalid content and account
+resets. Requests go only to local mock servers. Tests create their own fake
+credentials, and CLI sync tests set the child process's environment explicitly.
+
+Failure tests simulate malformed or slow HTTP responses, inject storage errors,
+and stop child processes at known write stages. Files and process controls are
+isolated per test. These controls are not part of the CLI or saved cache format.

@@ -2,14 +2,16 @@
 
 | Term | Meaning |
 | --- | --- |
-| Source observations | Saved provider facts about progress; not proof of mastery |
-| Eligibility | Usable material derived from saved learner evidence |
-| Inventory | All material allowed for an attempt |
-| Grammar declaration / binding | Free-text familiarity / an explicit supported rule; text does not enable rules |
-| Target | An existing vocabulary or grammar ID requested for practice |
-| Selection | Vocabulary sent in the prompt |
-| Plan / model request | Complete offline preparation / exact bytes, hash, and options to send |
-| Candidate | A generated sentence awaiting checks |
+| Source observations | Saved progress data from a provider. Progress does not prove mastery. |
+| Eligibility | Whether saved learner evidence allows material to be used. |
+| Inventory | All vocabulary and grammar allowed for a generation attempt. |
+| Grammar declaration | Grammar a learner says they know. This declaration alone does not enable an automated check. |
+| Grammar binding | An explicit link between a grammar entry and a supported checking rule. |
+| Target | A vocabulary or grammar entry selected for practice. Its ID must exist in the inventory. |
+| Selection | The subset of vocabulary sent in the prompt. |
+| Plan | The prepared inputs and options bound together for generation. |
+| Model request | The exact bytes and options sent to a model. A hash identifies the request bytes. |
+| Candidate | A generated sentence or passage awaiting assessment. |
 
 See the [architecture guide](AGENTS.md#architecture).
-Story input uses string IDs.
+Story requests use text strings as IDs.
