@@ -31,14 +31,14 @@ See [configuration examples](config/).
 
 ## Developing
 
-`crates/yomibu` is the application library; `crates/yomibu-cli` builds `yomibu`.
-Shared contracts live in `yomibu-core`; implementations live in `yomibu-components`.
-The [architecture guide](AGENTS.md#architecture) describes the planned layout;
-the code has not moved yet. The [glossary](GLOSSARY.md) explains domain terms.
+`crates/yomibu-app` is the application library; `crates/yomibu-cli` builds `yomibu`.
+Shared contracts live in `yomibu-core`; implementations live in `yomibu-ext`.
+The [architecture guide](AGENTS.md#architecture) describes the layout.
+The [glossary](GLOSSARY.md) explains domain terms.
 
 Run tests with `cargo test --locked --all`. They use local servers and invented
 data, so no account or model key is needed. [CI](.github/workflows/ci.yml) defines
 the full checks and runs them on Linux and macOS.
 
 Build API documentation with `cargo doc --locked --no-deps`; the output is in
-`target/doc/yomibu`.
+`target/doc/yomibu_app`.

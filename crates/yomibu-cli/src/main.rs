@@ -1,10 +1,11 @@
+mod composition;
+use crate::composition::{ServiceEndpoints, configuration::components};
 use clap::{CommandFactory, FromArgMatches};
 use commands::args::Cli;
 use std::{
     io::{self, Write},
     process::ExitCode,
 };
-use yomibu::{application::ServiceEndpoints, configuration::components};
 
 mod commands;
 mod output;
@@ -25,9 +26,9 @@ fn entry(
         output::INVENTORY_GUIDANCE,
         components::credential_guidance(components::GENERATION_KEY),
     );
-    let (args, credentials) = commands::credentials::capture(args);
+    let (args, credentials) = composition::credential_input::capture(args);
     let mut command = Cli::command()
-        .args(commands::options::arguments(true))
+        .args(composition::options::arguments(true))
         .mut_subcommand("story", |command| command.after_help(guidance))
         .mut_subcommand("sync", |command| {
             command.after_help(components::credential_guidance(components::SOURCE_KEY))

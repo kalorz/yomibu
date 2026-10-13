@@ -1,4 +1,5 @@
 use super::*;
+use crate::composition::CredentialError;
 #[test]
 fn setup_keeps_source_and_generation_keys_separate() {
     let needs = pending(
@@ -127,7 +128,11 @@ fn a_failed_credential_lookup_does_not_block_other_setup() {
         let warnings = String::from_utf8(warnings).unwrap();
         assert!(
             warnings.starts_with(&format!(
-                "warning: openai.api-key: {error} Continuing setup.\n"
+                "warning: openai.api-key: {} Continuing setup.\n",
+                match error {
+                    CredentialError::StoreUnavailable => "Cannot access the credential store; unlock it or supply a CLI/environment credential.",
+                    CredentialError::InvalidEncoding => "Invalid credential input; supply a UTF-8 credential.",
+                }
             )),
             "{warnings}"
         );

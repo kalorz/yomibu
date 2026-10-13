@@ -2,8 +2,8 @@
 mod story_inventory;
 
 use yomibu_core::{
-    domain::story::{PracticeTargets, SelectionInput, StoryError, StoryRequest},
-    pipeline::selection::select_target_first,
+    domain::generation::finalization::select_target_first,
+    domain::generation::{PracticeTargets, SelectionInput, StoryError, StoryRequest},
 };
 
 #[test]
@@ -25,7 +25,6 @@ fn target_first_selection_rejects_limits_that_cannot_hold_targets_or_exceed_the_
                 limit,
             },
             &[],
-            "test",
         );
         assert!(
             matches!(

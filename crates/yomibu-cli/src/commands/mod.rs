@@ -1,22 +1,18 @@
 pub(crate) mod args;
 mod auth;
-pub(crate) mod credentials;
-mod keychain;
-pub(crate) mod options;
+use crate::composition::{
+    Credentials, LocalApp, Operation, ServiceEndpoints,
+    configuration::{Invocation, components, load_configuration},
+};
 use crate::{
     commands::args::{Cli, Command},
+    composition::credential_input as credentials,
     output,
 };
 use anyhow::{Context, Result, bail};
 use std::{
-    collections::BTreeMap,
     io,
-    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
-};
-use yomibu::{
-    application::{Credentials, LocalApp, Operation, ServiceEndpoints},
-    configuration::{Configuration, ConfigurationInput, Invocation, components, environment_names},
 };
 
 pub(crate) fn run(
@@ -40,7 +36,10 @@ pub(crate) fn run(
             };
             credentials::environment(&mut credentials, target.requirements());
             if matches!(target, auth::Target::Missing(_)) {
-                auth::install(&mut credentials, target.requirements());
+                crate::composition::credentials::install_keychain(
+                    &mut credentials,
+                    target.requirements(),
+                );
             }
             return auth::configure(&target, &credentials);
         }
@@ -54,7 +53,7 @@ pub(crate) fn run(
     }];
     credentials::environment(&mut credentials, &requirements);
     if !cli.no_keychain {
-        auth::install(&mut credentials, &requirements);
+        crate::composition::credentials::install_keychain(&mut credentials, &requirements);
     }
     let app = LocalApp::new(config, credentials).with_endpoints(endpoints);
     let clock = SystemTime::now();
@@ -86,30 +85,6 @@ pub(crate) fn run(
         }
     }
     Ok(())
-}
-
-fn load_configuration(
-    data_dir: Option<PathBuf>,
-    config: Option<PathBuf>,
-    flags: Invocation,
-    operation: &Operation,
-) -> Result<Configuration> {
-    let environment: BTreeMap<_, _> = environment_names()
-        .into_iter()
-        .filter_map(|name| std::env::var(&name).ok().map(|value| (name, value)))
-        .collect();
-    Ok(Configuration::load(
-        ConfigurationInput {
-            data_dir: data_dir.or_else(|| std::env::var_os("YOMIBU_DATA_DIR").map(PathBuf::from)),
-            config: config.or_else(|| std::env::var_os("YOMIBU_CONFIG").map(PathBuf::from)),
-            home: std::env::var_os("HOME")
-                .filter(|home| !home.is_empty())
-                .map(PathBuf::from),
-            environment,
-            flags,
-        },
-        operation,
-    )?)
 }
 
 fn runtime() -> Result<tokio::runtime::Runtime> {

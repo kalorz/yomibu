@@ -1,7 +1,10 @@
 //! Terminal-safe rendering; shared serializable report data belongs to the library.
+use crate::composition::{
+    ApplicationError, SetupIssue, configuration::components::credential_guidance,
+};
 use anyhow::anyhow;
 use clap::error::{ContextKind, ContextValue};
-use yomibu::{application::SetupIssue, configuration::components::credential_guidance};
+use yomibu_core::ports::infrastructure::credentials::CredentialError;
 pub(crate) mod candidate;
 pub(crate) mod status;
 pub(crate) mod story;
@@ -24,24 +27,57 @@ pub(crate) fn escape_argument_error(mut error: clap::Error) -> clap::Error {
 }
 
 pub(crate) fn command_error(error: anyhow::Error) -> anyhow::Error {
-    if let Some(yomibu::application::ApplicationError::Setup { issues }) = error.downcast_ref() {
-        let mut message = String::from("Missing required setup:\n");
-        for issue in issues {
-            let (name, guidance) = match issue {
-                SetupIssue::Inventory => ("Learner vocabulary".into(), INVENTORY_GUIDANCE.into()),
-                SetupIssue::Credential(key) => (key.name.key(), credential_guidance(*key)),
-            };
-            message.push_str(&format!("  {name}:\n    {guidance}\n"));
+    match error.downcast_ref::<ApplicationError>() {
+        Some(ApplicationError::Setup { issues }) => {
+            let mut message = String::from("Missing required setup:\n");
+            for issue in issues {
+                let (name, guidance) = match issue {
+                    SetupIssue::Inventory => {
+                        ("Learner vocabulary".into(), INVENTORY_GUIDANCE.into())
+                    }
+                    SetupIssue::Credential(key) => (key.name.key(), credential_guidance(*key)),
+                };
+                message.push_str(&format!("  {name}:\n    {guidance}\n"));
+            }
+            anyhow!("{}", message.trim_end())
         }
-        return anyhow!("{}", message.trim_end());
+        Some(ApplicationError::Credential(error)) => anyhow!("{}", credential_error(error)),
+        _ => anyhow!("{}", format!("{error:#}").escape_debug()),
     }
-    anyhow!("{}", format!("{error:#}").escape_debug())
+}
+
+pub(crate) fn credential_error(error: &CredentialError) -> &'static str {
+    match error {
+        CredentialError::StoreUnavailable => {
+            "Cannot access the credential store; unlock it or supply a CLI/environment credential."
+        }
+        CredentialError::InvalidEncoding => "Invalid credential input; supply a UTF-8 credential.",
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yomibu::{application::ApplicationError, configuration::components::OptionKey};
+    use crate::composition::{ApplicationError, configuration::components::OptionKey};
+
+    #[test]
+    fn credential_errors_keep_cli_remedies_through_the_command_error_wrapper() {
+        for (error, expected) in [
+            (
+                CredentialError::StoreUnavailable,
+                "Cannot access the credential store; unlock it or supply a CLI/environment credential.",
+            ),
+            (
+                CredentialError::InvalidEncoding,
+                "Invalid credential input; supply a UTF-8 credential.",
+            ),
+        ] {
+            assert_eq!(
+                command_error(ApplicationError::Credential(error).into()).to_string(),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn setup_guidance_preserves_trusted_punctuation_and_layout() {

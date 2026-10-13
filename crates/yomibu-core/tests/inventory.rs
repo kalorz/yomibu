@@ -1,6 +1,6 @@
 use serde_json::json;
 use yomibu_core::domain::{
-    inventory::{
+    knowledge::inventory::{
         InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory, MappedContent,
         SourceOrigin,
     },
@@ -23,7 +23,7 @@ fn inventory() -> LearnerInventory {
         }],
         grammar_bindings: vec![InventoryGrammarBinding {
             declaration_id: "topic".into(),
-            rule: yomibu_core::domain::grammar::GrammarRule::TopicWa,
+            rule: yomibu_core::domain::knowledge::grammar::GrammarRule::TopicWa,
         }],
         excluded: vec![],
     }
@@ -140,7 +140,7 @@ fn inventory_rejects_duplicate_ids_dangling_bindings_and_blank_values() {
 
 #[test]
 fn exclusions_serialize_source_identity_and_source_independent_reasons() {
-    use yomibu_core::domain::inventory::ExcludedMaterial;
+    use yomibu_core::domain::knowledge::inventory::ExcludedMaterial;
     for (reason, code) in [
         (ExclusionReason::ContentUnavailable, "ContentUnavailable"),
         (ExclusionReason::Hidden, "Hidden"),

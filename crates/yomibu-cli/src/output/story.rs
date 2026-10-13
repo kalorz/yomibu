@@ -1,6 +1,8 @@
 use super::candidate;
 use std::io::Write;
-use yomibu::{application::progress::ProgressEvent, reports::run::StoryRunReport};
+use yomibu_app::{
+    application::generate_story::progress::ProgressEvent, reports::run::StoryRunReport,
+};
 
 pub(crate) fn write_progress(out: &mut impl Write, event: &ProgressEvent) -> std::io::Result<()> {
     match event {

@@ -205,18 +205,19 @@ fn story_help_and_parser_diagnostics_are_safe_readable_and_redact_keys() {
     }
     assert!(text.contains("Run yomibu sync to load learner vocabulary"));
     assert!(!text.contains("On macOS, run yomibu auth wanikani."));
-    let key = yomibu::configuration::components::GENERATION_KEY;
+    let key = yomibu_ext::openai::API_KEY;
     assert!(text.contains(key.description), "{text}");
     assert!(text.contains("On macOS, run yomibu auth openai."), "{text}");
     assert!(!text.contains("--enable"));
     assert!(!text.contains("--disable"));
-    for (requirement, invalid_option) in yomibu::configuration::components::credentials()
+    for (requirement, invalid_option) in ["--openai-api-key", "--wanikani-api-key"]
+        .into_iter()
         .flat_map(|key| ["--format", "--candidates", "--select"].map(|flag| (key, flag)))
     {
         let output = cli(dir.path())
             .args([
                 "story",
-                &format!("--{}", requirement.name.cli()),
+                requirement,
                 "synthetic-secret",
                 invalid_option,
                 "日本語\n\u{1b}",

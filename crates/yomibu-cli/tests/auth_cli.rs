@@ -52,17 +52,10 @@ fn exact_auth_warns_about_overrides_and_allows_skipping_in_a_terminal() {
     use std::{io::Write, process::Stdio};
     let dir = tempfile::tempdir().unwrap();
     for (namespace, purpose, requirement) in [
-        (
-            "openai",
-            "story generation",
-            yomibu::configuration::components::GENERATION_KEY,
-        ),
-        (
-            "wanikani",
-            "sync",
-            yomibu::configuration::components::SOURCE_KEY,
-        ),
+        ("openai", "story generation", yomibu_ext::openai::API_KEY),
+        ("wanikani", "sync", yomibu_ext::wanikani::API_KEY),
     ] {
+        let environment = format!("YOMIBU_{}_API_KEY", namespace.to_ascii_uppercase());
         for flag in [false, true] {
             let mut command = Command::new("/usr/bin/script");
             command
@@ -84,10 +77,7 @@ fn exact_auth_warns_about_overrides_and_allows_skipping_in_a_terminal() {
                     "synthetic-secret日本語\n\u{1b}",
                 ]);
             } else {
-                command.env(
-                    requirement.name.environment(),
-                    "synthetic-secret日本語\n\u{1b}",
-                );
+                command.env(&environment, "synthetic-secret日本語\n\u{1b}");
             }
             let mut child = command.spawn().unwrap();
             let mut input = child.stdin.take().unwrap();
@@ -108,7 +98,7 @@ fn exact_auth_warns_about_overrides_and_allows_skipping_in_a_terminal() {
                 "{}",
                 String::from_utf8_lossy(&output.stderr)
             );
-            assert!(text.contains(&format!("warning: {namespace}.api-key: CLI/environment input overrides the saved Keychain credential. Omit --{namespace}-api-key and unset {} to use it.\n", requirement.name.environment())), "{text}");
+            assert!(text.contains(&format!("warning: {namespace}.api-key: CLI/environment input overrides the saved Keychain credential. Omit --{namespace}-api-key and unset {environment} to use it.\n")), "{text}");
             assert!(
                 text.contains(&format!(
                     "{namespace}.api-key (required for {purpose})\n  {}",

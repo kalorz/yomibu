@@ -1,8 +1,8 @@
-use yomibu_core::component::{
+use yomibu_core::extension::{
     Component,
-    credentials::Secret,
     options::{OptionError, OptionKey, Options, Setting, Value},
 };
+use yomibu_core::ports::infrastructure::credentials::Secret;
 
 const MODEL: OptionKey<String> = OptionKey::new("test", "model", "Model");
 const KEY: OptionKey<Secret> = OptionKey::new("test", "api-key", "API key");
@@ -65,7 +65,7 @@ fn required_reads_name_missing_settings_and_keep_scope_and_type_checks() {
         .required(MODEL)
         .unwrap_err();
     assert!(matches!(error, OptionError::Missing { name, .. } if name == MODEL.name));
-    assert_eq!(error.to_string(), "Supply --test-model. Model");
+    assert_eq!(error.to_string(), "Missing test.model. Model");
     assert!(
         values
             .for_component(&COMPONENT)

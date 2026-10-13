@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use yomibu_core::domain::inventory::{
+use yomibu_core::domain::knowledge::inventory::{
     InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory,
 };
 

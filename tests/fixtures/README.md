@@ -2,7 +2,7 @@
 
 These fixtures contain invented learner data. They include no account exports or
 credentials. Cache files use Yomibu's schema 1 and its
-[source data types](../../crates/yomibu-core/src/domain/source.rs).
+[source data types](../../crates/yomibu-core/src/domain/knowledge/source.rs).
 The API structures and dates that can be null follow the
 [WaniKani v2 revision 20170710 reference](https://docs.api.wanikani.com/20170710/),
 checked on 2026-09-27.

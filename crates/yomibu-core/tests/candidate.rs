@@ -1,7 +1,7 @@
-use yomibu_core::domain::candidate::{
+use yomibu_core::domain::generation::StoryFormat;
+use yomibu_core::domain::generation::candidate::{
     CandidateConstructionError, GeneratedCandidates, GeneratedPassage, GenerationProvenance,
 };
-use yomibu_core::domain::story::StoryFormat;
 
 fn provenance() -> GenerationProvenance {
     GenerationProvenance {

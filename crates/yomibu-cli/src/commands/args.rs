@@ -1,6 +1,6 @@
+use crate::composition::configuration::{Invocation, StoryFormat};
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
-use yomibu::configuration::{Invocation, StoryFormat};
 
 #[derive(Parser)]
 #[command(
@@ -46,7 +46,7 @@ pub(crate) struct StoryArgs {
     #[arg(long)]
     topic: Option<String>,
     #[command(flatten)]
-    options: super::options::ComponentArgs,
+    options: crate::composition::options::ComponentArgs,
     /// Output format: passage (default) or sentence.
     #[arg(long)]
     format: Option<StoryFormat>,
