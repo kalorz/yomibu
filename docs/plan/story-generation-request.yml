@@ -26,6 +26,10 @@ story:
   topic: "Buying train tickets to Kyoto"
   mood: calm
 
+  # Optional additional guidance; omit to use only the detailed outline.
+  # Outline and eligibility constraints still apply.
+  prompt: "A short dialogue about buying train tickets"
+
   # Scene actors and dialogue speakers reference these identities.
   actors:
     - id: traveler
