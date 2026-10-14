@@ -1,3 +1,3 @@
 pub mod credentials;
 mod learning;
-pub use learning::{LearningSource, LearningStore, SourceSyncWriter};
+pub use learning::{LearnerDataProvider, LearningStore, SourceSyncWriter};

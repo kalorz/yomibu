@@ -19,7 +19,7 @@ use yomibu_core::{
         generation::{
             StoryError, StoryFormat, StoryGenerationOptions, StoryRequest, StoryVocabularySelection,
         },
-        knowledge::inventory::LearnerInventory,
+        knowledge::inventory::LearnerKnowledge,
     },
     ports::capabilities::{CandidateGenerator, StoryPreparer},
 };
@@ -44,7 +44,7 @@ impl StoryPreparer for TestPreparer {
 
     fn prepare<'a>(
         &self,
-        _: &'a LearnerInventory,
+        _: &'a LearnerKnowledge,
         _: &'a StoryRequest,
         mut selection: StoryVocabularySelection<'a>,
         options: StoryGenerationOptions,
@@ -95,7 +95,7 @@ impl CandidateGenerator for TestGenerator {
     }
 }
 
-fn inputs() -> (LearnerInventory, StoryRequest) {
+fn inputs() -> (LearnerKnowledge, StoryRequest) {
     let inventory = story_inventory::inventory();
     let request = serde_json::from_value(
         serde_json::json!({"version":1,"targets":{"vocabulary":["cat"],"grammar":[]}}),
@@ -262,12 +262,12 @@ impl StoryPreparer for ForeignPreparer {
 
     fn prepare<'a>(
         &self,
-        _: &'a LearnerInventory,
+        _: &'a LearnerKnowledge,
         _: &'a StoryRequest,
         _: StoryVocabularySelection<'a>,
         options: StoryGenerationOptions,
     ) -> Result<(StoryVocabularySelection<'a>, TestRequest), Self::Error> {
-        static FOREIGN: std::sync::OnceLock<(LearnerInventory, StoryRequest)> =
+        static FOREIGN: std::sync::OnceLock<(LearnerKnowledge, StoryRequest)> =
             std::sync::OnceLock::new();
         let (inventory, request) = FOREIGN.get_or_init(inputs);
         let selection = yomibu_ext::learner_vocabulary_selection::select_builtin_vocabulary(

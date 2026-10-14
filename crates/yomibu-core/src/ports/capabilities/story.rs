@@ -3,7 +3,7 @@ use std::error::Error;
 use crate::domain::{
     generation::candidate::GeneratedCandidates,
     generation::{StoryError, StoryGenerationOptions, StoryRequest, StoryVocabularySelection},
-    knowledge::inventory::LearnerInventory,
+    knowledge::inventory::LearnerKnowledge,
 };
 
 /// Synchronous preparation. The request must encode the finalized selection and
@@ -16,7 +16,7 @@ pub trait StoryPreparer {
 
     fn prepare<'a>(
         &self,
-        inventory: &'a LearnerInventory,
+        inventory: &'a LearnerKnowledge,
         request: &'a StoryRequest,
         selection: StoryVocabularySelection<'a>,
         options: StoryGenerationOptions,

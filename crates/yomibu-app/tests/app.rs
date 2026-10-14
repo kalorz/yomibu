@@ -1,5 +1,5 @@
 use yomibu_app::application::sync::App;
-use yomibu_core::ports::infrastructure::{LearningSource, LearningStore};
+use yomibu_core::ports::infrastructure::{LearnerDataProvider, LearningStore};
 use yomibu_ext::{
     file_store::FileLearningStore,
     wanikani::{
@@ -16,7 +16,7 @@ fn fixture() -> WaniKaniSyncData {
 
 struct FixtureSource;
 
-impl LearningSource for FixtureSource {
+impl LearnerDataProvider for FixtureSource {
     type Data = WaniKaniSyncData;
     type Summary = Summary;
     type Error = std::convert::Infallible;
@@ -91,7 +91,7 @@ async fn real_http_source_can_publish_to_file_storage() {
 
 struct PendingSource;
 
-impl LearningSource for PendingSource {
+impl LearnerDataProvider for PendingSource {
     type Data = WaniKaniSyncData;
     type Summary = Summary;
     type Error = std::convert::Infallible;
@@ -146,7 +146,7 @@ fn cancelling_sync_releases_file_writer_without_replacing_data() {
 
 struct OneResultSource(Option<Result<WaniKaniSyncData, std::io::Error>>);
 
-impl LearningSource for OneResultSource {
+impl LearnerDataProvider for OneResultSource {
     type Data = WaniKaniSyncData;
     type Summary = Summary;
     type Error = std::io::Error;

@@ -1,14 +1,14 @@
 use serde_json::json;
 use yomibu_core::domain::{
     knowledge::inventory::{
-        InventoryError, InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory,
+        InventoryError, InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerKnowledge,
         MappedContent, SourceOrigin,
     },
     knowledge::{ExclusionReason, LearnerProgress},
 };
 
-fn inventory() -> LearnerInventory {
-    LearnerInventory {
+fn inventory() -> LearnerKnowledge {
+    LearnerKnowledge {
         vocabulary: vec![InventoryWord {
             id: "cat".into(),
             spelling: "猫".into(),
@@ -87,12 +87,12 @@ fn common_preparation_uses_each_learners_progress_for_shared_content() {
             ExclusionReason::NoRecordedLessonStart,
         ),
     ] {
-        let first = LearnerInventory::from_mapped([(
+        let first = LearnerKnowledge::from_mapped([(
             MappedContent::Vocabulary(content.clone()),
             Some(first_progress),
         )])
         .unwrap();
-        let second = LearnerInventory::from_mapped([(
+        let second = LearnerKnowledge::from_mapped([(
             MappedContent::Vocabulary(content.clone()),
             Some(second_progress),
         )])
@@ -124,7 +124,7 @@ fn common_preparation_preserves_content_availability_and_input_order() {
         ..Default::default()
     };
     for is_hidden in [false, true] {
-        let inventory = LearnerInventory::from_mapped([
+        let inventory = LearnerKnowledge::from_mapped([
             (MappedContent::Vocabulary(content.clone()), None),
             (
                 MappedContent::NonVocabulary(SourceOrigin::Manual),

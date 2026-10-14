@@ -12,7 +12,7 @@ use yomibu_core::domain::generation::{
 use yomibu_core::ports::capabilities::StoryPreparer;
 use yomibu_core::{
     domain::generation::finalization::validate_selection,
-    domain::knowledge::inventory::LearnerInventory,
+    domain::knowledge::inventory::LearnerKnowledge,
 };
 
 pub struct StoryPromptPreparation;
@@ -23,7 +23,7 @@ impl StoryPreparer for StoryPromptPreparation {
 
     fn prepare<'a>(
         &self,
-        inventory: &'a LearnerInventory,
+        inventory: &'a LearnerKnowledge,
         request: &'a StoryRequest,
         selection: StoryVocabularySelection<'a>,
         options: StoryGenerationOptions,
@@ -46,7 +46,7 @@ const STORY_PROMPT: &str = concat!(
 /// Build the exact outbound payload, returning the final selection after any optional
 /// supports were removed to fit the byte limit. Explicit targets are never removed.
 pub fn fit_selection_and_build_request<'a>(
-    inventory: &'a LearnerInventory,
+    inventory: &'a LearnerKnowledge,
     request: &'a StoryRequest,
     mut selection: StoryVocabularySelection<'a>,
     options: StoryGenerationOptions,

@@ -1,7 +1,7 @@
 use serde_json::Value;
 use yomibu_core::domain::{
     knowledge::ExclusionReason,
-    knowledge::inventory::{LearnerInventory, MappedContent, SourceOrigin},
+    knowledge::inventory::{LearnerKnowledge, MappedContent, SourceOrigin},
 };
 use yomibu_ext::wanikani::{data::WaniKaniSyncData, map_learner_data};
 
@@ -11,11 +11,11 @@ fn source() -> WaniKaniSyncData {
     serde_json::from_value(value["snapshot"].clone()).unwrap()
 }
 
-fn prepare_inventory(data: &WaniKaniSyncData) -> LearnerInventory {
-    LearnerInventory::from_mapped(map_learner_data(data).unwrap().records).unwrap()
+fn prepare_inventory(data: &WaniKaniSyncData) -> LearnerKnowledge {
+    LearnerKnowledge::from_mapped(map_learner_data(data).unwrap().records).unwrap()
 }
 
-fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
+fn exclusion(inventory: &LearnerKnowledge, id: u64) -> Option<ExclusionReason> {
     let origin = SourceOrigin::External {
         provider: "wanikani".into(),
         external_id: id.to_string(),

@@ -1,4 +1,4 @@
-use crate::domain::knowledge::inventory::{InventoryWord, LearnerInventory};
+use crate::domain::knowledge::inventory::{InventoryWord, LearnerKnowledge};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -16,7 +16,7 @@ pub struct StoryVocabularySelection<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct SelectionInput<'a> {
-    pub inventory: &'a LearnerInventory,
+    pub inventory: &'a LearnerKnowledge,
     pub request: &'a super::StoryRequest,
     pub limit: usize,
 }

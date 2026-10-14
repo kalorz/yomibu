@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::knowledge::inventory::{InventoryError, LearnerInventory};
+use crate::domain::knowledge::inventory::{InventoryError, LearnerKnowledge};
 
 pub(crate) const MAX_SELECTED_VOCABULARY_ENTRIES: usize = 16;
 const MAX_VOCABULARY_TARGET_IDS: usize = 16;
@@ -103,7 +103,7 @@ impl StoryRequest {
         }
         Ok(())
     }
-    pub fn validate(&self, inventory: &LearnerInventory) -> Result<(), StoryError> {
+    pub fn validate(&self, inventory: &LearnerKnowledge) -> Result<(), StoryError> {
         inventory.validate()?;
         self.validate_shape()?;
         let mut seen = BTreeSet::new();

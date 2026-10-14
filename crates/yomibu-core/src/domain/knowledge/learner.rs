@@ -1,6 +1,6 @@
 use super::{
     LearnerProgress,
-    inventory::{InventoryError, LearnerInventory, MappedContent},
+    inventory::{InventoryError, LearnerKnowledge, MappedContent},
 };
 use chrono::{DateTime, Utc};
 
@@ -11,10 +11,10 @@ pub struct LearnerData {
 }
 
 impl LearnerData {
-    pub fn into_inventory(self, now: DateTime<Utc>) -> Result<LearnerInventory, InventoryError> {
+    pub fn into_inventory(self, now: DateTime<Utc>) -> Result<LearnerKnowledge, InventoryError> {
         if self.access_expires_at.is_some_and(|expiry| now >= expiry) {
             return Err(InventoryError::AccessExpired);
         }
-        LearnerInventory::from_mapped(self.records)
+        LearnerKnowledge::from_mapped(self.records)
     }
 }

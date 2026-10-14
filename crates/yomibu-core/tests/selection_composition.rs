@@ -8,12 +8,12 @@ use yomibu_core::{
             PracticeTargets, SelectionCandidates, SelectionError, SelectionInput, StoryError,
             StoryRequest,
         },
-        knowledge::inventory::{InventoryWord, LearnerInventory},
+        knowledge::inventory::{InventoryWord, LearnerKnowledge},
     },
     ports::capabilities::SelectionStep,
 };
 
-fn inventory() -> LearnerInventory {
+fn inventory() -> LearnerKnowledge {
     story_inventory::inventory()
 }
 fn request() -> StoryRequest {

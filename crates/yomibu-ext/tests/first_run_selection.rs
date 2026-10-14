@@ -2,10 +2,10 @@
 mod story_inventory;
 
 use serde_json::json;
-use yomibu_core::domain::{generation::StoryRequest, knowledge::inventory::LearnerInventory};
+use yomibu_core::domain::{generation::StoryRequest, knowledge::inventory::LearnerKnowledge};
 use yomibu_ext::learner_vocabulary_selection::select_builtin_vocabulary;
 
-fn inventory() -> LearnerInventory {
+fn inventory() -> LearnerKnowledge {
     story_inventory::inventory()
 }
 

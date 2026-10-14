@@ -57,8 +57,10 @@ pub struct ExcludedMaterial {
     pub origin: SourceOrigin,
     pub reason: ExclusionReason,
 }
+/// Material considered usable for a learner, derived from recorded progress and explicit declarations.
+/// This represents eligibility, not verified mastery.
 #[derive(Debug, Serialize)]
-pub struct LearnerInventory {
+pub struct LearnerKnowledge {
     pub vocabulary: Vec<InventoryWord>,
     pub grammar_declarations: Vec<InventoryGrammar>,
     pub grammar_bindings: Vec<InventoryGrammarBinding>,
@@ -71,7 +73,7 @@ pub enum InventoryError {
     #[error("Invalid learner inventory: {0}.")]
     Invalid(&'static str),
 }
-impl LearnerInventory {
+impl LearnerKnowledge {
     /// Prepare one learner's mapped values in input order and validate the result.
     /// Unavailable content takes precedence over progress. Eligible non-vocabulary is omitted.
     pub fn from_mapped(

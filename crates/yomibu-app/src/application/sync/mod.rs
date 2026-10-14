@@ -1,5 +1,5 @@
 use thiserror::Error;
-use yomibu_core::ports::infrastructure::{LearningSource, LearningStore, SourceSyncWriter};
+use yomibu_core::ports::infrastructure::{LearnerDataProvider, LearningStore, SourceSyncWriter};
 
 /// Owns the selected store and optional source. Construction performs no I/O.
 ///
@@ -27,7 +27,7 @@ impl<Store> App<Store> {
 impl<Store, Source> App<Store, Source>
 where
     Store: LearningStore,
-    Source: LearningSource,
+    Source: LearnerDataProvider,
     Store::Writer: SourceSyncWriter<Data = Source::Data>,
 {
     /// Reserve a writer, fetch, validate, then atomically publish one version.

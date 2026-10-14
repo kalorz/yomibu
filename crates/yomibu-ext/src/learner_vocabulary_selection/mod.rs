@@ -1,6 +1,6 @@
 use yomibu_core::domain::{
     generation::{StoryRequest, StoryVocabularySelection},
-    knowledge::inventory::LearnerInventory,
+    knowledge::inventory::LearnerKnowledge,
 };
 pub const COMPONENT: yomibu_core::extension::Component = yomibu_core::extension::Component {
     id: "learner-vocabulary-selection",
@@ -129,7 +129,7 @@ pub fn selection_steps(ordering: &SeededOrdering, lexical_topic: bool) -> Vec<&d
 }
 
 pub fn select_builtin_vocabulary<'a>(
-    inventory: &'a LearnerInventory,
+    inventory: &'a LearnerKnowledge,
     request: &'a StoryRequest,
     limit: usize,
     seed: u64,

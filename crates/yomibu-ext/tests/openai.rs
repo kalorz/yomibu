@@ -9,14 +9,14 @@ use wiremock::{
 };
 use yomibu_core::domain::{
     generation::{StoryRequest, StoryVocabularySelection},
-    knowledge::inventory::LearnerInventory,
+    knowledge::inventory::LearnerKnowledge,
 };
 use yomibu_ext::{
     openai::preparation::fit_selection_and_build_request,
     openai::{Client, PreparedRequest},
 };
 
-fn input() -> (LearnerInventory, StoryRequest) {
+fn input() -> (LearnerKnowledge, StoryRequest) {
     let inventory = story_inventory::inventory();
     let request =
         serde_json::from_str(include_str!("../../../tests/fixtures/story/request.json")).unwrap();
@@ -24,7 +24,7 @@ fn input() -> (LearnerInventory, StoryRequest) {
 }
 
 fn prepare<'a>(
-    inventory: &'a LearnerInventory,
+    inventory: &'a LearnerKnowledge,
     request: &'a StoryRequest,
 ) -> (StoryVocabularySelection<'a>, PreparedRequest) {
     let input = yomibu_core::domain::generation::SelectionInput {

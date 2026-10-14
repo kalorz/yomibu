@@ -4,14 +4,14 @@ use crate::{
             SelectionCandidates, SelectionError, SelectionInput, StoryError, StoryRequest,
             StoryVocabularySelection, VocabularyCandidate,
         },
-        knowledge::inventory::{InventoryWord, LearnerInventory},
+        knowledge::inventory::{InventoryWord, LearnerKnowledge},
     },
     ports::capabilities::SelectionStep,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
 pub fn validate_selection(
-    inventory: &LearnerInventory,
+    inventory: &LearnerKnowledge,
     request: &StoryRequest,
     selection: &StoryVocabularySelection<'_>,
 ) -> Result<(), StoryError> {
