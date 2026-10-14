@@ -110,7 +110,8 @@ Manual collections can be owned or shared. `learner_collections` needs no extern
 account for them; `learner_progress` records declarations and observations against
 subjects. Create a separate manual subject for each item that needs independent
 progress. Adding content does not mark it known. Reference matches also do not
-grant knowledge of additional usages.
+grant knowledge of additional usages. Follow the shared
+[progress ownership rules](jmdict-import-and-matching.md#sharing-progress-and-eligibility).
 
 Reuse accepted matches for unchanged shared content across learners. Keep their
 progress independent, enforce access to private collections, and derive eligibility

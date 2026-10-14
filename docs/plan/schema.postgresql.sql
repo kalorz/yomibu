@@ -22,6 +22,8 @@ CREATE TABLE collections (
         REFERENCES learners(id) ON DELETE RESTRICT,
 
     provider TEXT NOT NULL,
+    -- Stable key required for shared imports; manual collections may omit it.
+    key TEXT,
     name TEXT NOT NULL,
     is_reference BOOLEAN NOT NULL DEFAULT FALSE,
 
@@ -38,12 +40,17 @@ CREATE TABLE collections (
 CREATE INDEX collections_owner
     ON collections(owner_learner_id);
 
+CREATE UNIQUE INDEX collections_shared_key
+    ON collections(provider, key)
+    WHERE owner_learner_id IS NULL;
+
 -- One upstream record can produce several resolved entries, or remain unresolved.
 CREATE TABLE subjects (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     collection_id UUID NOT NULL
         REFERENCES collections(id) ON DELETE RESTRICT,
-    external_id TEXT NOT NULL,
+    -- Required by importers; manual subjects use their database ID.
+    external_id TEXT,
 
     -- NULL if unknown or outside vocabulary/grammar (e.g. kanji); progress can still be stored.
     -- Preserve the provider's type in source_data.
@@ -52,6 +59,7 @@ CREATE TABLE subjects (
     -- Provider's update time, NULL when unavailable.
     -- Importers compare timestamps atomically to prevent stale content overwrites.
     source_updated_at TIMESTAMPTZ,
+    -- Source content only; never learner account, access or progress data.
     source_data JSONB,
 
     UNIQUE (collection_id, external_id),
@@ -71,6 +79,7 @@ CREATE TABLE learner_collections (
     last_import_started_at TIMESTAMPTZ,
     last_import_completed_at TIMESTAMPTZ,
 
+    -- Account metadata and access limits, including subscription expiry.
     source_data JSONB,
 
     UNIQUE (learner_id, collection_id),
@@ -88,6 +97,7 @@ CREATE TABLE learner_progress (
 
     progress_stage TEXT,
 
+    -- Manual collections only initially; provider imports leave this NULL.
     is_marked_known BOOLEAN,
     is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
 
@@ -95,6 +105,7 @@ CREATE TABLE learner_progress (
     first_passed_at TIMESTAMPTZ,
     recorded_at TIMESTAMPTZ NOT NULL,
 
+    -- Per-subject observations and content-access exclusions for this learner.
     source_data JSONB,
 
     PRIMARY KEY (learner_collection_id, subject_id),

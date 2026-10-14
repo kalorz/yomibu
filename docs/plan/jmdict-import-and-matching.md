@@ -125,11 +125,19 @@ can remain in an owned collection. Do not silently deduplicate different
 collections by spelling or reading, or treat stored shared content as permission
 for every learner to use it.
 
+If Bob cannot access a WaniKani subject, Alice importing it does not remove Bob's
+exclusion. Preserve Bob's progress separately from content availability.
+
 Progress remains attached to the original source subject. A match does not mark all
 of the reference dictionary's senses as known. Knowledge preparation derives
 eligibility from the learner's facts and policy; storage does not make eligibility
 an authoritative persisted fact. Updating one learner's progress must preserve
 other learners' progress and access.
+
+Initially, manual declarations belong to manual collections. Provider imports
+replace observations only under their own `learner_collection_id`; they never
+write `is_marked_known` or manual collections. Overrides on imported subjects
+are deferred.
 
 Import and matching are explicit ingestion work. Story generation consumes
 prepared knowledge without implicitly importing, rematching or writing source data.
@@ -137,9 +145,11 @@ prepared knowledge without implicitly importing, rematching or writing source da
 ## Identity and later updates
 
 Reimporting the same pinned snapshot must reuse collection, subject and entry IDs.
-Target the existing `collection_id`; provider and display name are not unique
-identities. Reuse subjects by `(collection_id, external_id)`; JMdict's `ent_seq`
-identifies that parent record.
+Atomically find or create shared catalogues by `(provider, key)` with no learner
+owner (e.g. `wanikani` / `subjects`). Keys are stable; display names are editable.
+Importers require `external_id` and reuse subjects by `(collection_id, external_id)`;
+JMdict uses `ent_seq`. Manual collections may omit the key; manual subjects use
+their database IDs without an external ID.
 
 Importers supply `entries.source_locator`, unique within its subject, to identify
 the source spelling, reading and sense. Choose a compact encoding for the pinned
