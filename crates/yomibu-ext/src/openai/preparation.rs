@@ -32,7 +32,7 @@ impl StoryPreparer for StoryPromptPreparation {
     }
 }
 
-pub const STORY_PROMPT_REVISION: &str = "story-inventory-v3";
+pub const STORY_PROMPT_REVISION: &str = "story-inventory-v4";
 const MAX_STORY_REQUEST_BYTES: usize = 16384;
 const STORY_PROMPT: &str = concat!(
     "Generate short, natural stories in ordinary modern Japanese. Each sentence must be nonblank and at most 100 Unicode scalar values. ",

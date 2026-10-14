@@ -13,9 +13,9 @@ pub enum SourceOrigin {
     Manual,
     /// Provenance whose namespace and record identifier are opaque to core.
     External {
-        /// Namespace identifying the external source.
+        /// Namespace identifying the external provider.
         provider: String,
-        /// Record identifier within that namespace; the source defines its stability.
+        /// Record identifier within that namespace; the provider defines its stability.
         external_id: String,
     },
 }

@@ -123,7 +123,7 @@ fn story_prompt_uses_complete_instructions_for_each_format_and_candidate_count()
                 "Candidate count: {candidate_count}. Each candidate must contain {sentences}. Generate short, natural stories in ordinary modern Japanese. Each sentence must be nonblank and at most 100 Unicode scalar values. "
             );
             assert!(prompt.starts_with(&opening), "{prompt}");
-            assert_eq!(prepared.prompt_revision(), "story-inventory-v3");
+            assert_eq!(prepared.prompt_revision(), "story-inventory-v4");
         }
     }
 }
