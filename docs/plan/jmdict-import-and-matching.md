@@ -8,6 +8,7 @@
   database catalogue. Keep the pinned source file and checksum.
 - **Keep source identity:** a subject represents an upstream record; each vocabulary
   entry represents one spelling, reading and sense. One subject can have many entries.
+  Source locators let repeat imports reuse entry IDs.
 - **Match with evidence:** use spelling and reading to find candidates, then meanings
   or context to confirm senses. Preserve ambiguous input as unresolved; never invent
   reading–meaning associations.
@@ -19,7 +20,7 @@
 - **Keep generation separate:** import and matching happen explicitly, outside story
   generation.
 - **Jev is optional:** evaluate it for uncertain matches before adopting it.
-- **Still open:** repeat-import identity storage, match acceptance and provenance,
+- **Still open:** input format and locator encoding, match acceptance and provenance,
   manual disambiguation, and handling later dictionary revisions.
 
 The detail below preserves decisions and their reasons for future implementation.
@@ -40,14 +41,21 @@ The initial scope is **common vocabulary with English senses and glosses**:
   [JMdict Simplified's `common` definition][common]; XML has priority markers,
   not that computed boolean.
 - For qualifying records, keep every valid spelling–reading–English-sense
-  combination, including forms without their own common marker. Respect reading
-  and sense restrictions, kana-only forms and inherited part-of-speech information.
+  combination, including forms without their own common marker. Respect
+  [reading and sense restrictions][structure], kana-only forms and inherited
+  part-of-speech information.
+- Exclude search-only spellings/readings (`sK`, `sk`) from normalized entries;
+  preserve them in `source_data`. Keep valid kana forms such as `いらっしゃる`
+  when their kanji spellings are search-only.
+- Retain irregular (`iK`, `ik`), outdated (`oK`, `ok`) and rare (`rK`, `rk`) forms
+  with their source labels preserved in `source_data`. Importing a form does not
+  make it a preferred form for generated stories.
 - Keep all parts of speech. No additional rare or archaic sense filter was chosen.
 
-The sizing exercise using the [2026-10-12 snapshot][snapshot] estimated roughly
-22,600 subjects, 65,200 vocabulary entries and 159,800 translations. With a separate
-detail row for each entry, the proposed structure needs about 312,800 rows, versus
-1.72 million for unfiltered English data. These are planning estimates,
+Recounting the [2026-10-12 snapshot][snapshot] with this form policy gives roughly
+22,600 subjects, 55,400 vocabulary entries and 133,100 translations. With a separate
+detail row for each entry, the proposed structure needs about 266,600 rows, versus
+1.58 million without the common filter. These are planning estimates,
 not importer acceptance counts. WaniKani coverage has not been measured. The common
 filter is the agreed starting point; coverage findings can justify revisiting it.
 
@@ -109,8 +117,8 @@ failed attempts or unresolved candidates.
 
 Resolve shared source content once and reuse its accepted matches. A new learner
 adding an existing WaniKani subject supplies their own progress; this does not
-require repeating dictionary matching. New or changed content, changed reference
-data, or an explicit retry can require matching again.
+require repeating dictionary matching. Unchanged unresolved content stays unresolved
+until an explicit retry. New or changed content or reference data can require rematching.
 
 This sharing applies within the source's collection. User-created private content
 can remain in an owned collection. Do not silently deduplicate different
@@ -129,15 +137,19 @@ prepared knowledge without implicitly importing, rematching or writing source da
 ## Identity and later updates
 
 Reimporting the same pinned snapshot must reuse collection, subject and entry IDs.
-`ent_seq` identifies the parent subject, not each derived vocabulary entry. Entry
-identity also needs its source spelling, reading and sense locator; spelling and
-reading alone cannot distinguish senses.
+Target the existing `collection_id`; provider and display name are not unique
+identities. Reuse subjects by `(collection_id, external_id)`; JMdict's `ent_seq`
+identifies that parent record.
 
-The locator-to-ID persistence mechanism remains an importer design decision; the
-SQL plan does not yet provide it. Sense positions are meaningful within a snapshot,
-not guaranteed stable across dictionary revisions. Reordered, split or merged
-senses need explicit reconciliation before existing links can be reused. This does
-not require an automatic update service or a general history framework now.
+Importers supply `entries.source_locator`, unique within its subject, to identify
+the source spelling, reading and sense. Choose a compact encoding for the pinned
+source format. Manual entries may leave it NULL. Preserve source order in the raw
+record; do not infer it from UUIDs.
+
+Sense positions are meaningful within a snapshot, not guaranteed stable across
+dictionary revisions. Reordered, split or merged senses need explicit reconciliation
+before existing identities and links can be reused. An automatic update service or
+general history framework is not required now.
 
 ## Possible role for Jev
 
@@ -157,15 +169,11 @@ adds the same shared content.
 
 ## Implementation boundaries and open choices
 
-Follow [AGENTS.md](../../AGENTS.md#architecture): core owns domain rules and the
-minimal contracts actually needed; app coordinates import, matching and
-publication; extensions own JMdict parsing, provider integration and SQL details.
-The executable constructs dependencies. Do not add a repository framework,
-plugin registry or speculative ports to document this direction.
+Follow the [architecture guide](../../AGENTS.md#architecture).
 
 Before implementing the relevant slice, settle:
 
-- The input snapshot/format and storage of source locators needed for repeat imports.
+- The input snapshot/format and encoding of source locators for repeat imports.
 - Match acceptance rules, evidence/provenance, and the treatment of unresolved or
   rejected attempts; `match_method` alone does not answer these questions.
 - The manual vocabulary input and disambiguation flow.
@@ -174,16 +182,6 @@ Before implementing the relevant slice, settle:
 A useful coverage check compares complete WaniKani vocabulary against full and
 common JMdict candidate sets. Count subjects losing some or all candidates, and
 inspect lost senses; “at least one candidate” is not proof of semantic coverage.
-
-## Discussion sources
-
-- [Archived mapping discussion](codex://threads/01a12cd8-46fd-7bf0-ac4e-e34ac8aa4702):
-  provider interpretation, common eligibility and preservation of uncertainty.
-- [Archived persistence discussion](codex://threads/01a12e96-ca29-7a73-a617-44abeee55ab9):
-  shared content and independent progress; the later correction requires entry-level
-  association evidence and rejects parallel aggregate vocabulary tables.
-- [JMdict structure and sense grouping][structure]. The current discussion adds the
-  common-only import, reference links and possible Jev experiment described above.
 
 [common]: https://github.com/scriptin/jmdict-simplified#full-common-only-with-examples-and-language-specific-versions
 [snapshot]: https://github.com/scriptin/jmdict-simplified/releases/tag/3.6.2%2B20261012204142

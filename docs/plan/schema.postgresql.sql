@@ -30,7 +30,9 @@ CREATE TABLE collections (
     license TEXT,
     attribution TEXT,
     source_revision TEXT,
-    source_checksum TEXT
+    source_checksum TEXT,
+
+    CHECK (NOT is_reference OR owner_learner_id IS NULL)
 );
 
 CREATE INDEX collections_owner
@@ -43,14 +45,15 @@ CREATE TABLE subjects (
         REFERENCES collections(id) ON DELETE RESTRICT,
     external_id TEXT NOT NULL,
 
-    -- Normalized kind; NULL until classified. Preserve raw provider types in source_data.
-    material_type material_kind,
+    -- NULL if unknown or outside vocabulary/grammar (e.g. kanji); progress can still be stored.
+    -- Preserve the provider's type in source_data.
+    kind material_kind,
 
     source_data JSONB,
 
     UNIQUE (collection_id, external_id),
     UNIQUE (id, collection_id),
-    UNIQUE (id, material_type)
+    UNIQUE (id, kind)
 );
 
 -- Manual collections use the same association, without an external account or import.
@@ -113,10 +116,14 @@ CREATE TABLE entries (
     subject_id UUID NOT NULL,
     kind material_kind NOT NULL,
 
+    -- Importers supply a compact locator within the pinned source record; manual entries may omit it.
+    source_locator TEXT,
+
     UNIQUE (id, kind),
+    UNIQUE (subject_id, source_locator),
 
     FOREIGN KEY (subject_id, kind)
-        REFERENCES subjects(id, material_type)
+        REFERENCES subjects(id, kind)
         ON DELETE RESTRICT
 );
 
@@ -126,6 +133,7 @@ CREATE INDEX entries_subject
 -- Accepted same-kind correspondences only; the application checks that the target
 -- belongs to a reference collection. Shared matches are reused across learners;
 -- learner progress stays on the original subject.
+-- Remove incoming links explicitly before deleting a referenced entry.
 CREATE TABLE entry_references (
     entry_id UUID NOT NULL,
     reference_entry_id UUID NOT NULL,
@@ -142,6 +150,9 @@ CREATE TABLE entry_references (
     FOREIGN KEY (reference_entry_id, kind)
         REFERENCES entries(id, kind) ON DELETE RESTRICT
 );
+
+CREATE INDEX entry_references_reference
+    ON entry_references(reference_entry_id);
 
 -- Vocabulary
 
@@ -219,7 +230,7 @@ CREATE TABLE grammar_descriptions (
         REFERENCES grammar_details(entry_id) ON DELETE CASCADE,
 
     language_code TEXT NOT NULL,
-    kind TEXT NOT NULL, -- Description purpose; categories remain to be agreed.
+    purpose TEXT NOT NULL, -- Categories remain to be agreed.
     text TEXT NOT NULL,
     position INTEGER NOT NULL,
 
@@ -255,7 +266,7 @@ CREATE TABLE grammar_examples (
 
     FOREIGN KEY (formation_id, entry_id)
         REFERENCES grammar_formations(id, entry_id)
-        ON DELETE CASCADE
+        ON DELETE RESTRICT
 );
 
 CREATE INDEX grammar_examples_entry
