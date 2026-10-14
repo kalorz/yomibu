@@ -14,9 +14,9 @@ pub enum SourceOrigin {
     /// Provenance whose namespace and record identifier are opaque to core.
     External {
         /// Namespace identifying the external source.
-        source: String,
+        provider: String,
         /// Record identifier within that namespace; the source defines its stability.
-        id: String,
+        external_id: String,
     },
 }
 
@@ -24,7 +24,7 @@ pub enum SourceOrigin {
 #[serde(deny_unknown_fields)]
 pub struct InventoryWord {
     pub id: String,
-    pub written_form: String,
+    pub spelling: String,
     pub readings: Vec<String>,
     pub meanings: Vec<String>,
     pub direct_object: Option<bool>,
@@ -121,7 +121,7 @@ impl LearnerInventory {
         for word in &self.vocabulary {
             if !text(&word.id, 128)
                 || !ids.insert(&word.id)
-                || !text(&word.written_form, 256)
+                || !text(&word.spelling, 256)
                 || word.readings.len() > 32
                 || word.meanings.len() > 32
                 || word.readings.iter().any(|r| !text(r, 256))

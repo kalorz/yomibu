@@ -35,7 +35,7 @@ impl SelectionStep for LexicalTopicScoring {
         for entry in &mut candidates.entries {
             let word = entry.word;
             entry.score = topic.as_ref().map(|(text, topic_terms)| {
-                let terms: BTreeSet<_> = std::iter::once(word.written_form.as_str())
+                let terms: BTreeSet<_> = std::iter::once(word.spelling.as_str())
                     .chain(
                         word.readings
                             .iter()
@@ -46,7 +46,7 @@ impl SelectionStep for LexicalTopicScoring {
                     .collect();
                 let overlap = terms.intersection(topic_terms).count() as f64;
                 let written_match =
-                    word.written_form.chars().any(is_japanese) && text.contains(&word.written_form);
+                    word.spelling.chars().any(is_japanese) && text.contains(&word.spelling);
                 overlap.max(f64::from(written_match))
             });
             entry.reason = if entry.score.is_some_and(|score| score > 0.) {

@@ -72,7 +72,7 @@ pub fn fit_selection_and_build_request<'a>(
             .map(|s| {
                 serde_json::json!({
                     "id": s.word.id,
-                    "written_form": s.word.written_form,
+                    "spelling": s.word.spelling,
                     "readings": s.word.readings,
                     "meanings": s.word.meanings,
                     "direct_object": s.word.direct_object,

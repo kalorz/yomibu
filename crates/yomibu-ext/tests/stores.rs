@@ -125,12 +125,12 @@ fn normalized_reads_keep_progress_and_remain_coherent_after_replacement() {
     next.subjects[2].characters = "updated".into();
     store.begin_sync().unwrap().replace(next).unwrap();
     let inventory = first.into_inventory(data.sync_completed_at).unwrap();
-    assert_eq!(inventory.vocabulary[0].written_form, "これ");
+    assert_eq!(inventory.vocabulary[0].spelling, "これ");
     let updated = store
         .read_learner_data()
         .unwrap()
         .unwrap()
         .into_inventory(data.sync_completed_at)
         .unwrap();
-    assert_eq!(updated.vocabulary[0].written_form, "updated");
+    assert_eq!(updated.vocabulary[0].spelling, "updated");
 }

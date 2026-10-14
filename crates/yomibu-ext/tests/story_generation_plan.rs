@@ -74,7 +74,7 @@ fn inventory() -> LearnerInventory {
         .into_iter()
         .map(|(id, written, reading)| InventoryWord {
             id: id.into(),
-            written_form: written.into(),
+            spelling: written.into(),
             readings: vec![reading.into()],
             meanings: vec![id.into()],
             direct_object: None,
