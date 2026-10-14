@@ -13,10 +13,10 @@ pub enum SourceOrigin {
     Manual,
     /// Provenance whose namespace and record identifier are opaque to core.
     External {
-        /// Namespace identifying the external source.
-        source: String,
-        /// Record identifier within that namespace; the source defines its stability.
-        id: String,
+        /// Namespace identifying the external provider.
+        provider: String,
+        /// Record identifier within that namespace; the provider defines its stability.
+        external_id: String,
     },
 }
 
@@ -24,7 +24,7 @@ pub enum SourceOrigin {
 #[serde(deny_unknown_fields)]
 pub struct InventoryWord {
     pub id: String,
-    pub written_form: String,
+    pub spelling: String,
     pub readings: Vec<String>,
     pub meanings: Vec<String>,
     pub direct_object: Option<bool>,
@@ -57,8 +57,11 @@ pub struct ExcludedMaterial {
     pub origin: SourceOrigin,
     pub reason: ExclusionReason,
 }
+/// Material considered usable for a learner, derived from recorded progress and explicit declarations.
+/// This represents eligibility, not verified mastery.
+/// Also retains provenance and reasons for excluded material.
 #[derive(Debug, Serialize)]
-pub struct LearnerInventory {
+pub struct LearnerKnowledge {
     pub vocabulary: Vec<InventoryWord>,
     pub grammar_declarations: Vec<InventoryGrammar>,
     pub grammar_bindings: Vec<InventoryGrammarBinding>,
@@ -71,7 +74,7 @@ pub enum InventoryError {
     #[error("Invalid learner inventory: {0}.")]
     Invalid(&'static str),
 }
-impl LearnerInventory {
+impl LearnerKnowledge {
     /// Prepare one learner's mapped values in input order and validate the result.
     /// Unavailable content takes precedence over progress. Eligible non-vocabulary is omitted.
     pub fn from_mapped(
@@ -121,7 +124,7 @@ impl LearnerInventory {
         for word in &self.vocabulary {
             if !text(&word.id, 128)
                 || !ids.insert(&word.id)
-                || !text(&word.written_form, 256)
+                || !text(&word.spelling, 256)
                 || word.readings.len() > 32
                 || word.meanings.len() > 32
                 || word.readings.iter().any(|r| !text(r, 256))

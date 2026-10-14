@@ -1,7 +1,7 @@
 use serde_json::Value;
 use yomibu_core::domain::{
     knowledge::ExclusionReason,
-    knowledge::inventory::{LearnerInventory, MappedContent, SourceOrigin},
+    knowledge::inventory::{LearnerKnowledge, MappedContent, SourceOrigin},
 };
 use yomibu_ext::wanikani::{data::WaniKaniSyncData, map_learner_data};
 
@@ -11,14 +11,14 @@ fn source() -> WaniKaniSyncData {
     serde_json::from_value(value["snapshot"].clone()).unwrap()
 }
 
-fn prepare_inventory(data: &WaniKaniSyncData) -> LearnerInventory {
-    LearnerInventory::from_mapped(map_learner_data(data).unwrap().records).unwrap()
+fn prepare_inventory(data: &WaniKaniSyncData) -> LearnerKnowledge {
+    LearnerKnowledge::from_mapped(map_learner_data(data).unwrap().records).unwrap()
 }
 
-fn exclusion(inventory: &LearnerInventory, id: u64) -> Option<ExclusionReason> {
+fn exclusion(inventory: &LearnerKnowledge, id: u64) -> Option<ExclusionReason> {
     let origin = SourceOrigin::External {
-        source: "wanikani".into(),
-        id: id.to_string(),
+        provider: "wanikani".into(),
+        external_id: id.to_string(),
     };
     inventory
         .excluded
@@ -49,13 +49,13 @@ fn preparation_retains_exclusion_reasons_in_source_subject_order() {
     let data = source();
     let inventory = prepare_inventory(&data);
     assert_eq!(inventory.vocabulary.len(), 1);
-    assert_eq!(inventory.vocabulary[0].written_form, "これ");
+    assert_eq!(inventory.vocabulary[0].spelling, "これ");
     assert_eq!(inventory.vocabulary[0].id, "wanikani:3");
     assert_eq!(
         inventory.vocabulary[0].origin,
         SourceOrigin::External {
-            source: "wanikani".into(),
-            id: "3".into(),
+            provider: "wanikani".into(),
+            external_id: "3".into(),
         }
     );
     assert_eq!(
@@ -67,29 +67,29 @@ fn preparation_retains_exclusion_reasons_in_source_subject_order() {
         [
             (
                 &SourceOrigin::External {
-                    source: "wanikani".into(),
-                    id: "1".into(),
+                    provider: "wanikani".into(),
+                    external_id: "1".into(),
                 },
                 Hidden,
             ),
             (
                 &SourceOrigin::External {
-                    source: "wanikani".into(),
-                    id: "2".into(),
+                    provider: "wanikani".into(),
+                    external_id: "2".into(),
                 },
                 Hidden,
             ),
             (
                 &SourceOrigin::External {
-                    source: "wanikani".into(),
-                    id: "4".into(),
+                    provider: "wanikani".into(),
+                    external_id: "4".into(),
                 },
                 NoProgress,
             ),
             (
                 &SourceOrigin::External {
-                    source: "wanikani".into(),
-                    id: "5".into(),
+                    provider: "wanikani".into(),
+                    external_id: "5".into(),
                 },
                 ContentUnavailable
             )
@@ -131,8 +131,8 @@ fn mapping_preserves_progress_when_content_is_unavailable() {
         .find(|(content, _)| {
             matches!(
                 content,
-                MappedContent::Unavailable(SourceOrigin::External { source, id })
-                    if source == "wanikani" && id == "5"
+                MappedContent::Unavailable(SourceOrigin::External { provider, external_id })
+                    if provider == "wanikani" && external_id == "5"
             )
         })
         .unwrap();
@@ -225,7 +225,7 @@ fn preparation_preserves_unpaired_reading_and_meaning_alternatives() {
     let words: Vec<_> = inventory
         .vocabulary
         .iter()
-        .filter(|word| word.written_form == "一日")
+        .filter(|word| word.spelling == "一日")
         .collect();
     assert_eq!(words.len(), 1);
     assert_eq!(words[0].readings, ["いちにち", "ついたち"]);
@@ -255,7 +255,7 @@ fn preparation_keeps_missing_readings() {
         inventory
             .vocabulary
             .iter()
-            .find(|word| word.written_form == "これ")
+            .find(|word| word.spelling == "これ")
             .unwrap()
             .readings
             .is_empty()

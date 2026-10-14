@@ -9,14 +9,14 @@ use yomibu_core::{
             finalization::select_target_first,
             preparation::{GenerationError, prepare_story},
         },
-        knowledge::{inventory::LearnerInventory, learner::LearnerData},
+        knowledge::{inventory::LearnerKnowledge, learner::LearnerData},
     },
     ports::capabilities::{CandidateGenerator, SelectionStep, StoryPreparer},
 };
 
 pub struct StoryInputs {
     pub request: StoryRequest,
-    pub inventory: LearnerInventory,
+    pub inventory: LearnerKnowledge,
 }
 
 impl StoryInputs {

@@ -4,7 +4,7 @@ use std::error::Error;
 ///
 /// Retrieval may perform network I/O; it must not persist data.
 /// Implementations document deadlines and retry behavior.
-pub trait LearningSource {
+pub trait LearnerDataProvider {
     type Data;
     type Summary;
     type Error: Error + Send + Sync + 'static;
@@ -19,7 +19,7 @@ pub trait LearningSource {
     ) -> Result<Self::Summary, Self::ValidationError>;
 }
 
-impl<Source: LearningSource + ?Sized> LearningSource for &mut Source {
+impl<Source: LearnerDataProvider + ?Sized> LearnerDataProvider for &mut Source {
     type Data = Source::Data;
     type Summary = Source::Summary;
     type Error = Source::Error;

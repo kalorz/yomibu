@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use yomibu_app::application::sync::{App, SyncError};
-use yomibu_core::ports::infrastructure::{LearningSource, LearningStore, SourceSyncWriter};
+use yomibu_core::ports::infrastructure::{LearnerDataProvider, LearningStore, SourceSyncWriter};
 
 #[derive(Default)]
 struct State {
@@ -20,7 +20,7 @@ struct TestSource {
 #[error("empty snapshot")]
 struct EmptyData;
 
-impl LearningSource for TestSource {
+impl LearnerDataProvider for TestSource {
     type Data = Vec<u8>;
     type Summary = usize;
     type Error = Infallible;

@@ -8,7 +8,7 @@ use yomibu_core::{
         generation::{
             SelectionCandidates, SelectionInput, StoryError, StoryRequest, StoryVocabularySelection,
         },
-        knowledge::inventory::LearnerInventory,
+        knowledge::inventory::LearnerKnowledge,
     },
     ports::capabilities::SelectionStep,
 };
@@ -16,7 +16,7 @@ use yomibu_ext::learner_vocabulary_selection::{
     LexicalTopicScoring, SeededOrdering, selection_steps,
 };
 
-fn inventory() -> LearnerInventory {
+fn inventory() -> LearnerKnowledge {
     story_inventory::inventory()
 }
 fn request(topic: Option<&str>, targets: &[&str]) -> StoryRequest {

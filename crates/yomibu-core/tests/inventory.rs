@@ -1,17 +1,17 @@
 use serde_json::json;
 use yomibu_core::domain::{
     knowledge::inventory::{
-        InventoryError, InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory,
+        InventoryError, InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerKnowledge,
         MappedContent, SourceOrigin,
     },
     knowledge::{ExclusionReason, LearnerProgress},
 };
 
-fn inventory() -> LearnerInventory {
-    LearnerInventory {
+fn inventory() -> LearnerKnowledge {
+    LearnerKnowledge {
         vocabulary: vec![InventoryWord {
             id: "cat".into(),
-            written_form: "猫".into(),
+            spelling: "猫".into(),
             readings: vec!["ねこ".into()],
             meanings: vec!["cat".into()],
             direct_object: None,
@@ -47,6 +47,7 @@ fn inventory_keeps_original_readings_and_unknown_evidence() {
     assert_eq!(inventory.grammar_bindings[0].declaration_id, "topic");
 
     let mut serialized_word = serde_json::to_value(&inventory.vocabulary[0]).unwrap();
+    assert_eq!(serialized_word["spelling"], "猫");
     assert_eq!(serialized_word["origin"], json!({"kind":"manual"}));
     serialized_word.as_object_mut().unwrap().remove("origin");
     let word: InventoryWord = serde_json::from_value(serialized_word).unwrap();
@@ -54,7 +55,7 @@ fn inventory_keeps_original_readings_and_unknown_evidence() {
 
     let mut serialized_word = serde_json::to_value(&word).unwrap();
     serialized_word["origin"] =
-        json!({"kind":"external","source":"synthetic-source","id":"word:cat"});
+        json!({"kind":"external","provider":"synthetic-source","external_id":"word:cat"});
     assert!(serde_json::from_value::<InventoryWord>(serialized_word).is_err());
 }
 
@@ -62,8 +63,8 @@ fn inventory_keeps_original_readings_and_unknown_evidence() {
 fn common_preparation_uses_each_learners_progress_for_shared_content() {
     let mut content = inventory().vocabulary.remove(0);
     content.origin = SourceOrigin::External {
-        source: "synthetic-source".into(),
-        id: "word:cat".into(),
+        provider: "synthetic-source".into(),
+        external_id: "word:cat".into(),
     };
     for (first_progress, second_progress, reason) in [
         (
@@ -86,12 +87,12 @@ fn common_preparation_uses_each_learners_progress_for_shared_content() {
             ExclusionReason::NoRecordedLessonStart,
         ),
     ] {
-        let first = LearnerInventory::from_mapped([(
+        let first = LearnerKnowledge::from_mapped([(
             MappedContent::Vocabulary(content.clone()),
             Some(first_progress),
         )])
         .unwrap();
-        let second = LearnerInventory::from_mapped([(
+        let second = LearnerKnowledge::from_mapped([(
             MappedContent::Vocabulary(content.clone()),
             Some(second_progress),
         )])
@@ -101,7 +102,7 @@ fn common_preparation_uses_each_learners_progress_for_shared_content() {
         assert_eq!(first.vocabulary[0].origin, content.origin);
         assert_eq!(
             serde_json::to_value(&first).unwrap()["vocabulary"][0]["origin"],
-            json!({"kind":"external","source":"synthetic-source","id":"word:cat"})
+            json!({"kind":"external","provider":"synthetic-source","external_id":"word:cat"})
         );
         assert!(first.excluded.is_empty());
         assert!(second.vocabulary.is_empty());
@@ -115,15 +116,15 @@ fn common_preparation_uses_each_learners_progress_for_shared_content() {
 fn common_preparation_preserves_content_availability_and_input_order() {
     let content = inventory().vocabulary.remove(0);
     let origin = SourceOrigin::External {
-        source: "synthetic-source".into(),
-        id: "missing-record".into(),
+        provider: "synthetic-source".into(),
+        external_id: "missing-record".into(),
     };
     let progress = LearnerProgress {
         is_marked_known: Some(true),
         ..Default::default()
     };
     for is_hidden in [false, true] {
-        let inventory = LearnerInventory::from_mapped([
+        let inventory = LearnerKnowledge::from_mapped([
             (MappedContent::Vocabulary(content.clone()), None),
             (
                 MappedContent::NonVocabulary(SourceOrigin::Manual),
@@ -182,14 +183,14 @@ fn exclusions_serialize_source_identity_and_source_independent_reasons() {
     ] {
         let excluded = ExcludedMaterial {
             origin: SourceOrigin::External {
-                source: "synthetic-source".into(),
-                id: "record-alpha".into(),
+                provider: "synthetic-source".into(),
+                external_id: "record-alpha".into(),
             },
             reason,
         };
         assert_eq!(
             serde_json::to_value(excluded).unwrap(),
-            json!({"origin":{"kind":"external","source":"synthetic-source","id":"record-alpha"},"reason":code})
+            json!({"origin":{"kind":"external","provider":"synthetic-source","external_id":"record-alpha"},"reason":code})
         );
     }
 }

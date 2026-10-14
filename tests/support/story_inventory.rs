@@ -1,9 +1,9 @@
 use serde::Deserialize;
 use yomibu_core::domain::knowledge::inventory::{
-    InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory,
+    InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerKnowledge,
 };
 
-pub fn inventory() -> LearnerInventory {
+pub fn inventory() -> LearnerKnowledge {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Fixture {
@@ -15,7 +15,7 @@ pub fn inventory() -> LearnerInventory {
     let fixture: Fixture =
         serde_json::from_str(include_str!("../fixtures/story/inventory.json")).unwrap();
     assert_eq!(fixture.version, 1);
-    let inventory = LearnerInventory {
+    let inventory = LearnerKnowledge {
         vocabulary: fixture.vocabulary,
         grammar_declarations: fixture.grammar_declarations,
         grammar_bindings: fixture.grammar_bindings,

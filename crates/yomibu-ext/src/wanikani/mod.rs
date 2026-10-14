@@ -71,7 +71,7 @@ pub struct Client {
     next_request_at: Option<tokio::time::Instant>,
 }
 
-impl yomibu_core::ports::infrastructure::LearningSource for Client {
+impl yomibu_core::ports::infrastructure::LearnerDataProvider for Client {
     type Data = WaniKaniSyncData;
     type Summary = summary::Summary;
     type Error = Error;

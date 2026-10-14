@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use yomibu_core::domain::{
     generation::{StoryError, StoryFormat, StoryGenerationOptions, StoryRequest},
     knowledge::inventory::{
-        InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerInventory, SourceOrigin,
+        InventoryGrammar, InventoryGrammarBinding, InventoryWord, LearnerKnowledge, SourceOrigin,
     },
 };
 use yomibu_core::extension::options::Options;
@@ -64,8 +64,8 @@ fn passage_options(candidate_count: usize) -> StoryGenerationOptions {
         model: "test-model".into(),
     }
 }
-fn inventory() -> LearnerInventory {
-    LearnerInventory {
+fn inventory() -> LearnerKnowledge {
+    LearnerKnowledge {
         vocabulary: [
             ("cat", "猫", "ねこ"),
             ("station", "駅", "えき"),
@@ -74,7 +74,7 @@ fn inventory() -> LearnerInventory {
         .into_iter()
         .map(|(id, written, reading)| InventoryWord {
             id: id.into(),
-            written_form: written.into(),
+            spelling: written.into(),
             readings: vec![reading.into()],
             meanings: vec![id.into()],
             direct_object: None,
@@ -119,9 +119,9 @@ async fn provenance_does_not_change_the_prepared_request() {
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../tests/fixtures/preparation.json")).unwrap();
     let source = serde_json::from_value(fixture["snapshot"].clone()).unwrap();
-    let wk = LearnerInventory::from_mapped(wanikani::map_learner_data(&source).unwrap().records)
+    let wk = LearnerKnowledge::from_mapped(wanikani::map_learner_data(&source).unwrap().records)
         .unwrap();
-    let manual = LearnerInventory {
+    let manual = LearnerKnowledge {
         vocabulary: wk
             .vocabulary
             .iter()

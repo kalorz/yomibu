@@ -35,8 +35,8 @@ pub fn map_learner_data(source: &WaniKaniSyncData) -> Result<LearnerData, Valida
         .into_iter()
         .map(|(subject_id, subject)| {
             let origin = SourceOrigin::External {
-                source: crate::wanikani::ID.into(),
-                id: subject_id.to_string(),
+                provider: crate::wanikani::ID.into(),
+                external_id: subject_id.to_string(),
             };
             let assignment = assignments.get(&subject_id).copied();
             let statistic = statistics.get(&subject_id).copied();
@@ -57,7 +57,7 @@ pub fn map_learner_data(source: &WaniKaniSyncData) -> Result<LearnerData, Valida
             };
             let word = InventoryWord {
                 id: format!("{}:{subject_id}", crate::wanikani::ID),
-                written_form: subject.characters.clone(),
+                spelling: subject.characters.clone(),
                 readings,
                 meanings: subject
                     .meanings

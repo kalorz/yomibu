@@ -3,7 +3,7 @@ use crate::{
     domain::{
         generation::candidate::{CandidateConstructionError, GeneratedCandidates},
         generation::{StoryGenerationOptions, StoryRequest, StoryVocabularySelection},
-        knowledge::inventory::LearnerInventory,
+        knowledge::inventory::LearnerKnowledge,
     },
     ports::capabilities::{CandidateGenerator, StoryPreparer},
 };
@@ -11,7 +11,7 @@ use crate::{
 /// Prepare once, then bind the returned selection to the caller's inventory and request.
 pub fn prepare_story<'a, P: StoryPreparer>(
     preparer: &P,
-    inventory: &'a LearnerInventory,
+    inventory: &'a LearnerKnowledge,
     request: &'a StoryRequest,
     selection: StoryVocabularySelection<'a>,
     options: StoryGenerationOptions,
@@ -38,8 +38,8 @@ pub enum GenerationError<E> {
 ///
 /// Plans cannot be assembled from independently supplied request bytes and inputs.
 /// ```compile_fail
-/// use yomibu_core::{domain::{knowledge::inventory::LearnerInventory, generation::{StoryFormat, StoryGenerationOptions, StoryRequest, StoryVocabularySelection}}, domain::generation::preparation::PreparedStory};
-/// fn rebind<'a>(inventory: &'a LearnerInventory, request: &'a StoryRequest,
+/// use yomibu_core::{domain::{knowledge::inventory::LearnerKnowledge, generation::{StoryFormat, StoryGenerationOptions, StoryRequest, StoryVocabularySelection}}, domain::generation::preparation::PreparedStory};
+/// fn rebind<'a>(inventory: &'a LearnerKnowledge, request: &'a StoryRequest,
 ///     selection: StoryVocabularySelection<'a>) {
 ///     let options = StoryGenerationOptions {
 ///         candidate_count: 1,
