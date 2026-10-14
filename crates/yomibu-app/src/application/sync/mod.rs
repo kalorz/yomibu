@@ -37,9 +37,6 @@ where
     /// typed error. A successful result has no remaining fallible post-write work.
     /// Dropping this future releases the writer. Synchronous store operations
     /// cannot be interrupted mid-call; a drop is not a rollback guarantee.
-    ///
-    /// File operations currently run on the caller's thread. A future busy server
-    /// needs storage contracts suited to async I/O or a bounded blocking executor.
     pub async fn sync(
         &mut self,
     ) -> Result<
