@@ -49,6 +49,9 @@ CREATE TABLE subjects (
     -- Preserve the provider's type in source_data.
     kind material_kind,
 
+    -- Provider's update time, NULL when unavailable.
+    -- Importers compare timestamps atomically to prevent stale content overwrites.
+    source_updated_at TIMESTAMPTZ,
     source_data JSONB,
 
     UNIQUE (collection_id, external_id),
