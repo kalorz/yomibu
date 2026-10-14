@@ -59,6 +59,7 @@ pub struct ExcludedMaterial {
 }
 /// Material considered usable for a learner, derived from recorded progress and explicit declarations.
 /// This represents eligibility, not verified mastery.
+/// Also retains provenance and reasons for excluded material.
 #[derive(Debug, Serialize)]
 pub struct LearnerKnowledge {
     pub vocabulary: Vec<InventoryWord>,
