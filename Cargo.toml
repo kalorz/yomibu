@@ -2,6 +2,9 @@
 members = ["crates/yomibu-core", "crates/yomibu-ext", "crates/yomibu-app", "crates/yomibu-cli"]
 resolver = "3"
 
+[workspace.dependencies]
+uuid = { version = "1", default-features = false }
+
 [workspace.package]
 version = "0.1.0"
 edition = "2024"

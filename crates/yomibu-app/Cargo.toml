@@ -5,6 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[dependencies]
+yomibu-core = { path = "../yomibu-core" }
+
+[dev-dependencies]
+uuid.workspace = true
+
 [lints.rust]
 unreachable_pub = "warn"
 
