@@ -1,7 +1,10 @@
+use std::sync::atomic::AtomicBool;
+use std::time::Instant;
+
 use crate::domain::identity::{CollectionId, LearnerId};
 
 /// A storage failure with a message safe to expose to callers.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StorageError {
     /// Implementations must omit credentials and private backend diagnostics.
     pub message: String,
@@ -27,10 +30,18 @@ pub trait LearnerCollectionQuery {
     /// and does not synchronize concurrent updates.
     ///
     /// Storage failures must return `Err` with a safe message, never empty success
-    /// or partial results. The call is synchronous; no deadline, cancellation or
-    /// retry policy is supplied.
+    /// or partial results. The absolute monotonic `deadline` bounds the entire
+    /// call. Implementations must bound backend I/O by the remaining time and
+    /// honor `cancelled`, including while I/O is in progress, returning `Err`
+    /// on cancellation or expiry. Callers may set the flag but must not reset it
+    /// during the operation. No retries are requested.
+    ///
+    /// The call is synchronous: the application cannot forcibly interrupt an
+    /// implementation that violates these requirements.
     fn collection_ids_for_learner(
         &self,
         learner_id: LearnerId,
+        deadline: Instant,
+        cancelled: &AtomicBool,
     ) -> Result<Vec<CollectionId>, StorageError>;
 }

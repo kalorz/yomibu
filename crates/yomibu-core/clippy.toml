@@ -6,6 +6,18 @@ disallowed-methods = [
     "std::time::SystemTime::now",
     "std::env::var",
     "std::fs::read_to_string",
+    # These APIs may be absent until another crate enables UUID generation features.
+    { path = "uuid::Uuid::new_v4", allow-invalid = true },
+    { path = "uuid::Uuid::new_v7", allow-invalid = true },
+    { path = "uuid::Uuid::now_v1", allow-invalid = true },
+    { path = "uuid::Uuid::now_v6", allow-invalid = true },
+    { path = "uuid::Uuid::now_v7", allow-invalid = true },
+    { path = "uuid::Timestamp::now", allow-invalid = true },
+    { path = "uuid::ContextV1::new_random", allow-invalid = true },
 ]
-disallowed-types = ["std::fs::File", "std::net::TcpStream"]
+# ContextV7 reseeds counters from ambient randomness when used with a timestamp.
+disallowed-types = [
+    "std::fs::File", "std::net::TcpStream",
+    { path = "uuid::ContextV7", allow-invalid = true },
+]
 disallowed-macros = ["std::env", "std::option_env", "std::include_str"]
