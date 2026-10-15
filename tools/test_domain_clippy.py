@@ -1,9 +1,31 @@
 """Verify scoped domain/application restrictions with isolated Rust examples."""
 
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
+
+
+def extract_lint_header(source):
+    # These policy files use one forbid attribute; exclude docs and declarations.
+    attribute = re.search(r"(?m)^#!\[forbid\([^]]*\)\]", source)
+    if attribute is None:
+        raise ValueError("Missing or incomplete forbid attribute")
+    return attribute.group() + "\n"
+
+
+class LintHeader(unittest.TestCase):
+    def test_extracts_attribute_after_docs_and_preserves_newline(self):
+        attribute = '#![forbid(\n    clippy::disallowed_methods,\n\n    clippy::print_stdout,\n)]'
+        source = '//! Domain values.\n\n' + attribute + '\n\npub struct Value;'
+        self.assertEqual(extract_lint_header(source), attribute + '\n')
+
+    def test_rejects_missing_or_incomplete_attribute(self):
+        for source in ('', '//! Domain values.\n', '#![allow(clippy::print_stdout)]',
+                       '#![forbid(clippy::print_stdout'):
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                extract_lint_header(source)
 
 
 class InnerClippy(unittest.TestCase):
@@ -30,8 +52,7 @@ class InnerClippy(unittest.TestCase):
     def check_cases(self, crate_name, policy_path, cases):
         project = Path(__file__).resolve().parents[1]
         crate = project / "crates" / crate_name
-        # Reuse the actual policy; replace only production dependencies and submodules.
-        lint_header, _, _ = (crate / policy_path).read_text().partition("pub mod ")
+        lint_header = extract_lint_header((crate / policy_path).read_text())
         _, lint_section, lint_settings = (crate / "Cargo.toml").read_text().partition("[lints.clippy]")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

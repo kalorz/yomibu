@@ -198,6 +198,12 @@ limits when invoking a sub-operation. Propagate deadlines/cancellation and bound
 Do not automatically retry uncertain external completion. Keep credentials out of
 application requests, reports and captured execution artifacts.
 
+The learner collection query's contract-only slice uses test-local supplied
+implementations and needs no deadline/cancellation parameters or execution-policy
+machinery. Before its first real I/O adapter is introduced, define the applicable
+bounded-I/O and request-limit contract. Application ownership and propagation of
+those limits remain mandatory under the rules above.
+
 ### Failure handling
 
 By default, continue independent work when useful results can still satisfy the
@@ -367,6 +373,9 @@ APIs inside [domain](crates/yomibu-core/src/domain/mod.rs). The separate
 [application configuration](crates/yomibu-app/clippy.toml) restricts selected direct
 filesystem, network, environment and process APIs while permitting application timing.
 Domain and application enable their restrictions with `forbid`, including printing.
+The core `uuid` dependency requests no generation features. Domain Clippy restrictions
+reject selected UUID APIs that obtain randomness or time even if another dependency
+enables those features.
 Cargo lint defaults leave integration fixtures usable. The
 [lint tests](tools/test_domain_clippy.py) exercise allowed and forbidden examples.
 
@@ -391,7 +400,7 @@ parsing and resolution; keep custom code limited to demonstrated gaps.
 | Core/app independence from SDKs, database libraries and delivery frameworks | Bylaw rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
 | Domain avoids ambient effects | Scoped Clippy restrictions reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
 | Public contracts expose domain/application representations | The library gate catches explicit references to unapproved SDK types, not poor contract design. Review associated types, opaque payload handling and representation ownership. |
-| Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs. No workflows are implemented yet. When adding them, verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
+| Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
 | Adapters satisfy behavioral contracts | No adapters are implemented yet. Define reusable contract cases beside each implemented port's guarantees and run them against its adapters; dependency analysis cannot establish ordering, atomicity or failure semantics. |
 | Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
 
