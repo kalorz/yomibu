@@ -5,21 +5,5 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-[dependencies]
-yomibu-core.workspace = true
-chrono.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-reqwest.workspace = true
-tokio.workspace = true
-tempfile.workspace = true
-sha2.workspace = true
-
-[dev-dependencies]
-wiremock.workspace = true
-tokio = { workspace = true, features = ["macros", "io-util", "sync", "test-util"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-apple-native-keyring-store = { version = "1", features = ["keychain"] }
-keyring-core = "1"
+[lints.rust]
+unreachable_pub = "warn"

@@ -1,0 +1,13 @@
+# Selected external-access guards. Application timing/scheduling remains permitted.
+disallowed-methods = [
+    "std::env::var", "std::env::var_os", "std::env::vars", "std::env::vars_os",
+    "std::fs::read", "std::fs::read_to_string", "std::fs::write",
+    "std::fs::metadata", "std::fs::read_dir",
+    "std::io::stdin", "std::io::stdout", "std::io::stderr",
+]
+disallowed-types = [
+    "std::fs::File", "std::fs::OpenOptions",
+    "std::net::TcpStream", "std::net::TcpListener", "std::net::UdpSocket",
+    "std::process::Command",
+]
+disallowed-macros = ["std::env", "std::option_env", "std::include_str", "std::include_bytes"]

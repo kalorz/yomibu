@@ -15,9 +15,20 @@ targets:
   grammar: []
 
 # Runs share the outline and selected material. Names/places require eligibility;
-# topics and actor metadata grant no vocabulary exemption.
+# topics, moods and actor metadata grant no vocabulary exemption.
+# Optional topic (content focus) and mood (emotional atmosphere) are text strings
+# on stories, scenes, blocks, planned sentences and dialogue turns.
+# Resolve each property independently: omissions inherit the nearest ancestor value;
+# explicit values replace it only for that node and its descendants.
+# If absent throughout the ancestor chain, the property remains unspecified.
+# Generation and topic_adherence retain ancestor topics as narrative context.
 story:
   topic: "Buying train tickets to Kyoto"
+  mood: calm
+
+  # Optional additional guidance; omit to use only the detailed outline.
+  # Outline and eligibility constraints still apply.
+  prompt: "A short dialogue about buying train tickets"
 
   # Scene actors and dialogue speakers reference these identities.
   actors:
@@ -37,7 +48,7 @@ story:
   scenes:
     - id: arrival
       actors: [traveler, friend]
-      setting: "The travelers entering a train station"
+      topic: "The travelers entering a train station"
       blocks:
         # Counts are positive integers or inclusive ranges; content is generated.
         - type: paragraph
@@ -48,7 +59,8 @@ story:
 
     - id: ticket_counter
       actors: [traveler, friend, station_staff]
-      setting: "The travelers speaking with station staff"
+      topic: "The travelers speaking with station staff"
+      mood: tense
       blocks:
         # Sentence plans replace sentence_count.
         - type: planned_paragraph
@@ -57,9 +69,9 @@ story:
             - topic: "They reach the ticket counter"
 
         # Allowed speakers belong to the scene; not all must speak.
+        # Omitted topic/mood inherit from the scene.
         - type: dialogue
           speakers: [traveler, friend, station_staff]
-          topic: "Buying tickets to Kyoto"
           turn_count:
             min: 4
             max: 6
@@ -72,12 +84,14 @@ story:
         - type: planned_dialogue
           speakers: [traveler, friend, station_staff]
           topic: "Finding the correct train"
+          mood: reassuring
           sentences_per_turn:
             min: 1
             max: 2
           turns:
             - speaker: traveler
               topic: "Ask when the train leaves"
+              mood: curious
               sentence_count: 1
 
             - speaker: station_staff
@@ -92,9 +106,9 @@ story:
 
     - id: platform
       actors: [traveler, friend]
-      setting: "The travelers waiting on the platform"
+      topic: "The travelers waiting on the platform"
       blocks:
-        # Sentence is a leaf; topic is optional.
+        # Sentence is a leaf; omitted topic/mood inherit from its scene.
         - type: sentence
           topic: "Finish with the travelers ready to leave"
 
@@ -126,7 +140,7 @@ selection:
     - type: embedding_similarity
       space: yomibu/semantic-v1
       # Space resolves the query embedder/model/dimensions/metric.
-      # Embed outline topics/settings; optional scene_ids limits its scope.
+      # Embed outline topics; optional scene_ids limits its scope.
       query:
         from: story
       direction: desc

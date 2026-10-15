@@ -2,128 +2,97 @@
 
 ## Architecture
 
-Create directories only when needed.
-
-In hexagonal architecture, driving adapters call application services; driven adapters
-implement core ports (interfaces). Domain-driven design (DDD) places business rules
-in entities, value objects and domain services. Crates need not match DDD bounded
-contexts (model boundaries).
-
-Core owns domain rules, types and minimal contracts for replaceable extensions. Reuse or
-purity alone does not justify putting code there.
-
-### Directory ownership
-
-Crates live in `crates/`. Each row names a crate and a directory inside its `src/` folder.
-
-| Crate / directory | Put here |
-| --- | --- |
-| `yomibu-core/domain/<subject>/` | Domain state and rules, grouped by knowledge, generation and independent analysis. Keep source progress separate from derived eligibility. Use aggregates where related data must stay consistent. |
-| `yomibu-core/ports/infrastructure/` | Interfaces for storage, repository queries, data sources and secret storage. |
-| `yomibu-core/ports/capabilities/` | Interfaces for selection, preparation, generation and assessment. |
-| `yomibu-core/ports/resources/` | Interfaces for shared dictionaries or embedders when separate consumers need them. |
-| `yomibu-core/extension/` | Extension declarations and typed settings contracts shared by app and extensions. |
-| `yomibu-app/application/<use_case>/` | Application services and workflow steps. Coordinate ports, execution order, budgets and failures; use core to enforce domain rules. |
-| `yomibu-app/configuration/` | Typed application settings and immutable overrides for each request. |
-| `yomibu-app/reports/` | Data prepared for reporting results. |
-| `yomibu-ext/<extension>/` | Implementations grouped by provider or package. Keep integration clients, external data formats and backend details here, including adapters for secret storage. |
-| `yomibu-cli/composition/` | CLI option and environment variable names, configuration and credentials. Construct extensions and connect dependencies. |
-| `yomibu-cli/commands/`, `yomibu-cli/output/` | Parse requests, call services and format results. The executable owns the runtime and dependency construction (composition root). |
+Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing architecture or implementing
+features. It defines enduring boundaries and accepted practices; existing code
+is not proof of compliance. Follow the task's scope: architecture documentation
+does not authorize deleting or rebuilding code. Preserve all `docs/plan/` files;
+the planned SQL schema remains a requirement. Preserving plans does not approve
+their proposals; use approved requirements and the architecture's stated document statuses.
 
 ### Dependencies and composition
 
-Production dependencies (`A -> B` means A may depend on B):
+Use the [ownership and dependency rules](ARCHITECTURE.md#boundaries) and
+[composition rules](ARCHITECTURE.md#composition-and-request-execution).
+The application owns workflows; domain code computes decisions without invoking
+ports; extensions implement supplied capabilities and infrastructure. Required
+ports exist from their first implementation. Do not defer them until a second
+adapter or weaken them for fewer lines, types or apparent duplication.
 
-```text
-yomibu-app -> yomibu-core
-yomibu-ext -> yomibu-core
-yomibu-cli -> yomibu-app + yomibu-ext (+ yomibu-core when needed)
-```
+## Terminology
 
-- Core ports specify required behavior, execution requirements and failures.
-- Connect new implementations at the composition root. Existing ports must allow
-  this without changing core or adding provider-specific app logic.
-- Port categories are project conventions. Components implement one or more
-  capability roles, including pure calculations. Pipelines order their execution.
-- One instance can serve several phases; a phase can use several configured instances.
-  Keep implementation, instance identity and settings distinct.
-- Infrastructure normally lasts for the app's lifetime. Choose optional capabilities
-  per request. Core enforces its rules. Share clients and resources, while keeping
-  request scope and mutable execution state separate.
-- Extensions group capabilities, infrastructure adapters and resources. External
-  extensions use core contracts. Built-in dependencies, runtime loading and registries
-  are not required.
-- Repository and query ports define core result types, filtering and ranking.
-  Adapters run backend queries. Embedders create vectors; vector-search adapters
-  find matches; ranking capabilities coordinate both.
+Read [GLOSSARY.md](GLOSSARY.md) before naming domain concepts. Use this shared domain
+language in code, tests, documentation and explanations to the user. Use collection,
+subject and entry with their distinct meanings; do not introduce catalogue as a synonym.
+Older wording in preserved plans is not permission to invent alternative names.
 
-### Supporting directories
+Before adopting a new domain term or changing an existing meaning, explain it to the
+user and obtain agreement. Record the agreed definition in the glossary before using
+it in code, including API and configuration names. This also governs concepts used in
+documentation and user explanations, not every local variable or ordinary technical word.
+Earlier agreement counts; do not request it again or require a separate glossary commit.
+Document legitimate differences between model contexts; resolve conflicts explicitly.
 
-Root `tests/fixtures/` and `tests/support/` hold shared test data and helpers.
-`config/` holds examples; Cargo files define the build.
+## Before editing
 
-## Engineering rules
+- Briefly identify the requested behavior, affected boundaries/contracts and simplest
+  implementation approach. Implement in small, complete increments through the
+  required boundaries. Distinguish requirements from examples and unfinished proposals.
+  Routine work needs no new design document. If implementation outgrows the stated
+  approach, explain the cause and reassess it before adding more machinery.
+- Identify verification that would reject the likely boundary violation or incorrect
+  behavior. Distinguish existing checks from proposed checks.
+- Keep visibility as narrow as required. Public APIs must serve a current consumer
+  or an approved contract. Do not expose modules or items merely to silence
+  visibility or unused-code warnings.
+- When adding substantial general-purpose functionality or custom tooling, follow
+  the [reuse guidance](ARCHITECTURE.md#simplicity). Start with adopted dependencies;
+  evaluate alternatives when a concrete gap arises, not on every task or session.
+- Resolve ordinary implementation choices within the rules. For changes to agreed
+  boundaries or contracts, follow [architecture change rules](ARCHITECTURE.md#changing-architecture).
+  Never silently alter rules or checks to accommodate a violating implementation.
 
-- For structural refactors, move and reconnect existing code first. Add logic or
-  public APIs only to preserve required behavior or enforce an agreed architecture
-  boundary.
-- Before adding an abstraction, identify its current caller, required behavior or
-  invariant, and why existing code cannot serve it. Future flexibility alone is
-  insufficient.
-- Before delivery, review nonmechanical additions for removal: wrappers, generic
-  handling, configuration options, cloning and repeated validation. Remove additions
-  whose purpose disappears when callers are simplified.
-- Preserve compatibility only when requested. Add no aliases, migrations or fallback
-  behavior solely for old versions.
-- Handle recoverable failures without panicking.
-- Protect credentials. App services enforce limits for the whole operation;
-  adapters enforce limits on individual I/O operations.
+## Plans and design discussions
+
+Discuss new or changed architectural boundaries and public contracts before
+implementation. Routine implementation within approved contracts needs no additional
+design approval. Previously granted approval counts.
+
+For these discussions, show signatures, inputs, outputs, important failures, owning
+layers and a minimal usage example with dependency construction. Prefer pseudocode
+to prose; Ruby-style sketches are welcome. Do not invent abstractions to fill a plan.
+
+Finish with affected files, exclusions and observable acceptance checks. Keep prose
+to brief tradeoffs and open decisions. Plan only the current step; existing plans
+do not authorize their full implementation.
+
+## Delivery
+
+- Before delivery, simplify the complete diff using
+  [implementation economy](ARCHITECTURE.md#simplicity), including tests and documentation.
+  Remove avoidable machinery; merely reporting it does not complete the task.
+  For substantial remaining complexity, explain the current need and why a concrete
+  simpler alternative is insufficient. Simplicity review findings must identify an
+  alternative that preserves required behavior and boundaries; fewer lines or a single
+  adapter do not justify removing a required port. Preserve compatibility only when requested.
+- For new workflows or changed boundaries, trace the actual path from entry point
+  through application, ports and adapters. Cite relevant code and an application test
+  using supplied port implementations. New boundary violations block completion;
+  passing tests or moving files into the intended directories is insufficient.
+- Test changed responsibilities at their [owning layer](ARCHITECTURE.md#verification),
+  rather than repeating dependency edge cases through callers. Keep tests reproducible,
+  isolated and free of real credentials; leave the shared process environment unchanged.
+  Never silently substitute another backend. Rerun affected checks after final edits.
+- Use [CI](.github/workflows/ci.yml) for existing completion commands. Run focused
+  checks during development and workspace checks when shared contracts change.
+  For documentation-only work, check links, consistency and whitespace.
+- Report actual results, unverified guarantees and boundary changes. For substantial
+  changes, report additions and deletions separately and list new files. Passing CI
+  is not proof of purity. Follow the [verification requirements](ARCHITECTURE.md#verification)
+  for architecture checks; report missing prerequisites.
 
 ## Documentation
 
-Use plain English following [ISO 24495-1:2023](https://www.iso.org/standard/78907.html):
-write what intended readers need and make it easy to find, understand and use.
-Keep necessary technical terms and explain unfamiliar ones.
-
-Document intent, guarantees and decisions that code does not explain.
-Keep implementation facts in code, tests and build files.
-
-Define CLI descriptions, option help and examples in code so Clap exposes them through
-`help` and `--help`. Keep README usage to a quickstart.
-
-| Document | Purpose |
-| --- | --- |
-| `README.md` | Purpose, setup, quickstart, development commands. |
-| `AGENTS.md` | Architecture and engineering rules. |
-| `GLOSSARY.md` | Domain terms. |
-
-Change docs only when readers need new or clearer information. Add AGENTS rules
-for project decisions or repeated problems an instruction can prevent. Link rather
-than duplicate. Aim for fewer than 400 words per guide and 200 added words per
-routine change across Markdown, comments and Rustdoc. Exceed only for requested
-detail or essential contracts; preserve limits, errors and safety conditions.
-
-## Testing and verification
-
-- Test changed behavior. Regression tests must expose the original bug. Reuse tests;
-  avoid checks tied to internal code structure. Changes that preserve behavior need
-  no artificial tests.
-- Test core rules, app workflows through ports, and extension and backend contracts.
-  Check public ports with implementations outside production crates, including
-  implementations that return invalid output.
-- Test driving adapters through their public interfaces: parsing, output, errors
-  and dependency connections. Avoid repeating domain tests at each interface.
-- Keep tests reproducible, isolated and safe to run together. Use test credentials
-  and leave the shared process environment unchanged. Select test doubles explicitly.
-  Test backend guarantees on actual backends; report missing prerequisites.
-  Do not silently substitute backends.
-- Rerun affected tests after simplification.
-
-Use [CI](.github/workflows/ci.yml) for required completion checks. Run focused checks
-during development and workspace checks when shared ports change.
-For documentation-only changes, check the documentation.
-
-Report the checks you ran and any gaps. Explain new public contracts or unexpectedly
-large changes when the reviewer needs that context.
-For structural refactors, identify changes beyond file moves and explain why they
-are needed.
+Keep rules and examples in `ARCHITECTURE.md`, domain definitions in `GLOSSARY.md`,
+and behavior guarantees beside interfaces. Link instead of duplicating. Maintain
+CLI help in code and README as a quickstart. Write plain English; add detail to
+resolve concrete ambiguity, not to inventory code or repeat generic tutorials.

@@ -5,10 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-[dependencies]
-chrono.workspace = true
-serde.workspace = true
-thiserror.workspace = true
+[lints.rust]
+unreachable_pub = "warn"
 
-[dev-dependencies]
-serde_json.workspace = true
+[lints.clippy]
+disallowed_methods = "allow"
+disallowed_types = "allow"
+disallowed_macros = "allow"

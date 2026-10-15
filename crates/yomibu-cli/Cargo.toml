@@ -12,23 +12,5 @@ path = "src/main.rs"
 # Public Rustdoc belongs to the library crates.
 doc = false
 
-[dependencies]
-yomibu-core.workspace = true
-yomibu-ext.workspace = true
-serde.workspace = true
-thiserror.workspace = true
-toml.workspace = true
-yomibu-app.workspace = true
-anyhow.workspace = true
-chrono.workspace = true
-clap.workspace = true
-tokio.workspace = true
-
-[target.'cfg(target_os = "macos")'.dependencies]
-rpassword = "7.5"
-
-[dev-dependencies]
-serde_json.workspace = true
-tempfile.workspace = true
-wiremock.workspace = true
-tokio = { workspace = true, features = ["macros", "io-util", "sync", "test-util"] }
+[lints.rust]
+unreachable_pub = "warn"

@@ -1,4 +1,7 @@
-//! Application configuration, explicit workflows and report projections.
-pub mod application;
-pub mod configuration;
-pub mod reports;
+#![forbid(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    clippy::disallowed_macros,
+    clippy::print_stdout,
+    clippy::print_stderr
+)]

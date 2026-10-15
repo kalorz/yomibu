@@ -5,15 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-[dependencies]
-yomibu-core.workspace = true
-chrono.workspace = true
-serde.workspace = true
-thiserror.workspace = true
+[lints.rust]
+unreachable_pub = "warn"
 
-[dev-dependencies]
-yomibu-ext.workspace = true
-serde_json.workspace = true
-tempfile.workspace = true
-wiremock.workspace = true
-tokio = { workspace = true, features = ["macros", "io-util", "sync", "test-util"] }
+[lints.clippy]
+disallowed_methods = "allow"
+disallowed_types = "allow"
+disallowed_macros = "allow"
