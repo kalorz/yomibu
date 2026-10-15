@@ -16,6 +16,10 @@ use yomibu_core::{
 };
 
 /// One WaniKani account per cache file, persisted using cache schema 1.
+///
+/// Filesystem I/O runs synchronously on the caller's thread. Writer reservation
+/// may create the data directory and lock file. Successful replacement completes
+/// file and directory synchronization.
 #[derive(Debug, Clone)]
 pub struct FileLearningStore {
     path: PathBuf,
