@@ -76,6 +76,10 @@ Optional [task templates](docs/task-templates.md) help write implementation and 
   simpler alternative is insufficient. Simplicity review findings must identify an
   alternative that preserves required behavior and boundaries; fewer lines or a single
   adapter do not justify removing a required port. Preserve compatibility only when requested.
+- Give reviewers the approved scope and exclusions. Required findings must identify
+  a concrete defect or violated contract or rule; distinguish optional improvements.
+  Review feedback does not itself authorize additional behavior or changes to public
+  contracts.
 - For new workflows or changed boundaries, trace the actual path from entry point
   through application, ports and adapters. Cite relevant code and an application test
   using supplied port implementations. New boundary violations block completion;

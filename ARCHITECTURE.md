@@ -192,6 +192,11 @@ state separate. Provider-independent execution enforcement belongs in app; provi
 protocol handling belongs in ext.
 
 Application owns operation-wide budgets, deadlines, cancellation and failure handling.
+A slice with only contracts, application forwarding and test-supplied implementations
+need not introduce deadline/cancellation parameters or execution-policy machinery.
+Before adding an I/O adapter, define and enforce the applicable bounded-I/O and
+request-limit contract. Required ports and domain purity apply from the start.
+
 Nested operations, capability calls and retries share the parent's execution limits;
 enforce them before dispatch. Do not hide calls behind private SDK clients or reset
 limits when invoking a sub-operation. Propagate deadlines/cancellation and bound I/O.
@@ -303,9 +308,12 @@ Repository groupings remain design decisions.
 
 Document required scope, inputs, outputs, ordering, limits, supported operations,
 failures, atomicity and relevant concurrency/deadline/budget behavior beside interfaces.
-Validate outputs against applicable invariants; implementing a trait does not prove
-its results valid. Distinguish malformed responses from valid results reporting failed
-assessment. Unavailable evidence or uncertain completion must not become empty success.
+Specify which layer validates each output invariant and how violations are reported;
+enforce it there. Crossing a port does not automatically require callers to repeat
+validation. Additional application checks must serve an explicitly agreed responsibility.
+Implementing a trait does not prove its results valid. Distinguish malformed responses
+from valid results reporting failed assessment. Unavailable evidence or uncertain
+completion must not become empty success.
 Adapters translate external failures into contract failures; no silent provider fallback.
 
 Replacing a provider under an existing contract must not require provider-specific
