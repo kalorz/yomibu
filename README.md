@@ -33,7 +33,8 @@ See [configuration examples](config/).
 
 `crates/yomibu-app` is the application library; `crates/yomibu-cli` builds `yomibu`.
 Shared contracts live in `yomibu-core`; implementations live in `yomibu-ext`.
-The [architecture guide](AGENTS.md#architecture) describes the layout.
+The [architecture guide](ARCHITECTURE.md) defines the restart's target boundaries;
+[AGENTS.md](AGENTS.md) gives the working instructions for agents.
 The [glossary](GLOSSARY.md) explains domain terms.
 The [planned story request](docs/plan/story-generation-request.yml) is an annotated
 design draft, not configuration accepted by the current application.
