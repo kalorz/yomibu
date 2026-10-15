@@ -22,6 +22,7 @@ Use the other practices to support those boundaries, with the following purposes
 | OOP | Use encapsulation and polymorphism through Rust structs, enums and traits where useful; ordinary functions remain appropriate. |
 | Design by Contract | Define port preconditions, guarantees, invariants and failure semantics, including ordering, limits, atomicity and uncertain outcomes where applicable. Contract tests verify interchangeable behavior. |
 | Model valid states with types | Use distinct IDs, request versus resolved-query types and explicit assessment outcomes to prevent meaningful mistakes. External facts still need runtime checks; add types for real distinctions or invariants. |
+| CQRS (Command Query Responsibility Segregation) | Separate read and change models and contracts where consumers, result shapes or guarantees differ. Apply selectively; see [CQRS](#cqrs). |
 
 ## Boundaries
 
@@ -119,6 +120,24 @@ repository receives filters, ordered ranking rules, vectors/profiles, scope, tar
 and limits; it executes filtering, joins, ranking, and limits efficiently. It does
 not call an embedder. Preserve mandatory eligibility, missing-vector behavior, and
 deterministic ties. Selected material remains distinct from full eligibility.
+
+## CQRS
+
+Read contracts return results tailored to their consumers without changing business
+state. Change contracts preserve domain invariants and transactional guarantees.
+For example, selection uses learning-data queries; import and progress workflows
+use change operations. Commands may read state and return results; do not split an
+atomic operation merely to separate reads from writes.
+
+One PostgreSQL adapter can implement both interfaces using the same connection
+pool, canonical schema and foreign keys. CQRS does not require independently
+configurable repositories, separate databases, event sourcing, a message bus or
+asynchronous synchronization.
+
+A selector that invokes an embedder remains an effectful capability even though
+its repository call is a query. Database reads perform I/O and belong outside pure
+domain code. Introduce separate models and contracts for concrete needs, not
+as a mandatory layer around every use case.
 
 ## Enforcement to design
 
