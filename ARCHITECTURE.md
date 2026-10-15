@@ -159,12 +159,12 @@ limits, compressed formatting, displaced complexity or weakened boundaries.
 A rule may have equivalent pure and SQL representations. Verify their shared meaning
 through contract tests rather than forcing inefficient data loading to reuse code.
 
-Prefer reuse over rebuilding general-purpose functionality. Start with the standard
-library and dependencies already adopted by the project. Before adding substantial
-generic functionality or custom tooling, evaluate established libraries/tools against
-the required behavior, maintenance, testing, licensing, relevant security advisories
-and integration/dependency cost. Choose for semantic fit and total maintenance burden,
-not dependency count alone; popularity alone does not establish suitability or security.
+Evaluate established libraries for standard representations as well as general-purpose
+functionality. Prefer the standard library and adopted dependencies when they fit the
+required meaning; propose another library when it offers a clearer representation or
+lower total maintenance burden. Evaluate new libraries/tools against required behavior,
+maintenance, testing, licensing, relevant security advisories and integration/dependency
+cost. Dependency count or popularity alone does not establish suitability or security.
 Briefly explain consequential choices in the change description, including any gap
 requiring custom code. Ordinary tasks reuse those decisions; do not repeat tool
 research each session.
