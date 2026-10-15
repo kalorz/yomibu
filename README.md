@@ -33,13 +33,13 @@ See [configuration examples](config/).
 
 `crates/yomibu-app` is the application library; `crates/yomibu-cli` builds `yomibu`.
 Shared contracts live in `yomibu-core`; implementations live in `yomibu-ext`.
-The [architecture guide](ARCHITECTURE.md) defines the restart's target boundaries;
+The [architecture guide](ARCHITECTURE.md) defines enduring boundaries and practices;
 [AGENTS.md](AGENTS.md) gives the working instructions for agents.
 The [glossary](GLOSSARY.md) explains domain terms.
-The [planned story request](docs/plan/story-generation-request.yml) is an annotated
-design draft, not configuration accepted by the current application.
-Plans also cover [durable execution](docs/plan/durable-execution.md) and
-[replay](docs/plan/replay.md).
+The [request example](docs/plan/story-generation-request.yml) explores a possible
+structure; it neither specifies CLI input formats nor finalizes product behavior.
+[Durable execution](docs/plan/durable-execution.md) and [replay](docs/plan/replay.md)
+are exploratory proposals.
 
 Run tests with `cargo test --locked --all`. They use local servers and invented
 data, so no account or model key is needed. [CI](.github/workflows/ci.yml) defines

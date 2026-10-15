@@ -1,9 +1,11 @@
 # Glossary
 
-Use these terms consistently in code, documentation and conversation. Definitions
-follow the [SQL plan](docs/plan/schema.postgresql.sql) and
-[story request](docs/plan/story-generation-request.yml); existing implementation
-names may still reflect older behavior.
+This records Yomibu's Ubiquitous Language: use these terms consistently in code,
+tests, documentation and conversation within the same model context. Document any
+legitimate differences between contexts explicitly. The retained
+[SQL schema](docs/plan/schema.postgresql.sql) grounds the data terms; the
+[request example](docs/plan/story-generation-request.yml) illustrates proposed use,
+not final product behavior or CLI formats. Existing code may use older names.
 
 | Term | Meaning |
 | --- | --- |
@@ -16,7 +18,7 @@ names may still reflect older behavior.
 | Inventory | All vocabulary and grammar allowed for a generation attempt, whether represented in memory or through a coherent queryable view. |
 | Grammar declaration | Grammar a learner says they know. This declaration alone does not enable an automated check. |
 | Grammar binding | An explicit link between a grammar entry and a supported checking rule. |
-| Target | A vocabulary or grammar entry explicitly requested for practice. It must be eligible, satisfy applicable filters and fit within the selection limits. |
+| Target | A vocabulary or grammar entry explicitly requested for practice. |
 | Selection | The subset of eligible vocabulary and grammar chosen as material for generation. Unselected material remains eligible. |
 | Plan | The prepared inputs and options bound together for generation. |
 | Model request | The exact model-input bytes and options, excluding credentials and authentication headers. A hash identifies the request bytes. |

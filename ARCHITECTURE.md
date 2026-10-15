@@ -1,34 +1,46 @@
 # Architecture
 
-This is the target architecture for Yomibu's restart and subsequent implementation.
-It governs new design; it does not claim current source code complies or authorize
-implementation during a planning task. Architecture checks below remain proposed.
+This document defines Yomibu's enduring architectural rules. Existing code is not
+proof of compliance. Examples illustrate the rules; they are not exhaustive designs
+or commitments to exact APIs. Architecture checks below remain proposed.
 
-Preserve all [plans](docs/plan). The [SQL schema](docs/plan/schema.postgresql.sql)
-defines the retained data model; the [story request](docs/plan/story-generation-request.yml)
-defines intended request behavior, including its explicitly provisional fields.
-Old plans' references to existing runners are not requirements to preserve that
-implementation. Use [GLOSSARY.md](GLOSSARY.md) for domain names. Resolve conflicts
-explicitly; do not invent answers to open product questions.
+The [SQL schema](docs/plan/schema.postgresql.sql) is a retained requirement.
+Other [design references](#design-references) contain proposals: preserving a plan
+does not approve all its contents. Product behavior comes from approved requirements
+and interface contracts. Architectural decisions can [evolve explicitly](#changing-architecture).
 
 ## Design practices
 
 Hexagonal architecture and functional core/imperative shell govern the design.
-Apply the supporting practices to these concrete responsibilities:
+Supporting practices apply as described here; examples do not add mandatory features.
 
-| Practice | Application in Yomibu |
+| Practice | What we adopt | Yomibu example |
+| --- | --- | --- |
+| Hexagonal architecture | Explicit ports and adapters with dependencies toward inner contracts. | Application calls a generator port; the provider SDK stays in its adapter. |
+| Functional core, imperative shell | Deterministic domain decisions from explicit inputs; effects outside domain. | Core calculates eligibility from supplied learner observations. |
+| Strategic DDD | Shared language within model boundaries and explicit translation between models. See [selected concepts](#selected-ddd-concepts). | Collection, subject and entry keep their meanings across operations using the same model. |
+| Tactical DDD | Model identity, values and consistency rules where needed. See [selected concepts](#selected-ddd-concepts). | Distinct subject and entry IDs prevent accidental substitution. |
+| SOLID | Cohesive responsibilities, consumer-sized interfaces, behavioral substitutability and dependency inversion. | A selector receives only the query and embedding interfaces it needs. |
+| Clean Architecture | Domain rules and use cases stay independent of delivery and external technologies; no extra layers are implied. | CLI, web and MCP invoke the same application operations. |
+| Clean Code | Clear names and control flow; extra wrappers need a concrete purpose. | A readable assessment operation need not become a generic pipeline. |
+| OOP | Encapsulation and polymorphism through Rust types and traits where useful. | A validated value can encapsulate constraints; eligibility can remain a pure function. |
+| Design by Contract | Explicit preconditions, guarantees and failures, verified at relevant boundaries. | Every storage adapter honors its query's scope, ordering and atomicity guarantees. |
+| Model valid states with types | Types distinguish meaningful states; external facts still need runtime checks. | An unresolved selection request differs from a resolved storage query. |
+| CQRS (Command Query Responsibility Segregation) | Separate read/change contracts where consumers or guarantees differ. See [storage](#storage-and-cqrs). | Narrow query and import interfaces can share one PostgreSQL adapter. |
+
+### Selected DDD concepts
+
+These guide modeling decisions, not a checklist of constructs to create everywhere.
+
+| Area / concept | Rule and illustrative application |
 | --- | --- |
-| Hexagonal architecture | The application calls selector/generator ports; PostgreSQL and provider implementations remain outside it. |
-| Functional core, imperative shell | Core calculates eligibility, target constraints and assessment aggregation. Application/capability implementations obtain observations and execute effects. |
-| Strategic DDD | Keep collection, subject and entry meanings consistent across import and generation. Identify model ownership without equating bounded contexts with crates or repositories. |
-| Tactical DDD | Express actual consistency rules, such as publishing an entry and its matching detail together. Foreign-key connections alone do not define aggregates. |
-| SOLID | Give the selector only needed query/embedding interfaces. Replacement adapters preserve behavior, not just signatures. One extension may implement several cohesive ports. |
-| Clean Architecture | CLI, web and MCP call the same application use case with transport-independent input; SDK types stay in adapters. |
-| Clean Code | Use glossary names and readable workflow steps; tiny forwarding functions or generic factories need a concrete purpose. |
-| OOP | Use structs to encapsulate valid state and traits for replaceable behavior. Pure eligibility calculations can be ordinary functions. |
-| Design by Contract | Specify scope, ordering, limits, failure and atomicity guarantees; verify them through application and real-backend contract tests. |
-| Model valid states with types | Distinguish subject IDs from entry IDs and unresolved selection requests from resolved queries. Keep failed, inconclusive and errored assessments distinct. External facts still require runtime checks. |
-| CQRS (Command Query Responsibility Segregation) | Separate read/change contracts and models where consumers or guarantees differ; they may share one adapter and schema. See [storage](#storage-and-cqrs). |
+| Strategic: Ubiquitous Language | Use [GLOSSARY.md](GLOSSARY.md) in discussion, code and tests. Collection, subject and entry retain their distinct meanings within the same model. |
+| Strategic: Bounded Contexts | Identify where a model and its language apply. Crates, phases and tables do not automatically define contexts. Document a meaning that legitimately differs by context. |
+| Strategic: relationships between models | Define translations at model boundaries; external provider structures must not dictate the domain model. Translate WaniKani observations while preserving their source meaning. |
+| Tactical: Entities and Value Objects | Use identity for entities and meaningful equality/validation for values. Subjects have identity; subject IDs and entry IDs are different value types. |
+| Tactical: Aggregates | Choose consistency boundaries from business invariants. Atomic entry/detail publication informs the decision; a foreign-key graph alone does not define an aggregate. |
+| Tactical: Domain Services | Use pure domain functions for rules with no natural entity owner, such as eligibility calculations across supplied observations. |
+| Tactical: Repositories | Use aggregate persistence contracts where needed. Read/query ports may return projections without reconstructing aggregates. |
 
 ## Boundaries
 
@@ -40,184 +52,235 @@ yomibu-ext -> yomibu-core
 yomibu-cli -> yomibu-app + yomibu-ext (+ yomibu-core)
 ```
 
-Future `yomibu-web` and `yomibu-mcp` have the CLI's position. Retain these crate
-boundaries; create directories only for actual responsibilities. Domain folders
-organize domain rules; a workflow phase does not automatically require a domain
-module. Purity alone does not place a helper in domain; it must express domain meaning.
-Pure library dependencies are allowed. Integration-test dependencies are
-reviewed separately; they must not leak into production dependencies or public APIs.
+Future `yomibu-web` and `yomibu-mcp` have the CLI's position. Retain these boundaries;
+create directories for actual responsibilities. A workflow phase does not automatically
+require a domain module. Purity alone does not place a helper in domain; it must express
+domain meaning. Pure library dependencies are allowed. Review integration-test
+dependencies separately; they must not leak into production dependencies or public APIs.
 
 Paths below are relative to `crates/`:
 
 | Location | Ownership |
 | --- | --- |
-| `yomibu-core/src/domain/` | Domain values and pure decisions: eligibility, structure validation, target constraints, score aggregation and deterministic ties. |
-| `yomibu-core/src/ports/infrastructure/` | Outbound service contracts: learning-data queries/writes, secrets and cache. Storage queries remain infrastructure even when called `select`. |
-| `yomibu-core/src/ports/capabilities/` | Outbound operation contracts: selection, importing, embedding, preparation, generation, assessment and repair, including pure replaceable implementations. |
-| `yomibu-app/src/application/` | Inbound APIs, normalization through core rules, whole-workflow execution, request budgets and failure handling. |
+| `yomibu-core/src/domain/` | Domain values and pure decisions, such as eligibility and assessment aggregation. |
+| `yomibu-core/src/ports/infrastructure/` | Outbound service contracts: storage queries/writes, secrets and cache. Storage queries remain infrastructure even when called `select`. |
+| `yomibu-core/src/ports/capabilities/` | Outbound contracts for replaceable operations, such as selection, importing, embedding and assessment, including pure implementations. |
+| `yomibu-app/src/application/` | Inbound APIs, shared normalization through core rules, operation composition, execution limits and failure handling. |
 | `yomibu-ext/src/` | Implementations grouped by provider or component; SDK clients, SQL, file formats, provider options and error translation. |
-| Driving crates | Parse transport input, invoke application services and present results. Their composition roots configure and connect implementations. |
+| Driving crates | Translate supported inputs into application requests, invoke operations and present results. Composition roots configure and connect implementations. |
 
-Direction describes calls relative to the application/domain boundary:
+### Port roles and labels
+
+Direction is relative to the application/domain boundary: inbound/driving ports
+are called by driving adapters; outbound/driven ports are called by application or
+capability implementations. Returning results does not reverse those roles.
+Infrastructure/capability is a second classification, only for outbound ports.
+It describes responsibility, not lifetime: a shared embedder remains a capability;
+a storage transaction may be per-request.
+
+Label contract declarations in Rustdoc, alongside their behavior guarantees:
 
 ```text
-CLI -> application.generate_story(request) : inbound / driving
-application -> selector.select(request)   : outbound / driven
+Inbound application method or trait: Port: inbound / driving.
+Outbound capability trait:          Port: outbound / driven. Role: capability.
+Outbound infrastructure trait:      Port: outbound / driven. Role: infrastructure.
 ```
 
-These are not Cargo dependency arrows. Results returning do not reverse port roles.
-Inbound APIs may be public application methods; no trait that merely repeats those
-methods is required. Infrastructure/capabilities classify outbound responsibilities,
-not lifetimes: a shared embedder remains a capability; a transaction may be per-request.
-There is no required `ports/resources` category. Keep shared SDK clients inside
-extensions; expose shared embedding behavior through its capability port.
+Use these labels with module placement. Label contracts rather than whole implementation
+types: one type may implement several ports. Inbound APIs may be public application
+methods; a trait is justified when substitution or another concrete need requires it.
+Do not add empty marker traits just for classification. Add macro/attribute metadata
+only if checks need information existing declarations cannot reliably provide;
+labels alone do not enforce architecture.
 
-## Mandatory rules for the restart
+Outbound ports use infrastructure and capabilities; there is no `ports/resources`
+category. Shared SDK clients are adapter details. Shared embedding behavior is a
+capability; stored dictionary access fits infrastructure. Even future model/GPU
+resource management would normally be infrastructure. Sharing alone does not justify
+a new category; propose a distinct responsibility through an architecture decision.
+
+## Architectural rules
 
 | Area | Obligation |
 | --- | --- |
 | Dependencies | Follow the graph. Core/app public contracts expose no SDK clients/responses, database connections/rows or transport-framework types. |
 | Functional core | Domain decisions are deterministic for the same explicit inputs. Domain must not depend on ports/adapters, perform I/O or obtain ambient time, randomness or environment values. Supply observations and seeds explicitly. |
-| Ports | Introduce required infrastructure/capability interfaces with their first implementation, including pure capabilities. Ordinary helpers and configuration values do not each require a port. |
-| Application | Execute workflows through supplied ports and apply core decisions. Keep external data/service access behind ports; runtime scheduling primitives may live in the shell. |
-| Adapters | Translate external representations and honor contracts. Backend optimizations must preserve query semantics. Expected failures are results, not panics. |
+| Ports | Required infrastructure services and replaceable capabilities have interfaces from their first implementation, even with one adapter or a pure implementation. Interfaces describe behavioral boundaries; settings are ordinarily typed data. |
+| Application | Execute operations through supplied ports and apply core decisions. External data/service access stays behind ports; runtime scheduling may live in the shell. |
+| Adapters | Translate external representations and honor contracts. Optimizations preserve semantics; expected failures are results, not panics. |
 | Simplicity | Every extra abstraction serves a required boundary, behavior or invariant. A single implementation does not weaken that justification. |
-| Terminology | Follow the glossary in code, documentation and conversation. Explain and define new concepts; do not rename established ones silently. |
+| Terminology | Use glossary terms within their model context; define new concepts and resolve conflicting meanings explicitly. |
 
-A domain object invoking `generator.generate(...)` violates purity even through a
-core trait. Calling a pure selector port from domain code also violates the module
-boundary: invoke the capability outside domain, then pass its returned data to pure
-functions. Indirect calls and effectful callbacks cannot bypass the rule; local mutation is allowed.
-Opaque captured provider payloads may be retained for replay as data; domain decisions
-must not interpret SDK representations. Core defines policy even when schema comments
-say the "application" enforces it: application services coordinate enforcement.
+A domain object invoking a generator or even a pure selector port violates the
+boundary: invoke capabilities outside domain, then pass returned data to pure
+functions. Indirect calls and effectful callbacks cannot bypass this rule; local
+mutation is allowed. Opaque captured provider payloads can be data, but domain
+decisions must not interpret SDK representations. Core owns policy; application
+coordinates enforcement, including where schema comments say "application".
+
+A private topic-extraction helper needs no trait. Different model settings do not
+require different generation ports; retrieving secrets is service behavior requiring
+a port. Concrete provider settings belong with their extension's configuration.
 
 ### Simplicity
 
 | Principle | Interpretation |
 | --- | --- |
 | KISS | Choose the clearest design satisfying required boundaries and behavior. |
-| DRY | Keep business rules and authoritative definitions consistent. Similar adapter mapping code with different responsibilities need not share a framework. |
-| YAGNI | Defer speculative features and machinery. Required ports, invariants and their verification are present needs. |
+| DRY | Do not repeat knowledge: maintain one authoritative definition of each rule or decision. Similar code need not represent the same knowledge. |
+| YAGNI | Defer unrequested behavior and machinery, never agreed architectural obligations. |
 
-Mandatory architecture and behavior outrank fewer lines/types or removing apparent
-duplication. A private function extracting story topics needs no trait; a configured
-preparation capability does, even if its implementation calls pure helper functions.
-Do not create a generic registry, dispatcher or plugin loader without a current need.
+Required ports, dependency boundaries, domain purity and contract verification are
+current requirements. Never defer them for one adapter or fewer lines/types. Build
+requested behavior within those boundaries; a hypothetical provider or generic plugin
+loader is not automatically needed. Propose a rule change instead of bypassing a
+boundary in the name of simplicity.
+
+A rule may have equivalent pure and SQL representations. Verify their shared meaning
+through contract tests rather than forcing inefficient data loading to reuse code.
 
 ## Composition and request execution
 
-The composition root selects available implementations and resolves environment or
-secret-store configuration. It may construct OpenAI and Anthropic clients together.
-The application selects supplied capability identities per request, including both
-for parallel generation. Looking up a configured identity is allowed; constructing
-an OpenAI SDK client or branching on provider-specific response fields in app is not.
-Startup construction is an example; scoped or deferred construction may be delegated
-through supplied interfaces without introducing provider dependencies into app.
+Composition roots select available implementations and resolve configuration/secrets.
+For example, they can construct OpenAI and Anthropic clients together; application
+selects supplied capability identities per request, including both for parallel work.
+Identity lookup is allowed; constructing SDK clients or branching on provider response
+fields in app is not. Construction can be startup, scoped or deferred through supplied
+interfaces without introducing provider dependencies into app.
 
-Capabilities may use other injected outbound ports. A selector receives an embedder
-and repository; it does not construct either. One extension/type may implement several
-ports and share a client or pool. Keep request state separate from shared clients.
-Provider-independent enforcement around supplied capabilities belongs in app;
-provider protocol handling belongs in ext.
+Capabilities may compose injected outbound ports without constructing their providers.
+One extension/type can implement several ports and share clients or pools. Keep request
+state separate. Provider-independent execution enforcement belongs in app; provider
+protocol handling belongs in ext.
 
-The application owns request-wide budgets, deadlines, cancellation and recovery.
-Nested calls must pass through that enforcement before dispatch, including retries
-and parallel calls; counting them only afterward is insufficient. A selector must
-not bypass it with a private SDK client. Propagate cancellation/deadlines, bound
-adapter operations, and never automatically retry an uncertain external outcome.
-Keep credentials out of requests, reports and replay artifacts. Follow the separate
-[durability](docs/plan/durable-execution.md) and [replay](docs/plan/replay.md) contracts
-when implementing those features.
+Application owns operation-wide budgets, deadlines, cancellation and failure handling.
+Nested operations, capability calls and retries share the parent's execution limits;
+enforce them before dispatch. Do not hide calls behind private SDK clients or reset
+limits when invoking a sub-operation. Propagate deadlines/cancellation and bound I/O.
+Do not automatically retry uncertain external completion. Keep credentials out of
+application requests, reports and captured execution artifacts.
 
-## Selection and generation
+### Application operations and input
 
-For the [planned request](docs/plan/story-generation-request.yml):
+Expose an inbound operation when callers need to request it independently. Each has
+explicit inputs, preconditions and results; phases and helpers do not automatically
+become services. Here, a service is an in-process application responsibility, not an
+additional deployed process.
 
-1. CLI reads YAML and translates it into typed application input. Application/core
-   handle shared defaults and semantic validation so web and MCP behave consistently.
-2. Application establishes authorized learner/source scope and execution limits,
-   then calls the selector. Generation reads imported data; it does not implicitly import.
-3. Selector resolves requested evidence, calls the supplied embedder for story topics
-   when needed, and constructs resolved query data. Match the configured embedding
-   profile/input format/dimensions/metric; equal dimensions alone do not imply compatibility.
-4. Repository receives values, not SDK clients or effectful callbacks. It executes
-   filters, joins, ranking and limits, returning ordered material and required evidence.
-   It never calls an embedder or silently generates missing entry vectors.
-5. Selector returns to application. Application validates applicable result invariants
-   with core functions, then passes the shared selection and outline to each configured
-   preparer. Preparation returns generation input; application invokes the corresponding
-   generator, pools candidates, and coordinates assessment and optional repair.
+Illustrative entry points include assessing an existing story, deconstructing a
+sentence, synchronizing data and generating a story. A standalone assessment entry
+point and generation workflow reuse the same assessment operation. They obtain needed
+context explicitly instead of assuming hidden earlier phases.
 
-Core owns eligibility policy. Storage may execute equivalent predicates efficiently;
-contract tests must verify equivalence. Do not require loading all collections into
-memory merely to evaluate filters in core. Preserve learner scope, hidden exclusions,
-applicable AND filters, declared ordering precedence, target reservations, limits and
-stable ID ties. Missing vectors sort as requested; unsupported operations fail explicitly
-instead of dropping conditions. The selector must not treat selected material as the
-full inventory. Preserve a coherent eligibility view for preparation and assessment;
-the mechanism is still an open design choice.
+For an explicitly requested `story --sync` option, the CLI conveys that intent to the
+application, which composes the same synchronization operation exposed by `sync`
+before generation. It does not invoke another CLI command or duplicate synchronization
+logic. This is an explicit prerequisite, not an implicit import inside selection.
+Standalone and composed calls preserve the operation's guarantees; nested calls use
+the parent's execution limits. No generic workflow engine is required.
 
-Capability outputs are not assumed valid because they implement a trait. Validate
-contract invariants using captured facts; reject malformed results before downstream use.
-A valid candidate failing an assessment remains available with its findings for
-configured repair; an assessment failure is not a malformed capability response.
-Inconclusive, errored and unrun assessments remain distinct from a pass. Candidate ties
-use declared run/candidate order, not completion timing. Repair produces new candidates
-and requires full reassessment under the shared budget. Detailed formulas, source rules
-and provisional settings remain in the YAML, not duplicated here.
+Driving adapters translate supported input forms into application inputs. Application
+APIs are independent of those forms. CLI flags, JSON or other formats are delivery
+choices; parsing and input precedence belong there. Shared semantic defaults and domain
+validation belong in application/core so equivalent requests behave consistently.
+
+### Illustrative selector composition
+
+This example demonstrates ownership, not a complete workflow or fixed API:
+
+```text
+driving adapter -> application -> selector
+selector -> injected embedder -> query vector
+selector -> injected repository(resolved query data) -> selected material
+selector -> application -> next requested operation
+```
+
+The application coordinates the overall operation. The selector resolves evidence
+through supplied ports. The repository receives query data, never an embedder or
+effectful callback; it may use SQL joins, filters, ranking and limits efficiently.
+Pure domain decisions remain in core. Detailed selection and assessment behavior
+belongs in approved requirements and interface contracts, not this illustration.
 
 ## Storage and CQRS
 
-Choose storage contracts by consumer needs, query semantics and invariants that must
-hold atomically; neither one interface per table nor one aggregate per FK-connected
-group is required. A narrow selection reader and an import writer may share one
-PostgreSQL adapter, pool, canonical schema and existing foreign keys. Queries may
-join progress, entries and embeddings and apply limits within SQL.
+Choose contracts by consumer needs, query semantics and required atomic invariants,
+not one per table or foreign-key-connected group. Narrow query and write interfaces
+may share one PostgreSQL adapter, pool, canonical schema and existing foreign keys.
+Queries can return projections and perform joins without reconstructing aggregates.
 
-Read contracts return consumer-specific results without changing business state.
-Commands may read and return results; keep required read/write transactions atomic.
-Publish each entry with its matching detail atomically. Splitting interfaces does not
-promise arbitrary backend combinations: each adapter must meet the whole contract.
-Do not add fake parent rows, weaken required foreign keys or create schema variants
-to accommodate a split. SQL cannot enforce a foreign key to a CSV record.
+Reads do not change business state. Commands may read and return results; preserve
+required read/write transactions, including atomic entry/detail publication under
+the retained schema. CQRS requires no separate databases, event sourcing, messaging
+or asynchronous synchronization. Repository reads are I/O and remain outside domain.
 
-CQRS requires neither separate databases nor event sourcing, messaging or asynchronous
-synchronization. An embedding-based selector remains effectful; repository reads are
-also I/O and stay outside domain code. Actual repository groupings remain undecided.
+Separate interfaces do not promise arbitrary backend combinations. PostgreSQL cannot
+satisfy a required subject FK when the subject exists only in CSV. Importing real
+subject records into PostgreSQL can satisfy it; fake parents, weakened required FKs
+and adapter-specific schema variants cannot. With file-based progress and SQL subjects,
+PostgreSQL cannot enforce references in those files. Application checks must address
+missing/deleted subjects and concurrency; a lookup alone is not equivalent to an FK.
+
+Keep records together where database-enforced integrity is required. Support mixed
+storage only where the agreed contracts can be met; do not silently weaken guarantees.
+Repository groupings remain design decisions.
 
 ## Port contracts
 
 Document required scope, inputs, outputs, ordering, limits, supported operations,
-error meanings, atomicity and relevant concurrency/deadline/budget behavior beside
-each interface. Distinguish unavailable evidence, invalid output and uncertain
-completion; do not disguise them as empty success or silently change providers.
-Adapters translate SDK/SQL failures into contract failures the application understands.
-Changing the provider for an existing contract must not require provider-specific
-application logic; introducing genuinely new behavior may require a contract change.
+failures, atomicity and relevant concurrency/deadline/budget behavior beside interfaces.
+Validate outputs against applicable invariants; implementing a trait does not prove
+its results valid. Distinguish malformed responses from valid results reporting failed
+assessment. Unavailable evidence or uncertain completion must not become empty success.
+Adapters translate external failures into contract failures; no silent provider fallback.
+
+Replacing a provider under an existing contract must not require provider-specific
+application logic. New behavior can justify changing a contract through an explicit
+decision, following the architecture change rules below.
 
 ## Verification
 
 Current [CI](.github/workflows/ci.yml) runs formatting, Clippy, tests, Rustdoc and Git
-checks. It does not explicitly enforce architecture. The following are requirements
-for future checks, not commands or mechanisms already implemented:
+checks. It does not explicitly enforce architecture. Required architecture checks must
+reject deliberate violations and accept permitted designs. Check production dependencies
+across supported features/targets, permitting
+reviewed test-only integration dependencies. Reject production app-to-ext dependencies,
+SDK types in inner APIs and domain port calls, including aliases/re-exports. Review
+indirect effects: Rust and text searches do not prove purity. Port labels aid inspection.
 
-| Concern | Required evidence / rejection example |
+Test each responsibility where it is owned:
+
+| Scope | Evidence |
 | --- | --- |
-| Crate graph | Check production dependencies across supported features/targets; allow reviewed test-only integration dependencies. Reject a production app-to-ext dependency. |
-| Domain purity | Module/API checks must reject port calls, ambient effects and representative aliases/re-exports. Review indirect calls: Rust and text searches do not prove purity. |
-| Public contracts | Review signatures and exercise implementations outside production crates. Reject SDK types and invalid capability results, including a selector that drops a target. |
-| Driving adapters | Test parsing, output, errors and dependency connections through public interfaces; keep semantic rules in shared application/core tests. Reject CLI-only defaults that alter the same request's meaning in web/MCP. |
-| Nested effects | Application tests verify shared limits across parallel/nested calls, cancellation and uncertain outcomes. Reject a retry or embedding call bypassing the budget. |
-| Storage | Real-backend contract tests cover scope, filters before limits, ordering and atomic entry/detail writes. A mock alone cannot establish SQL guarantees. |
-| Terms and abstractions | Review glossary usage, consumer needs and invariant ownership. Similar-looking code or one implementation alone does not justify removing a boundary. |
+| Domain | Business rules and their edge cases, using explicit inputs. |
+| Application | Workflow decisions, error handling and shared limits across nested/parallel calls. Exercise invalid capability output and uncertain completion through port implementations outside production crates. |
+| Adapter | Translation and actual backend/provider guarantees. Run the shared contract suite against each implementation; mocks alone cannot prove SQL guarantees. |
+| Driving adapter | Parsing, input precedence, invocation, output and exit status. Substitute application behavior where needed; a narrow inbound interface can justify that isolation. |
 
-Before rebuilding features, demonstrate checks rejecting deliberate violations and
-accepting permitted designs, including a composed selector and optimized SQL queries.
-Test architecture restrictions explicitly; behavioral tests should assert contracts,
-not incidental private function layout. Report unavailable prerequisites without
-substituting backends. Do not suppress failures or broaden allowlists silently.
+Keep detailed rule edge cases at their owning layer. For example, CLI tests inject
+an application rejection to test its presentation instead of rerunning eligibility
+cases through the CLI. Reusing an input is justified when assertions cover different
+obligations. Retain a few integration/end-to-end tests for wiring; test public behavior,
+not incidental private layout. SQL contract tests verify equivalent policy, ordering
+and transactions. A composed selector and optimized SQL queries are permitted designs.
 
-Exact query types, repository groupings, eligibility capture, dispatch choices and
-check implementations remain design work. Other open product decisions are marked
-in the plans. Decide them explicitly when needed; no generic framework is presumed.
+Review glossary use, interface cohesion and invariant ownership. Report unavailable
+prerequisites without substituting backends. Never silently suppress failures or
+broaden allowlists to accommodate a violation.
+
+## Changing architecture
+
+Architectural decisions may evolve through explicit user approval, including approval
+already given in the task. Propose the reason, affected guarantees and consequences
+before changing agreed boundaries or contract guarantees. Until approved, current rules
+remain binding. Update affected guidance, contracts and checks together; an improvement
+claim does not authorize an agent's own exception. Routine implementation choices within
+the rules need no further approval or new document.
+
+## Design references
+
+The [request example](docs/plan/story-generation-request.yml) explores a possible
+structure; it neither specifies CLI input formats nor finalizes product behavior.
+[Durability](docs/plan/durable-execution.md) and [replay](docs/plan/replay.md) remain
+exploratory proposals, not binding contracts. Adopt their details only by explicit
+decision. Preserve these files as design history; existing-code references do not
+require retaining that implementation. The SQL schema's retained status is stated above.
