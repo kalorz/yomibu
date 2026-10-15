@@ -403,7 +403,7 @@ parsing and resolution; keep custom code limited to demonstrated gaps.
 | Domain avoids ambient effects | Scoped Clippy restrictions reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
 | Public contracts expose domain/application representations | The library gate catches explicit references to unapproved SDK types, not poor contract design. Review associated types, opaque payload handling and representation ownership. |
 | Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
-| Adapters satisfy behavioral contracts | No adapters are implemented yet. Define reusable contract cases beside each implemented port's guarantees and run them against its adapters; dependency analysis cannot establish ordering, atomicity or failure semantics. |
+| Adapters satisfy behavioral contracts | The PostgreSQL learner collection query has real-backend contract tests in `crates/yomibu-ext/tests/postgres.rs`; see the README for explicit invocation and prerequisites. Dependency analysis cannot establish ordering, atomicity or failure semantics. |
 | Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
 
 Test each responsibility where it is owned:
