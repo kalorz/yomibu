@@ -54,6 +54,8 @@ jobs:
       - name: Install the architecture analyzer
         run: |
           cargo install cargo-bylaw --version "$BYLAW_VERSION" --locked --root "$RUNNER_TEMP/bylaw"
+          # Cargo searches its global bin before PATH; discard an old shared-cache copy.
+          rm -f "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-bylaw"
           echo "$RUNNER_TEMP/bylaw/bin" >> "$GITHUB_PATH"
       - name: Check dependency boundaries and enforcement contracts
         run: |
