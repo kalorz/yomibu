@@ -203,12 +203,6 @@ limits when invoking a sub-operation. Propagate deadlines/cancellation and bound
 Do not automatically retry uncertain external completion. Keep credentials out of
 application requests, reports and captured execution artifacts.
 
-The learner collection query's contract-only slice uses test-local supplied
-implementations and needs no deadline/cancellation parameters or execution-policy
-machinery. Before its first real I/O adapter is introduced, define the applicable
-bounded-I/O and request-limit contract. Application ownership and propagation of
-those limits remain mandatory under the rules above.
-
 ### Failure handling
 
 By default, continue independent work when useful results can still satisfy the
