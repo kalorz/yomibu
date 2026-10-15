@@ -65,6 +65,8 @@ Finish with affected files, exclusions and observable acceptance checks. Keep pr
 to brief tradeoffs and open decisions. Plan only the current step; existing plans
 do not authorize their full implementation.
 
+Optional [task templates](docs/task-templates.md) help write implementation and design briefs.
+
 ## Delivery
 
 - Before delivery, simplify the complete diff using
