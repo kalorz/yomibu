@@ -369,6 +369,8 @@ Domain and application enable their restrictions with `forbid`, including printi
 Cargo lint defaults leave integration fixtures usable. The
 [lint tests](tools/test_domain_clippy.py) exercise allowed and forbidden examples.
 
+Each crate enables `unreachable_pub`: it flags `pub` items that cannot be reached
+from outside the crate, not unnecessary APIs that are publicly reachable.
 CI treats compiler/Clippy warnings as errors, including existing unused-code and
 redundancy checks, plus opt-in `redundant_clone` and `unused_async` checks. The latter
 does not require removing async capability signatures; trait implementations have a
