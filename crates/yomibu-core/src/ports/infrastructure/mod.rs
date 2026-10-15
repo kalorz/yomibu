@@ -21,13 +21,15 @@ impl std::error::Error for StorageError {}
 /// Ownership alone does not establish an association; unrelated shared or owned
 /// collections must not be included.
 ///
-/// Results have no specified order or pagination. No associations, including for
-/// an unknown learner, yield an empty vector; learner existence is not checked.
+/// Every associated collection ID is returned exactly once, in unspecified order,
+/// with no pagination. Uniqueness is an adapter obligation, to be verified against
+/// each real adapter when introduced. No associations, including for an unknown
+/// learner, yield an empty vector; learner existence is not checked.
 /// Storage failures must return `Err`, never partial or successful empty results.
 ///
 /// Calls are synchronous, with no per-call deadline or cancellation guarantee.
-/// Before introducing an I/O adapter, define how it bounds I/O and receives any
-/// request-scoped execution limits through composition.
+/// Before introducing the first real I/O adapter, define the applicable bounded-I/O
+/// and request-limit contract. Application owns and propagates applicable limits.
 pub trait LearnerCollectionQuery {
     fn collection_ids_for_learner(
         &self,
