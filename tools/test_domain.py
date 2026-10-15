@@ -1,28 +1,22 @@
-"""Test Yomibu's rules and frozen exceptions, not Bylaw's Rust analysis."""
+"""Test Yomibu's dependency rules and Bylaw namespace correction."""
 
 import copy
-import hashlib
 import json
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 
-from check_domain import check_baseline
+from check_domain import check_report
 
 
-class DomainBaseline(unittest.TestCase):
+class DomainReport(unittest.TestCase):
     def setUp(self):
-        directory = tempfile.TemporaryDirectory(prefix="yomibu-baseline-")
-        self.addCleanup(directory.cleanup)
-        self.root = Path(directory.name).resolve()
-        self.source = self.root / "domain.rs"
-        self.source.write_text("use crate::ports::Selector;\n", encoding="utf-8")
         self.finding = {
             "message": "domain depends on ports",
             "target": {"kind": "module", "id": "yomibu_core::ports"},
             "evidence": [{"description": "crate::ports::Selector",
-                          "span": {"path": str(self.source)}}],
+                          "span": {"path": "domain.rs"}}],
         }
         self.report = {"version": 1, "report": {
             "analysis_diagnostics": [],
@@ -31,58 +25,32 @@ class DomainBaseline(unittest.TestCase):
                              {"rule_id": "inner-libraries", "severity": "error",
                               "violations": []}],
         }}
-        self.baseline = {"domain.rs": {
-            "sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(),
-            "violations": [self.finding["message"]],
-        }}
-
-    def check(self, baseline=None):
-        return check_baseline(self.root, self.report,
-                              self.baseline if baseline is None else baseline)
-
-    def test_accepts_only_the_exact_existing_source_and_findings(self):
-        self.assertEqual(self.check(), [])
-        self.source.write_text(self.source.read_text() + "// changed\n", encoding="utf-8")
-        self.assertTrue(self.check())
-
-    def test_rejects_a_new_violation_even_in_an_unchanged_file(self):
-        self.finding["message"] = "domain depends on another port"
-        self.assertTrue(self.check())
-
-    def test_rejects_unbaselined_source_in_shared_evidence(self):
-        self.finding["evidence"].append({"description": "Selector",
-                                      "span": {"path": str(self.root / "new.rs")}})
-        self.assertTrue(self.check())
 
     def test_allows_namespace_prefix_but_rejects_crate_root_items(self):
         self.finding["target"]["id"] = "package::yomibu_core"
         for namespace in ("crate", "super", "super::super", "self::super"):
             self.finding["evidence"][0]["description"] = namespace
-            self.assertEqual(self.check({}), [])
+            self.assertEqual(check_report(self.report), [])
         self.finding["evidence"].append({"description": "crate::outside",
-                                      "span": {"path": str(self.source)}})
-        self.assertTrue(self.check({}))
+                                      "span": {"path": "domain.rs"}})
+        self.assertEqual(check_report(self.report), [self.finding["message"]])
 
-    def test_rejects_new_violations_without_a_baseline(self):
-        self.assertTrue(self.check({}))
+    def test_rejects_domain_violations_and_accepts_clean_reports(self):
+        self.assertEqual(check_report(self.report), [self.finding["message"]])
+        self.report["report"]["rule_results"][0]["violations"] = []
+        self.assertEqual(check_report(self.report), [])
 
-    def test_library_violations_never_use_the_domain_baseline(self):
+    def test_rejects_library_violations_including_unlocated_declarations(self):
+        self.report["report"]["rule_results"][0]["violations"] = []
         library = self.report["report"]["rule_results"][1]
         for evidence in (self.finding["evidence"], [{"span": None}]):
             library["violations"] = [{**self.finding, "evidence": evidence}]
-            self.assertEqual(self.check(), [self.finding["message"]])
-
-    def test_requires_removal_of_fixed_or_deleted_exceptions(self):
-        self.report["report"]["rule_results"][0]["violations"] = []
-        self.assertTrue(self.check())
-        self.source.unlink()
-        self.assertTrue(self.check())
-        self.assertEqual(self.check({}), [])
+            self.assertEqual(check_report(self.report), [self.finding["message"]])
 
     def test_rejects_analysis_diagnostics_even_if_downgraded_to_warnings(self):
         self.report["report"]["analysis_diagnostics"] = [{"severity": "warning"}]
         with self.assertRaises(ValueError):
-            self.check()
+            check_report(self.report)
 
     def test_rejects_missing_or_weakened_rule_and_unknown_report_format(self):
         original = copy.deepcopy(self.report)
@@ -106,7 +74,7 @@ class DomainBaseline(unittest.TestCase):
                 else:
                     rules[0]["violations"][0]["evidence"] = []
                 with self.assertRaises(ValueError):
-                    self.check()
+                    check_report(self.report)
 
 
 class DomainRule(unittest.TestCase):
@@ -136,7 +104,7 @@ class DomainRule(unittest.TestCase):
                     cwd=project, capture_output=True, text=True, timeout=60,
                 )
                 self.assertIn(result.returncode, (0, 1), result.stderr or result.stdout)
-                self.assertEqual(bool(check_baseline(root, json.loads(result.stdout), {})), rejected)
+                self.assertEqual(bool(check_report(json.loads(result.stdout))), rejected)
 
 
 class LibraryRule(unittest.TestCase):
@@ -164,5 +132,5 @@ class LibraryRule(unittest.TestCase):
                         cwd=project, capture_output=True, text=True, timeout=60,
                     )
                     self.assertIn(result.returncode, (0, 1), result.stderr or result.stdout)
-                    errors = check_baseline(root, json.loads(result.stdout), {})
+                    errors = check_report(json.loads(result.stdout))
                     self.assertEqual(bool(errors), kind == "dependencies", errors)

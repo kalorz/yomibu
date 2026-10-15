@@ -17,7 +17,7 @@ DEPENDENCIES = {
     "yomibu-web": {"yomibu-core", "yomibu-app", "yomibu-ext"},
     "yomibu-mcp": {"yomibu-core", "yomibu-app", "yomibu-ext"},
 }
-# Existing application integration tests use real extension implementations.
+# Application integration tests may use real extension implementations.
 # This is not permission for a production or build dependency on extensions.
 REVIEWED_DEV_DEPENDENCIES = {("yomibu-app", "yomibu-ext")}
 
