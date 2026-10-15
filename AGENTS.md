@@ -73,12 +73,15 @@ Root `tests/fixtures/` and `tests/support/` hold shared test data and helpers.
 
 ## Engineering rules
 
+- Do not weaken agreed boundaries or contracts to reduce lines, types or apparent
+  duplication. Apply KISS, DRY and YAGNI as defined in the
+  [simplicity guidance](ARCHITECTURE.md#simplicity).
 - For structural refactors, move and reconnect existing code first. Add logic or
   public APIs only to preserve required behavior or enforce an agreed architecture
   boundary.
-- Before adding an abstraction, identify its current caller, required behavior or
-  invariant, and why existing code cannot serve it. Future flexibility alone is
-  insufficient.
+- Before adding an abstraction, identify its required boundary, current behavior or
+  invariant, and why existing code cannot serve it. Required ports are justified
+  with one implementation; future flexibility alone is insufficient.
 - Before delivery, review nonmechanical additions for removal: wrappers, generic
   handling, configuration options, cloning and repeated validation. Remove additions
   whose purpose disappears when callers are simplified.

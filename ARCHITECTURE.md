@@ -20,6 +20,8 @@ Use the other practices to support those boundaries, with the following purposes
 | Clean Architecture | Keep use cases and domain rules independent of delivery mechanisms and external technologies. No additional directory layers are implied. |
 | Clean Code | Prefer clear names and understandable control flow; splitting functions or adding wrappers must serve a purpose. |
 | OOP | Use encapsulation and polymorphism through Rust structs, enums and traits where useful; ordinary functions remain appropriate. |
+| Design by Contract | Define port preconditions, guarantees, invariants and failure semantics, including ordering, limits, atomicity and uncertain outcomes where applicable. Contract tests verify interchangeable behavior. |
+| Model valid states with types | Use distinct IDs, request versus resolved-query types and explicit assessment outcomes to prevent meaningful mistakes. External facts still need runtime checks; add types for real distinctions or invariants. |
 
 ## Boundaries
 
@@ -74,6 +76,17 @@ Use the smallest cohesive interface each consumer needs. The embedder needs an
 interface even with only OpenAI implemented. A private helper that collects story
 topics can remain a function. Different configuration values alone do not require
 separate ports.
+
+### Simplicity
+
+| Principle | Interpretation |
+| --- | --- |
+| KISS | Choose the clearest design that satisfies required boundaries and behavior. |
+| DRY | Keep business rules and authoritative definitions consistent. Similar-looking code with different responsibilities need not share an abstraction. |
+| YAGNI | Defer speculative features and machinery. Required ports, boundaries, invariants and their verification are present needs. |
+
+Mandatory architectural rules and behavioral contracts take precedence over
+preferences for fewer lines, fewer types or removing apparent duplication.
 
 ## Composition and request execution
 
