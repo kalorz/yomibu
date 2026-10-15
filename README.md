@@ -46,8 +46,11 @@ data, so no account or model key is needed. [CI](.github/workflows/ci.yml) defin
 the full checks and runs them on Linux and macOS.
 
 Check crate boundaries with `python3 -B tools/check_architecture.py` using Python 3
-and the repository Rust toolchain. Check domain boundaries with
-`cargo test --locked -p yomibu-core --test domain_architecture`.
+and the repository Rust toolchain. Install the pinned architecture analyzer with
+`cargo install cargo-bylaw --version 0.1.0 --locked`, then run
+`python3 -B tools/check_domain.py`. Verify the enforcement contracts with
+`python3 -B -m unittest discover -s tools -p 'test_*.py' -v`.
+Architecture checks run separately from `cargo test`.
 See [verification](ARCHITECTURE.md#verification) for coverage, the temporary baseline
 and remaining enforcement gaps.
 

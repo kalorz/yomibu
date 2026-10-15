@@ -144,8 +144,37 @@ requested behavior within those boundaries; a hypothetical provider or generic p
 loader is not automatically needed. Propose a rule change instead of bypassing a
 boundary in the name of simplicity.
 
+Retained experimental code follows the same rules from its first feature slice.
+An architectural exception requires explicit agreement on its scope and exit condition;
+"experimental" or "temporary" alone is not an exemption.
+
+Implementation economy means the fewest concepts, layers and moving parts that clearly
+satisfy requested behavior and agreed architecture. Prefer direct control flow, existing
+tools and ordinary Rust constructs. Remove unnecessary forwarding layers, duplicated
+state or policy, speculative flexibility, redundant tests and prose that repeats code.
+Each extra abstraction must serve a specific current responsibility or invariant;
+required ports already meet that test. Large changes prompt review, not arbitrary line
+limits, compressed formatting, displaced complexity or weakened boundaries.
+
 A rule may have equivalent pure and SQL representations. Verify their shared meaning
 through contract tests rather than forcing inefficient data loading to reuse code.
+
+Prefer reuse over rebuilding general-purpose functionality. Start with the standard
+library and dependencies already adopted by the project. Before adding substantial
+generic functionality or custom tooling, evaluate established libraries/tools against
+the required behavior, maintenance, testing, licensing, relevant security advisories
+and integration/dependency cost. Choose the lower total maintenance burden; popularity
+alone does not establish suitability or security. Briefly explain consequential choices
+in the change description, including any gap requiring custom code. Ordinary tasks
+reuse those decisions; do not repeat tool research each session.
+
+Keep custom code for Yomibu-specific rules, small straightforward helpers and concrete
+unmet requirements. For example, reuse serialization, HTTP and SQL libraries while
+owning learning policies. Infrastructure and replaceable capabilities still require
+ports; a pure utility library does not automatically need a forwarding interface.
+For architecture enforcement, let adopted tools own parsing and dependency analysis;
+keep custom checks limited to documented gaps and test Yomibu's rules, not the tool's
+general implementation.
 
 ## Composition and request execution
 
@@ -298,29 +327,77 @@ The [checker tests](tools/test_architecture.py) use isolated Cargo workspaces to
 rejection of forbidden edges and acceptance of allowed ones. Run them with
 `python3 -B -m unittest discover -s tools -p 'test_*.py' -v`; CI runs both commands.
 
-The [domain boundary tests](tools/domain_architecture.rs) parse Rust source and reject
-explicit dependencies from domain to other core modules, including ports. They cover
-grouped imports, aliases, relative paths, re-exports and inactive conditional branches.
-They scan `src/domain.rs` and `src/domain/` in core; explicit source redirects through
-`#[path]`, `include!` or symlinks are rejected in that tree. The root `domain` module
-declaration must keep that layout. Run
-`cargo test --locked -p yomibu-core --test domain_architecture`; the existing workspace
-test step also runs them. Parsing and hashing libraries are test-only dependencies.
+Domain and core/app dependency rules are configured in [bylaw.toml](bylaw.toml), using
+[cargo-bylaw](https://github.com/danielgerlag/cargo-bylaw) 0.1.0. Install it with
+`cargo install cargo-bylaw --version 0.1.0 --locked`; the separate executable keeps
+its rust-analyzer dependencies out of Yomibu's dependency graph. The repository
+Rust toolchain includes `rust-src`, required for semantic analysis. Run these
+checks with `python3 -B tools/check_domain.py`.
 
-The approved temporary [baseline](tools/domain-baseline.json) records the exact findings
-and full-file hashes for two existing violating files. It is not permission for new
-violations: changed files fail, even when their imports stay the same. Removed/fixed
-violations require removing their baseline entries. Expanding or refreshing exceptions
-requires explicit agreement under [architecture change rules](#changing-architecture);
-never regenerate the baseline just to pass CI. Preserve the checks, test registration
-and CI execution during removal; empty the baseline as those files disappear.
+Bylaw analyzes core/app libraries with all features on each CI host (Linux and macOS).
+Domain may depend on domain modules and reviewed external libraries; other core
+modules are forbidden. Core/app declared and actual dependencies are restricted to
+the inner crates and the reviewed library list; the manifest check separately enforces
+direction between inner crates. The list includes `serde_core` and `thiserror_impl`,
+owners of resolved reexports, not new provider dependencies. Library-list changes need
+review against the boundaries; never automatically copy dependencies from manifests.
+Test-only dependencies are outside this library rule. Analysis resolves aliases,
+reexports and macro expansions in active configurations. Inactive `cfg` branches
+are not checked. When adding target- or feature-dependent code, include the relevant
+configurations in architecture verification; all-features alone does not cover every
+feature combination. Unit-test-only code also requires appropriate verification.
+The manifest check above covers all declared platform dependencies between workspace crates.
 
-These are structural guards, not proof of functional purity. SDK-free public APIs,
-ambient effects, macro-generated dependencies, complete name resolution, port labels
-and behavioral contracts still require review or further checks. Domain module layout
-changes must update the scanner and its negative tests; moving code outside scanned
-paths is not an exemption. Review indirect effects. Port labels aid inspection, not
-enforcement.
+The [dependency runner](tools/check_domain.py) delegates analysis to Bylaw and fails on
+incomplete analysis. Its custom responsibilities are the exact baseline and one
+Bylaw 0.1.0 namespace correction: ignore root prefixes (`crate`, `super`, `self`)
+recorded for grouped imports, while still rejecting items owned by the crate root. The
+[contract tests](tools/test_domain_baseline.py) check these responsibilities and a few
+allowed/forbidden examples against the real analyzer; they do not recreate its parser
+suite. Run the Python tests above after installing Bylaw. CI runs both the tests and
+the dependency runner; `cargo test` alone does not run architecture checks.
+
+The approved temporary [baseline](tools/domain-baseline.json) records exact dependency
+findings and full-file hashes for two existing violating files. Changed files or
+findings fail; fixed/deleted violations require removing their entries. Moving to
+Bylaw preserves the approved hashes and translates the same exceptions to semantic
+module edges. Expanding or refreshing exceptions requires explicit agreement under
+[architecture change rules](#changing-architecture); never regenerate them just to
+pass CI. Preserve the checks and their CI execution during code removal; empty the
+baseline as those files disappear. Once no exceptions remain, remove the temporary
+baseline machinery and run Bylaw directly after resolving its namespace correction.
+The baseline applies only to domain dependencies; library violations always fail.
+
+Clippy's [core configuration](crates/yomibu-core/clippy.toml) restricts selected ambient
+APIs inside [domain](crates/yomibu-core/src/domain/mod.rs). The separate
+[application configuration](crates/yomibu-app/clippy.toml) restricts selected direct
+filesystem, network, environment and process APIs while permitting application timing.
+Domain and application enable their restrictions with `forbid`, including printing.
+Cargo lint defaults leave integration fixtures usable. The
+[lint tests](tools/test_domain_clippy.py) exercise allowed and forbidden examples.
+
+CI treats compiler/Clippy warnings as errors, including existing unused-code and
+redundancy checks, plus opt-in `redundant_clone` and `unused_async` checks. The latter
+does not require removing async capability signatures; trait implementations have a
+separate lint that is not enabled. These checks catch specific patterns, not unnecessary
+public APIs or excessive architectural machinery. Review remains required. Do not
+enable entire pedantic/restriction groups or size quotas to stand in for that judgment;
+use narrow, explained lint exceptions when a required contract justifies them.
+
+These guards are not proof of functional purity. Clippy does not detect every I/O API,
+indirect effect or source of nondeterminism. Review new APIs and libraries, including
+randomness sources; extend the restrictions when adopting them. Adopted tools own
+parsing and resolution; keep custom code limited to demonstrated gaps.
+
+| Obligation | Coverage and next action |
+| --- | --- |
+| Workspace and domain dependency direction | Implemented above, subject to the frozen exceptions and configuration limits. |
+| Core/app independence from SDKs, database libraries and delivery frameworks | Bylaw rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
+| Domain avoids ambient effects | Scoped Clippy restrictions reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
+| Public contracts expose domain/application representations | The library gate catches explicit references to unapproved SDK types, not poor contract design. Review associated types, opaque payload handling and representation ownership. |
+| Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs; existing workflow tests cover selected behavior. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
+| Adapters satisfy behavioral contracts | Existing adapter tests cover selected behavior. Define reusable contract cases beside each implemented port's guarantees and run them against its adapters; dependency analysis cannot establish ordering, atomicity or failure semantics. |
+| Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
 
 Test each responsibility where it is owned:
 

@@ -2,14 +2,14 @@
   "crates/yomibu-core/src/domain/generation/finalization.rs": {
     "sha256": "1b2fc3473805d6d97120617e2819e7a503571d1aa82b97421afec6daa109aaa4",
     "violations": [
-      "domain depends on crate::ports::capabilities::SelectionStep"
+      "yomibu_core::domain::generation::finalization depends on disallowed component yomibu_core::ports::capabilities::selection"
     ]
   },
   "crates/yomibu-core/src/domain/generation/preparation.rs": {
     "sha256": "bb56f7bf48f47e4b9302cd30679ae5550fc9320741252a0228cdf2878a70fcb7",
     "violations": [
-      "domain depends on crate::ports::capabilities::CandidateGenerator",
-      "domain depends on crate::ports::capabilities::StoryPreparer"
+      "yomibu_core::domain::generation::preparation depends on disallowed component yomibu_core::ports::capabilities",
+      "yomibu_core::domain::generation::preparation depends on disallowed component yomibu_core::ports::capabilities::story"
     ]
   }
 }

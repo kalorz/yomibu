@@ -1,0 +1,36 @@
+version = 1
+
+[analysis]
+manifest_path = "Cargo.toml"
+packages = ["yomibu-core", "yomibu-app"]
+all_features = true
+target_kinds = ["library"]
+incomplete = "deny"
+
+[selectors.domain]
+modules = ["yomibu_core::domain", "yomibu_core::domain::**"]
+
+[selectors.libraries]
+component_kinds = ["external-crate"]
+
+[selectors.inner]
+packages = ["yomibu-core", "yomibu-app"]
+
+[selectors.reviewed_libraries]
+# Include the owners of serde/thiserror reexports resolved by semantic analysis.
+external_crates = ["serde", "serde_core", "chrono", "thiserror", "thiserror_impl"]
+
+[[rule]]
+id = "domain-boundary"
+kind = "only-dependencies"
+from = "domain"
+allowed = ["domain", "libraries"]
+scope = "actual"
+allow_self = false
+
+[[rule]]
+id = "inner-libraries"
+kind = "only-dependencies"
+from = "inner"
+allowed = ["inner", "reviewed_libraries"]
+scope = "both"

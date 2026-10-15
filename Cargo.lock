@@ -2022,8 +2022,6 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "sha2",
- "syn 2.0.119",
  "thiserror",
 ]
 

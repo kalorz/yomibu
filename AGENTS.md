@@ -34,20 +34,33 @@ Document legitimate differences between model contexts; resolve conflicts explic
 
 ## Before editing
 
-- Identify the affected use case, boundaries, contracts and approved requirements;
-  distinguish these from examples and unfinished proposals.
-  A brief note is enough; routine work needs no new design document.
+- Briefly identify the requested behavior, affected boundaries/contracts and simplest
+  implementation approach. Implement in small, complete increments through the
+  required boundaries. Distinguish requirements from examples and unfinished proposals.
+  Routine work needs no new design document. If implementation outgrows the stated
+  approach, explain the cause and reassess it before adding more machinery.
 - Identify verification that would reject the likely boundary violation or incorrect
   behavior. Distinguish existing checks from proposed checks.
+- When adding substantial general-purpose functionality or custom tooling, follow
+  the [reuse guidance](ARCHITECTURE.md#simplicity). Start with adopted dependencies;
+  evaluate alternatives when a concrete gap arises, not on every task or session.
 - Resolve ordinary implementation choices within the rules. For changes to agreed
   boundaries or contracts, follow [architecture change rules](ARCHITECTURE.md#changing-architecture).
   Never silently alter rules or checks to accommodate a violating implementation.
 
 ## Delivery
 
-- Review new abstractions against their required boundary, behavior or invariant.
-  Follow the [simplicity guidance](ARCHITECTURE.md#simplicity). Preserve compatibility
-  only when requested; do not introduce speculative registries or migration layers.
+- Before delivery, simplify the complete diff using
+  [implementation economy](ARCHITECTURE.md#simplicity), including tests and documentation.
+  Remove avoidable machinery; merely reporting it does not complete the task.
+  For substantial remaining complexity, explain the current need and why a concrete
+  simpler alternative is insufficient. Simplicity review findings must identify an
+  alternative that preserves required behavior and boundaries; fewer lines or a single
+  adapter do not justify removing a required port. Preserve compatibility only when requested.
+- For new workflows or changed boundaries, trace the actual path from entry point
+  through application, ports and adapters. Cite relevant code and an application test
+  using supplied port implementations. New boundary violations block completion;
+  passing tests or moving files into the intended directories is insufficient.
 - Test changed responsibilities at their [owning layer](ARCHITECTURE.md#verification),
   rather than repeating dependency edge cases through callers. Keep tests reproducible,
   isolated and free of real credentials; leave the shared process environment unchanged.

@@ -1,0 +1,11 @@
+# Partial guards, not effect analysis. Review new libraries/APIs for ambient effects.
+# Enable these restrictions in domain only (see domain/mod.rs and Cargo.toml).
+disallowed-methods = [
+    "std::time::Instant::now",
+    "std::time::Instant::elapsed",
+    "std::time::SystemTime::now",
+    "std::env::var",
+    "std::fs::read_to_string",
+]
+disallowed-types = ["std::fs::File", "std::net::TcpStream"]
+disallowed-macros = ["std::env", "std::option_env", "std::include_str"]

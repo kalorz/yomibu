@@ -17,3 +17,9 @@ serde_json.workspace = true
 tempfile.workspace = true
 wiremock.workspace = true
 tokio = { workspace = true, features = ["macros", "io-util", "sync", "test-util"] }
+
+# The library raises these to forbid; integration fixtures may perform I/O.
+[lints.clippy]
+disallowed_methods = "allow"
+disallowed_types = "allow"
+disallowed_macros = "allow"
