@@ -45,5 +45,11 @@ Run tests with `cargo test --locked --all`. They use local servers and invented
 data, so no account or model key is needed. [CI](.github/workflows/ci.yml) defines
 the full checks and runs them on Linux and macOS.
 
+Check crate boundaries with `python3 -B tools/check_architecture.py` using Python 3
+and the repository Rust toolchain. Check domain boundaries with
+`cargo test --locked -p yomibu-core --test domain_architecture`.
+See [verification](ARCHITECTURE.md#verification) for coverage, the temporary baseline
+and remaining enforcement gaps.
+
 Build API documentation with `cargo doc --locked --no-deps`; the output is in
 `target/doc/yomibu_app`.

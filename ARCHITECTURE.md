@@ -2,7 +2,8 @@
 
 This document defines Yomibu's enduring architectural rules. Existing code is not
 proof of compliance. Examples illustrate the rules; they are not exhaustive designs
-or commitments to exact APIs. Architecture checks below remain proposed.
+or commitments to exact APIs. [Verification](#verification) distinguishes implemented
+checks from rules still requiring enforcement or review.
 
 The [SQL schema](docs/plan/schema.postgresql.sql) is a retained requirement.
 Other [design references](#design-references) contain proposals: preserving a plan
@@ -284,12 +285,42 @@ decision, following the architecture change rules below.
 ## Verification
 
 Current [CI](.github/workflows/ci.yml) runs formatting, Clippy, tests, Rustdoc and Git
-checks. It does not explicitly enforce architecture. Required architecture checks must
-reject deliberate violations and accept permitted designs. Check production dependencies
-across supported features/targets, permitting
-reviewed test-only integration dependencies. Reject production app-to-ext dependencies,
-SDK types in inner APIs and domain port calls, including aliases/re-exports. Review
-indirect effects: Rust and text searches do not prove purity. Port labels aid inspection.
+checks, plus [crate dependency checks](tools/check_architecture.py). Run them locally
+with `python3 -B tools/check_architecture.py`; the checker uses offline Cargo metadata
+with the repository toolchain and requires Python 3, without building the application.
+It checks declared workspace dependencies, including renamed, optional, build and
+platform-specific edges.
+The four retained crates must remain present; web/MCP are optional driving peers. New
+workspace crates require explicit role classification. Reviewed app-to-ext integration
+test dependencies are permitted only as dev-dependencies; other deviations fail.
+
+The [checker tests](tools/test_architecture.py) use isolated Cargo workspaces to prove
+rejection of forbidden edges and acceptance of allowed ones. Run them with
+`python3 -B -m unittest discover -s tools -p 'test_*.py' -v`; CI runs both commands.
+
+The [domain boundary tests](tools/domain_architecture.rs) parse Rust source and reject
+explicit dependencies from domain to other core modules, including ports. They cover
+grouped imports, aliases, relative paths, re-exports and inactive conditional branches.
+They scan `src/domain.rs` and `src/domain/` in core; explicit source redirects through
+`#[path]`, `include!` or symlinks are rejected in that tree. The root `domain` module
+declaration must keep that layout. Run
+`cargo test --locked -p yomibu-core --test domain_architecture`; the existing workspace
+test step also runs them. Parsing and hashing libraries are test-only dependencies.
+
+The approved temporary [baseline](tools/domain-baseline.json) records the exact findings
+and full-file hashes for two existing violating files. It is not permission for new
+violations: changed files fail, even when their imports stay the same. Removed/fixed
+violations require removing their baseline entries. Expanding or refreshing exceptions
+requires explicit agreement under [architecture change rules](#changing-architecture);
+never regenerate the baseline just to pass CI. Preserve the checks, test registration
+and CI execution during removal; empty the baseline as those files disappear.
+
+These are structural guards, not proof of functional purity. SDK-free public APIs,
+ambient effects, macro-generated dependencies, complete name resolution, port labels
+and behavioral contracts still require review or further checks. Domain module layout
+changes must update the scanner and its negative tests; moving code outside scanned
+paths is not an exemption. Review indirect effects. Port labels aid inspection, not
+enforcement.
 
 Test each responsibility where it is owned:
 

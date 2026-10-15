@@ -12,3 +12,9 @@ thiserror.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+sha2.workspace = true
+syn = { version = "2", features = ["full", "visit"] }
+
+[[test]]
+name = "domain_architecture"
+path = "../../tools/domain_architecture.rs"
