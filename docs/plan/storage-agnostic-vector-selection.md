@@ -1,72 +1,71 @@
 # Storage agnostic vector selection plan
 
-Proposed design for the [story request](story-generation-request.yml), not an
-implemented API. PostgreSQL is a future backend; when SQL storage exists, reuse
-that database and shared adapters across extensions.
+Unimplemented proposal accompanying the [request example](story-generation-request.yml).
+The [architecture](../../ARCHITECTURE.md) and retained [SQL schema](schema.postgresql.sql)
+govern this work. This note does not approve new APIs, schema changes or product
+behavior. When SQL storage is implemented, reuse shared adapters and connections.
 
 ## Spaces and identity
 
-Illustrative storage layout:
+The schema stores `embedding_profiles` and `entry_embeddings`, with one vector per
+`(entry_id, embedding_profile_id)`. Use entry IDs with their existing subject and
+collection relationships. Shared entry embeddings need not be learner-specific;
+every query must preserve the authorized, eligible entry scope.
 
-```text
-vector_spaces(id, namespace, purpose, producer_profile, metric)
-vocabulary_vectors(material_key, space_id, input_revision, vector)
-UNIQUE(material_key, space_id)
-```
+The proposal treats profiles as immutable. Provider, model, model revision,
+dimensions and input format revision identify a profile in the schema. Query and
+stored vectors must use compatible profiles; reject incompatible dimensions or
+invalid values. Changes affecting embedding compatibility require a different profile.
 
-An immutable producer profile identifies the embedder/model, settings, input recipe
-version, and dimensions. Producer changes create a new profile/space. Query vectors
-must match the stored profile; reject incompatible dimensions or invalid values.
-
-Material keys identify catalog entries or source-collection/entry pairs, not bare
-inventory strings. Shared vocabulary vectors need not be learner-specific. Every
-query uses authorized eligible keys; namespaces identify ownership, not permission.
+The request example's `space` resolves an embedder, model, dimensions and metric.
+Its mapping to an embedding profile, and representation of any additional provider
+settings affecting compatibility, remain open design questions.
 
 ## Vector preparation
 
-An explicit, bounded preparation/backfill operation embeds vocabulary after imports
-or profile changes. `input_revision` fingerprints the exact embedding input;
-the profile pins its transformation recipe. Generation does not silently backfill.
-It embeds the story outline once with the same profile.
+An explicit, bounded preparation/backfill operation would embed entries after imports
+or profile changes. The schema's `input_hash` fingerprints the embedding input;
+the profile identifies its input format revision. Selection does not silently
+backfill stored embeddings. Story query embeddings use the same compatible profile.
 
-Compare expected input revisions when reading vectors. Missing/stale vectors sort
-last for similarity ranking and cannot pass distance filters. Report missing
-coverage; if no usable vectors exist, return a setup issue rather than silently
-ignoring similarity.
+Compare expected input hashes when reading vectors. Proposed policy: missing/stale
+vectors sort last for similarity ranking and cannot pass distance filters. Report
+missing coverage. With no usable vectors, report the unavailable operation; the
+application's required/optional capability policy determines whether work can continue.
+Do not silently ignore a required similarity constraint.
 
 ## Selection flow
 
-Read coherent learner data. Apply metadata predicates through shared typed query
-ports: comparisons, membership and array containment. Category preference is an
-ordering rule, separate from filtering. Metadata/vector queries may run separately.
+Following the [selector composition](../../ARCHITECTURE.md#illustrative-selector-composition):
 
-Prepare distance evidence, then run synchronous filtering/ranking steps through
-core's existing `select_target_first`. It retains targets and applies final caps;
-filter conflicts fail explicitly. Never truncate by similarity before another
-primary order or target reservation. Break final ties by material identity.
-
-Illustrative Ruby-like pseudocode; preparation APIs are provisional:
-
-```ruby
-distances = await vectors.distances(
-  space: profile.id, entries: scoped_entries, query: query_vector
-)
-steps = prepare_steps(metadata, distances, threshold, order_by)
-selection = select_target_first(selection_input, steps)
+```text
+application -> selector capability
+selector -> injected embedder -> query vector
+selector -> injected repository(resolved query data) -> selected entries
+selector -> application -> next requested operation
 ```
+
+The resolved query carries data, including vector/profile information, filters,
+ordering and limits. The repository never receives an embedder or effectful callback.
+Its adapter may combine metadata and vector filtering/ranking in one SQL query with
+joins, ordering and limits; no separate vector repository or full distance list is required.
+
+Read coherent learner data. For the proposed ordering, category preference remains
+separate from filtering; earlier ordering rules take priority and entry IDs break
+final ties. Apply limits only after preserving the agreed ordering and target rules.
+Target/filter conflicts and missing-vector behavior need explicit contracts before
+implementation. Pure domain decisions operate on supplied data without invoking ports.
 
 ## Responsibilities and next work
 
-The [composition root](../../AGENTS.md#dependencies-and-composition) constructs
-dependencies. The application coordinates async I/O, scope and budgets.
-`SelectionStep` stays synchronous. Core owns query/result/error contracts. PostgreSQL and in-memory
-adapters share those contracts; extensions implement producers and capabilities.
+Composition roots construct dependencies; application owns the workflow and shared
+execution policy. Selectors compose supplied ports within those limits. Core owns
+port contracts and pure domain rules; extensions implement capabilities and storage.
 
-Start with exact calculations for one metric/precision contract. Test both adapters
-for profile, scope, freshness, thresholds, ties and targets; test PostgreSQL
-on PostgreSQL.
-Ordinary indexes support initial queries. Space creation is data, not a migration.
+An initial implementation could use exact calculations for one metric/precision
+contract. Verify profile compatibility, scope, freshness, thresholds, ordering and
+targets against each implemented adapter; test PostgreSQL guarantees on PostgreSQL.
 Later approximate indexes need explicit provisioning and an accuracy contract;
 [filtered approximate scans](https://github.com/pgvector/pgvector#filtering)
-can miss qualifying results. Concrete core types, snapshot coordination,
-backfill scheduling and index provisioning remain open.
+can miss qualifying results. Concrete interfaces, coherent reads across stores,
+input freshness checks, backfill scheduling and index provisioning remain open.
