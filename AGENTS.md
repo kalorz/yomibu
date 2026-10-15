@@ -48,18 +48,27 @@ Document legitimate differences between model contexts; resolve conflicts explic
   the [reuse guidance](ARCHITECTURE.md#simplicity). Start with adopted dependencies;
   evaluate alternatives when a concrete gap arises, not on every task or session.
 - Resolve ordinary implementation choices within the rules. For changes to agreed
-  boundaries or contracts, follow [architecture change rules](ARCHITECTURE.md#changing-architecture).
+  boundaries or behavioral guarantees, follow [architecture change rules](ARCHITECTURE.md#changing-architecture).
   Never silently alter rules or checks to accommodate a violating implementation.
 
 ## Plans and design discussions
 
-Discuss new or changed architectural boundaries and public contracts before
-implementation. Routine implementation within approved contracts needs no additional
-design approval. Previously granted approval counts.
+Agents own Rust signatures, async/sync mechanics, driver choices and internal wiring
+within approved behavior, guarantees and architectural boundaries. Internal API changes
+do not themselves require approval; Rust `pub` alone does not establish an external
+compatibility commitment. Discuss new or changed behavior, domain meaning, architectural
+boundaries or externally committed guarantees, and new deployment requirements or material
+operational tradeoffs, before implementation. Previously granted approval counts.
 
-For these discussions, show signatures, inputs, outputs, important failures, owning
-layers and a minimal usage example with dependency construction. Prefer pseudocode
-to prose; Ruby-style sketches are welcome. Do not invent abstractions to fill a plan.
+For consequential infrastructure choices, such as the first I/O adapter or a new runtime,
+obtain a focused independent technical review in the same session before presenting the
+recommendation or implementing it. Resolve technical findings yourself; escalate only
+decisions within the approval scope above.
+
+For these discussions, lead with the recommendation and user-visible consequences.
+Show inputs, outputs, important failures, owning layers and a minimal example with
+dependency construction; use signatures or Ruby-style pseudocode where useful. Do not
+invent abstractions to fill a plan.
 
 Finish with affected files, exclusions and observable acceptance checks. Keep prose
 to brief tradeoffs and open decisions. Plan only the current step; existing plans
@@ -73,13 +82,14 @@ Optional [task templates](docs/task-templates.md) help write implementation and 
   [implementation economy](ARCHITECTURE.md#simplicity), including tests and documentation.
   Remove avoidable machinery; merely reporting it does not complete the task.
   For substantial remaining complexity, explain the current need and why a concrete
-  simpler alternative is insufficient. Simplicity review findings must identify an
-  alternative that preserves required behavior and boundaries; fewer lines or a single
-  adapter do not justify removing a required port. Preserve compatibility only when requested.
-- Give reviewers the approved scope and exclusions. Required findings must identify
-  a concrete defect or violated contract or rule; distinguish optional improvements.
-  Review feedback does not itself authorize additional behavior or changes to public
-  contracts.
+  simpler alternative is insufficient. Fewer lines or a single adapter do not justify
+  removing a required port. Preserve compatibility only when requested.
+- Give reviewers the approved scope and exclusions; distinguish requirements from
+  revisable implementation choices. Required findings must identify a concrete defect
+  or violated contract or rule; distinguish optional improvements. Challenge complexity
+  caused by implementation choices using a simpler viable alternative that preserves
+  required behavior and boundaries. Verify uncertain library assumptions from documentation
+  or a temporary probe. Review feedback does not itself authorize scope or guarantee changes.
 - For new workflows or changed boundaries, trace the actual path from entry point
   through application, ports and adapters. Cite relevant code and an application test
   using supplied port implementations. New boundary violations block completion;
