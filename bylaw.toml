@@ -18,7 +18,7 @@ packages = ["yomibu-core", "yomibu-app"]
 
 [selectors.reviewed_libraries]
 # Include the owners of serde/thiserror reexports resolved by semantic analysis.
-# UUID value representation is allowed; no UUID generation features are enabled.
+# UUID value representation is allowed; domain Clippy guards ambient UUID APIs.
 external_crates = ["serde", "serde_core", "chrono", "thiserror", "thiserror_impl", "uuid"]
 
 [[rule]]

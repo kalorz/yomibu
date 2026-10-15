@@ -20,10 +20,8 @@ structure; it neither specifies CLI input formats nor finalizes product behavior
 [Durable execution](docs/plan/durable-execution.md) and [replay](docs/plan/replay.md)
 are exploratory proposals.
 
-Run Rust tests with `cargo test --locked --all`; application tests exercise the
-collection query with supplied storage. [CI](.github/workflows/ci.yml) defines the
-full checks and runs them on Linux and macOS. The architecture enforcement tests
-below remain active.
+Run Rust tests with `cargo test --locked --all`. [CI](.github/workflows/ci.yml)
+defines the full checks and runs them on Linux and macOS.
 
 Check crate boundaries with `python3 -B tools/check_architecture.py` using Python 3
 and the repository Rust toolchain. Install the pinned architecture analyzer with

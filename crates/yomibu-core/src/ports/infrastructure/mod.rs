@@ -1,6 +1,8 @@
 use crate::domain::{CollectionId, LearnerId};
 
 /// An adapter's provider-independent storage failure description.
+/// Adapters must supply a presentable message without credentials or raw
+/// connection strings.
 #[derive(Debug, PartialEq, Eq)]
 pub struct StorageError(pub String);
 
@@ -22,6 +24,10 @@ impl std::error::Error for StorageError {}
 /// Results have no specified order or pagination. No associations, including for
 /// an unknown learner, yield an empty vector; learner existence is not checked.
 /// Storage failures must return `Err`, never partial or successful empty results.
+///
+/// Calls are synchronous, with no per-call deadline or cancellation guarantee.
+/// Before introducing an I/O adapter, define how it bounds I/O and receives any
+/// request-scoped execution limits through composition.
 pub trait LearnerCollectionQuery {
     fn collection_ids_for_learner(
         &self,
