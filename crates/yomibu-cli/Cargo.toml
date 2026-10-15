@@ -11,3 +11,6 @@ name = "yomibu"
 path = "src/main.rs"
 # Public Rustdoc belongs to the library crates.
 doc = false
+
+[lints.rust]
+unreachable_pub = "warn"

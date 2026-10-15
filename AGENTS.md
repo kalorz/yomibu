@@ -5,8 +5,8 @@
 Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing architecture or implementing
 features. It defines enduring boundaries and accepted practices; existing code
 is not proof of compliance. Follow the task's scope: architecture documentation
-does not authorize deleting or rebuilding code. Preserve all `docs/plan/` files
-and the planned SQL schema during code removal. Preserving plans does not approve
+does not authorize deleting or rebuilding code. Preserve all `docs/plan/` files;
+the planned SQL schema remains a requirement. Preserving plans does not approve
 their proposals; use approved requirements and the architecture's stated document statuses.
 
 ### Dependencies and composition
@@ -41,6 +41,9 @@ Document legitimate differences between model contexts; resolve conflicts explic
   approach, explain the cause and reassess it before adding more machinery.
 - Identify verification that would reject the likely boundary violation or incorrect
   behavior. Distinguish existing checks from proposed checks.
+- Keep visibility as narrow as required. Public APIs must serve a current consumer
+  or an approved contract. Do not expose modules or items merely to silence
+  visibility or unused-code warnings.
 - When adding substantial general-purpose functionality or custom tooling, follow
   the [reuse guidance](ARCHITECTURE.md#simplicity). Start with adopted dependencies;
   evaluate alternatives when a concrete gap arises, not on every task or session.
@@ -82,8 +85,9 @@ do not authorize their full implementation.
 - Use [CI](.github/workflows/ci.yml) for existing completion commands. Run focused
   checks during development and workspace checks when shared contracts change.
   For documentation-only work, check links, consistency and whitespace.
-- Report actual results, unverified guarantees and boundary changes. Passing CI is
-  not proof of purity. Follow the [verification requirements](ARCHITECTURE.md#verification)
+- Report actual results, unverified guarantees and boundary changes. For substantial
+  changes, report additions and deletions separately and list new files. Passing CI
+  is not proof of purity. Follow the [verification requirements](ARCHITECTURE.md#verification)
   for architecture checks; report missing prerequisites.
 
 ## Documentation
