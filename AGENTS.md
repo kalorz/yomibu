@@ -50,15 +50,13 @@ Document legitimate differences between model contexts; resolve conflicts explic
 
 ## Plans and design discussions
 
-Before implementing any slice, present its interfaces and data structures in chat
-for discussion and explicit user approval. Show signatures, inputs, outputs,
-important failures, owning layers and a minimal usage example with dependency
-construction. Prefer pseudocode to prose; Ruby-style sketches are welcome.
-Show existing contracts when unchanged; do not invent abstractions to fill a plan.
+Discuss new or changed architectural boundaries and public contracts before
+implementation. Routine implementation within approved contracts needs no additional
+design approval. Previously granted approval counts.
 
-Wait for approval before implementation, including for small slices. If approved
-interfaces or data structures need to change, present the revision and obtain
-approval before implementing it. Approval already given in the task counts.
+For these discussions, show signatures, inputs, outputs, important failures, owning
+layers and a minimal usage example with dependency construction. Prefer pseudocode
+to prose; Ruby-style sketches are welcome. Do not invent abstractions to fill a plan.
 
 Finish with affected files, exclusions and observable acceptance checks. Keep prose
 to brief tradeoffs and open decisions. Plan only the current step; existing plans
