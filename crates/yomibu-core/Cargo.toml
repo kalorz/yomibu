@@ -12,3 +12,9 @@ thiserror.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+
+# Domain raises these to forbid; shell code and integration fixtures remain usable.
+[lints.clippy]
+disallowed_methods = "allow"
+disallowed_types = "allow"
+disallowed_macros = "allow"
