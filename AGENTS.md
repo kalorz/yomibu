@@ -1,5 +1,14 @@
 # Repository guide
 
+## Terminology
+
+Use [GLOSSARY.md](GLOSSARY.md) as the authority for domain names in code,
+documentation and explanations to the user. Check it before naming domain concepts.
+Use the established term instead of inventing synonyms, such as replacing collection
+with catalogue. Align definitions with the SQL and request plans; flag conflicts
+instead of silently redefining terms. For a genuinely new concept, explain its
+meaning and add its definition to the glossary with the change.
+
 ## Architecture
 
 Create directories only when needed.
@@ -95,6 +104,7 @@ Define CLI descriptions, option help and examples in code so Clap exposes them t
 | --- | --- |
 | `README.md` | Purpose, setup, quickstart, development commands. |
 | `AGENTS.md` | Architecture and engineering rules. |
+| `ARCHITECTURE.md` | Draft architecture for the restart; enforcement is still proposed. |
 | `GLOSSARY.md` | Domain terms. |
 
 Change docs only when readers need new or clearer information. Add AGENTS rules
