@@ -348,25 +348,18 @@ configurations in architecture verification; all-features alone does not cover e
 feature combination. Unit-test-only code also requires appropriate verification.
 The manifest check above covers all declared platform dependencies between workspace crates.
 
-The [dependency runner](tools/check_domain.py) delegates analysis to Bylaw and fails on
-incomplete analysis. Its custom responsibilities are the exact baseline and one
-Bylaw 0.1.0 namespace correction: ignore root prefixes (`crate`, `super`, `self`)
+The [dependency runner](tools/check_domain.py) delegates analysis to Bylaw and rejects
+incomplete reports or missing/weakened rules. It applies one Bylaw 0.1.0 namespace
+correction: ignore root prefixes (`crate`, `super`, `self`)
 recorded for grouped imports, while still rejecting items owned by the crate root. The
-[contract tests](tools/test_domain_baseline.py) check these responsibilities and a few
+[contract tests](tools/test_domain.py) check these responsibilities and a few
 allowed/forbidden examples against the real analyzer; they do not recreate its parser
 suite. Run the Python tests above after installing Bylaw. CI runs both the tests and
 the dependency runner; `cargo test` alone does not run architecture checks.
 
-The approved temporary [baseline](tools/domain-baseline.json) records exact dependency
-findings and full-file hashes for two existing violating files. Changed files or
-findings fail; fixed/deleted violations require removing their entries. Moving to
-Bylaw preserves the approved hashes and translates the same exceptions to semantic
-module edges. Expanding or refreshing exceptions requires explicit agreement under
-[architecture change rules](#changing-architecture); never regenerate them just to
-pass CI. Preserve the checks and their CI execution during code removal; empty the
-baseline as those files disappear. Once no exceptions remain, remove the temporary
-baseline machinery and run Bylaw directly after resolving its namespace correction.
-The baseline applies only to domain dependencies; library violations always fail.
+There are no baselined violations. The old implementation and its temporary exceptions
+have been removed. Keep the namespace correction only until the analyzer handles those
+imports correctly; then run Bylaw directly while retaining equivalent verification.
 
 Clippy's [core configuration](crates/yomibu-core/clippy.toml) restricts selected ambient
 APIs inside [domain](crates/yomibu-core/src/domain/mod.rs). The separate
@@ -391,12 +384,12 @@ parsing and resolution; keep custom code limited to demonstrated gaps.
 
 | Obligation | Coverage and next action |
 | --- | --- |
-| Workspace and domain dependency direction | Implemented above, subject to the frozen exceptions and configuration limits. |
+| Workspace and domain dependency direction | Implemented above, subject to the configuration limits. No legacy exceptions remain. |
 | Core/app independence from SDKs, database libraries and delivery frameworks | Bylaw rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
 | Domain avoids ambient effects | Scoped Clippy restrictions reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
 | Public contracts expose domain/application representations | The library gate catches explicit references to unapproved SDK types, not poor contract design. Review associated types, opaque payload handling and representation ownership. |
-| Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs; existing workflow tests cover selected behavior. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
-| Adapters satisfy behavioral contracts | Existing adapter tests cover selected behavior. Define reusable contract cases beside each implemented port's guarantees and run them against its adapters; dependency analysis cannot establish ordering, atomicity or failure semantics. |
+| Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs. No workflows are implemented yet. When adding them, verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
+| Adapters satisfy behavioral contracts | No adapters are implemented yet. Define reusable contract cases beside each implemented port's guarantees and run them against its adapters; dependency analysis cannot establish ordering, atomicity or failure semantics. |
 | Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
 
 Test each responsibility where it is owned:
@@ -415,7 +408,7 @@ obligations. Retain a few integration/end-to-end tests for wiring; test public b
 not incidental private layout. SQL contract tests verify equivalent policy, ordering
 and transactions. A composed selector and optimized SQL queries are permitted designs.
 
-Application tests cover default continuation and fail-fast with missing direct/transitive
+When implementing operations, application tests must cover default continuation and fail-fast with missing direct/transitive
 dependencies and runtime failures; verify partial results and required guarantees.
 CLI tests check policy forwarding, warnings and result presentation using supplied
 application outcomes, without repeating the application's failure matrix.

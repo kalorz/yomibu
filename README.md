@@ -1,33 +1,12 @@
 # Yomibu
 
-Yomibu creates Japanese reading passages from vocabulary you have studied. It has
-a Rust command-line interface (CLI) and library. The readings are experimental:
-they have not been checked for natural phrasing or correct meaning in context.
+Yomibu is being rebuilt to create Japanese reading material. The previous
+implementation has been removed; the workspace retains four minimal crates,
+architecture enforcement and the [design plans](docs/plan/).
 
-## First story
-
-From the repository root, build with `cargo build --locked`.
-
-On macOS, save your API keys in Keychain with `target/debug/yomibu auth`. You can supply
-keys through environment variables on any supported platform:
-
-```sh
-export YOMIBU_WANIKANI_API_KEY=...
-export YOMIBU_OPENAI_API_KEY=...
-```
-
-Replace `...` with your keys. Download your WaniKani data, then generate a story:
-
-```sh
-target/debug/yomibu sync
-target/debug/yomibu story
-```
-
-Generation needs vocabulary you have studied in WaniKani.
-Use `target/debug/yomibu --help` to list commands. Use
-`target/debug/yomibu help sync` or `target/debug/yomibu help story` for options,
-credential setup and permissions.
-See [configuration examples](config/).
+Build with `cargo build --locked`. The `yomibu` executable reports that no commands
+are implemented and exits unsuccessfully. Story generation, synchronization and
+credential management are not currently available.
 
 ## Developing
 
@@ -41,9 +20,9 @@ structure; it neither specifies CLI input formats nor finalizes product behavior
 [Durable execution](docs/plan/durable-execution.md) and [replay](docs/plan/replay.md)
 are exploratory proposals.
 
-Run tests with `cargo test --locked --all`. They use local servers and invented
-data, so no account or model key is needed. [CI](.github/workflows/ci.yml) defines
-the full checks and runs them on Linux and macOS.
+Run Rust tests with `cargo test --locked --all`; no feature tests remain after the
+removal. [CI](.github/workflows/ci.yml) defines the full checks and runs them on
+Linux and macOS. The architecture enforcement tests below remain active.
 
 Check crate boundaries with `python3 -B tools/check_architecture.py` using Python 3
 and the repository Rust toolchain. Install the pinned architecture analyzer with
@@ -51,8 +30,8 @@ and the repository Rust toolchain. Install the pinned architecture analyzer with
 `python3 -B tools/check_domain.py`. Verify the enforcement contracts with
 `python3 -B -m unittest discover -s tools -p 'test_*.py' -v`.
 Architecture checks run separately from `cargo test`.
-See [verification](ARCHITECTURE.md#verification) for coverage, the temporary baseline
-and remaining enforcement gaps.
+See [verification](ARCHITECTURE.md#verification) for coverage and remaining
+enforcement gaps. No legacy violations are exempted.
 
 Build API documentation with `cargo doc --locked --no-deps`; the output is in
 `target/doc/yomibu_app`.
