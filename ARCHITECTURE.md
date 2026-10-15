@@ -32,11 +32,18 @@ Supporting practices apply as described here; examples do not add mandatory feat
 
 These guide modeling decisions, not a checklist of constructs to create everywhere.
 
+A domain model represents concepts, relationships and rules for part of the problem;
+it can span many types and functions. Yomibu's domain model includes collections,
+subjects, entries and progress rules. A Rails ActiveRecord class or a PostgreSQL table
+is not the whole domain model. Request types and database schemas are representations;
+mapping a row to a struct does not itself establish a DDD bounded context. Separate
+representations where meanings or responsibilities differ; share values where they match.
+
 | Area / concept | Rule and illustrative application |
 | --- | --- |
-| Strategic: Ubiquitous Language | Use [GLOSSARY.md](GLOSSARY.md) in discussion, code and tests. Collection, subject and entry retain their distinct meanings within the same model. |
+| Strategic: Ubiquitous Language | Agree new terms or changed meanings with the user, then record them in [GLOSSARY.md](GLOSSARY.md) before code uses them. Follow the [vocabulary agreement rule](AGENTS.md#terminology); reuse established meanings in discussion, code and tests. |
 | Strategic: Bounded Contexts | Identify where a model and its language apply. Crates, phases and tables do not automatically define contexts. Document a meaning that legitimately differs by context. |
-| Strategic: relationships between models | Define translations at model boundaries; external provider structures must not dictate the domain model. Translate WaniKani observations while preserving their source meaning. |
+| Strategic: relationships between domain models | Define relationships and translations between models in different bounded contexts, including external domain models. Preserve WaniKani progress semantics when translating observations; Yomibu applies its own eligibility rules. Provider structures must not dictate the domain model. |
 | Tactical: Entities and Value Objects | Use identity for entities and meaningful equality/validation for values. Subjects have identity; subject IDs and entry IDs are different value types. |
 | Tactical: Aggregates | Choose consistency boundaries from business invariants. Atomic entry/detail publication informs the decision; a foreign-key graph alone does not define an aggregate. |
 | Tactical: Domain Services | Use pure domain functions for rules with no natural entity owner, such as eligibility calculations across supplied observations. |
@@ -109,7 +116,7 @@ a new category; propose a distinct responsibility through an architecture decisi
 | Application | Execute operations through supplied ports and apply core decisions. External data/service access stays behind ports; runtime scheduling may live in the shell. |
 | Adapters | Translate external representations and honor contracts. Optimizations preserve semantics; expected failures are results, not panics. |
 | Simplicity | Every extra abstraction serves a required boundary, behavior or invariant. A single implementation does not weaken that justification. |
-| Terminology | Use glossary terms within their model context; define new concepts and resolve conflicting meanings explicitly. |
+| Terminology | Use glossary terms within their model context. Obtain agreement on new or changed meanings and record them before introducing them into code. |
 
 A domain object invoking a generator or even a pure selector port violates the
 boundary: invoke capabilities outside domain, then pass returned data to pure
@@ -159,6 +166,43 @@ enforce them before dispatch. Do not hide calls behind private SDK clients or re
 limits when invoking a sub-operation. Propagate deadlines/cancellation and bound I/O.
 Do not automatically retry uncertain external completion. Keep credentials out of
 application requests, reports and captured execution artifacts.
+
+### Failure handling
+
+By default, continue independent work when useful results can still satisfy the
+operation's contract, including explicitly permitted partial results. Each application
+operation defines required outcomes, which capability roles may be skipped and how
+execution continues after an error. Optionality belongs to a role in that operation,
+not to an adapter such as Sudachi globally. Never weaken required constraints or treat
+an omitted required check as a pass.
+
+Application owns this policy across CLI, web and MCP. Driving adapters convey the
+requested policy and present outcomes; they do not decide which guarantees to drop.
+Validate configuration and dependencies relevant to the requested operation. Missing
+unused integrations must not block it. An unavailable dependency makes its requested
+capability unavailable with an explicit reason; fail early when an essential missing
+capability makes the operation impossible.
+
+Illustrative outcomes under the default policy:
+
+| Situation | Outcome |
+| --- | --- |
+| Optional Sudachi analysis is unavailable or fails. | Skip that analysis, continue useful work and report the omission. |
+| Sudachi is required for an eligibility assessment. | Do not report that assessment as passed; retain other outputs only as the operation permits. |
+| Sentence analysis requires Sudachi and does not use an AI model. | Missing AI configuration is irrelevant; missing Sudachi fails this operation. |
+| One of several generation runs fails. | Keep successful results if completion requirements permit, and report the failed run. |
+| Generation has no usable generator. | Fail before starting work that cannot produce the requested result. |
+
+Structured outcomes report completed, unavailable, skipped and failed work, reasons,
+and whether required guarantees were established. Warnings accompany that information;
+partial results must remain distinguishable from complete success.
+
+An optional fail-fast policy (illustrative CLI option: `--fail-fast`) stops on the first
+unavailable requested capability or execution error, including an otherwise optional
+capability. A valid negative assessment is a business result, not an execution error.
+For parallel work, stop scheduling and cancel running operations where possible;
+already completed external calls cannot be undone. Both policies retain the shared
+execution limits and uncertain-completion rules above.
 
 ### Application operations and input
 
@@ -252,7 +296,7 @@ Test each responsibility where it is owned:
 | Scope | Evidence |
 | --- | --- |
 | Domain | Business rules and their edge cases, using explicit inputs. |
-| Application | Workflow decisions, error handling and shared limits across nested/parallel calls. Exercise invalid capability output and uncertain completion through port implementations outside production crates. |
+| Application | Workflow decisions, required/optional failure handling and shared limits across nested/parallel calls. Exercise invalid capability output and uncertain completion through port implementations outside production crates. |
 | Adapter | Translation and actual backend/provider guarantees. Run the shared contract suite against each implementation; mocks alone cannot prove SQL guarantees. |
 | Driving adapter | Parsing, input precedence, invocation, output and exit status. Substitute application behavior where needed; a narrow inbound interface can justify that isolation. |
 
@@ -262,6 +306,11 @@ cases through the CLI. Reusing an input is justified when assertions cover diffe
 obligations. Retain a few integration/end-to-end tests for wiring; test public behavior,
 not incidental private layout. SQL contract tests verify equivalent policy, ordering
 and transactions. A composed selector and optimized SQL queries are permitted designs.
+
+Application tests cover default continuation and fail-fast with missing direct/transitive
+dependencies and runtime failures; verify partial results and required guarantees.
+CLI tests check policy forwarding, warnings and result presentation using supplied
+application outcomes, without repeating the application's failure matrix.
 
 Review glossary use, interface cohesion and invariant ownership. Report unavailable
 prerequisites without substituting backends. Never silently suppress failures or

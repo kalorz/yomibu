@@ -7,6 +7,9 @@ legitimate differences between contexts explicitly. The retained
 [request example](docs/plan/story-generation-request.yml) illustrates proposed use,
 not final product behavior or CLI formats. Existing code may use older names.
 
+Follow the [vocabulary agreement rule](AGENTS.md#terminology): discuss new terms or
+changed meanings with the user, then record agreed definitions here before code uses them.
+
 | Term | Meaning |
 | --- | --- |
 | Collection | A group of source or manually entered subjects. A collection may be shared or owned by a learner. |

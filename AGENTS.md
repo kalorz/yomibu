@@ -22,10 +22,15 @@ adapter or weaken them for fewer lines, types or apparent duplication.
 
 Read [GLOSSARY.md](GLOSSARY.md) before naming domain concepts. Use this shared domain
 language in code, tests, documentation and explanations to the user. Use collection,
-subject and entry with their distinct meanings; do not introduce catalogue as a synonym. Older wording
-in preserved plans is not permission to invent alternative names. Explain new
-concepts and add their definitions to the glossary with the change. Document legitimate
-differences between model contexts; flag conflicts rather than silently changing meaning.
+subject and entry with their distinct meanings; do not introduce catalogue as a synonym.
+Older wording in preserved plans is not permission to invent alternative names.
+
+Before adopting a new domain term or changing an existing meaning, explain it to the
+user and obtain agreement. Record the agreed definition in the glossary before using
+it in code, including API and configuration names. This also governs concepts used in
+documentation and user explanations, not every local variable or ordinary technical word.
+Earlier agreement counts; do not request it again or require a separate glossary commit.
+Document legitimate differences between model contexts; resolve conflicts explicitly.
 
 ## Before editing
 
