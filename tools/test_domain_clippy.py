@@ -30,8 +30,8 @@ class InnerClippy(unittest.TestCase):
     def check_cases(self, crate_name, policy_path, cases):
         project = Path(__file__).resolve().parents[1]
         crate = project / "crates" / crate_name
-        # Reuse the actual policy; replace only production dependencies and submodules.
-        lint_header, _, _ = (crate / policy_path).read_text().partition("pub mod ")
+        # Reuse the lint header before the blank line separating production code.
+        lint_header, _, _ = (crate / policy_path).read_text().partition("\n\n")
         _, lint_section, lint_settings = (crate / "Cargo.toml").read_text().partition("[lints.clippy]")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

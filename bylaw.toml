@@ -18,7 +18,8 @@ packages = ["yomibu-core", "yomibu-app"]
 
 [selectors.reviewed_libraries]
 # Include the owners of serde/thiserror reexports resolved by semantic analysis.
-external_crates = ["serde", "serde_core", "chrono", "thiserror", "thiserror_impl"]
+# UUID value representation is allowed; no UUID generation features are enabled.
+external_crates = ["serde", "serde_core", "chrono", "thiserror", "thiserror_impl", "uuid"]
 
 [[rule]]
 id = "domain-boundary"
