@@ -163,10 +163,11 @@ Prefer reuse over rebuilding general-purpose functionality. Start with the stand
 library and dependencies already adopted by the project. Before adding substantial
 generic functionality or custom tooling, evaluate established libraries/tools against
 the required behavior, maintenance, testing, licensing, relevant security advisories
-and integration/dependency cost. Choose the lower total maintenance burden; popularity
-alone does not establish suitability or security. Briefly explain consequential choices
-in the change description, including any gap requiring custom code. Ordinary tasks
-reuse those decisions; do not repeat tool research each session.
+and integration/dependency cost. Choose for semantic fit and total maintenance burden,
+not dependency count alone; popularity alone does not establish suitability or security.
+Briefly explain consequential choices in the change description, including any gap
+requiring custom code. Ordinary tasks reuse those decisions; do not repeat tool
+research each session.
 
 Keep custom code for Yomibu-specific rules, small straightforward helpers and concrete
 unmet requirements. For example, reuse serialization, HTTP and SQL libraries while
@@ -410,8 +411,10 @@ obligations. Retain a few integration/end-to-end tests for wiring; test public b
 not incidental private layout. SQL contract tests verify equivalent policy, ordering
 and transactions. A composed selector and optimized SQL queries are permitted designs.
 
-When implementing operations, application tests must cover default continuation and fail-fast with missing direct/transitive
-dependencies and runtime failures; verify partial results and required guarantees.
+Cover failure handling and execution policies relevant to the operation's responsibilities.
+For workflows with optional or composed work, verify continuation, fail-fast, dependency
+failures and shared limits as applicable. A single required storage query needs
+success/failure coverage, without introducing additional policy machinery.
 CLI tests check policy forwarding, warnings and result presentation using supplied
 application outcomes, without repeating the application's failure matrix.
 
