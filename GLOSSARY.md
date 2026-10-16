@@ -12,6 +12,7 @@ changed meanings with the user, then record agreed definitions here before code 
 
 | Term | Meaning |
 | --- | --- |
+| Learner name | A learner's name with surrounding Unicode whitespace removed and at least one remaining character. Names may repeat and do not establish learner identity; the assigned UUID identifies the learner. |
 | Collection | A group of source or manually entered subjects. A collection may be shared or owned by a learner. |
 | Subject | One source record or manually entered item within a collection. It may produce several resolved entries or none; learner progress is recorded against it. |
 | Entry | One resolved vocabulary spelling, reading and sense, or one grammar usage, belonging to a subject. |

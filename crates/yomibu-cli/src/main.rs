@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 use clap::{Arg, ArgAction, Command, value_parser};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use uuid::Uuid;
-use yomibu_app::application::list_collection_ids;
+use yomibu_app::application::{CreateLearner, CreateLearnerError, list_collection_ids};
 use yomibu_core::domain::{CollectionId, LearnerId};
-use yomibu_ext::PostgresLearnerCollectionQuery;
+use yomibu_ext::PostgresLearnerStorage;
 
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -17,6 +17,18 @@ fn cli() -> Command {
         .about("Japanese reading material tools")
         .subcommand_required(true)
         .disable_help_subcommand(true)
+        .subcommand(
+            Command::new("create-learner")
+                .about("Create a learner and print its assigned UUID")
+                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. Surrounding name whitespace is trimmed; blank names are rejected. Names need not be unique. Prints the assigned UUID followed by a newline. An interrupted write may have been saved; it is never automatically retried. If creation is confirmed but a later step fails, stderr includes its UUID.")
+                .arg(
+                    Arg::new("name")
+                        .long("name")
+                        .value_name("NAME")
+                        .help("Name for the new learner")
+                        .required(true),
+                ),
+        )
         .subcommand(
             Command::new("collections")
                 .about("List collection UUIDs associated with a learner")
@@ -41,26 +53,35 @@ fn cli() -> Command {
 fn main() -> ExitCode {
     // clap handles help and rejects syntax before configuration or database access.
     let matches = cli().get_matches();
-    let collections = matches
-        .subcommand_matches("collections")
-        .expect("required subcommand");
-    let learner = *collections
-        .get_one::<Uuid>("learner")
-        .expect("required learner UUID");
-    let result = run(LearnerId(learner));
-    report_result(
-        result,
-        collections.get_flag("json"),
-        io::BufWriter::new(io::stdout().lock()),
-        io::stderr().lock(),
-    )
+    match matches.subcommand() {
+        Some(("create-learner", create)) => {
+            let name = create.get_one::<String>("name").expect("required name");
+            report_created(
+                run_create_learner(name),
+                io::BufWriter::new(io::stdout().lock()),
+                io::stderr().lock(),
+            )
+        }
+        Some(("collections", collections)) => {
+            let learner = *collections
+                .get_one::<Uuid>("learner")
+                .expect("required learner UUID");
+            report_result(
+                run_collections(LearnerId(learner)),
+                collections.get_flag("json"),
+                io::BufWriter::new(io::stdout().lock()),
+                io::stderr().lock(),
+            )
+        }
+        _ => unreachable!("clap requires a known subcommand"),
+    }
 }
 
 fn report_result(
     result: Result<Vec<CollectionId>, String>,
     json: bool,
     mut stdout: impl Write,
-    mut stderr: impl Write,
+    stderr: impl Write,
 ) -> ExitCode {
     let result = result.and_then(|ids| {
         write_collection_ids(&ids, json, &mut stdout)
@@ -68,6 +89,29 @@ fn report_result(
         stdout.flush().map_err(|_| "could not flush stdout")?;
         Ok(())
     });
+    report_status(result, stderr)
+}
+
+fn report_created(
+    result: Result<LearnerId, String>,
+    mut stdout: impl Write,
+    stderr: impl Write,
+) -> ExitCode {
+    let result = result.and_then(|id| {
+        writeln!(stdout, "{}", id.0)
+            .and_then(|()| stdout.flush())
+            .map_err(|_| {
+                CreateLearnerError::Created {
+                    id,
+                    reason: "could not write or flush learner UUID to stdout",
+                }
+                .to_string()
+            })
+    });
+    report_status(result, stderr)
+}
+
+fn report_status(result: Result<(), String>, mut stderr: impl Write) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -94,7 +138,27 @@ fn write_collection_ids(
     Ok(())
 }
 
-fn run(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
+fn run_collections(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
+    let url = database_url()?;
+    block_on_database(collections(learner, url))
+}
+
+fn run_create_learner(name: &str) -> Result<LearnerId, String> {
+    let request = CreateLearner::new(name).map_err(|error| error.to_string())?;
+    let url = database_url()?;
+    block_on_database(create_learner(request, url))
+}
+
+fn creation_after_shutdown(
+    result: Result<LearnerId, CreateLearnerError>,
+    shutdown: Result<(), &'static str>,
+) -> Result<LearnerId, String> {
+    let id = result.map_err(|error| error.to_string())?;
+    shutdown.map_err(|reason| CreateLearnerError::Created { id, reason }.to_string())?;
+    Ok(id)
+}
+
+fn database_url() -> Result<String, String> {
     let url = std::env::var("YOMIBU_DATABASE_URL")
         .map_err(|error| match error {
             std::env::VarError::NotPresent => {
@@ -113,18 +177,22 @@ fn run(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
     }) {
         return Err("YOMIBU_DATABASE_URL must use the postgres or postgresql URL scheme".into());
     }
+    Ok(url)
+}
+
+fn block_on_database<T>(operation: impl Future<Output = Result<T, String>>) -> Result<T, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|_| "could not start the database runtime")?;
-    let result = runtime.block_on(collections(learner, url));
+    let result = runtime.block_on(operation);
     // Abandoned blocking work (for example DNS) must not hold process exit open.
     runtime.shutdown_timeout(SHUTDOWN_TIMEOUT);
     result
 }
 
-async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId>, String> {
-    let pool = tokio::time::timeout(IO_TIMEOUT, async {
+async fn connect(url: String) -> Result<sqlx::PgPool, String> {
+    tokio::time::timeout(IO_TIMEOUT, async {
         // The driver's option parsing may read credential files. Include that
         // blocking work in the startup bound, alongside connection establishment.
         let options = tokio::task::spawn_blocking(move || url.parse::<PgConnectOptions>())
@@ -142,21 +210,109 @@ async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId
             .map_err(|_| "database startup failed; check connection settings and availability")
     })
     .await
-    .map_err(|_| "database startup timed out")??;
+    .map_err(|_| "database startup timed out")?
+    .map_err(Into::into)
+}
 
-    let storage = PostgresLearnerCollectionQuery::new(pool.clone());
+async fn close_pool(pool: &sqlx::PgPool) -> Result<(), &'static str> {
+    tokio::time::timeout(SHUTDOWN_TIMEOUT, pool.close())
+        .await
+        .map_err(|_| "database shutdown timed out")
+}
+
+async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId>, String> {
+    let pool = connect(url).await?;
+    let storage = PostgresLearnerStorage::new(pool.clone());
     let result = list_collection_ids(learner, &storage, Instant::now() + IO_TIMEOUT).await;
-    let shutdown = tokio::time::timeout(SHUTDOWN_TIMEOUT, pool.close()).await;
+    let shutdown = close_pool(&pool).await;
     // Preserve a lookup failure even if cleanup also times out; cleanup failure
     // after a successful lookup must not be reported as successful completion.
     let ids = result.map_err(|error| error.to_string())?;
-    shutdown.map_err(|_| "database shutdown timed out")?;
+    shutdown?;
     Ok(ids)
+}
+
+async fn create_learner(request: CreateLearner, url: String) -> Result<LearnerId, String> {
+    let pool = connect(url).await?;
+    let storage = PostgresLearnerStorage::new(pool.clone());
+    let result = request.execute(&storage, Instant::now() + IO_TIMEOUT).await;
+    let shutdown = close_pool(&pool).await;
+    creation_after_shutdown(result, shutdown)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn created_learner_prints_assigned_uuid_and_newline() {
+        let id = LearnerId(Uuid::from_u128(7));
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        assert_eq!(
+            report_created(Ok(id), &mut stdout, &mut stderr),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(stdout, b"00000000-0000-0000-0000-000000000007\n");
+        assert!(stderr.is_empty());
+    }
+
+    #[test]
+    fn creation_errors_print_no_success_uuid() {
+        let error = CreateLearnerError::Created {
+            id: LearnerId(Uuid::from_u128(7)),
+            reason: "creation deadline exceeded",
+        }
+        .to_string();
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        assert_eq!(
+            report_created(Err(error.clone()), &mut stdout, &mut stderr),
+            ExitCode::FAILURE
+        );
+        assert!(stdout.is_empty());
+        assert_eq!(stderr, format!("error: {error}\n").as_bytes());
+    }
+
+    #[test]
+    fn cleanup_failure_preserves_creation_and_prior_errors() {
+        let id = LearnerId(Uuid::from_u128(7));
+        let shutdown = Err("database shutdown timed out");
+        assert_eq!(
+            creation_after_shutdown(Ok(id), shutdown),
+            Err(CreateLearnerError::Created {
+                id,
+                reason: "database shutdown timed out"
+            }
+            .to_string())
+        );
+        let error = CreateLearnerError::DeadlineExceeded;
+        let expected = error.to_string();
+        assert_eq!(creation_after_shutdown(Err(error), shutdown), Err(expected));
+    }
+
+    #[test]
+    fn output_failures_report_confirmed_creation_and_uuid() {
+        let id = LearnerId(Uuid::from_u128(7));
+        let expected = format!(
+            "error: {}\n",
+            CreateLearnerError::Created {
+                id,
+                reason: "could not write or flush learner UUID to stdout"
+            }
+        );
+        for stdout in [
+            Box::new(&mut [][..]) as Box<dyn Write>,
+            Box::new(io::BufWriter::new(&mut [][..])),
+        ] {
+            let mut stderr = Vec::new();
+            assert_eq!(
+                report_created(Ok(id), stdout, &mut stderr),
+                ExitCode::FAILURE
+            );
+            assert_eq!(stderr, expected.as_bytes());
+        }
+    }
 
     #[test]
     fn successful_result_prints_one_uuid_per_line() {

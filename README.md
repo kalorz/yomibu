@@ -70,6 +70,35 @@ SQLx can retry refused connections within the startup bound. Output is written
 only after lookup and pool shutdown succeed; a pool shutdown timeout fails the
 command without printing IDs. Output write failures also exit unsuccessfully.
 
+## Create a learner
+
+`yomibu create-learner --name <NAME>` creates one learner and prints its assigned
+UUID followed by a newline. It uses the same `YOMIBU_DATABASE_URL` configuration
+and retained schema described above. The database role needs `INSERT` on
+`learners` and `SELECT` on its `id` column for the returned UUID.
+
+```sh
+./target/debug/yomibu create-learner --name 'Alice'
+```
+
+Surrounding Unicode whitespace is trimmed; a blank name is rejected before
+database configuration or connection. Names are not unique: running the command
+again creates another learner with a different UUID. It creates no collections
+or associations and has no JSON output option. `yomibu create-learner --help`
+needs no database configuration.
+
+Startup and creation each have a five-second limit, with the same acquisition,
+server statement, and shutdown bounds as collection lookup. The write is never
+automatically retried. PostgreSQL syntax/access and integrity-constraint rejections
+report that no learner was created. Other failures after dispatch, including
+timeouts and connection failures, conservatively report uncertain completion
+instead of claiming rollback. Once creation is confirmed, any subsequent deadline,
+cleanup, or output failure retains that fact and includes the assigned UUID in stderr.
+These failures exit unsuccessfully. No UUID is printed to stdout before creation
+and pool shutdown succeed; an output failure can leave partial or complete UUID
+bytes already written. Repeating creation after a failure may create a duplicate.
+Diagnostics omit credentials and raw provider messages.
+
 ## Developing
 
 `crates/yomibu-app` is the application library; `crates/yomibu-cli` builds `yomibu`.
@@ -110,9 +139,9 @@ checks the real command's output and exit behavior. Failed runs can leave test
 schemas behind; use only a disposable database. Missing prerequisites fail the
 explicit test run rather than substituting another backend.
 
-See the [application operation](crates/yomibu-app/src/application/mod.rs),
+See the [application operations](crates/yomibu-app/src/application/mod.rs),
 [storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs), and
-[PostgreSQL adapter](crates/yomibu-ext/src/postgres.rs) for lookup guarantees,
+[PostgreSQL adapters](crates/yomibu-ext/src/postgres.rs) for read/write guarantees,
 deadline handling, and pool configuration responsibilities.
 
 Check crate boundaries with `python3 -B tools/check_architecture.py` using Python 3

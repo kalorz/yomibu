@@ -1,6 +1,6 @@
 use std::{future::Future, pin::Pin, time::Instant};
 
-use crate::domain::{CollectionId, LearnerId};
+use crate::domain::{CollectionId, LearnerId, LearnerName};
 
 /// A storage port's provider-independent failure description.
 /// Adapters must supply a presentable message without credentials or raw
@@ -51,4 +51,53 @@ pub trait LearnerCollectionQuery {
         learner_id: LearnerId,
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CollectionId>, StorageError>> + '_>>;
+}
+
+/// Storage's knowledge of a failed write. Reasons must be safe to present,
+/// without credentials, connection URLs, or raw provider messages.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LearnerWriteError {
+    /// No learner was created by this invocation.
+    NotCreated(String),
+    /// The write may have committed. This must never be treated as safe to retry.
+    CompletionUnknown(String),
+}
+
+impl std::fmt::Display for LearnerWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotCreated(reason) => write!(f, "learner was not created: {reason}"),
+            Self::CompletionUnknown(reason) => write!(
+                f,
+                "learner creation completion is unknown: {reason}; it may have been saved; do not automatically retry"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LearnerWriteError {}
+
+/// Port: outbound / driven. Role: infrastructure.
+///
+/// Creates exactly one learner with the validated name and returns its assigned
+/// UUID only after storage confirms commit. Repeated names create distinct learners;
+/// this operation creates no collections or associations. The adapter owns these
+/// persistence guarantees; callers do not query again to validate success.
+///
+/// Reject expired calls before I/O. Bound acquisition, connection establishment,
+/// and execution by the supplied absolute monotonic deadline, without retrying
+/// the write. Failures before dispatch and proven server rejections are
+/// `NotCreated`; ambiguous failures after dispatch are `CompletionUnknown`. Preserve
+/// a confirmed UUID even if observed after expiry; application handles late results.
+///
+/// Dropping the future abandons its result, not necessarily the server operation.
+/// A timeout or cancellation does not prove rollback. Cleanup may continue beyond
+/// the cooperative I/O deadline; composition bounds startup/shutdown separately
+/// and configures finite server execution limits.
+pub trait LearnerWriter {
+    fn create_learner(
+        &self,
+        name: LearnerName,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<LearnerId, LearnerWriteError>> + '_>>;
 }
