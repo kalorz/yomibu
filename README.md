@@ -24,7 +24,8 @@ Run Rust tests with `cargo test --locked --all`. [CI](.github/workflows/ci.yml)
 defines the full checks and runs them on Linux and macOS.
 
 The PostgreSQL adapter's integration test is explicitly ignored by that default
-command. Supply a disposable PostgreSQL 18+ database with the `vector` extension
+command; CI runs it separately against PostgreSQL with pgvector. For a local run,
+supply a disposable PostgreSQL 18+ database with the `vector` extension
 installed in `public`, and a test role permitted to create/drop schemas and
 terminate its own connections. Run:
 
@@ -38,13 +39,10 @@ adapter directly, and removes its schema on success. Failed runs can leave test
 schemas behind; use only a disposable database. Missing prerequisites fail the
 explicit test run rather than substituting another backend.
 
-`yomibu_app::application::list_collection_ids` is async and takes an absolute
-`std::time::Instant` deadline. Supply a
-`yomibu_ext::PostgresLearnerCollectionQuery` constructed from a configured SQLx
-`PgPool`. Composition owns the Tokio runtime, connection options, finite pool
-acquisition/session statement timeouts, and bounded startup/shutdown; the adapter
-bounds acquisition and query waits by the application's deadline. SQLx and Tokio
-are not part of the application or core contracts.
+See the [application operation](crates/yomibu-app/src/application/mod.rs),
+[storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs), and
+[PostgreSQL adapter](crates/yomibu-ext/src/postgres.rs) for lookup guarantees,
+deadline handling, and pool configuration responsibilities.
 
 Check crate boundaries with `python3 -B tools/check_architecture.py` using Python 3
 and the repository Rust toolchain. Install the pinned architecture analyzer with

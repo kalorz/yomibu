@@ -77,7 +77,9 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
     );
     assert_eq!(
         lookup(&closed_storage, 1).await,
-        Err(StorageError("collection lookup failed".into()))
+        Err(StorageError(
+            "collection lookup failed (pool closed)".into()
+        ))
     );
 
     // Acquiring the sole connection is inside the request deadline.
@@ -93,6 +95,14 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
         .await
         .unwrap();
     assert_deadline(&storage).await;
+    // The abandoned statement is still blocked. It must not retain the sole slot.
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool),
+    )
+    .await
+    .expect("a timed-out query must release its pool slot without draining the statement")
+    .unwrap();
     lock.rollback().await.unwrap();
     assert_eq!(lookup(&storage, 1).await.unwrap().len(), 2);
 
@@ -110,9 +120,20 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
         .unwrap();
     assert_eq!(
         lookup(&storage, 1).await,
-        Err(StorageError("collection lookup failed".into()))
+        Err(StorageError(
+            "collection lookup failed (SQLSTATE 57014)".into()
+        ))
     );
     lock.rollback().await.unwrap();
+    sqlx::query("RESET statement_timeout")
+        .execute(pool)
+        .await
+        .unwrap();
+    let restored: String = sqlx::query_scalar("SHOW statement_timeout")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(restored, "3s");
     assert_eq!(lookup(&storage, 1).await.unwrap().len(), 2);
 
     // Break the pooled connection; the next independent call can recover.
@@ -182,8 +203,12 @@ async fn run_postgres_contract() {
         "install the vector extension in the disposable database before running this test"
     );
 
-    // The only dynamic SQL identifier consists of a fixed prefix and numeric PID.
-    let schema = format!("yomibu_query_{}", std::process::id());
+    // PostgreSQL 18 supplies a unique suffix; only hex digits enter the identifier.
+    let suffix: Uuid = sqlx::query_scalar("SELECT uuidv7()")
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    let schema = format!("yomibu_query_{}", suffix.simple());
     sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
         .execute(&admin)
         .await

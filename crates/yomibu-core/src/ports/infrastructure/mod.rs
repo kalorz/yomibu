@@ -8,6 +8,13 @@ use crate::domain::{CollectionId, LearnerId};
 #[derive(Debug, PartialEq, Eq)]
 pub struct StorageError(pub String);
 
+impl StorageError {
+    /// The shared failure for an expired collection lookup deadline.
+    pub fn collection_lookup_deadline_exceeded() -> Self {
+        Self("collection lookup deadline exceeded".into())
+    }
+}
+
 impl std::fmt::Display for StorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)

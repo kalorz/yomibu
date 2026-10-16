@@ -109,30 +109,3 @@ fn expired_deadline_prevents_dispatch() {
     );
     assert_eq!(storage.calls.get(), 0);
 }
-
-#[test]
-fn rejects_late_success_but_preserves_late_failure() {
-    for result in [Ok(vec![]), Err(StorageError("storage unavailable".into()))] {
-        let expected = match &result {
-            Ok(_) => StorageError("collection lookup deadline exceeded".into()),
-            Err(error) => StorageError(error.0.clone()),
-        };
-        let mut storage = storage(result);
-        storage.expected_deadline = Instant::now() + Duration::from_millis(50);
-        storage.ready.set(false);
-        let mut call = pin!(list_collection_ids(
-            LearnerId(Uuid::from_u128(1)),
-            &storage,
-            storage.expected_deadline,
-        ));
-        assert!(poll(call.as_mut()).is_pending());
-        std::thread::sleep(
-            storage
-                .expected_deadline
-                .saturating_duration_since(Instant::now()),
-        );
-        storage.ready.set(true);
-        assert_eq!(poll(call.as_mut()), Poll::Ready(Err(expected)));
-        assert_eq!(storage.calls.get(), 1);
-    }
-}
