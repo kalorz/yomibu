@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   postgres:
-    name: PostgreSQL adapter contract
+    name: PostgreSQL adapter contract and CLI wiring
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -46,7 +46,9 @@ jobs:
       - name: Test against PostgreSQL
         env:
           YOMIBU_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/yomibu_test
-        run: cargo test --locked -p yomibu-ext --test postgres -- --ignored
+        run: |
+          cargo test --locked -p yomibu-ext --test postgres -- --ignored
+          cargo test --locked -p yomibu-cli --test cli -- --ignored
 
   quality:
     name: Quality (${{ matrix.os }})
