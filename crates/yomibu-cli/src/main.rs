@@ -106,13 +106,12 @@ fn report_created(
     stderr: impl Write,
 ) -> ExitCode {
     let result = result.and_then(|id| {
-        if json {
+        let output = if json {
             writeln!(stdout, "{}", serde_json::json!({"id": id.0.to_string()}))
         } else {
             writeln!(stdout, "{}", id.0)
-        }
-        .and_then(|()| stdout.flush())
-        .map_err(|_| {
+        };
+        output.and_then(|()| stdout.flush()).map_err(|_| {
             CreateLearnerError::Created {
                 id,
                 reason: "could not write or flush learner UUID to stdout",
