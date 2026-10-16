@@ -33,15 +33,20 @@ fn failure(output: &Output) -> &str {
 #[tokio::test]
 async fn help_succeeds_without_configuration() {
     for (args, expected) in [
-        (vec!["--help"], "collections"),
-        (vec!["collections", "--help"], "--learner <UUID>"),
+        (vec!["--help"], vec!["collections"]),
+        (
+            vec!["collections", "--help"],
+            vec!["--learner <UUID>", "--json"],
+        ),
     ] {
         let output = invoke(&args, None).await;
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
         let stdout = std::str::from_utf8(&output.stdout).unwrap();
         assert!(stdout.contains("Usage:"));
-        assert!(stdout.contains(expected), "{stdout}");
+        for text in expected {
+            assert!(stdout.contains(text), "{stdout}");
+        }
     }
 }
 
@@ -218,6 +223,22 @@ async fn check_postgres_wiring() {
             "00000000-0000-0000-0000-000000000020"
         ]
     );
+
+    let output = invoke(
+        &["collections", "--learner", LEARNER, "--json"],
+        Some(database_url),
+    )
+    .await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(output.stdout.ends_with(b"\n"));
+    let mut json_ids: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+    json_ids.sort_unstable();
+    assert_eq!(json_ids, lines);
 
     let output = invoke(
         &[
