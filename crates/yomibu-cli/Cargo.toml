@@ -22,7 +22,7 @@ yomibu-core = { path = "../yomibu-core" }
 yomibu-ext = { path = "../yomibu-ext" }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt", "macros", "process", "time"] }
+tokio = { version = "1", features = ["macros", "process"] }
 
 [lints.rust]
 unreachable_pub = "warn"

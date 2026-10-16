@@ -144,16 +144,9 @@ mod tests {
             ExitCode::SUCCESS
         );
         assert!(stderr.is_empty());
-        let stdout = String::from_utf8(stdout).unwrap();
-        assert!(stdout.ends_with('\n'));
-        let mut lines: Vec<_> = stdout.lines().collect();
-        lines.sort_unstable();
         assert_eq!(
-            lines,
-            [
-                "00000000-0000-0000-0000-000000000002",
-                "00000000-0000-0000-0000-000000000009"
-            ]
+            stdout,
+            b"00000000-0000-0000-0000-000000000009\n00000000-0000-0000-0000-000000000002\n"
         );
     }
 

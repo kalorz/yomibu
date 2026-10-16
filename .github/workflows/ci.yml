@@ -46,9 +46,7 @@ jobs:
       - name: Test against PostgreSQL
         env:
           YOMIBU_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/yomibu_test
-        run: |
-          cargo test --locked -p yomibu-ext --test postgres -- --ignored
-          cargo test --locked -p yomibu-cli --test cli -- --ignored
+        run: cargo test --locked --all -- --ignored
 
   quality:
     name: Quality (${{ matrix.os }})

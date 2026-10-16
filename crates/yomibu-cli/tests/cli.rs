@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::net::TcpListener;
 use std::process::Output;
 use std::time::Duration;
@@ -6,7 +7,7 @@ use tokio::process::Command;
 
 const LEARNER: &str = "00000000-0000-0000-0000-000000000001";
 
-async fn invoke(args: &[&str], database_url: Option<&str>) -> Output {
+async fn invoke(args: &[&str], database_url: Option<&OsStr>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
     command.args(args).env_remove("YOMIBU_DATABASE_URL");
     for (name, _) in std::env::vars_os() {
@@ -36,16 +37,16 @@ fn failure(output: &Output) -> &str {
 
 #[tokio::test]
 async fn help_succeeds_without_configuration() {
-    for args in [vec!["--help"], vec!["collections", "--help"]] {
+    for (args, expected) in [
+        (vec!["--help"], "collections"),
+        (vec!["collections", "--help"], "--learner <UUID>"),
+    ] {
         let output = invoke(&args, None).await;
         assert!(output.status.success());
         assert!(output.stderr.is_empty());
         let stdout = std::str::from_utf8(&output.stdout).unwrap();
         assert!(stdout.contains("Usage:"));
-        assert!(stdout.contains("collections"));
-        if args.len() == 2 {
-            assert!(stdout.contains("--learner <UUID>"));
-        }
+        assert!(stdout.contains(expected), "{stdout}");
     }
 }
 
@@ -68,7 +69,7 @@ async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
         vec!["collections", "--learner", LEARNER, "--learner", LEARNER],
     ] {
         for config in [None, Some(url.as_str())] {
-            let output = invoke(&args, config).await;
+            let output = invoke(&args, config.map(OsStr::new)).await;
             assert_eq!(output.status.code(), Some(2), "{args:?}");
             let stderr = failure(&output);
             assert!(stderr.contains("error:"), "{stderr}");
@@ -95,7 +96,11 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
         Some("postgres://user:secret-marker@localhost:invalid/db"),
         Some(wrong_scheme.as_str()),
     ] {
-        let output = invoke(&["collections", "--learner", LEARNER], config).await;
+        let output = invoke(
+            &["collections", "--learner", LEARNER],
+            config.map(OsStr::new),
+        )
+        .await;
         let stderr = failure(&output);
         assert!(stderr.contains("YOMIBU_DATABASE_URL"), "{stderr}");
         assert!(!stderr.contains("secret-marker"));
@@ -110,17 +115,13 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
 #[cfg(unix)]
 #[tokio::test]
 async fn non_unicode_configuration_is_reported_as_invalid() {
-    use std::ffi::OsString;
-    use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::ffi::OsStrExt;
 
-    let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
-    command
-        .args(["collections", "--learner", LEARNER])
-        .env("YOMIBU_DATABASE_URL", OsString::from_vec(vec![0xff]));
-    let output = tokio::time::timeout(Duration::from_secs(10), command.kill_on_drop(true).output())
-        .await
-        .unwrap()
-        .unwrap();
+    let output = invoke(
+        &["collections", "--learner", LEARNER],
+        Some(OsStr::from_bytes(&[0xff])),
+    )
+    .await;
     let stderr = failure(&output);
     assert!(
         stderr.contains("YOMIBU_DATABASE_URL must contain valid Unicode"),
@@ -136,7 +137,11 @@ async fn unresponsive_database_startup_is_bounded_and_sanitized() {
         "  PoStGrEsQl://user:secret-marker@{}/db \n",
         listener.local_addr().unwrap()
     );
-    let output = invoke(&["collections", "--learner", LEARNER], Some(&url)).await;
+    let output = invoke(
+        &["collections", "--learner", LEARNER],
+        Some(OsStr::new(&url)),
+    )
+    .await;
     let stderr = failure(&output);
     assert!(stderr.contains("database startup"), "{stderr}");
     assert!(!stderr.contains("secret-marker"));
@@ -204,7 +209,8 @@ async fn check_postgres_wiring() {
     let mut url = options.to_url_lossy();
     url.query_pairs_mut()
         .append_pair("options", options.get_options().unwrap());
-    let output = invoke(&["collections", "--learner", LEARNER], Some(url.as_str())).await;
+    let database_url = OsStr::new(url.as_str());
+    let output = invoke(&["collections", "--learner", LEARNER], Some(database_url)).await;
     assert!(
         output.status.success(),
         "{}",
@@ -229,7 +235,7 @@ async fn check_postgres_wiring() {
             "--learner",
             "00000000-0000-0000-0000-000000000099",
         ],
-        Some(url.as_str()),
+        Some(database_url),
     )
     .await;
     assert!(output.status.success());
@@ -240,7 +246,7 @@ async fn check_postgres_wiring() {
         .execute(&control)
         .await
         .unwrap();
-    let output = invoke(&["collections", "--learner", LEARNER], Some(url.as_str())).await;
+    let output = invoke(&["collections", "--learner", LEARNER], Some(database_url)).await;
     let stderr = failure(&output);
     assert!(stderr.contains("collection lookup failed"));
     assert!(!stderr.contains(&schema));
