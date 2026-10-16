@@ -403,7 +403,7 @@ parsing and resolution; keep custom code limited to demonstrated gaps.
 | Domain avoids ambient effects | Scoped Clippy restrictions reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
 | Public contracts expose domain/application representations | The library gate catches explicit references to unapproved SDK types, not poor contract design. Review associated types, opaque payload handling and representation ownership. |
 | Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
-| Adapters satisfy behavioral contracts | No adapters are implemented yet. Define reusable contract cases beside each implemented port's guarantees and run them against its adapters; dependency analysis cannot establish ordering, atomicity or failure semantics. |
+| Adapters satisfy behavioral contracts | The PostgreSQL learner collection query has real-backend contract tests in `crates/yomibu-ext/tests/postgres.rs`, run by CI; see the README for local invocation and prerequisites. Dependency analysis cannot establish ordering, atomicity or failure semantics. |
 | Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
 
 Test each responsibility where it is owned:
@@ -412,7 +412,7 @@ Test each responsibility where it is owned:
 | --- | --- |
 | Domain | Business rules and their edge cases, using explicit inputs. |
 | Application | Workflow decisions, required/optional failure handling and shared limits across nested/parallel calls. Exercise invalid capability output and uncertain completion through port implementations outside production crates. |
-| Adapter | Translation and actual backend/provider guarantees. Run the shared contract suite against each implementation; mocks alone cannot prove SQL guarantees. |
+| Adapter | Translation and actual backend/provider guarantees. Verify the port's contract cases against each implementation; mocks alone cannot prove SQL guarantees. A shared test harness is not required for a single adapter. |
 | Driving adapter | Parsing, input precedence, invocation, output and exit status. Substitute application behavior where needed; a narrow inbound interface can justify that isolation. |
 
 Keep detailed rule edge cases at their owning layer. For example, CLI tests inject

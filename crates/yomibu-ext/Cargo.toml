@@ -5,5 +5,14 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[dependencies]
+yomibu-core = { path = "../yomibu-core" }
+sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "uuid", "tls-rustls"] }
+tokio = { version = "1", features = ["time"] }
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+
 [lints.rust]
 unreachable_pub = "warn"

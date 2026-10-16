@@ -13,6 +13,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  postgres:
+    name: PostgreSQL adapter contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: yomibu_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d yomibu_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the repository toolchain
+        run: rustup show active-toolchain
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Enable the retained schema's vector extension
+        run: docker exec "${{ job.services.postgres.id }}" psql -U postgres -d yomibu_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector;'
+      - name: Test against PostgreSQL
+        env:
+          YOMIBU_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/yomibu_test
+        run: cargo test --locked -p yomibu-ext --test postgres -- --ignored
+
   quality:
     name: Quality (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
