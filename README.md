@@ -76,15 +76,17 @@ command without printing IDs. Output write failures also exit unsuccessfully.
 UUID followed by a newline. It uses the same `YOMIBU_DATABASE_URL` configuration
 and retained schema described above. The database role needs `INSERT` on
 `learners` and `SELECT` on its `id` column for the returned UUID.
+Add `--json` to print `{"id":"<assigned UUID>"}` followed by a newline.
 
 ```sh
 ./target/debug/yomibu create-learner --name 'Alice'
+./target/debug/yomibu create-learner --name 'Alice' --json
 ```
 
 Surrounding Unicode whitespace is trimmed; a blank name is rejected before
 database configuration or connection. Names are not unique: running the command
 again creates another learner with a different UUID. It creates no collections
-or associations and has no JSON output option. `yomibu create-learner --help`
+or associations. `yomibu create-learner --help`
 needs no database configuration.
 
 Startup and creation each have a five-second limit, with the same acquisition,

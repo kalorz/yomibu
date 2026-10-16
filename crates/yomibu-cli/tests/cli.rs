@@ -48,7 +48,10 @@ fn failure(output: &Output) -> &str {
 async fn help_succeeds_without_configuration() {
     for (args, expected) in [
         (vec!["--help"], vec!["collections", "create-learner"]),
-        (vec!["create-learner", "--help"], vec!["--name <NAME>"]),
+        (
+            vec!["create-learner", "--help"],
+            vec!["--name <NAME>", "--json"],
+        ),
         (
             vec!["collections", "--help"],
             vec!["--learner <UUID>", "--json"],
@@ -97,7 +100,7 @@ async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
         vec!["unknown"],
         vec!["create-learner"],
         vec!["create-learner", "--name"],
-        vec!["create-learner", "--name", "Alice", "--json"],
+        vec!["create-learner", "--name", "Alice", "--unknown"],
         vec!["create-learner", "--name", "Alice", "--name", "Bob"],
         vec!["collections"],
         vec!["collections", "--learner"],
@@ -255,6 +258,26 @@ async fn check_postgres_wiring() {
         .await
         .unwrap();
     assert_eq!(name, "New CLI learner");
+
+    let output = invoke(
+        &["create-learner", "--name", "Alice", "--json"],
+        Some(database_url),
+    )
+    .await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(output.stdout.ends_with(b"\n"));
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM learners WHERE name = 'Alice'")
+        .fetch_all(&mut control)
+        .await
+        .unwrap();
+    assert_eq!(ids.len(), 1);
+    assert_eq!(result, serde_json::json!({"id": ids[0].to_string()}));
 
     let output = invoke(&["collections", "--learner", LEARNER], Some(database_url)).await;
     assert!(
