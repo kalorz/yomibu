@@ -56,10 +56,10 @@ export YOMIBU_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu'
 
 Success prints one UUID per line. Add `--json` to print a JSON array of UUID strings
 followed by a newline. Ordering is unspecified in both formats. No associations,
-including an unknown learner, succeed with no output by default or `[]` followed
-by a newline with `--json`. Invalid arguments, missing or invalid configuration,
-and storage failures print an error to stderr and exit unsuccessfully. Connection
-credentials and raw provider errors are not printed.
+including an unknown learner, succeed with no output by default or `[]` with
+`--json`. Invalid arguments, missing or invalid configuration, and storage
+failures print an error to stderr and exit unsuccessfully. Connection credentials
+and raw provider errors are not printed.
 `yomibu --help` and `yomibu collections --help` need no database configuration.
 
 Startup and lookup each have a five-second limit; connection acquisition and

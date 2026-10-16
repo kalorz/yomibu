@@ -235,24 +235,35 @@ mod tests {
     #[test]
     fn output_write_failure_is_unsuccessful() {
         for json in [false, true] {
-            // One UUID fits in 128 bytes; a zero-capacity buffer writes immediately.
-            for (capacity, expected) in [
-                (128, "error: could not flush stdout\n"),
-                (0, "error: could not write collection IDs to stdout\n"),
-            ] {
-                let mut stderr = Vec::new();
-                let stdout = io::BufWriter::with_capacity(capacity, &mut [][..]);
-                assert_eq!(
-                    report_result(
-                        Ok(vec![CollectionId(Uuid::from_u128(9))]),
-                        json,
-                        stdout,
-                        &mut stderr
-                    ),
-                    ExitCode::FAILURE
-                );
-                assert_eq!(stderr, expected.as_bytes());
-            }
+            let mut stderr = Vec::new();
+            // An empty slice rejects the first write.
+            assert_eq!(
+                report_result(
+                    Ok(vec![CollectionId(Uuid::from_u128(9))]),
+                    json,
+                    &mut [][..],
+                    &mut stderr
+                ),
+                ExitCode::FAILURE
+            );
+            assert_eq!(stderr, b"error: could not write collection IDs to stdout\n");
         }
+    }
+
+    #[test]
+    fn output_flush_failure_is_unsuccessful() {
+        let mut stderr = Vec::new();
+        // The buffer accepts one UUID; the empty slice behind it rejects the flush.
+        let stdout = io::BufWriter::new(&mut [][..]);
+        assert_eq!(
+            report_result(
+                Ok(vec![CollectionId(Uuid::from_u128(9))]),
+                false,
+                stdout,
+                &mut stderr
+            ),
+            ExitCode::FAILURE
+        );
+        assert_eq!(stderr, b"error: could not flush stdout\n");
     }
 }

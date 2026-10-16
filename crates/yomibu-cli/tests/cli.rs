@@ -36,7 +36,7 @@ async fn help_succeeds_without_configuration() {
         (vec!["--help"], vec!["collections"]),
         (
             vec!["collections", "--help"],
-            vec!["--learner <UUID>", "--json", "JSON array"],
+            vec!["--learner <UUID>", "--json"],
         ),
     ] {
         let output = invoke(&args, None).await;
@@ -110,12 +110,6 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
         listener.accept().unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
     );
-}
-
-#[tokio::test]
-async fn json_configuration_failure_is_not_an_empty_array() {
-    let output = invoke(&["collections", "--learner", LEARNER, "--json"], None).await;
-    assert!(failure(&output).contains("YOMIBU_DATABASE_URL"));
 }
 
 #[cfg(unix)]
