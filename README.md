@@ -15,6 +15,9 @@ already have the [retained schema](docs/plan/schema.postgresql.sql), which requi
 PostgreSQL 18+ and pgvector. The connection's role needs read access to
 `learner_collections`, and its search path must include the schema containing that
 table. The command does not install or migrate the schema.
+Surrounding whitespace in the URL is ignored. SQLx's PostgreSQL defaults apply
+to connection settings omitted from the URL, including `PG*` environment variables
+and `.pgpass` credentials; `YOMIBU_DATABASE_URL` itself is always required.
 
 ```sh
 export YOMIBU_DATABASE_URL='postgres://yomibu@localhost/yomibu'
@@ -31,6 +34,9 @@ Startup and lookup each have a five-second limit; connection acquisition and
 server statements are also limited to five seconds. Pool shutdown and runtime
 shutdown each wait at most one second. These are cooperative I/O bounds, not
 hard real-time limits; see the [storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs).
+SQLx can retry refused connections within the startup bound. Output is written
+only after lookup and pool shutdown succeed; a pool shutdown timeout fails the
+command without printing IDs. Output write failures also exit unsuccessfully.
 
 ## Developing
 

@@ -9,6 +9,14 @@ const LEARNER: &str = "00000000-0000-0000-0000-000000000001";
 async fn invoke(args: &[&str], database_url: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
     command.args(args).env_remove("YOMIBU_DATABASE_URL");
+    for (name, _) in std::env::vars_os() {
+        if name.to_str().is_some_and(|name| name.starts_with("PG")) {
+            command.env_remove(name);
+        }
+    }
+    // An explicit test password also prevents SQLx consulting the user's .pgpass.
+    // A password supplied in the test URL takes precedence.
+    command.env("PGPASSWORD", "");
     if let Some(url) = database_url {
         command.env("YOMIBU_DATABASE_URL", url);
     }
@@ -99,12 +107,33 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
     );
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn non_unicode_configuration_is_reported_as_invalid() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
+    command
+        .args(["collections", "--learner", LEARNER])
+        .env("YOMIBU_DATABASE_URL", OsString::from_vec(vec![0xff]));
+    let output = tokio::time::timeout(Duration::from_secs(10), command.kill_on_drop(true).output())
+        .await
+        .unwrap()
+        .unwrap();
+    let stderr = failure(&output);
+    assert!(
+        stderr.contains("YOMIBU_DATABASE_URL must contain valid Unicode"),
+        "{stderr}"
+    );
+}
+
 #[tokio::test]
 async fn unresponsive_database_startup_is_bounded_and_sanitized() {
     // A listening socket that never speaks PostgreSQL stalls the startup handshake.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!(
-        "PoStGrEsQl://user:secret-marker@{}/db",
+        "  PoStGrEsQl://user:secret-marker@{}/db \n",
         listener.local_addr().unwrap()
     );
     let output = invoke(&["collections", "--learner", LEARNER], Some(&url)).await;
@@ -142,7 +171,7 @@ async fn check_postgres_wiring() {
     let suffix: Uuid = sqlx::query_scalar("SELECT uuidv7()")
         .fetch_one(&admin)
         .await
-        .unwrap();
+        .expect("test database must support uuidv7(); use PostgreSQL 18+");
     let schema = format!("yomibu_cli_{}", suffix.simple());
     sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
         .execute(&admin)
@@ -158,7 +187,9 @@ async fn check_postgres_wiring() {
     sqlx::raw_sql(include_str!("../../../docs/plan/schema.postgresql.sql"))
         .execute(&control)
         .await
-        .unwrap();
+        .expect(
+            "could not apply retained schema; use PostgreSQL 18+ with vector installed in public",
+        );
     sqlx::raw_sql(
         "INSERT INTO learners (id, name) VALUES ('00000000-0000-0000-0000-000000000001', 'CLI learner');
          INSERT INTO collections (id, provider, name) VALUES
@@ -210,9 +241,10 @@ async fn check_postgres_wiring() {
         .await
         .unwrap();
     let output = invoke(&["collections", "--learner", LEARNER], Some(url.as_str())).await;
-    assert!(failure(&output).contains("collection lookup failed"));
-    assert!(!failure(&output).contains(&schema));
-    assert!(!failure(&output).contains("postgres://"));
+    let stderr = failure(&output);
+    assert!(stderr.contains("collection lookup failed"));
+    assert!(!stderr.contains(&schema));
+    assert!(!stderr.contains("postgres://"));
 
     control.close().await;
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
