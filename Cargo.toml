@@ -9,4 +9,6 @@ rust-version = "1.98.1"
 publish = false
 
 [workspace.dependencies]
+sqlx = { version = "0.9", default-features = false }
+tokio = "1"
 uuid = { version = "1.28", default-features = false }
