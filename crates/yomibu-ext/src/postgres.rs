@@ -1,8 +1,10 @@
 use std::{future::Future, pin::Pin, time::Instant};
 
 use sqlx::PgPool;
-use yomibu_core::domain::{CollectionId, LearnerId};
-use yomibu_core::ports::infrastructure::{LearnerCollectionQuery, StorageError};
+use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
+use yomibu_core::ports::infrastructure::{
+    LearnerCollectionQuery, LearnerWriteError, LearnerWriter, StorageError,
+};
 
 /// PostgreSQL implementation of [`LearnerCollectionQuery`].
 ///
@@ -59,6 +61,64 @@ impl LearnerCollectionQuery for PostgresLearnerCollectionQuery {
     }
 }
 
+/// PostgreSQL implementation of [`LearnerWriter`] using the retained schema's
+/// UUID default. Pool/runtime configuration has the same requirements as
+/// [`PostgresLearnerCollectionQuery`].
+///
+/// Each write closes its leased connection on drop, including success, timeout,
+/// and caller cancellation. This avoids returning an abandoned statement to the
+/// pool without introducing a cancellation guard. Server cancellation and pool
+/// capacity restoration are not immediate guarantees.
+pub struct PostgresLearnerWriter {
+    pool: PgPool,
+}
+
+impl PostgresLearnerWriter {
+    /// Takes a pool handle without performing I/O or changing its configuration.
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+impl LearnerWriter for PostgresLearnerWriter {
+    fn create_learner(
+        &self,
+        name: LearnerName,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<LearnerId, LearnerWriteError>> + '_>> {
+        Box::pin(async move {
+            let expired = || LearnerWriteError::NotCreated("creation deadline exceeded".into());
+            if Instant::now() >= deadline {
+                return Err(expired());
+            }
+            let mut connection = tokio::time::timeout_at(deadline.into(), self.pool.acquire())
+                .await
+                .map_err(|_| expired())?
+                .map_err(|error| LearnerWriteError::NotCreated(failure_reason(error)))?;
+            if Instant::now() >= deadline {
+                return Err(expired());
+            }
+            connection.close_on_drop();
+            // SQLx PostgreSQL fetch_one drains through ReadyForQuery, including
+            // deferred-constraint errors. A RETURNING row alone is not success.
+            let insert = sqlx::query_scalar::<_, uuid::Uuid>(
+                "INSERT INTO learners (name) VALUES ($1) RETURNING id",
+            )
+            .bind(name.as_str())
+            .fetch_one(&mut *connection);
+            let id = tokio::time::timeout_at(deadline.into(), insert)
+                .await
+                .map_err(|_| {
+                    LearnerWriteError::CompletionUnknown("creation deadline exceeded".into())
+                })?
+                .map_err(|error| LearnerWriteError::CompletionUnknown(failure_reason(error)))?;
+            // Preserve confirmed creation even if observed after the deadline.
+            // Application classifies late completion while retaining the UUID.
+            Ok(LearnerId(id))
+        })
+    }
+}
+
 /// Fails once the deadline has been reached.
 fn reject_expired(deadline: Instant) -> Result<(), StorageError> {
     if Instant::now() >= deadline {
@@ -68,6 +128,13 @@ fn reject_expired(deadline: Instant) -> Result<(), StorageError> {
 }
 
 fn storage_error(error: sqlx::Error) -> StorageError {
+    StorageError(format!(
+        "collection lookup failed ({})",
+        failure_reason(error)
+    ))
+}
+
+fn failure_reason(error: sqlx::Error) -> String {
     // Never expose provider messages: they can contain SQL, identifiers or secrets.
     let category = match error {
         sqlx::Error::Database(error) => {
@@ -77,7 +144,7 @@ fn storage_error(error: sqlx::Error) -> StorageError {
                     .bytes()
                     .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
             {
-                return StorageError(format!("collection lookup failed (SQLSTATE {code})"));
+                return format!("SQLSTATE {code}");
             }
             "database"
         }
@@ -90,7 +157,7 @@ fn storage_error(error: sqlx::Error) -> StorageError {
         sqlx::Error::Decode(_) | sqlx::Error::ColumnDecode { .. } => "decode",
         _ => "driver",
     };
-    StorageError(format!("collection lookup failed ({category})"))
+    category.into()
 }
 
 #[cfg(test)]

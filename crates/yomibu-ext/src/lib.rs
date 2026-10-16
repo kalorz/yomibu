@@ -2,4 +2,4 @@
 
 mod postgres;
 
-pub use postgres::PostgresLearnerCollectionQuery;
+pub use postgres::{PostgresLearnerCollectionQuery, PostgresLearnerWriter};

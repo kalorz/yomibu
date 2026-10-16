@@ -1,7 +1,47 @@
 use std::time::Instant;
 
-use yomibu_core::domain::{CollectionId, LearnerId};
-use yomibu_core::ports::infrastructure::{LearnerCollectionQuery, StorageError};
+use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
+use yomibu_core::ports::infrastructure::{
+    LearnerCollectionQuery, LearnerWriteError, LearnerWriter, StorageError,
+};
+
+/// Port: inbound / driving.
+///
+/// Trims and rejects a blank name through the core rule before invoking storage.
+/// Rejects an expired deadline before dispatch, otherwise calls the supplied writer
+/// exactly once with the unchanged deadline. The writer bounds I/O and confirms
+/// persistence. Preserves failures, including uncertain completion, without retries.
+/// A confirmed creation observed after expiry fails with `Created`, retaining its UUID.
+pub async fn create_learner(
+    name: &str,
+    storage: &dyn LearnerWriter,
+    deadline: Instant,
+) -> Result<LearnerId, LearnerWriteError> {
+    let name = LearnerName::new(name)
+        .ok_or_else(|| LearnerWriteError::NotCreated("learner name must not be blank".into()))?;
+    if Instant::now() >= deadline {
+        return Err(LearnerWriteError::NotCreated(
+            "creation deadline exceeded".into(),
+        ));
+    }
+    let result = storage.create_learner(name, deadline).await;
+    complete_creation(result, deadline, Instant::now())
+}
+
+fn complete_creation(
+    result: Result<LearnerId, LearnerWriteError>,
+    deadline: Instant,
+    observed_at: Instant,
+) -> Result<LearnerId, LearnerWriteError> {
+    let id = result?;
+    if observed_at >= deadline {
+        return Err(LearnerWriteError::Created {
+            id,
+            reason: "creation deadline exceeded".into(),
+        });
+    }
+    Ok(id)
+}
 
 /// Port: inbound / driving.
 ///
@@ -40,8 +80,35 @@ fn complete_lookup(
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::complete_lookup;
-    use yomibu_core::ports::infrastructure::StorageError;
+    use super::{complete_creation, complete_lookup};
+    use yomibu_core::domain::LearnerId;
+    use yomibu_core::ports::infrastructure::{LearnerWriteError, StorageError};
+
+    #[test]
+    fn late_creation_retains_confirmed_uuid() {
+        let id = LearnerId(uuid::Uuid::from_u128(7));
+        let deadline = Instant::now();
+        assert_eq!(
+            complete_creation(Ok(id), deadline, deadline - Duration::from_secs(1)),
+            Ok(id)
+        );
+        for observed_at in [deadline, deadline + Duration::from_secs(1)] {
+            assert_eq!(
+                complete_creation(Ok(id), deadline, observed_at),
+                Err(LearnerWriteError::Created {
+                    id,
+                    reason: "creation deadline exceeded".into()
+                })
+            );
+            let error = LearnerWriteError::CompletionUnknown("connection lost".into());
+            assert_eq!(
+                complete_creation(Err(error), deadline, observed_at),
+                Err(LearnerWriteError::CompletionUnknown(
+                    "connection lost".into()
+                ))
+            );
+        }
+    }
 
     #[test]
     fn completion_rejects_late_success_but_preserves_failure() {

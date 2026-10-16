@@ -5,9 +5,10 @@ use std::time::{Duration, Instant};
 use clap::{Arg, ArgAction, Command, value_parser};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use uuid::Uuid;
-use yomibu_app::application::list_collection_ids;
+use yomibu_app::application::{create_learner, list_collection_ids};
 use yomibu_core::domain::{CollectionId, LearnerId};
-use yomibu_ext::PostgresLearnerCollectionQuery;
+use yomibu_core::ports::infrastructure::LearnerWriteError;
+use yomibu_ext::{PostgresLearnerCollectionQuery, PostgresLearnerWriter};
 
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -17,6 +18,18 @@ fn cli() -> Command {
         .about("Japanese reading material tools")
         .subcommand_required(true)
         .disable_help_subcommand(true)
+        .subcommand(
+            Command::new("create-learner")
+                .about("Create a learner and print its assigned UUID")
+                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. Surrounding name whitespace is trimmed; blank names are rejected. Names need not be unique. Prints the assigned UUID followed by a newline. An interrupted write may have been saved; it is never automatically retried. If creation is confirmed but a later step fails, stderr includes its UUID.")
+                .arg(
+                    Arg::new("name")
+                        .long("name")
+                        .value_name("NAME")
+                        .help("Name for the new learner")
+                        .required(true),
+                ),
+        )
         .subcommand(
             Command::new("collections")
                 .about("List collection UUIDs associated with a learner")
@@ -41,6 +54,14 @@ fn cli() -> Command {
 fn main() -> ExitCode {
     // clap handles help and rejects syntax before configuration or database access.
     let matches = cli().get_matches();
+    if let Some(create) = matches.subcommand_matches("create-learner") {
+        let name = create.get_one::<String>("name").expect("required name");
+        return report_created(
+            run_create_learner(name),
+            io::BufWriter::new(io::stdout().lock()),
+            io::stderr().lock(),
+        );
+    }
     let collections = matches
         .subcommand_matches("collections")
         .expect("required subcommand");
@@ -60,7 +81,7 @@ fn report_result(
     result: Result<Vec<CollectionId>, String>,
     json: bool,
     mut stdout: impl Write,
-    mut stderr: impl Write,
+    stderr: impl Write,
 ) -> ExitCode {
     let result = result.and_then(|ids| {
         write_collection_ids(&ids, json, &mut stdout)
@@ -68,6 +89,29 @@ fn report_result(
         stdout.flush().map_err(|_| "could not flush stdout")?;
         Ok(())
     });
+    report_status(result, stderr)
+}
+
+fn report_created(
+    result: Result<LearnerId, String>,
+    mut stdout: impl Write,
+    stderr: impl Write,
+) -> ExitCode {
+    let result = result.and_then(|id| {
+        writeln!(stdout, "{}", id.0)
+            .and_then(|()| stdout.flush())
+            .map_err(|_| {
+                LearnerWriteError::Created {
+                    id,
+                    reason: "could not write or flush learner UUID to stdout".into(),
+                }
+                .to_string()
+            })
+    });
+    report_status(result, stderr)
+}
+
+fn report_status(result: Result<(), String>, mut stderr: impl Write) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -95,6 +139,46 @@ fn write_collection_ids(
 }
 
 fn run(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
+    let url = database_url()?;
+    let runtime = database_runtime()?;
+    let result = runtime.block_on(collections(learner, url));
+    // Abandoned blocking work (for example DNS) must not hold process exit open.
+    runtime.shutdown_timeout(SHUTDOWN_TIMEOUT);
+    result
+}
+
+fn run_create_learner(name: &str) -> Result<LearnerId, String> {
+    let url = database_url()?;
+    let runtime = database_runtime()?;
+    let result = runtime.block_on(async {
+        let pool = connect(url).await?;
+        let storage = PostgresLearnerWriter::new(pool.clone());
+        let result = create_learner(name, &storage, Instant::now() + IO_TIMEOUT).await;
+        let shutdown = tokio::time::timeout(SHUTDOWN_TIMEOUT, pool.close())
+            .await
+            .map_err(|_| "database shutdown timed out");
+        creation_after_shutdown(result, shutdown)
+    });
+    runtime.shutdown_timeout(SHUTDOWN_TIMEOUT);
+    result
+}
+
+fn creation_after_shutdown(
+    result: Result<LearnerId, LearnerWriteError>,
+    shutdown: Result<(), &str>,
+) -> Result<LearnerId, String> {
+    let id = result.map_err(|error| error.to_string())?;
+    shutdown.map_err(|reason| {
+        LearnerWriteError::Created {
+            id,
+            reason: reason.into(),
+        }
+        .to_string()
+    })?;
+    Ok(id)
+}
+
+fn database_url() -> Result<String, String> {
     let url = std::env::var("YOMIBU_DATABASE_URL")
         .map_err(|error| match error {
             std::env::VarError::NotPresent => {
@@ -113,18 +197,18 @@ fn run(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
     }) {
         return Err("YOMIBU_DATABASE_URL must use the postgres or postgresql URL scheme".into());
     }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| "could not start the database runtime")?;
-    let result = runtime.block_on(collections(learner, url));
-    // Abandoned blocking work (for example DNS) must not hold process exit open.
-    runtime.shutdown_timeout(SHUTDOWN_TIMEOUT);
-    result
+    Ok(url)
 }
 
-async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId>, String> {
-    let pool = tokio::time::timeout(IO_TIMEOUT, async {
+fn database_runtime() -> Result<tokio::runtime::Runtime, String> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| "could not start the database runtime".into())
+}
+
+async fn connect(url: String) -> Result<sqlx::PgPool, String> {
+    tokio::time::timeout(IO_TIMEOUT, async {
         // The driver's option parsing may read credential files. Include that
         // blocking work in the startup bound, alongside connection establishment.
         let options = tokio::task::spawn_blocking(move || url.parse::<PgConnectOptions>())
@@ -142,8 +226,12 @@ async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId
             .map_err(|_| "database startup failed; check connection settings and availability")
     })
     .await
-    .map_err(|_| "database startup timed out")??;
+    .map_err(|_| "database startup timed out")?
+    .map_err(Into::into)
+}
 
+async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId>, String> {
+    let pool = connect(url).await?;
     let storage = PostgresLearnerCollectionQuery::new(pool.clone());
     let result = list_collection_ids(learner, &storage, Instant::now() + IO_TIMEOUT).await;
     let shutdown = tokio::time::timeout(SHUTDOWN_TIMEOUT, pool.close()).await;
@@ -157,6 +245,83 @@ async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn created_learner_prints_assigned_uuid_and_newline() {
+        let id = LearnerId(Uuid::from_u128(7));
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        assert_eq!(
+            report_created(Ok(id), &mut stdout, &mut stderr),
+            ExitCode::SUCCESS
+        );
+        assert_eq!(stdout, b"00000000-0000-0000-0000-000000000007\n");
+        assert!(stderr.is_empty());
+    }
+
+    #[test]
+    fn creation_errors_print_no_success_uuid() {
+        for error in [
+            LearnerWriteError::NotCreated("invalid name".into()),
+            LearnerWriteError::CompletionUnknown("connection lost".into()),
+            LearnerWriteError::Created {
+                id: LearnerId(Uuid::from_u128(7)),
+                reason: "deadline exceeded".into(),
+            },
+        ] {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            let expected = format!("error: {error}\n");
+            assert_eq!(
+                report_created(Err(error.to_string()), &mut stdout, &mut stderr),
+                ExitCode::FAILURE
+            );
+            assert!(stdout.is_empty());
+            assert_eq!(stderr, expected.as_bytes());
+        }
+    }
+
+    #[test]
+    fn cleanup_failure_preserves_creation_and_prior_errors() {
+        let id = LearnerId(Uuid::from_u128(7));
+        let failure =
+            creation_after_shutdown(Ok(id), Err("database shutdown timed out")).unwrap_err();
+        assert!(failure.contains(&id.0.to_string()));
+        assert!(failure.contains("was created"));
+        assert!(failure.contains("shutdown timed out"));
+        for error in [
+            LearnerWriteError::CompletionUnknown("connection lost".into()),
+            LearnerWriteError::Created {
+                id,
+                reason: "deadline exceeded".into(),
+            },
+        ] {
+            let expected = error.to_string();
+            assert_eq!(
+                creation_after_shutdown(Err(error), Err("database shutdown timed out")),
+                Err(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn output_failures_report_confirmed_creation_and_uuid() {
+        let id = LearnerId(Uuid::from_u128(7));
+        for stdout in [
+            Box::new(&mut [][..]) as Box<dyn Write>,
+            Box::new(io::BufWriter::new(&mut [][..])),
+        ] {
+            let mut stderr = Vec::new();
+            assert_eq!(
+                report_created(Ok(id), stdout, &mut stderr),
+                ExitCode::FAILURE
+            );
+            let stderr = String::from_utf8(stderr).unwrap();
+            assert!(stderr.contains(&id.0.to_string()));
+            assert!(stderr.contains("was created"));
+            assert!(!stderr.contains("unknown"));
+        }
+    }
 
     #[test]
     fn successful_result_prints_one_uuid_per_line() {

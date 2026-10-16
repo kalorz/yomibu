@@ -33,7 +33,8 @@ fn failure(output: &Output) -> &str {
 #[tokio::test]
 async fn help_succeeds_without_configuration() {
     for (args, expected) in [
-        (vec!["--help"], vec!["collections"]),
+        (vec!["--help"], vec!["collections", "create-learner"]),
+        (vec!["create-learner", "--help"], vec!["--name <NAME>"]),
         (
             vec!["collections", "--help"],
             vec!["--learner <UUID>", "--json"],
@@ -61,6 +62,10 @@ async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
     for args in [
         vec![],
         vec!["unknown"],
+        vec!["create-learner"],
+        vec!["create-learner", "--name"],
+        vec!["create-learner", "--name", "Alice", "--json"],
+        vec!["create-learner", "--name", "Alice", "--name", "Bob"],
         vec!["collections"],
         vec!["collections", "--learner"],
         vec!["collections", "--learner", "not-a-uuid"],
@@ -150,7 +155,7 @@ async fn unresponsive_database_startup_is_bounded_and_sanitized() {
 
 #[tokio::test]
 #[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
-async fn collections_command_uses_postgres() {
+async fn commands_use_postgres() {
     tokio::time::timeout(Duration::from_secs(30), check_postgres_wiring())
         .await
         .expect("PostgreSQL CLI wiring test exceeded its watchdog timeout");
@@ -205,6 +210,26 @@ async fn check_postgres_wiring() {
     url.query_pairs_mut()
         .append_pair("options", options.get_options().unwrap());
     let database_url = OsStr::new(url.as_str());
+    let output = invoke(
+        &["create-learner", "--name", "New CLI learner"],
+        Some(database_url),
+    )
+    .await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    let stdout = std::str::from_utf8(&output.stdout).unwrap();
+    let id: Uuid = stdout.strip_suffix('\n').unwrap().parse().unwrap();
+    let name: String = sqlx::query_scalar("SELECT name FROM learners WHERE id = $1")
+        .bind(id)
+        .fetch_one(&mut control)
+        .await
+        .unwrap();
+    assert_eq!(name, "New CLI learner");
+
     let output = invoke(&["collections", "--learner", LEARNER], Some(database_url)).await;
     assert!(
         output.status.success(),

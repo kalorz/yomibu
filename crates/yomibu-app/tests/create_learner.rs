@@ -1,0 +1,88 @@
+use std::cell::Cell;
+use std::future::Future;
+use std::pin::{Pin, pin};
+use std::task::{Context, Poll, Waker};
+use std::time::{Duration, Instant};
+
+use uuid::Uuid;
+use yomibu_app::application::create_learner;
+use yomibu_core::domain::{LearnerId, LearnerName};
+use yomibu_core::ports::infrastructure::{LearnerWriteError, LearnerWriter};
+
+const ID: LearnerId = LearnerId(Uuid::from_u128(7));
+
+struct SuppliedWriter {
+    deadline: Instant,
+    calls: Cell<usize>,
+    result: Cell<Option<Result<LearnerId, LearnerWriteError>>>,
+}
+
+impl LearnerWriter for SuppliedWriter {
+    fn create_learner(
+        &self,
+        name: LearnerName,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<LearnerId, LearnerWriteError>> + '_>> {
+        assert_eq!(name.as_str(), "Alice");
+        assert_eq!(deadline, self.deadline);
+        self.calls.set(self.calls.get() + 1);
+        Box::pin(async { self.result.take().expect("write awaited once") })
+    }
+}
+
+fn writer(result: Result<LearnerId, LearnerWriteError>) -> SuppliedWriter {
+    SuppliedWriter {
+        deadline: Instant::now() + Duration::from_secs(10),
+        calls: Cell::new(0),
+        result: Cell::new(Some(result)),
+    }
+}
+
+fn ready<T>(future: impl Future<Output = T>) -> T {
+    match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(value) => value,
+        Poll::Pending => panic!("supplied writer should complete immediately"),
+    }
+}
+
+#[test]
+fn normalized_name_and_unchanged_deadline_reach_supplied_writer_once() {
+    let writer = writer(Ok(ID));
+    assert_eq!(
+        ready(create_learner("  Alice  ", &writer, writer.deadline)),
+        Ok(ID)
+    );
+    assert_eq!(writer.calls.get(), 1);
+}
+
+#[test]
+fn invalid_name_and_expired_deadline_prevent_dispatch() {
+    let writer = writer(Ok(ID));
+    assert!(matches!(
+        ready(create_learner(" ", &writer, writer.deadline)),
+        Err(LearnerWriteError::NotCreated(_))
+    ));
+    assert!(matches!(
+        ready(create_learner("Alice", &writer, Instant::now())),
+        Err(LearnerWriteError::NotCreated(_))
+    ));
+    assert_eq!(writer.calls.get(), 0);
+}
+
+#[test]
+fn write_failures_preserve_creation_knowledge_without_retrying() {
+    for error in [
+        LearnerWriteError::NotCreated("pool unavailable".into()),
+        LearnerWriteError::CompletionUnknown("connection lost".into()),
+        LearnerWriteError::Created {
+            id: ID,
+            reason: "deadline exceeded".into(),
+        },
+    ] {
+        let expected = error.to_string();
+        let writer = writer(Err(error));
+        let actual = ready(create_learner("Alice", &writer, writer.deadline)).unwrap_err();
+        assert_eq!(actual.to_string(), expected);
+        assert_eq!(writer.calls.get(), 1);
+    }
+}
