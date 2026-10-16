@@ -43,7 +43,7 @@ pub enum CreateLearnerError {
     BlankName,
     DeadlineExceeded,
     Storage(LearnerWriteError),
-    Created { id: LearnerId, reason: String },
+    Created { id: LearnerId, reason: &'static str },
 }
 
 impl std::fmt::Display for CreateLearnerError {
@@ -74,7 +74,7 @@ fn complete_creation(
     if observed_at >= deadline {
         return Err(CreateLearnerError::Created {
             id,
-            reason: "creation deadline exceeded".into(),
+            reason: "creation deadline exceeded",
         });
     }
     Ok(id)
@@ -134,7 +134,7 @@ mod tests {
                 complete_creation(Ok(id), deadline, observed_at),
                 Err(CreateLearnerError::Created {
                     id,
-                    reason: "creation deadline exceeded".into()
+                    reason: "creation deadline exceeded"
                 })
             );
             let error = LearnerWriteError::CompletionUnknown("connection lost".into());

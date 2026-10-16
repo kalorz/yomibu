@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::{AssertSqlSafe, PgPool};
+use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
 use yomibu_core::ports::infrastructure::{
@@ -30,6 +30,25 @@ async fn lookup(
             Instant::now() + Duration::from_secs(5),
         )
         .await
+}
+
+async fn backend_pid(pool: &PgPool) -> i32 {
+    sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// Blocks other sessions' access to `table` until the returned transaction ends.
+async fn lock_table(control: &PgPool, table: &str) -> Transaction<'static, Postgres> {
+    let mut lock = control.begin().await.unwrap();
+    sqlx::query(AssertSqlSafe(format!(
+        "LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"
+    )))
+    .execute(&mut *lock)
+    .await
+    .unwrap();
+    lock
 }
 
 async fn check_contract(pool: &PgPool, control: &PgPool) {
@@ -100,11 +119,7 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
     assert_eq!(lookup(&storage, 1).await.unwrap().len(), 2);
 
     // Client deadline is shorter than the session's 3s statement timeout.
-    let mut lock = control.begin().await.unwrap();
-    sqlx::query("LOCK TABLE learner_collections IN ACCESS EXCLUSIVE MODE")
-        .execute(&mut *lock)
-        .await
-        .unwrap();
+    let lock = lock_table(control, "learner_collections").await;
     assert_deadline(&storage).await;
     // The abandoned statement is still blocked. It must not retain the sole slot.
     tokio::time::timeout(
@@ -124,11 +139,7 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
         .await
         .unwrap();
     drop(connection);
-    let mut lock = control.begin().await.unwrap();
-    sqlx::query("LOCK TABLE learner_collections IN ACCESS EXCLUSIVE MODE")
-        .execute(&mut *lock)
-        .await
-        .unwrap();
+    let lock = lock_table(control, "learner_collections").await;
     assert_eq!(
         lookup(&storage, 1).await,
         Err(StorageError(
@@ -148,10 +159,7 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
     assert_eq!(lookup(&storage, 1).await.unwrap().len(), 2);
 
     // Break the pooled connection; the next independent call can recover.
-    let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let backend = backend_pid(pool).await;
     let terminated: bool = sqlx::query_scalar("SELECT pg_terminate_backend($1, 1000)")
         .bind(backend)
         .fetch_one(control)
@@ -244,21 +252,23 @@ async fn create(
         .await
 }
 
+async fn learner_count(control: &PgPool, name: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM learners WHERE name = $1")
+        .bind(name)
+        .fetch_one(control)
+        .await
+        .unwrap()
+}
+
 async fn check_write_contract(pool: &PgPool, control: &PgPool) {
     let storage = PostgresLearnerStorage::new(pool.clone());
     let budget = Duration::from_secs(5);
     let name = "O'Reilly 東京";
-    let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let backend = backend_pid(pool).await;
     let first = create(&storage, name, budget).await.unwrap();
-    let after: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(pool)
-        .await
-        .unwrap();
     assert_eq!(
-        after, backend,
+        backend_pid(pool).await,
+        backend,
         "confirmed writes should return their connection to the pool"
     );
     let saved: String = sqlx::query_scalar("SELECT name FROM learners WHERE id = $1")
@@ -276,24 +286,14 @@ async fn check_write_contract(pool: &PgPool, control: &PgPool) {
     assert!(matches!(error, LearnerWriteError::NotCreated(_)));
     assert!(error.to_string().contains("SQLSTATE 23505"));
     assert!(!error.to_string().contains(name));
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM learners WHERE name = $1")
-        .bind(name)
-        .fetch_one(control)
-        .await
-        .unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(learner_count(control, name).await, 1);
     sqlx::query("ALTER TABLE learners DROP CONSTRAINT test_name_unique")
         .execute(control)
         .await
         .unwrap();
     let second = create(&storage, name, budget).await.unwrap();
     assert_ne!(first, second);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM learners WHERE name = $1")
-        .bind(name)
-        .fetch_one(control)
-        .await
-        .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(learner_count(control, name).await, 2);
 
     sqlx::query("ALTER TABLE learners RENAME TO hidden_learners")
         .execute(control)
@@ -326,18 +326,9 @@ async fn check_write_contract(pool: &PgPool, control: &PgPool) {
         .unwrap_err();
     assert!(matches!(error, LearnerWriteError::NotCreated(_)));
     drop(held);
-    let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM learners WHERE name = 'not dispatched'")
-            .fetch_one(control)
-            .await
-            .unwrap();
-    assert_eq!(count, 0);
+    assert_eq!(learner_count(control, "not dispatched").await, 0);
 
-    let mut lock = control.begin().await.unwrap();
-    sqlx::query("LOCK TABLE learners IN ACCESS EXCLUSIVE MODE")
-        .execute(&mut *lock)
-        .await
-        .unwrap();
+    let lock = lock_table(control, "learners").await;
     let error = tokio::time::timeout(
         Duration::from_secs(1),
         create(&storage, "timeout", Duration::from_millis(100)),
@@ -358,17 +349,10 @@ async fn check_write_contract(pool: &PgPool, control: &PgPool) {
 
     // Terminate a write while it is blocked, then cancel another caller future.
     // Use a separate observer connection while control holds the table lock.
+    let observer = connect(control.connect_options().as_ref().clone()).await;
     for cancel in [false, true] {
-        let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-            .fetch_one(pool)
-            .await
-            .unwrap();
-        let mut lock = control.begin().await.unwrap();
-        sqlx::query("LOCK TABLE learners IN ACCESS EXCLUSIVE MODE")
-            .execute(&mut *lock)
-            .await
-            .unwrap();
-        let observer = connect(control.connect_options().as_ref().clone()).await;
+        let backend = backend_pid(pool).await;
+        let lock = lock_table(control, "learners").await;
         let mut write = Box::pin(create(&storage, "interrupted", budget));
         tokio::select! {
             result = &mut write => panic!("locked write completed early: {result:?}"),
@@ -385,17 +369,13 @@ async fn check_write_contract(pool: &PgPool, control: &PgPool) {
             let error = write.await.unwrap_err();
             assert!(matches!(error, LearnerWriteError::CompletionUnknown(_)));
         }
-        let replacement: i32 = tokio::time::timeout(
-            Duration::from_secs(1),
-            sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(pool),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let replacement = tokio::time::timeout(Duration::from_secs(1), backend_pid(pool))
+            .await
+            .unwrap();
         assert_ne!(replacement, backend);
         lock.rollback().await.unwrap();
-        observer.close().await;
     }
+    observer.close().await;
 }
 
 async fn wait_for_blocked_write(control: &PgPool, backend: i32) {

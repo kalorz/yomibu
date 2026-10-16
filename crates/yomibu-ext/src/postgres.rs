@@ -19,6 +19,7 @@ use yomibu_core::ports::infrastructure::{
 /// ping waiting for the abandoned statement. SQLx owns connection cleanup and
 /// replacement; a client timeout does not prove immediate restoration of pool
 /// capacity.
+///
 /// Writes use the retained schema's UUID default. A successfully completed write
 /// returns its connection to the pool; failed or abandoned writes close it.
 /// Syntax/access and integrity-constraint rejections establish `NotCreated`;

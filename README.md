@@ -84,8 +84,8 @@ and retained schema described above. The database role needs `INSERT` on
 Surrounding Unicode whitespace is trimmed; a blank name is rejected before
 database configuration or connection. Names are not unique: running the command
 again creates another learner with a different UUID. It creates no collections
-or associations and has no JSON
-output option. `yomibu create-learner --help` needs no database configuration.
+or associations and has no JSON output option. `yomibu create-learner --help`
+needs no database configuration.
 
 Startup and creation each have a five-second limit, with the same acquisition,
 server statement, and shutdown bounds as collection lookup. The write is never

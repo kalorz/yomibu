@@ -22,6 +22,20 @@ async fn invoke(args: &[&str], database_url: Option<&OsStr>) -> Output {
         .expect("CLI could not start")
 }
 
+/// A local address for checking that rejected invocations never connect.
+fn idle_listener() -> TcpListener {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    listener
+}
+
+fn assert_never_connected(listener: &TcpListener) {
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
 fn failure(output: &Output) -> &str {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -53,8 +67,7 @@ async fn help_succeeds_without_configuration() {
 
 #[tokio::test]
 async fn blank_name_is_rejected_before_configuration_and_connection() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
+    let listener = idle_listener();
     let url = format!(
         "postgres://user:secret-marker@{}/unused",
         listener.local_addr().unwrap()
@@ -69,16 +82,12 @@ async fn blank_name_is_rejected_before_configuration_and_connection() {
         assert!(!stderr.contains("YOMIBU_DATABASE_URL"));
         assert!(!stderr.contains("secret-marker"));
     }
-    assert_eq!(
-        listener.accept().unwrap_err().kind(),
-        std::io::ErrorKind::WouldBlock
-    );
+    assert_never_connected(&listener);
 }
 
 #[tokio::test]
 async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
+    let listener = idle_listener();
     let url = format!(
         "postgres://postgres@{}/unused",
         listener.local_addr().unwrap()
@@ -105,16 +114,12 @@ async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
             assert!(!stderr.contains("YOMIBU_DATABASE_URL"));
         }
     }
-    assert_eq!(
-        listener.accept().unwrap_err().kind(),
-        std::io::ErrorKind::WouldBlock
-    );
+    assert_never_connected(&listener);
 }
 
 #[tokio::test]
 async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
+    let listener = idle_listener();
     let wrong_scheme = format!(
         "http://user:secret-marker@{}/db",
         listener.local_addr().unwrap()
@@ -135,10 +140,7 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
         assert!(!stderr.contains("secret-marker"));
         assert!(!stderr.contains("postgres://"));
     }
-    assert_eq!(
-        listener.accept().unwrap_err().kind(),
-        std::io::ErrorKind::WouldBlock
-    );
+    assert_never_connected(&listener);
 }
 
 #[cfg(unix)]
