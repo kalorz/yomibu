@@ -20,7 +20,7 @@ fn cli() -> Command {
         .subcommand(
             Command::new("create-learner")
                 .about("Create a learner and print its assigned UUID")
-                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. Surrounding name whitespace is trimmed; blank names are rejected. Names need not be unique. Prints the assigned UUID followed by a newline. With --json, prints an object with an id field containing that UUID, followed by a newline. An interrupted write may have been saved; it is never automatically retried. If creation is confirmed but a later step fails, stderr includes its UUID.")
+                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. Surrounding name whitespace is trimmed; blank names are rejected. Names need not be unique. Prints the assigned UUID followed by a newline. With --json, prints {\"id\":\"<UUID>\"} followed by a newline. An interrupted write may have been saved; it is never automatically retried. If creation is confirmed but a later step fails, stderr includes its UUID.")
                 .arg(
                     Arg::new("name")
                         .long("name")
