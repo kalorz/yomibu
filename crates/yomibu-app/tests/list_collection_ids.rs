@@ -101,9 +101,7 @@ fn expired_deadline_prevents_dispatch() {
     let storage = storage(Ok(vec![]));
     assert_eq!(
         poll(pin!(list_collection_ids(LEARNER, &storage, Instant::now()))),
-        Poll::Ready(Err(StorageError(
-            "collection lookup deadline exceeded".into()
-        )))
+        Poll::Ready(Err(StorageError::collection_lookup_deadline_exceeded()))
     );
     assert_eq!(storage.calls.get(), 0);
 }

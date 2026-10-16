@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin, time::Instant};
 
 use crate::domain::{CollectionId, LearnerId};
 
-/// An adapter's provider-independent storage failure description.
+/// A storage port's provider-independent failure description.
 /// Adapters must supply a presentable message without credentials or raw
 /// connection strings.
 #[derive(Debug, PartialEq, Eq)]
@@ -31,16 +31,16 @@ impl std::error::Error for StorageError {}
 /// collections must not be included.
 ///
 /// Every associated collection ID is returned exactly once, in unspecified order,
-/// with no pagination. Uniqueness is an adapter obligation, to be verified against
-/// each real adapter when introduced. No associations, including for an unknown
-/// learner, yield an empty vector; learner existence is not checked.
+/// with no pagination. Uniqueness is an adapter obligation, verified by each
+/// adapter's contract tests. No associations, including for an unknown learner,
+/// yield an empty vector; learner existence is not checked.
 /// Storage failures must return `Err`, never partial or successful empty results.
 ///
 /// Application supplies an absolute monotonic deadline, shared with any parent
 /// operation. Adapters must reject expired calls before I/O, bound all request
 /// waits (including connection acquisition and establishment) by that deadline,
 /// and reject success observed after expiry. Deadlines are cooperative I/O bounds,
-/// not hard real-time CPU or memory limits; results remain unpaginated.
+/// not hard real-time CPU or memory limits.
 /// Dropping the future abandons the result, without guaranteeing immediate server
 /// cancellation. Provider cleanup may continue outside the request deadline.
 /// Composition separately bounds startup/shutdown and configures finite backend
