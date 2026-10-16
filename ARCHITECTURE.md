@@ -72,7 +72,7 @@ Paths below are relative to `crates/`:
 | --- | --- |
 | `yomibu-core/src/domain/` | Domain values and pure decisions, such as eligibility and assessment aggregation. |
 | `yomibu-core/src/ports/infrastructure/` | Outbound service contracts: storage queries/writes, secrets and cache. Storage queries remain infrastructure even when called `select`. |
-| `yomibu-core/src/ports/capabilities/` | Outbound contracts for replaceable operations, such as selection, importing, embedding and assessment, including pure implementations. |
+| `yomibu-core/src/ports/capabilities/` | Outbound contracts for replaceable operations, such as selection, importing, embedding and assessment, including operations whose implementations are pure. |
 | `yomibu-app/src/application/` | Inbound APIs, shared normalization through core rules, operation composition, execution limits and failure handling. |
 | `yomibu-ext/src/` | Implementations grouped by provider or component; SDK clients, SQL, file formats, provider options and error translation. |
 | Driving crates | Translate supported inputs into application requests, invoke operations and present results. Composition roots configure and connect implementations. |
@@ -113,7 +113,7 @@ a new category; propose a distinct responsibility through an architecture decisi
 | --- | --- |
 | Dependencies | Follow the graph. Core/app public contracts expose no SDK clients/responses, database connections/rows or transport-framework types. |
 | Functional core | Domain decisions are deterministic for the same explicit inputs. Domain must not depend on ports/adapters, perform I/O or obtain ambient time, randomness or environment values. Supply observations and seeds explicitly. |
-| Ports | Required infrastructure services and replaceable capabilities have interfaces from their first implementation, even with one adapter or a pure implementation. Interfaces describe behavioral boundaries; settings are ordinarily typed data. |
+| Ports | Required infrastructure services and replaceable capabilities have interfaces from their first implementation, even with one adapter or a pure implementation. Interfaces describe behavioral boundaries; settings are ordinarily typed data. Port modules define contracts and their value and error types. Application and adapter execution policy stays in its owning layer; value types may enforce their own invariants. |
 | Application | Execute operations through supplied ports and apply core decisions. External data/service access stays behind ports; runtime scheduling may live in the shell. |
 | Adapters | Translate external representations and honor contracts. Optimizations preserve semantics; expected failures are results, not panics. |
 | Simplicity | Every extra abstraction serves a required boundary, behavior or invariant. A single implementation does not weaken that justification. |
@@ -135,7 +135,7 @@ a port. Concrete provider settings belong with their extension's configuration.
 | Principle | Interpretation |
 | --- | --- |
 | KISS | Choose the clearest design satisfying required boundaries and behavior. |
-| DRY | Do not repeat knowledge: maintain one authoritative definition of each rule or decision. Similar code need not represent the same knowledge. |
+| DRY | Do not repeat knowledge: maintain one authoritative definition of each rule or decision. Similar code need not represent the same knowledge, including the same check performed by different layers for different obligations. |
 | YAGNI | Defer unrequested behavior and machinery, never agreed architectural obligations. |
 
 Required ports, dependency boundaries, domain purity and contract verification are
