@@ -84,6 +84,14 @@ Optional [task templates](docs/task-templates.md) help write implementation and 
   For substantial remaining complexity, explain the current need and why a concrete
   simpler alternative is insufficient. Fewer lines or a single adapter do not justify
   removing a required port. Preserve compatibility only when requested.
+- **Leave touched code better.** You may make small, behavior-preserving refactorings
+  in touched code and its immediate collaborators without separate approval when they
+  simplify the implementation, remove duplicated knowledge, or improve compliance with
+  agreed architecture. Keep cleanup proportionate to the task and verify affected
+  behavior. Preserve required ports and contract guarantees. Do not expand into
+  unrelated rewrites, speculative abstractions, or cosmetic churn. Propose broader
+  improvements separately. Briefly identify incidental refactoring and its benefit in
+  the delivery report; cleanup is not mandatory when no useful improvement is evident.
 - Give reviewers the approved scope and exclusions; distinguish requirements from
   revisable implementation choices. Required findings must identify a concrete defect
   or violated contract or rule; distinguish optional improvements. Challenge complexity
