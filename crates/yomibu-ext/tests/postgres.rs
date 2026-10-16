@@ -7,7 +7,7 @@ use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
 use yomibu_core::ports::infrastructure::{
     LearnerCollectionQuery, LearnerWriteError, LearnerWriter, StorageError,
 };
-use yomibu_ext::{PostgresLearnerCollectionQuery, PostgresLearnerWriter};
+use yomibu_ext::PostgresLearnerStorage;
 
 const SCHEMA: &str = include_str!("../../../docs/plan/schema.postgresql.sql");
 
@@ -51,7 +51,7 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
             ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000030');"
     ).execute(control).await.unwrap();
 
-    let storage = PostgresLearnerCollectionQuery::new(pool.clone());
+    let storage = PostgresLearnerStorage::new(pool.clone());
     for (learner, expected) in [(1, vec![0x10, 0x20]), (2, vec![0x10, 0x30])] {
         let mut actual: Vec<_> = lookup(&storage, learner)
             .await
@@ -79,7 +79,7 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
     // An expired call must win even when the pool cannot execute a query.
     let closed = PgPoolOptions::new().connect_lazy_with(pool.connect_options().as_ref().clone());
     closed.close().await;
-    let closed_storage = PostgresLearnerCollectionQuery::new(closed);
+    let closed_storage = PostgresLearnerStorage::new(closed);
     assert_eq!(
         closed_storage
             .collection_ids_for_learner(LearnerId(Uuid::from_u128(1)), Instant::now(),)
@@ -245,10 +245,22 @@ async fn create(
 }
 
 async fn check_write_contract(pool: &PgPool, control: &PgPool) {
-    let storage = PostgresLearnerWriter::new(pool.clone());
+    let storage = PostgresLearnerStorage::new(pool.clone());
     let budget = Duration::from_secs(5);
     let name = "O'Reilly 東京";
+    let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(pool)
+        .await
+        .unwrap();
     let first = create(&storage, name, budget).await.unwrap();
+    let after: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        after, backend,
+        "confirmed writes should return their connection to the pool"
+    );
     let saved: String = sqlx::query_scalar("SELECT name FROM learners WHERE id = $1")
         .bind(first.0)
         .fetch_one(control)
@@ -261,7 +273,7 @@ async fn check_write_contract(pool: &PgPool, control: &PgPool) {
     sqlx::query("ALTER TABLE learners ADD CONSTRAINT test_name_unique UNIQUE (name) DEFERRABLE INITIALLY DEFERRED")
         .execute(control).await.unwrap();
     let error = create(&storage, name, budget).await.unwrap_err();
-    assert!(matches!(error, LearnerWriteError::CompletionUnknown(_)));
+    assert!(matches!(error, LearnerWriteError::NotCreated(_)));
     assert!(error.to_string().contains("SQLSTATE 23505"));
     assert!(!error.to_string().contains(name));
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM learners WHERE name = $1")
@@ -283,10 +295,23 @@ async fn check_write_contract(pool: &PgPool, control: &PgPool) {
         .unwrap();
     assert_eq!(count, 2);
 
+    sqlx::query("ALTER TABLE learners RENAME TO hidden_learners")
+        .execute(control)
+        .await
+        .unwrap();
+    let error = create(&storage, "missing table", budget).await.unwrap_err();
+    assert!(matches!(error, LearnerWriteError::NotCreated(_)));
+    assert!(error.to_string().contains("SQLSTATE 42P01"));
+    assert!(!error.to_string().contains("hidden_learners"));
+    sqlx::query("ALTER TABLE hidden_learners RENAME TO learners")
+        .execute(control)
+        .await
+        .unwrap();
+
     // Expiry and pool acquisition failure happen before any insert is dispatched.
     let closed = PgPoolOptions::new().connect_lazy_with(pool.connect_options().as_ref().clone());
     closed.close().await;
-    let closed = PostgresLearnerWriter::new(closed);
+    let closed = PostgresLearnerStorage::new(closed);
     let error = create(&closed, "not dispatched", Duration::ZERO)
         .await
         .unwrap_err();

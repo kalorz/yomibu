@@ -52,6 +52,30 @@ async fn help_succeeds_without_configuration() {
 }
 
 #[tokio::test]
+async fn blank_name_is_rejected_before_configuration_and_connection() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!(
+        "postgres://user:secret-marker@{}/unused",
+        listener.local_addr().unwrap()
+    );
+    for config in [None, Some(OsStr::new(&url))] {
+        let output = invoke(&["create-learner", "--name", " "], config).await;
+        let stderr = failure(&output);
+        assert!(
+            stderr.contains("learner name must not be blank"),
+            "{stderr}"
+        );
+        assert!(!stderr.contains("YOMIBU_DATABASE_URL"));
+        assert!(!stderr.contains("secret-marker"));
+    }
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[tokio::test]
 async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();

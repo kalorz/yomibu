@@ -53,16 +53,14 @@ pub trait LearnerCollectionQuery {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CollectionId>, StorageError>> + '_>>;
 }
 
-/// Creation knowledge must survive subsequent failures. Reasons must be safe to
-/// present, without credentials, connection URLs, or raw provider messages.
+/// Storage's knowledge of a failed write. Reasons must be safe to present,
+/// without credentials, connection URLs, or raw provider messages.
 #[derive(Debug, PartialEq, Eq)]
 pub enum LearnerWriteError {
     /// No learner was created by this invocation.
     NotCreated(String),
     /// The write may have committed. This must never be treated as safe to retry.
     CompletionUnknown(String),
-    /// Creation was confirmed, but a later deadline, cleanup, or output step failed.
-    Created { id: LearnerId, reason: String },
 }
 
 impl std::fmt::Display for LearnerWriteError {
@@ -72,11 +70,6 @@ impl std::fmt::Display for LearnerWriteError {
             Self::CompletionUnknown(reason) => write!(
                 f,
                 "learner creation completion is unknown: {reason}; it may have been saved; do not automatically retry"
-            ),
-            Self::Created { id, reason } => write!(
-                f,
-                "learner {} was created, but {reason}; do not repeat creation",
-                id.0
             ),
         }
     }
@@ -93,8 +86,8 @@ impl std::error::Error for LearnerWriteError {}
 ///
 /// Reject expired calls before I/O. Bound acquisition, connection establishment,
 /// and execution by the supplied absolute monotonic deadline, without retrying
-/// the write. Failures before dispatch are `NotCreated`; failures after dispatch
-/// are conservatively `CompletionUnknown` unless creation is confirmed. Preserve
+/// the write. Failures before dispatch and proven server rejections are
+/// `NotCreated`; ambiguous failures after dispatch are `CompletionUnknown`. Preserve
 /// a confirmed UUID even if observed after expiry; application handles late results.
 ///
 /// Dropping the future abandons its result, not necessarily the server operation.

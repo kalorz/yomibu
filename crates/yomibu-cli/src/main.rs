@@ -5,10 +5,9 @@ use std::time::{Duration, Instant};
 use clap::{Arg, ArgAction, Command, value_parser};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use uuid::Uuid;
-use yomibu_app::application::{create_learner, list_collection_ids};
+use yomibu_app::application::{CreateLearner, CreateLearnerError, list_collection_ids};
 use yomibu_core::domain::{CollectionId, LearnerId};
-use yomibu_core::ports::infrastructure::LearnerWriteError;
-use yomibu_ext::{PostgresLearnerCollectionQuery, PostgresLearnerWriter};
+use yomibu_ext::PostgresLearnerStorage;
 
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -101,7 +100,7 @@ fn report_created(
         writeln!(stdout, "{}", id.0)
             .and_then(|()| stdout.flush())
             .map_err(|_| {
-                LearnerWriteError::Created {
+                CreateLearnerError::Created {
                     id,
                     reason: "could not write or flush learner UUID to stdout".into(),
                 }
@@ -148,12 +147,13 @@ fn run(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
 }
 
 fn run_create_learner(name: &str) -> Result<LearnerId, String> {
+    let request = CreateLearner::new(name).map_err(|error| error.to_string())?;
     let url = database_url()?;
     let runtime = database_runtime()?;
     let result = runtime.block_on(async {
         let pool = connect(url).await?;
-        let storage = PostgresLearnerWriter::new(pool.clone());
-        let result = create_learner(name, &storage, Instant::now() + IO_TIMEOUT).await;
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let result = request.execute(&storage, Instant::now() + IO_TIMEOUT).await;
         let shutdown = tokio::time::timeout(SHUTDOWN_TIMEOUT, pool.close())
             .await
             .map_err(|_| "database shutdown timed out");
@@ -164,12 +164,12 @@ fn run_create_learner(name: &str) -> Result<LearnerId, String> {
 }
 
 fn creation_after_shutdown(
-    result: Result<LearnerId, LearnerWriteError>,
+    result: Result<LearnerId, CreateLearnerError>,
     shutdown: Result<(), &str>,
 ) -> Result<LearnerId, String> {
     let id = result.map_err(|error| error.to_string())?;
     shutdown.map_err(|reason| {
-        LearnerWriteError::Created {
+        CreateLearnerError::Created {
             id,
             reason: reason.into(),
         }
@@ -232,7 +232,7 @@ async fn connect(url: String) -> Result<sqlx::PgPool, String> {
 
 async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId>, String> {
     let pool = connect(url).await?;
-    let storage = PostgresLearnerCollectionQuery::new(pool.clone());
+    let storage = PostgresLearnerStorage::new(pool.clone());
     let result = list_collection_ids(learner, &storage, Instant::now() + IO_TIMEOUT).await;
     let shutdown = tokio::time::timeout(SHUTDOWN_TIMEOUT, pool.close()).await;
     // Preserve a lookup failure even if cleanup also times out; cleanup failure
@@ -245,6 +245,7 @@ async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId
 #[cfg(test)]
 mod tests {
     use super::*;
+    use yomibu_core::ports::infrastructure::LearnerWriteError;
 
     #[test]
     fn created_learner_prints_assigned_uuid_and_newline() {
@@ -262,9 +263,11 @@ mod tests {
     #[test]
     fn creation_errors_print_no_success_uuid() {
         for error in [
-            LearnerWriteError::NotCreated("invalid name".into()),
-            LearnerWriteError::CompletionUnknown("connection lost".into()),
-            LearnerWriteError::Created {
+            CreateLearnerError::BlankName,
+            CreateLearnerError::Storage(LearnerWriteError::CompletionUnknown(
+                "connection lost".into(),
+            )),
+            CreateLearnerError::Created {
                 id: LearnerId(Uuid::from_u128(7)),
                 reason: "deadline exceeded".into(),
             },
@@ -290,8 +293,10 @@ mod tests {
         assert!(failure.contains("was created"));
         assert!(failure.contains("shutdown timed out"));
         for error in [
-            LearnerWriteError::CompletionUnknown("connection lost".into()),
-            LearnerWriteError::Created {
+            CreateLearnerError::Storage(LearnerWriteError::CompletionUnknown(
+                "connection lost".into(),
+            )),
+            CreateLearnerError::Created {
                 id,
                 reason: "deadline exceeded".into(),
             },

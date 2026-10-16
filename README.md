@@ -81,17 +81,19 @@ and retained schema described above. The database role needs `INSERT` on
 ./target/debug/yomibu create-learner --name 'Alice'
 ```
 
-Surrounding whitespace is trimmed; a blank name is rejected before the storage
-write. Names are not unique: running the command again creates another learner
-with a different UUID. It creates no collections or associations and has no JSON
+Surrounding Unicode whitespace is trimmed; a blank name is rejected before
+database configuration or connection. Names are not unique: running the command
+again creates another learner with a different UUID. It creates no collections
+or associations and has no JSON
 output option. `yomibu create-learner --help` needs no database configuration.
 
 Startup and creation each have a five-second limit, with the same acquisition,
 server statement, and shutdown bounds as collection lookup. The write is never
-automatically retried. A timeout or connection failure after dispatch may mean
-the learner was saved; the diagnostic reports uncertain completion instead of
-claiming rollback. Once creation is confirmed, any subsequent deadline, cleanup,
-or output failure retains that fact and includes the assigned UUID in stderr.
+automatically retried. PostgreSQL syntax/access and integrity-constraint rejections
+report that no learner was created. Other failures after dispatch, including
+timeouts and connection failures, conservatively report uncertain completion
+instead of claiming rollback. Once creation is confirmed, any subsequent deadline,
+cleanup, or output failure retains that fact and includes the assigned UUID in stderr.
 These failures exit unsuccessfully. No UUID is printed to stdout before creation
 and pool shutdown succeed; an output failure can leave partial or complete UUID
 bytes already written. Repeating creation after a failure may create a duplicate.

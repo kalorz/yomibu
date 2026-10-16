@@ -5,7 +5,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
-use yomibu_app::application::create_learner;
+use yomibu_app::application::{CreateLearner, CreateLearnerError};
 use yomibu_core::domain::{LearnerId, LearnerName};
 use yomibu_core::ports::infrastructure::{LearnerWriteError, LearnerWriter};
 
@@ -49,7 +49,11 @@ fn ready<T>(future: impl Future<Output = T>) -> T {
 fn normalized_name_and_unchanged_deadline_reach_supplied_writer_once() {
     let writer = writer(Ok(ID));
     assert_eq!(
-        ready(create_learner("  Alice  ", &writer, writer.deadline)),
+        ready(
+            CreateLearner::new("  Alice  ")
+                .unwrap()
+                .execute(&writer, writer.deadline)
+        ),
         Ok(ID)
     );
     assert_eq!(writer.calls.get(), 1);
@@ -59,12 +63,16 @@ fn normalized_name_and_unchanged_deadline_reach_supplied_writer_once() {
 fn invalid_name_and_expired_deadline_prevent_dispatch() {
     let writer = writer(Ok(ID));
     assert!(matches!(
-        ready(create_learner(" ", &writer, writer.deadline)),
-        Err(LearnerWriteError::NotCreated(_))
+        CreateLearner::new(" "),
+        Err(CreateLearnerError::BlankName)
     ));
     assert!(matches!(
-        ready(create_learner("Alice", &writer, Instant::now())),
-        Err(LearnerWriteError::NotCreated(_))
+        ready(
+            CreateLearner::new("Alice")
+                .unwrap()
+                .execute(&writer, Instant::now())
+        ),
+        Err(CreateLearnerError::DeadlineExceeded)
     ));
     assert_eq!(writer.calls.get(), 0);
 }
@@ -74,14 +82,16 @@ fn write_failures_preserve_creation_knowledge_without_retrying() {
     for error in [
         LearnerWriteError::NotCreated("pool unavailable".into()),
         LearnerWriteError::CompletionUnknown("connection lost".into()),
-        LearnerWriteError::Created {
-            id: ID,
-            reason: "deadline exceeded".into(),
-        },
     ] {
         let expected = error.to_string();
         let writer = writer(Err(error));
-        let actual = ready(create_learner("Alice", &writer, writer.deadline)).unwrap_err();
+        let actual = ready(
+            CreateLearner::new("Alice")
+                .unwrap()
+                .execute(&writer, writer.deadline),
+        )
+        .unwrap_err();
+        assert!(matches!(actual, CreateLearnerError::Storage(_)));
         assert_eq!(actual.to_string(), expected);
         assert_eq!(writer.calls.get(), 1);
     }
