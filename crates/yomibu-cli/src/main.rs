@@ -51,7 +51,7 @@ fn main() -> ExitCode {
     report_result(
         result,
         collections.get_flag("json"),
-        io::stdout().lock(),
+        io::BufWriter::new(io::stdout().lock()),
         io::stderr().lock(),
     )
 }
@@ -59,22 +59,12 @@ fn main() -> ExitCode {
 fn report_result(
     result: Result<Vec<CollectionId>, String>,
     json: bool,
-    stdout: impl Write,
+    mut stdout: impl Write,
     mut stderr: impl Write,
 ) -> ExitCode {
     let result = result.and_then(|ids| {
-        let mut stdout = io::BufWriter::new(stdout);
-        if json {
-            let ids: Vec<_> = ids.iter().map(|id| id.0.to_string()).collect();
-            serde_json::to_writer(&mut stdout, &ids)
-                .map_err(|_| "could not write collection IDs to stdout")?;
-            writeln!(stdout).map_err(|_| "could not write collection IDs to stdout")?;
-        } else {
-            for id in ids {
-                writeln!(stdout, "{}", id.0)
-                    .map_err(|_| "could not write collection IDs to stdout")?;
-            }
-        }
+        write_collection_ids(&ids, json, &mut stdout)
+            .map_err(|_| "could not write collection IDs to stdout")?;
         stdout.flush().map_err(|_| "could not flush stdout")?;
         Ok(())
     });
@@ -85,6 +75,23 @@ fn report_result(
             ExitCode::FAILURE
         }
     }
+}
+
+fn write_collection_ids(
+    ids: &[CollectionId],
+    json: bool,
+    mut stdout: impl Write,
+) -> io::Result<()> {
+    if json {
+        let ids: Vec<_> = ids.iter().map(|id| id.0.to_string()).collect();
+        serde_json::to_writer(&mut stdout, &ids)?;
+        writeln!(stdout)?;
+    } else {
+        for id in ids {
+            writeln!(stdout, "{}", id.0)?;
+        }
+    }
+    Ok(())
 }
 
 fn run(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
@@ -183,15 +190,9 @@ mod tests {
             ExitCode::SUCCESS
         );
         assert!(stderr.is_empty());
-        assert!(stdout.ends_with(b"\n"));
-        let mut ids: Vec<String> = serde_json::from_slice(&stdout).unwrap();
-        ids.sort_unstable();
         assert_eq!(
-            ids,
-            [
-                "00000000-0000-0000-0000-000000000002",
-                "00000000-0000-0000-0000-000000000009"
-            ]
+            stdout,
+            b"[\"00000000-0000-0000-0000-000000000009\",\"00000000-0000-0000-0000-000000000002\"]\n"
         );
     }
 
@@ -234,16 +235,16 @@ mod tests {
     #[test]
     fn output_write_failure_is_unsuccessful() {
         for json in [false, true] {
-            // Fail both the final flush and writes that fill the output buffer.
-            for (count, expected) in [
-                (1, "error: could not flush stdout\n"),
-                (512, "error: could not write collection IDs to stdout\n"),
+            // One UUID fits in 128 bytes; a zero-capacity buffer writes immediately.
+            for (capacity, expected) in [
+                (128, "error: could not flush stdout\n"),
+                (0, "error: could not write collection IDs to stdout\n"),
             ] {
                 let mut stderr = Vec::new();
-                let stdout = &mut [][..];
+                let stdout = io::BufWriter::with_capacity(capacity, &mut [][..]);
                 assert_eq!(
                     report_result(
-                        Ok(vec![CollectionId(Uuid::from_u128(9)); count]),
+                        Ok(vec![CollectionId(Uuid::from_u128(9))]),
                         json,
                         stdout,
                         &mut stderr

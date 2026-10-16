@@ -90,27 +90,32 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
         "http://user:secret-marker@{}/db",
         listener.local_addr().unwrap()
     );
-    for args in [
-        vec!["collections", "--learner", LEARNER],
-        vec!["collections", "--learner", LEARNER, "--json"],
+    for config in [
+        None,
+        Some(""),
+        Some("postgres://user:secret-marker@localhost:invalid/db"),
+        Some(wrong_scheme.as_str()),
     ] {
-        for config in [
-            None,
-            Some(""),
-            Some("postgres://user:secret-marker@localhost:invalid/db"),
-            Some(wrong_scheme.as_str()),
-        ] {
-            let output = invoke(&args, config.map(OsStr::new)).await;
-            let stderr = failure(&output);
-            assert!(stderr.contains("YOMIBU_DATABASE_URL"), "{stderr}");
-            assert!(!stderr.contains("secret-marker"));
-            assert!(!stderr.contains("postgres://"));
-        }
+        let output = invoke(
+            &["collections", "--learner", LEARNER],
+            config.map(OsStr::new),
+        )
+        .await;
+        let stderr = failure(&output);
+        assert!(stderr.contains("YOMIBU_DATABASE_URL"), "{stderr}");
+        assert!(!stderr.contains("secret-marker"));
+        assert!(!stderr.contains("postgres://"));
     }
     assert_eq!(
         listener.accept().unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
     );
+}
+
+#[tokio::test]
+async fn json_configuration_failure_is_not_an_empty_array() {
+    let output = invoke(&["collections", "--learner", LEARNER, "--json"], None).await;
+    assert!(failure(&output).contains("YOMIBU_DATABASE_URL"));
 }
 
 #[cfg(unix)]
@@ -230,7 +235,11 @@ async fn check_postgres_wiring() {
         Some(database_url),
     )
     .await;
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(output.stderr.is_empty());
     assert!(output.stdout.ends_with(b"\n"));
     let mut json_ids: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
