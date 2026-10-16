@@ -61,9 +61,7 @@ terminate its own connections. Run:
 
 ```sh
 YOMIBU_TEST_DATABASE_URL='postgres://postgres@localhost/yomibu_test' \
-  cargo test --locked -p yomibu-ext --test postgres -- --ignored
-YOMIBU_TEST_DATABASE_URL='postgres://postgres@localhost/yomibu_test' \
-  cargo test --locked -p yomibu-cli --test cli -- --ignored
+  cargo test --locked --all -- --ignored
 ```
 
 Each test applies the complete retained schema in an isolated schema and removes
