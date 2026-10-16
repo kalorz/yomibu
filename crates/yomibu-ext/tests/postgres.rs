@@ -82,7 +82,7 @@ async fn check_contract(pool: &PgPool, control: &PgPool) {
         closed_storage
             .collection_ids_for_learner(LearnerId(Uuid::from_u128(1)), Instant::now(),)
             .await,
-        Err(StorageError("collection lookup deadline exceeded".into()))
+        Err(StorageError::collection_lookup_deadline_exceeded())
     );
     assert_eq!(
         lookup(&closed_storage, 1).await,
@@ -169,7 +169,7 @@ async fn assert_deadline(storage: &dyn LearnerCollectionQuery) {
     .expect("adapter must finish before the longer watchdog timeout");
     assert_eq!(
         result,
-        Err(StorageError("collection lookup deadline exceeded".into()))
+        Err(StorageError::collection_lookup_deadline_exceeded())
     );
 }
 
