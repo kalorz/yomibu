@@ -78,12 +78,15 @@ Optional [task templates](docs/task-templates.md) help write implementation and 
 
 ## Delivery
 
-- Before delivery, simplify the complete diff using
-  [implementation economy](ARCHITECTURE.md#simplicity), including tests and documentation.
-  Remove avoidable machinery; merely reporting it does not complete the task.
+- After implementation and review fixes, make one final simplification pass over
+  the complete diff using [implementation economy](ARCHITECTURE.md#simplicity),
+  including tests and documentation. Use behavior-preserving refactoring to remove
+  avoidable machinery. Preserve observable behavior, required ports, contract guarantees
+  and meaningful verification, including failures and execution limits. Make no changes
+  when the result is already clear and economical. If refactoring materially changes
+  how correctness is established, have the affected parts reviewed again.
   For substantial remaining complexity, explain the current need and why a concrete
-  simpler alternative is insufficient. Fewer lines or a single adapter do not justify
-  removing a required port. Preserve compatibility only when requested.
+  simpler alternative is insufficient.
 - **Leave touched code better.** You may make small, behavior-preserving refactorings
   in touched code and its immediate collaborators without separate approval when they
   simplify the implementation, remove duplicated knowledge, or improve compliance with
