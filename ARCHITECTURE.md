@@ -148,13 +148,13 @@ Retained experimental code follows the same rules from its first feature slice.
 An architectural exception requires explicit agreement on its scope and exit condition;
 "experimental" or "temporary" alone is not an exemption.
 
-Implementation economy means the fewest concepts, layers and moving parts that clearly
-satisfy requested behavior and agreed architecture. Prefer direct control flow, existing
-tools and ordinary Rust constructs. Remove unnecessary forwarding layers, duplicated
-state or policy, speculative flexibility, redundant tests and prose that repeats code.
-Each extra abstraction must serve a specific current responsibility or invariant;
-required ports already meet that test. Large changes prompt review, not arbitrary line
-limits, compressed formatting, displaced complexity or weakened boundaries.
+Implementation economy evaluates cooperating types and layers together. Required
+boundaries, meaningful invariants, and prevention of concrete misuse justify abstractions
+from their first use. Prefer existing representations when they already serve the
+responsibility clearly. Compare alternatives when complexity is non-obvious; choose based
+on clarity, correctness, and maintenance cost—not type or line count alone. Preserve agreed
+behavioral and architectural guarantees. Routine implementation choices require no
+additional approval.
 
 A rule may have equivalent pure and SQL representations. Verify their shared meaning
 through contract tests rather than forcing inefficient data loading to reuse code.
