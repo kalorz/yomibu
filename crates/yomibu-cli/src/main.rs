@@ -20,13 +20,19 @@ fn cli() -> Command {
         .subcommand(
             Command::new("create-learner")
                 .about("Create a learner and print its assigned UUID")
-                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. Surrounding name whitespace is trimmed; blank names are rejected. Names need not be unique. Prints the assigned UUID followed by a newline. An interrupted write may have been saved; it is never automatically retried. If creation is confirmed but a later step fails, stderr includes its UUID.")
+                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. Surrounding name whitespace is trimmed; blank names are rejected. Names need not be unique. Prints the assigned UUID followed by a newline. With --json, prints {\"id\":\"<UUID>\"} followed by a newline. An interrupted write may have been saved; it is never automatically retried. If creation is confirmed but a later step fails, stderr includes its UUID.")
                 .arg(
                     Arg::new("name")
                         .long("name")
                         .value_name("NAME")
                         .help("Name for the new learner")
                         .required(true),
+                )
+                .arg(
+                    Arg::new("json")
+                        .long("json")
+                        .action(ArgAction::SetTrue)
+                        .help("Print the assigned UUID as a JSON object"),
                 ),
         )
         .subcommand(
@@ -58,6 +64,7 @@ fn main() -> ExitCode {
             let name = create.get_one::<String>("name").expect("required name");
             report_created(
                 run_create_learner(name),
+                create.get_flag("json"),
                 io::BufWriter::new(io::stdout().lock()),
                 io::stderr().lock(),
             )
@@ -94,19 +101,23 @@ fn report_result(
 
 fn report_created(
     result: Result<LearnerId, String>,
+    json: bool,
     mut stdout: impl Write,
     stderr: impl Write,
 ) -> ExitCode {
     let result = result.and_then(|id| {
-        writeln!(stdout, "{}", id.0)
-            .and_then(|()| stdout.flush())
-            .map_err(|_| {
-                CreateLearnerError::Created {
-                    id,
-                    reason: "could not write or flush learner UUID to stdout",
-                }
-                .to_string()
-            })
+        let output = if json {
+            writeln!(stdout, "{}", serde_json::json!({"id": id.0.to_string()}))
+        } else {
+            writeln!(stdout, "{}", id.0)
+        };
+        output.and_then(|()| stdout.flush()).map_err(|_| {
+            CreateLearnerError::Created {
+                id,
+                reason: "could not write or flush learner UUID to stdout",
+            }
+            .to_string()
+        })
     });
     report_status(result, stderr)
 }
@@ -245,16 +256,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn created_learner_prints_assigned_uuid_and_newline() {
+    fn created_learner_prints_assigned_uuid_and_newline_in_both_formats() {
         let id = LearnerId(Uuid::from_u128(7));
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        assert_eq!(
-            report_created(Ok(id), &mut stdout, &mut stderr),
-            ExitCode::SUCCESS
-        );
-        assert_eq!(stdout, b"00000000-0000-0000-0000-000000000007\n");
-        assert!(stderr.is_empty());
+        for (json, expected) in [
+            (false, "00000000-0000-0000-0000-000000000007\n"),
+            (true, "{\"id\":\"00000000-0000-0000-0000-000000000007\"}\n"),
+        ] {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            assert_eq!(
+                report_created(Ok(id), json, &mut stdout, &mut stderr),
+                ExitCode::SUCCESS
+            );
+            assert_eq!(stdout, expected.as_bytes());
+            assert!(stderr.is_empty());
+        }
     }
 
     #[test]
@@ -264,14 +280,16 @@ mod tests {
             reason: "creation deadline exceeded",
         }
         .to_string();
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        assert_eq!(
-            report_created(Err(error.clone()), &mut stdout, &mut stderr),
-            ExitCode::FAILURE
-        );
-        assert!(stdout.is_empty());
-        assert_eq!(stderr, format!("error: {error}\n").as_bytes());
+        for json in [false, true] {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            assert_eq!(
+                report_created(Err(error.clone()), json, &mut stdout, &mut stderr),
+                ExitCode::FAILURE
+            );
+            assert!(stdout.is_empty());
+            assert_eq!(stderr, format!("error: {error}\n").as_bytes());
+        }
     }
 
     #[test]
@@ -301,16 +319,18 @@ mod tests {
                 reason: "could not write or flush learner UUID to stdout"
             }
         );
-        for stdout in [
-            Box::new(&mut [][..]) as Box<dyn Write>,
-            Box::new(io::BufWriter::new(&mut [][..])),
-        ] {
-            let mut stderr = Vec::new();
-            assert_eq!(
-                report_created(Ok(id), stdout, &mut stderr),
-                ExitCode::FAILURE
-            );
-            assert_eq!(stderr, expected.as_bytes());
+        for json in [false, true] {
+            for stdout in [
+                Box::new(&mut [][..]) as Box<dyn Write>,
+                Box::new(io::BufWriter::new(&mut [][..])),
+            ] {
+                let mut stderr = Vec::new();
+                assert_eq!(
+                    report_created(Ok(id), json, stdout, &mut stderr),
+                    ExitCode::FAILURE
+                );
+                assert_eq!(stderr, expected.as_bytes());
+            }
         }
     }
 

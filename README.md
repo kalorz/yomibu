@@ -76,16 +76,17 @@ command without printing IDs. Output write failures also exit unsuccessfully.
 UUID followed by a newline. It uses the same `YOMIBU_DATABASE_URL` configuration
 and retained schema described above. The database role needs `INSERT` on
 `learners` and `SELECT` on its `id` column for the returned UUID.
+Add `--json` to print `{"id":"<assigned UUID>"}` followed by a newline.
 
 ```sh
 ./target/debug/yomibu create-learner --name 'Alice'
+./target/debug/yomibu create-learner --name 'Alice' --json
 ```
 
 Surrounding Unicode whitespace is trimmed; a blank name is rejected before
 database configuration or connection. Names are not unique: running the command
 again creates another learner with a different UUID. It creates no collections
-or associations and has no JSON output option. `yomibu create-learner --help`
-needs no database configuration.
+or associations. `yomibu create-learner --help` needs no database configuration.
 
 Startup and creation each have a five-second limit, with the same acquisition,
 server statement, and shutdown bounds as collection lookup. The write is never
@@ -95,9 +96,10 @@ timeouts and connection failures, conservatively report uncertain completion
 instead of claiming rollback. Once creation is confirmed, any subsequent deadline,
 cleanup, or output failure retains that fact and includes the assigned UUID in stderr.
 These failures exit unsuccessfully. No UUID is printed to stdout before creation
-and pool shutdown succeed; an output failure can leave partial or complete UUID
+and pool shutdown succeed; an output failure can leave partial or complete output
 bytes already written. Repeating creation after a failure may create a duplicate.
-Diagnostics omit credentials and raw provider messages.
+In both formats, diagnostics remain plain text on stderr and omit credentials
+and raw provider messages.
 
 ## Developing
 

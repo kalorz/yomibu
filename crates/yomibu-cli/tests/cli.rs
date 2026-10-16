@@ -36,6 +36,16 @@ fn assert_never_connected(listener: &TcpListener) {
     );
 }
 
+fn success(output: &Output) -> &str {
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    std::str::from_utf8(&output.stdout).unwrap()
+}
+
 fn failure(output: &Output) -> &str {
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -48,16 +58,17 @@ fn failure(output: &Output) -> &str {
 async fn help_succeeds_without_configuration() {
     for (args, expected) in [
         (vec!["--help"], vec!["collections", "create-learner"]),
-        (vec!["create-learner", "--help"], vec!["--name <NAME>"]),
+        (
+            vec!["create-learner", "--help"],
+            vec!["--name <NAME>", "--json"],
+        ),
         (
             vec!["collections", "--help"],
             vec!["--learner <UUID>", "--json"],
         ),
     ] {
         let output = invoke(&args, None).await;
-        assert!(output.status.success());
-        assert!(output.stderr.is_empty());
-        let stdout = std::str::from_utf8(&output.stdout).unwrap();
+        let stdout = success(&output);
         assert!(stdout.contains("Usage:"));
         for text in expected {
             assert!(stdout.contains(text), "{stdout}");
@@ -97,7 +108,7 @@ async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
         vec!["unknown"],
         vec!["create-learner"],
         vec!["create-learner", "--name"],
-        vec!["create-learner", "--name", "Alice", "--json"],
+        vec!["create-learner", "--name", "Alice", "--unknown"],
         vec!["create-learner", "--name", "Alice", "--name", "Bob"],
         vec!["collections"],
         vec!["collections", "--learner"],
@@ -241,13 +252,7 @@ async fn check_postgres_wiring() {
         Some(database_url),
     )
     .await;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(output.stderr.is_empty());
-    let stdout = std::str::from_utf8(&output.stdout).unwrap();
+    let stdout = success(&output);
     let id: Uuid = stdout.strip_suffix('\n').unwrap().parse().unwrap();
     let name: String = sqlx::query_scalar("SELECT name FROM learners WHERE id = $1")
         .bind(id)
@@ -256,14 +261,24 @@ async fn check_postgres_wiring() {
         .unwrap();
     assert_eq!(name, "New CLI learner");
 
+    let output = invoke(
+        &["create-learner", "--name", "Alice", "--json"],
+        Some(database_url),
+    )
+    .await;
+    let stdout = success(&output);
+    assert!(stdout.ends_with('\n'));
+    let result: serde_json::Value = serde_json::from_str(stdout).unwrap();
+    let id: Uuid = result["id"].as_str().unwrap().parse().unwrap();
+    let name: String = sqlx::query_scalar("SELECT name FROM learners WHERE id = $1")
+        .bind(id)
+        .fetch_one(&mut control)
+        .await
+        .unwrap();
+    assert_eq!(name, "Alice");
+
     let output = invoke(&["collections", "--learner", LEARNER], Some(database_url)).await;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(output.stderr.is_empty());
-    let stdout = std::str::from_utf8(&output.stdout).unwrap();
+    let stdout = success(&output);
     assert!(stdout.ends_with('\n'));
     let mut lines: Vec<_> = stdout.lines().collect();
     lines.sort_unstable();
@@ -280,14 +295,9 @@ async fn check_postgres_wiring() {
         Some(database_url),
     )
     .await;
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(output.stderr.is_empty());
-    assert!(output.stdout.ends_with(b"\n"));
-    let mut json_ids: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+    let stdout = success(&output);
+    assert!(stdout.ends_with('\n'));
+    let mut json_ids: Vec<String> = serde_json::from_str(stdout).unwrap();
     json_ids.sort_unstable();
     assert_eq!(json_ids, lines);
 
@@ -300,9 +310,7 @@ async fn check_postgres_wiring() {
         Some(database_url),
     )
     .await;
-    assert!(output.status.success());
-    assert!(output.stdout.is_empty());
-    assert!(output.stderr.is_empty());
+    assert!(success(&output).is_empty());
 
     sqlx::query("ALTER TABLE learner_collections RENAME TO hidden_associations")
         .execute(&mut control)
