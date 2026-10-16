@@ -7,6 +7,36 @@ architecture enforcement and the [design plans](docs/plan/).
 Build with `cargo build --locked`. Story generation, synchronization and credential
 management are not currently available.
 
+## Local PostgreSQL
+
+On macOS, install and start Docker Desktop, which includes Docker Compose. From
+the repository root, start PostgreSQL 18 with pgvector:
+
+```sh
+docker compose up -d --wait --wait-timeout 60
+```
+
+The [Compose setup](compose.yaml) uses the same pinned database image as CI,
+supports Apple Silicon and Intel Macs, and listens on `127.0.0.1:55432`.
+It creates database `yomibu` with user `yomibu` and password `yomibu-dev`.
+These credentials are for local development.
+
+On the first start with an empty volume, PostgreSQL applies the
+[retained schema](docs/plan/schema.postgresql.sql), including the vector extension.
+Later starts reuse the data; changes to the SQL file do not migrate an existing
+database. The database starts without learners or collections.
+
+Open a SQL console or stop the database with:
+
+```sh
+docker compose exec postgres psql -U yomibu -d yomibu
+docker compose down
+```
+
+`docker compose down` preserves the named data volume. To erase the local database
+and initialize it again, run `docker compose down --volumes`, then the startup
+command above.
+
 ## List collections
 
 `yomibu collections --learner <UUID>` lists the collection UUIDs associated with a
@@ -20,7 +50,7 @@ to connection settings omitted from the URL, including `PG*` environment variabl
 and `.pgpass` credentials; `YOMIBU_DATABASE_URL` itself is always required.
 
 ```sh
-export YOMIBU_DATABASE_URL='postgres://yomibu@localhost/yomibu'
+export YOMIBU_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu'
 ./target/debug/yomibu collections --learner 00000000-0000-0000-0000-000000000001
 ```
 
@@ -56,11 +86,19 @@ defines the full checks and runs them on Linux and macOS.
 The PostgreSQL adapter contract and CLI wiring tests are explicitly ignored by
 that default command; CI runs them separately against PostgreSQL with pgvector. For a local run,
 supply a disposable PostgreSQL 18+ database with the `vector` extension
-installed in `public`, and a test role permitted to create/drop schemas and
-terminate its own connections. Run:
+installed in `public`, no application tables in `public`, and a test role permitted
+to create/drop schemas and terminate its own connections. With Compose running,
+create a separate test database once:
 
 ```sh
-YOMIBU_TEST_DATABASE_URL='postgres://postgres@localhost/yomibu_test' \
+docker compose exec postgres createdb -U yomibu yomibu_test
+docker compose exec postgres psql -U yomibu -d yomibu_test -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION vector;'
+```
+
+Then run:
+
+```sh
+YOMIBU_TEST_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu_test' \
   cargo test --locked --all -- --ignored
 ```
 
