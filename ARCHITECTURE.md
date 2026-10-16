@@ -113,7 +113,7 @@ a new category; propose a distinct responsibility through an architecture decisi
 | --- | --- |
 | Dependencies | Follow the graph. Core/app public contracts expose no SDK clients/responses, database connections/rows or transport-framework types. |
 | Functional core | Domain decisions are deterministic for the same explicit inputs. Domain must not depend on ports/adapters, perform I/O or obtain ambient time, randomness or environment values. Supply observations and seeds explicitly. |
-| Ports | Required infrastructure services and replaceable capabilities have interfaces from their first implementation, even with one adapter or a pure implementation. Interfaces describe behavioral boundaries; settings are ordinarily typed data. |
+| Ports | Required infrastructure services and replaceable capabilities have interfaces from their first implementation, even with one adapter or a pure implementation. Interfaces describe behavioral boundaries; settings are ordinarily typed data. Port modules hold contracts and the values and failures they exchange, not enforcement helpers; each layer enforces its own obligations. |
 | Application | Execute operations through supplied ports and apply core decisions. External data/service access stays behind ports; runtime scheduling may live in the shell. |
 | Adapters | Translate external representations and honor contracts. Optimizations preserve semantics; expected failures are results, not panics. |
 | Simplicity | Every extra abstraction serves a required boundary, behavior or invariant. A single implementation does not weaken that justification. |
@@ -135,7 +135,7 @@ a port. Concrete provider settings belong with their extension's configuration.
 | Principle | Interpretation |
 | --- | --- |
 | KISS | Choose the clearest design satisfying required boundaries and behavior. |
-| DRY | Do not repeat knowledge: maintain one authoritative definition of each rule or decision. Similar code need not represent the same knowledge. |
+| DRY | Do not repeat knowledge: maintain one authoritative definition of each rule or decision. Similar code need not represent the same knowledge, including the same check performed by different layers for different obligations. |
 | YAGNI | Defer unrequested behavior and machinery, never agreed architectural obligations. |
 
 Required ports, dependency boundaries, domain purity and contract verification are
