@@ -9,15 +9,10 @@ const LEARNER: &str = "00000000-0000-0000-0000-000000000001";
 
 async fn invoke(args: &[&str], database_url: Option<&OsStr>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
-    command.args(args).env_remove("YOMIBU_DATABASE_URL");
-    for (name, _) in std::env::vars_os() {
-        if name.to_str().is_some_and(|name| name.starts_with("PG")) {
-            command.env_remove(name);
-        }
-    }
-    // An explicit test password also prevents SQLx consulting the user's .pgpass.
-    // A password supplied in the test URL takes precedence.
-    command.env("PGPASSWORD", "");
+    // The CLI inherits no configuration or PG* defaults. An explicit test password
+    // also prevents SQLx consulting the user's .pgpass; a password supplied in the
+    // test URL takes precedence.
+    command.args(args).env_clear().env("PGPASSWORD", "");
     if let Some(url) = database_url {
         command.env("YOMIBU_DATABASE_URL", url);
     }
@@ -157,8 +152,8 @@ async fn collections_command_uses_postgres() {
 }
 
 async fn check_postgres_wiring() {
-    use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-    use sqlx::{AssertSqlSafe, ConnectOptions};
+    use sqlx::postgres::PgConnectOptions;
+    use sqlx::{AssertSqlSafe, ConnectOptions, Connection};
     use uuid::Uuid;
 
     let url = std::env::var("YOMIBU_TEST_DATABASE_URL")
@@ -166,31 +161,26 @@ async fn check_postgres_wiring() {
     let options: PgConnectOptions = url
         .parse()
         .expect("invalid test database connection options");
-    let options = options.options([("statement_timeout", "3s")]);
-    let admin = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options.clone())
+    let mut admin = options
+        .connect()
         .await
-        .unwrap_or_else(|_| panic!("could not connect to the PostgreSQL test database"));
+        .expect("could not connect to the PostgreSQL test database");
     let suffix: Uuid = sqlx::query_scalar("SELECT uuidv7()")
-        .fetch_one(&admin)
+        .fetch_one(&mut admin)
         .await
         .expect("test database must support uuidv7(); use PostgreSQL 18+");
     let schema = format!("yomibu_cli_{}", suffix.simple());
     sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(&admin)
+        .execute(&mut admin)
         .await
         .unwrap();
     let options = options.options([("search_path", format!("{schema},public"))]);
-    let control = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options.clone())
+    let mut control = options
+        .connect()
         .await
-        .unwrap();
+        .expect("could not connect to the PostgreSQL test database");
     sqlx::raw_sql(include_str!("../../../docs/plan/schema.postgresql.sql"))
-        .execute(&control)
+        .execute(&mut control)
         .await
         .expect(
             "could not apply retained schema; use PostgreSQL 18+ with vector installed in public",
@@ -203,9 +193,9 @@ async fn check_postgres_wiring() {
          INSERT INTO learner_collections (learner_id, collection_id) VALUES
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010'),
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000020');"
-    ).execute(&control).await.unwrap();
+    ).execute(&mut control).await.unwrap();
 
-    // SQLx's URL serializer omits session options; forward them explicitly.
+    // SQLx's URL serializer omits session options; forward the search path explicitly.
     let mut url = options.to_url_lossy();
     url.query_pairs_mut()
         .append_pair("options", options.get_options().unwrap());
@@ -243,7 +233,7 @@ async fn check_postgres_wiring() {
     assert!(output.stderr.is_empty());
 
     sqlx::query("ALTER TABLE learner_collections RENAME TO hidden_associations")
-        .execute(&control)
+        .execute(&mut control)
         .await
         .unwrap();
     let output = invoke(&["collections", "--learner", LEARNER], Some(database_url)).await;
@@ -252,10 +242,10 @@ async fn check_postgres_wiring() {
     assert!(!stderr.contains(&schema));
     assert!(!stderr.contains("postgres://"));
 
-    control.close().await;
+    control.close().await.unwrap();
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&admin)
+        .execute(&mut admin)
         .await
         .unwrap();
-    admin.close().await;
+    admin.close().await.unwrap();
 }
