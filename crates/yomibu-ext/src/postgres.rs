@@ -9,15 +9,14 @@ use yomibu_core::ports::infrastructure::{LearnerCollectionQuery, StorageError};
 /// Uses the retained schema's unique learner/collection association constraint.
 /// The composition root supplies a pool backed by a live Tokio runtime with I/O
 /// and time enabled. It configures finite acquisition and session statement
-/// timeouts, credentials, TLS, and the schema search path. Startup and graceful
-/// shutdown must be separately bounded by that root.
+/// timeouts, credentials, TLS, and the schema search path.
 ///
-/// The request deadline covers pool acquisition (including connection setup and
-/// health checks), query execution and result reception. SQLx owns connection
-/// cleanup/replacement; cleanup may outlive the request. A client timeout does
-/// not prove server cancellation or immediate restoration of pool capacity.
-/// A query interrupted by its client timeout closes its connection on drop, avoiding
-/// SQLx's normal return-to-pool ping waiting for the abandoned statement.
+/// The port's deadline covers pool acquisition, including SQLx's connection setup
+/// and health checks, and the query itself. A query interrupted by its client
+/// timeout closes its connection on drop, avoiding SQLx's normal return-to-pool
+/// ping waiting for the abandoned statement. SQLx owns connection cleanup and
+/// replacement; a client timeout does not prove immediate restoration of pool
+/// capacity.
 pub struct PostgresLearnerCollectionQuery {
     pool: PgPool,
 }
@@ -36,16 +35,12 @@ impl LearnerCollectionQuery for PostgresLearnerCollectionQuery {
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CollectionId>, StorageError>> + '_>> {
         Box::pin(async move {
-            if Instant::now() >= deadline {
-                return Err(StorageError::collection_lookup_deadline_exceeded());
-            }
+            reject_expired(deadline)?;
             let mut connection = tokio::time::timeout_at(deadline.into(), self.pool.acquire())
                 .await
                 .map_err(|_| StorageError::collection_lookup_deadline_exceeded())?
                 .map_err(storage_error)?;
-            if Instant::now() >= deadline {
-                return Err(StorageError::collection_lookup_deadline_exceeded());
-            }
+            reject_expired(deadline)?;
             let query = sqlx::query_scalar::<_, uuid::Uuid>(
                 "SELECT collection_id FROM learner_collections WHERE learner_id = $1",
             )
@@ -58,13 +53,18 @@ impl LearnerCollectionQuery for PostgresLearnerCollectionQuery {
                     return Err(StorageError::collection_lookup_deadline_exceeded());
                 }
             };
-            let ids = ids.into_iter().map(CollectionId).collect();
-            if Instant::now() >= deadline {
-                return Err(StorageError::collection_lookup_deadline_exceeded());
-            }
-            Ok(ids)
+            reject_expired(deadline)?;
+            Ok(ids.into_iter().map(CollectionId).collect())
         })
     }
+}
+
+/// Fails once the deadline has been reached.
+fn reject_expired(deadline: Instant) -> Result<(), StorageError> {
+    if Instant::now() >= deadline {
+        return Err(StorageError::collection_lookup_deadline_exceeded());
+    }
+    Ok(())
 }
 
 fn storage_error(error: sqlx::Error) -> StorageError {
