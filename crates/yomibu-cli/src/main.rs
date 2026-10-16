@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use clap::{Arg, Command, value_parser};
+use clap::{Arg, ArgAction, Command, value_parser};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use uuid::Uuid;
 use yomibu_app::application::list_collection_ids;
@@ -20,7 +20,7 @@ fn cli() -> Command {
         .subcommand(
             Command::new("collections")
                 .about("List collection UUIDs associated with a learner")
-                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. Prints one UUID per line in unspecified order; no associations produce no output.")
+                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. By default, prints one UUID per line; no associations produce no output. With --json, prints a JSON array of UUID strings followed by a newline; no associations produce []. Ordering is unspecified in both formats.")
                 .arg(
                     Arg::new("learner")
                         .long("learner")
@@ -28,6 +28,12 @@ fn cli() -> Command {
                         .help("Learner whose associated collections to list")
                         .required(true)
                         .value_parser(value_parser!(Uuid)),
+                )
+                .arg(
+                    Arg::new("json")
+                        .long("json")
+                        .action(ArgAction::SetTrue)
+                        .help("Print collection UUIDs as a JSON array"),
                 ),
         )
 }
@@ -42,18 +48,32 @@ fn main() -> ExitCode {
         .get_one::<Uuid>("learner")
         .expect("required learner UUID");
     let result = run(LearnerId(learner));
-    report_result(result, io::stdout().lock(), io::stderr().lock())
+    report_result(
+        result,
+        collections.get_flag("json"),
+        io::stdout().lock(),
+        io::stderr().lock(),
+    )
 }
 
 fn report_result(
     result: Result<Vec<CollectionId>, String>,
+    json: bool,
     stdout: impl Write,
     mut stderr: impl Write,
 ) -> ExitCode {
     let result = result.and_then(|ids| {
         let mut stdout = io::BufWriter::new(stdout);
-        for id in ids {
-            writeln!(stdout, "{}", id.0).map_err(|_| "could not write collection IDs to stdout")?;
+        if json {
+            let ids: Vec<_> = ids.iter().map(|id| id.0.to_string()).collect();
+            serde_json::to_writer(&mut stdout, &ids)
+                .map_err(|_| "could not write collection IDs to stdout")?;
+            writeln!(stdout).map_err(|_| "could not write collection IDs to stdout")?;
+        } else {
+            for id in ids {
+                writeln!(stdout, "{}", id.0)
+                    .map_err(|_| "could not write collection IDs to stdout")?;
+            }
         }
         stdout.flush().map_err(|_| "could not flush stdout")?;
         Ok(())
@@ -140,7 +160,7 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         assert_eq!(
-            report_result(Ok(ids), &mut stdout, &mut stderr),
+            report_result(Ok(ids), false, &mut stdout, &mut stderr),
             ExitCode::SUCCESS
         );
         assert!(stderr.is_empty());
@@ -151,49 +171,87 @@ mod tests {
     }
 
     #[test]
-    fn empty_result_succeeds_without_output() {
+    fn json_result_prints_an_array_of_uuid_strings() {
+        let ids = vec![
+            CollectionId(Uuid::from_u128(9)),
+            CollectionId(Uuid::from_u128(2)),
+        ];
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         assert_eq!(
-            report_result(Ok(vec![]), &mut stdout, &mut stderr),
+            report_result(Ok(ids), true, &mut stdout, &mut stderr),
             ExitCode::SUCCESS
         );
-        assert!(stdout.is_empty());
         assert!(stderr.is_empty());
+        assert!(stdout.ends_with(b"\n"));
+        let mut ids: Vec<String> = serde_json::from_slice(&stdout).unwrap();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            [
+                "00000000-0000-0000-0000-000000000002",
+                "00000000-0000-0000-0000-000000000009"
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_result_succeeds_in_both_formats() {
+        for (json, expected) in [(false, ""), (true, "[]\n")] {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            assert_eq!(
+                report_result(Ok(vec![]), json, &mut stdout, &mut stderr),
+                ExitCode::SUCCESS
+            );
+            assert_eq!(stdout, expected.as_bytes());
+            assert!(stderr.is_empty());
+        }
     }
 
     #[test]
     fn lookup_failure_prints_only_stderr_and_fails() {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        assert_eq!(
-            report_result(
-                Err("collection lookup failed (SQLSTATE 42P01)".into()),
-                &mut stdout,
-                &mut stderr
-            ),
-            ExitCode::FAILURE
-        );
-        assert!(stdout.is_empty());
-        assert_eq!(
-            stderr,
-            b"error: collection lookup failed (SQLSTATE 42P01)\n"
-        );
+        for json in [false, true] {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            assert_eq!(
+                report_result(
+                    Err("collection lookup failed (SQLSTATE 42P01)".into()),
+                    json,
+                    &mut stdout,
+                    &mut stderr
+                ),
+                ExitCode::FAILURE
+            );
+            assert!(stdout.is_empty());
+            assert_eq!(
+                stderr,
+                b"error: collection lookup failed (SQLSTATE 42P01)\n"
+            );
+        }
     }
 
     #[test]
     fn output_write_failure_is_unsuccessful() {
-        let mut stderr = Vec::new();
-        // A zero-capacity slice cannot accept the buffered UUID output.
-        let stdout = &mut [][..];
-        assert_eq!(
-            report_result(
-                Ok(vec![CollectionId(Uuid::from_u128(9))]),
-                stdout,
-                &mut stderr
-            ),
-            ExitCode::FAILURE
-        );
-        assert_eq!(stderr, b"error: could not flush stdout\n");
+        for json in [false, true] {
+            // Fail both the final flush and writes that fill the output buffer.
+            for (count, expected) in [
+                (1, "error: could not flush stdout\n"),
+                (512, "error: could not write collection IDs to stdout\n"),
+            ] {
+                let mut stderr = Vec::new();
+                let stdout = &mut [][..];
+                assert_eq!(
+                    report_result(
+                        Ok(vec![CollectionId(Uuid::from_u128(9)); count]),
+                        json,
+                        stdout,
+                        &mut stderr
+                    ),
+                    ExitCode::FAILURE
+                );
+                assert_eq!(stderr, expected.as_bytes());
+            }
+        }
     }
 }
