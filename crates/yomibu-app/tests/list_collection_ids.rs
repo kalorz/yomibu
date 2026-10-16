@@ -9,6 +9,8 @@ use yomibu_app::application::list_collection_ids;
 use yomibu_core::domain::{CollectionId, LearnerId};
 use yomibu_core::ports::infrastructure::{LearnerCollectionQuery, StorageError};
 
+const LEARNER: LearnerId = LearnerId(Uuid::from_u128(1));
+
 struct SuppliedStorage {
     expected_deadline: Instant,
     ready: Cell<bool>,
@@ -22,7 +24,7 @@ impl LearnerCollectionQuery for SuppliedStorage {
         learner_id: LearnerId,
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CollectionId>, StorageError>> + '_>> {
-        assert_eq!(learner_id, LearnerId(Uuid::from_u128(1)));
+        assert_eq!(learner_id, LEARNER);
         assert_eq!(deadline, self.expected_deadline);
         self.calls.set(self.calls.get() + 1);
         Box::pin(poll_fn(|_| {
@@ -57,7 +59,7 @@ fn forwards_learner_and_deadline_once_and_awaits_supplied_ids() {
     let storage = storage(Ok(ids.clone()));
     storage.ready.set(false);
     let mut call = pin!(list_collection_ids(
-        LearnerId(Uuid::from_u128(1)),
+        LEARNER,
         &storage,
         storage.expected_deadline,
     ));
@@ -72,7 +74,7 @@ fn preserves_supplied_empty_result() {
     let storage = storage(Ok(vec![]));
     assert_eq!(
         poll(pin!(list_collection_ids(
-            LearnerId(Uuid::from_u128(1)),
+            LEARNER,
             &storage,
             storage.expected_deadline,
         ))),
@@ -86,7 +88,7 @@ fn preserves_storage_failure() {
     let storage = storage(Err(StorageError("storage unavailable".into())));
     assert_eq!(
         poll(pin!(list_collection_ids(
-            LearnerId(Uuid::from_u128(1)),
+            LEARNER,
             &storage,
             storage.expected_deadline,
         ))),
@@ -98,11 +100,7 @@ fn preserves_storage_failure() {
 fn expired_deadline_prevents_dispatch() {
     let storage = storage(Ok(vec![]));
     assert_eq!(
-        poll(pin!(list_collection_ids(
-            LearnerId(Uuid::from_u128(1)),
-            &storage,
-            Instant::now(),
-        ))),
+        poll(pin!(list_collection_ids(LEARNER, &storage, Instant::now()))),
         Poll::Ready(Err(StorageError(
             "collection lookup deadline exceeded".into()
         )))

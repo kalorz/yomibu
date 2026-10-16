@@ -9,6 +9,15 @@ use yomibu_ext::PostgresLearnerCollectionQuery;
 
 const SCHEMA: &str = include_str!("../../../docs/plan/schema.postgresql.sql");
 
+async fn connect(options: PgConnectOptions) -> PgPool {
+    PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect_with(options)
+        .await
+        .expect("could not connect to the PostgreSQL test database")
+}
+
 async fn lookup(
     storage: &dyn LearnerCollectionQuery,
     learner: u128,
@@ -164,7 +173,7 @@ async fn assert_deadline(storage: &dyn LearnerCollectionQuery) {
     );
 }
 
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test]
 #[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
 async fn postgres_collection_query_contract() {
     tokio::time::timeout(Duration::from_secs(30), run_postgres_contract())
@@ -179,12 +188,7 @@ async fn run_postgres_contract() {
         .parse()
         .expect("invalid test database connection options");
     let options = options.options([("statement_timeout", "3s")]);
-    let admin = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options.clone())
-        .await
-        .unwrap_or_else(|_| panic!("could not connect to the PostgreSQL test database"));
+    let admin = connect(options.clone()).await;
     let version: String = sqlx::query_scalar("SHOW server_version_num")
         .fetch_one(&admin)
         .await
@@ -214,19 +218,9 @@ async fn run_postgres_contract() {
         .await
         .unwrap();
     let options = options.options([("search_path", format!("{schema},public"))]);
-    let control = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options.clone())
-        .await
-        .unwrap();
+    let control = connect(options.clone()).await;
     sqlx::raw_sql(SCHEMA).execute(&control).await.unwrap();
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options)
-        .await
-        .unwrap();
+    let pool = connect(options).await;
     check_contract(&pool, &control).await;
     pool.close().await;
     control.close().await;
