@@ -1,27 +1,23 @@
 # Task templates
 
-Optional prompts for task authors. Fill only what varies and omit unneeded fields.
+Optional templates for issues and session briefs. Fill only what varies and omit
+unneeded fields.
 The standing instructions in [AGENTS.md](../AGENTS.md) apply without being repeated.
 Ordinary prompts remain valid; agents must not require a completed template.
 
-## Implementation
+## Epics and tasks
 
-```text
-Task: <one observable behavior>
-Done when: <observable acceptance conditions>
-Verify: <known checks, or "choose focused checks at the owning layer">
-Not in scope: <likely adjacent work>
-Additional constraints: <optional>
-Approach: <optional, if already agreed>
-Size checkpoint: <optional: what to count and when to pause for reassessment>
-```
+- [Epic](../.github/ISSUE_TEMPLATE/epic.md): a user outcome delivered through several
+  tasks, with shared decisions, exclusions and completion criteria.
+- [Task](../.github/ISSUE_TEMPLATE/task.md): one bounded piece of work, standalone or
+  part of an epic, with acceptance conditions and verification.
+
+GitHub offers these templates when creating issues after they reach the default branch.
+Their bodies also work as session briefs; omit the YAML metadata at the top.
 
 Acceptance conditions describe behavior; verification supplies evidence. Name likely
 distractions in exclusions, such as additional providers, caching or configuration
 discovery. Replace vague quality goals with concrete requirements.
-
-A size checkpoint applies only when explicitly chosen for that task. It prompts
-review of the approach, not compressed code or weakened architectural boundaries.
 
 ## Design
 
