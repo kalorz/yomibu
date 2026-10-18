@@ -25,15 +25,15 @@ impl std::error::Error for StorageError {}
 
 /// Port: outbound / driven. Role: infrastructure.
 ///
-/// Read-only lookup of all collection IDs associated with the supplied learner.
+/// Read-only lookup of collection IDs for the supplied learner's memberships.
 /// Membership is derived from `learner_progress_sources.collection_id` where
 /// `learner_id` matches the input, even when a source has no learner progress yet.
 /// Ownership alone does not establish membership; unrelated shared or owned
 /// collections must not be included.
 ///
-/// Every associated collection ID is returned exactly once, in unspecified order,
+/// Every collection ID from these memberships is returned exactly once, in unspecified order,
 /// with no pagination. Uniqueness is an adapter obligation, verified by each
-/// adapter's contract tests. No associations, including for an unknown learner,
+/// adapter's contract tests. No memberships, including for an unknown learner,
 /// yield an empty vector; learner existence is not checked.
 /// Storage failures must return `Err`, never partial or successful empty results.
 ///

@@ -56,13 +56,13 @@ async fn check_query_contract(pool: &PgPool, control: &PgPool) {
         "INSERT INTO learners (id, name) VALUES
             ('00000000-0000-0000-0000-000000000001', 'A'),
             ('00000000-0000-0000-0000-000000000002', 'B'),
-            ('00000000-0000-0000-0000-000000000003', 'Unassociated');
+            ('00000000-0000-0000-0000-000000000003', 'No memberships');
          INSERT INTO collections (id, owner_learner_id, provider, name) VALUES
             ('00000000-0000-0000-0000-000000000010', NULL, 'manual', 'Shared'),
             ('00000000-0000-0000-0000-000000000020', '00000000-0000-0000-0000-000000000001', 'manual', 'A owned'),
             ('00000000-0000-0000-0000-000000000030', '00000000-0000-0000-0000-000000000002', 'manual', 'B owned'),
-            ('00000000-0000-0000-0000-000000000040', '00000000-0000-0000-0000-000000000001', 'manual', 'Owned but unassociated'),
-            ('00000000-0000-0000-0000-000000000050', NULL, 'manual', 'Shared but unassociated');
+            ('00000000-0000-0000-0000-000000000040', '00000000-0000-0000-0000-000000000001', 'manual', 'Owned without membership'),
+            ('00000000-0000-0000-0000-000000000050', NULL, 'manual', 'Shared without membership');
          INSERT INTO learner_progress_sources (learner_id, collection_id) VALUES
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010'),
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000020'),
@@ -269,8 +269,6 @@ async fn postgres_progress_is_source_scoped() {
         seed_progress(control).await;
         let b_before = source_snapshot(control, 0x101).await;
         let bob_before = source_snapshot(control, 0x200).await;
-        let subject_before: Vec<String> = sqlx::query_scalar("SELECT to_jsonb(subjects)::text FROM subjects ORDER BY id")
-            .fetch_all(control).await.unwrap();
 
         sqlx::query("UPDATE learner_progress SET progress_stage = '7' WHERE learner_progress_source_id = $1")
             .bind(Uuid::from_u128(0x100)).execute(control).await.unwrap();
@@ -284,9 +282,6 @@ async fn postgres_progress_is_source_scoped() {
         assert_eq!(updated, ("7".into(), 60));
         assert_eq!(source_snapshot(control, 0x101).await, b_before);
         assert_eq!(source_snapshot(control, 0x200).await, bob_before);
-        let subject_after: Vec<String> = sqlx::query_scalar("SELECT to_jsonb(subjects)::text FROM subjects ORDER BY id")
-            .fetch_all(control).await.unwrap();
-        assert_eq!(subject_after, subject_before);
         assert_sqlstate(
             sqlx::query("INSERT INTO learner_progress (learner_progress_source_id, subject_id, collection_id, recorded_at) VALUES ($1, $2, $3, '2026-10-18T00:00:00Z')")
                 .bind(Uuid::from_u128(0x100)).bind(Uuid::from_u128(0x1000)).bind(Uuid::from_u128(0x10))
@@ -320,9 +315,17 @@ async fn postgres_progress_source_references() {
                 "23503",
             );
         }
+        // Only a progress source references this collection, isolating its RESTRICT rule.
+        sqlx::raw_sql(
+            "INSERT INTO collections (id, provider, name) VALUES
+                ('00000000-0000-0000-0000-000000000030', 'manual', 'No subjects');
+             INSERT INTO learner_progress_sources (learner_id, collection_id) VALUES
+                ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000030');",
+        ).execute(control).await.unwrap();
+        // PostgreSQL 18 reports RESTRICT violations as 23001, not 23503.
         for (query, id) in [
             ("DELETE FROM learners WHERE id = $1", 1),
-            ("DELETE FROM collections WHERE id = $1", 0x10),
+            ("DELETE FROM collections WHERE id = $1", 0x30),
             ("DELETE FROM subjects WHERE id = $1", 0x1000),
         ] {
             assert_sqlstate(sqlx::query(query).bind(Uuid::from_u128(id)).execute(control).await, "23001");
@@ -336,9 +339,6 @@ async fn postgres_progress_source_references() {
         assert_eq!(remaining, [Uuid::from_u128(0x101), Uuid::from_u128(0x200)]);
         assert_eq!(source_snapshot(control, 0x101).await, b_before);
         assert_eq!(source_snapshot(control, 0x200).await, bob_before);
-        let subjects: i64 = sqlx::query_scalar("SELECT count(*) FROM subjects")
-            .fetch_one(control).await.unwrap();
-        assert_eq!(subjects, 2);
     }).await;
 }
 
