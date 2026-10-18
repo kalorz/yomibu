@@ -51,7 +51,7 @@ async fn lock_table(control: &PgPool, table: &str) -> Transaction<'static, Postg
     lock
 }
 
-async fn check_contract(pool: &PgPool, control: &PgPool) {
+async fn check_query_contract(pool: &PgPool, control: &PgPool) {
     sqlx::raw_sql(
         "INSERT INTO learners (id, name) VALUES
             ('00000000-0000-0000-0000-000000000001', 'A'),
@@ -185,13 +185,35 @@ async fn assert_deadline(storage: &dyn LearnerCollectionQuery) {
 
 #[tokio::test]
 #[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
-async fn postgres_learner_storage_contract() {
-    tokio::time::timeout(Duration::from_secs(30), run_postgres_contract())
+async fn postgres_collection_query_contract() {
+    with_postgres(check_query_contract).await;
+}
+
+#[tokio::test]
+#[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
+async fn postgres_learner_write_contract() {
+    with_postgres(check_write_contract).await;
+}
+
+#[tokio::test]
+#[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
+async fn postgres_write_disconnection_releases_connection() {
+    with_postgres(async |pool, control| check_interrupted_write(pool, control, false).await).await;
+}
+
+#[tokio::test]
+#[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
+async fn postgres_write_cancellation_releases_connection() {
+    with_postgres(async |pool, control| check_interrupted_write(pool, control, true).await).await;
+}
+
+async fn with_postgres(check: impl AsyncFnOnce(&PgPool, &PgPool)) {
+    tokio::time::timeout(Duration::from_secs(30), run_postgres_contract(check))
         .await
         .expect("PostgreSQL setup, contract checks or shutdown exceeded the watchdog timeout");
 }
 
-async fn run_postgres_contract() {
+async fn run_postgres_contract(check: impl AsyncFnOnce(&PgPool, &PgPool)) {
     let url = std::env::var("YOMIBU_TEST_DATABASE_URL")
         .expect("set YOMIBU_TEST_DATABASE_URL to a disposable PostgreSQL 18+ database with vector installed");
     let options: PgConnectOptions = url
@@ -231,8 +253,7 @@ async fn run_postgres_contract() {
     let control = connect(options.clone()).await;
     sqlx::raw_sql(SCHEMA).execute(&control).await.unwrap();
     let pool = connect(options).await;
-    check_contract(&pool, &control).await;
-    check_write_contract(&pool, &control).await;
+    check(&pool, &control).await;
     pool.close().await;
     control.close().await;
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
@@ -346,35 +367,37 @@ async fn check_write_contract(pool: &PgPool, control: &PgPool) {
     .unwrap()
     .unwrap();
     lock.rollback().await.unwrap();
+}
 
-    // Terminate a write while it is blocked, then cancel another caller future.
-    // Use a separate observer connection while control holds the table lock.
+async fn check_interrupted_write(pool: &PgPool, control: &PgPool, cancel: bool) {
+    let storage = PostgresLearnerStorage::new(pool.clone());
+    let budget = Duration::from_secs(5);
+    // Observe a blocked write before interrupting it, using a separate connection
+    // while control holds the table lock.
     let observer = connect(control.connect_options().as_ref().clone()).await;
-    for cancel in [false, true] {
-        let backend = backend_pid(pool).await;
-        let lock = lock_table(control, "learners").await;
-        let mut write = Box::pin(create(&storage, "interrupted", budget));
-        tokio::select! {
-            result = &mut write => panic!("locked write completed early: {result:?}"),
-            () = wait_for_blocked_write(&observer, backend) => {}
-        }
-        if cancel {
-            drop(write);
-        } else {
-            sqlx::query("SELECT pg_terminate_backend($1, 1000)")
-                .bind(backend)
-                .execute(&observer)
-                .await
-                .unwrap();
-            let error = write.await.unwrap_err();
-            assert!(matches!(error, LearnerWriteError::CompletionUnknown(_)));
-        }
-        let replacement = tokio::time::timeout(Duration::from_secs(1), backend_pid(pool))
+    let backend = backend_pid(pool).await;
+    let lock = lock_table(control, "learners").await;
+    let mut write = Box::pin(create(&storage, "interrupted", budget));
+    tokio::select! {
+        result = &mut write => panic!("locked write completed early: {result:?}"),
+        () = wait_for_blocked_write(&observer, backend) => {}
+    }
+    if cancel {
+        drop(write);
+    } else {
+        sqlx::query("SELECT pg_terminate_backend($1, 1000)")
+            .bind(backend)
+            .execute(&observer)
             .await
             .unwrap();
-        assert_ne!(replacement, backend);
-        lock.rollback().await.unwrap();
+        let error = write.await.unwrap_err();
+        assert!(matches!(error, LearnerWriteError::CompletionUnknown(_)));
     }
+    let replacement = tokio::time::timeout(Duration::from_secs(1), backend_pid(pool))
+        .await
+        .unwrap();
+    assert_ne!(replacement, backend);
+    lock.rollback().await.unwrap();
     observer.close().await;
 }
 

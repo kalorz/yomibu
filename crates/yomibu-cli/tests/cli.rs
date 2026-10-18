@@ -6,6 +6,8 @@ use std::time::Duration;
 use tokio::process::Command;
 
 const LEARNER: &str = "00000000-0000-0000-0000-000000000001";
+// Allow startup (5s), execution (5s), both shutdowns (1s each), and scheduling margin.
+const CLI_WATCHDOG: Duration = Duration::from_secs(20);
 
 async fn invoke(args: &[&str], database_url: Option<&OsStr>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_yomibu"));
@@ -16,7 +18,7 @@ async fn invoke(args: &[&str], database_url: Option<&OsStr>) -> Output {
     if let Some(url) = database_url {
         command.env("YOMIBU_DATABASE_URL", url);
     }
-    tokio::time::timeout(Duration::from_secs(10), command.kill_on_drop(true).output())
+    tokio::time::timeout(CLI_WATCHDOG, command.kill_on_drop(true).output())
         .await
         .expect("CLI exceeded its watchdog timeout")
         .expect("CLI could not start")

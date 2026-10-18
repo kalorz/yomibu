@@ -1,5 +1,6 @@
 """Verify scoped domain/application restrictions with isolated Rust examples."""
 
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -29,6 +30,25 @@ class LintHeader(unittest.TestCase):
 
 
 class InnerClippy(unittest.TestCase):
+    def test_domain_restrictions_reject_uuid_generation_when_features_are_enabled(self):
+        project = Path(__file__).resolve().parents[1]
+        metadata = subprocess.run(
+            ["cargo", "metadata", "--locked", "--format-version", "1"],
+            cwd=project, capture_output=True, text=True, check=True, timeout=60,
+        )
+        uuid = next(package for package in json.loads(metadata.stdout)["packages"]
+                    if package["name"] == "uuid")
+        self.check_cases("yomibu-core", "src/domain/mod.rs", [
+            ("pub fn id() -> uuid::Uuid { uuid::Uuid::from_u128(7) }", None),
+            ("pub fn id() -> uuid::Uuid { uuid::Uuid::new_v4() }", "disallowed_methods"),
+            ("use uuid::Uuid as Id; pub fn id() -> Id { let generate = Id::new_v4; generate() }", "disallowed_methods"),
+            ("pub fn id() -> uuid::Uuid { uuid::Uuid::now_v7() }", "disallowed_methods"),
+            ("pub fn context(_: uuid::ContextV7) {}", "disallowed_types"),
+        ], dependencies=(
+            f'uuid = {{ version = "={uuid["version"]}", default-features = false, '
+            'features = ["std", "v4", "v7"] }\n'
+        ))
+
     def test_domain_restrictions_preserve_shell_and_fixture_operations(self):
         self.check_cases("yomibu-core", "src/domain/mod.rs", [
             ("pub fn duration(d: std::time::Duration) -> u128 { d.as_millis() }", None),
@@ -49,7 +69,7 @@ class InnerClippy(unittest.TestCase):
             ('pub fn report() { println!("output"); }', "print_stdout"),
         ])
 
-    def check_cases(self, crate_name, policy_path, cases):
+    def check_cases(self, crate_name, policy_path, cases, dependencies=""):
         project = Path(__file__).resolve().parents[1]
         crate = project / "crates" / crate_name
         lint_header = extract_lint_header((crate / policy_path).read_text())
@@ -60,12 +80,20 @@ class InnerClippy(unittest.TestCase):
             (root / "tests").mkdir()
             (root / "Cargo.toml").write_text(
                 '[package]\nname="inner-lint-fixture"\nversion="0.0.0"\nedition="2024"\n'
-                '[workspace]\n' + lint_section + lint_settings)
+                '[workspace]\n[dependencies]\n' + dependencies + lint_section + lint_settings)
             (root / "rust-toolchain.toml").write_bytes((project / "rust-toolchain.toml").read_bytes())
             (root / "clippy.toml").write_bytes((crate / "clippy.toml").read_bytes())
             (root / "tests/fixture.rs").write_text(
                 'pub const FIXTURE: &str = include_str!("../Cargo.toml");'
                 'pub fn fixture_io() -> std::io::Result<String> { std::fs::read_to_string("fixture") }')
+            if dependencies:
+                # Keep shared dependencies on the workspace's reviewed versions.
+                (root / "Cargo.lock").write_bytes((project / "Cargo.lock").read_bytes())
+                # Generation features may need crates absent from the production graph.
+                subprocess.run(
+                    ["cargo", "fetch"], cwd=root, capture_output=True, text=True,
+                    check=True, timeout=60,
+                )
             for source, diagnostic in cases:
                 with self.subTest(diagnostic=diagnostic):
                     (root / "src/lib.rs").write_text(
