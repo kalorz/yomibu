@@ -66,7 +66,7 @@ async fn help_succeeds_without_configuration() {
         ),
         (
             vec!["collections", "--help"],
-            vec!["--learner <UUID>", "--json"],
+            vec!["--learner-id <UUID>", "--json"],
         ),
     ] {
         let output = invoke(&args, None).await;
@@ -113,15 +113,16 @@ async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
         vec!["create-learner", "--name", "Alice", "--unknown"],
         vec!["create-learner", "--name", "Alice", "--name", "Bob"],
         vec!["collections"],
-        vec!["collections", "--learner"],
-        vec!["collections", "--learner", "not-a-uuid"],
-        vec!["collections", "--learner", LEARNER_ID, "--unknown"],
-        vec!["collections", "list", "--learner", LEARNER_ID],
+        vec!["collections", "--learner-id"],
+        vec!["collections", "--learner-id", "not-a-uuid"],
+        vec!["collections", "--learner", LEARNER_ID],
+        vec!["collections", "--learner-id", LEARNER_ID, "--unknown"],
+        vec!["collections", "list", "--learner-id", LEARNER_ID],
         vec![
             "collections",
-            "--learner",
+            "--learner-id",
             LEARNER_ID,
-            "--learner",
+            "--learner-id",
             LEARNER_ID,
         ],
     ] {
@@ -150,7 +151,7 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
         Some(wrong_scheme.as_str()),
     ] {
         let output = invoke(
-            &["collections", "--learner", LEARNER_ID],
+            &["collections", "--learner-id", LEARNER_ID],
             config.map(OsStr::new),
         )
         .await;
@@ -168,7 +169,7 @@ async fn non_unicode_configuration_is_reported_as_invalid() {
     use std::os::unix::ffi::OsStrExt;
 
     let output = invoke(
-        &["collections", "--learner", LEARNER_ID],
+        &["collections", "--learner-id", LEARNER_ID],
         Some(OsStr::from_bytes(&[0xff])),
     )
     .await;
@@ -188,7 +189,7 @@ async fn unresponsive_database_startup_is_bounded_and_sanitized() {
         listener.local_addr().unwrap()
     );
     let output = invoke(
-        &["collections", "--learner", LEARNER_ID],
+        &["collections", "--learner-id", LEARNER_ID],
         Some(OsStr::new(&url)),
     )
     .await;
@@ -230,12 +231,13 @@ async fn check_postgres_wiring() {
         .await
         .unwrap();
     let options = options.options([("search_path", format!("{schema},public"))]);
-    let mut control = options
+    // Set up and inspect fixtures through a connection separate from the CLI process.
+    let mut control_connection = options
         .connect()
         .await
         .expect("could not connect to the PostgreSQL test database");
     sqlx::raw_sql(include_str!("../../../docs/plan/schema.postgresql.sql"))
-        .execute(&mut control)
+        .execute(&mut control_connection)
         .await
         .expect(
             "could not apply retained schema; use PostgreSQL 18+ with vector installed in public",
@@ -251,7 +253,7 @@ async fn check_postgres_wiring() {
          INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'account-a'),
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'account-b');"
-    ).execute(&mut control).await.unwrap();
+    ).execute(&mut control_connection).await.unwrap();
 
     // SQLx's URL serializer omits session options; forward the search path explicitly.
     let mut url = options.to_url_lossy();
@@ -267,7 +269,7 @@ async fn check_postgres_wiring() {
     let id: Uuid = stdout.strip_suffix('\n').unwrap().parse().unwrap();
     let name: String = sqlx::query_scalar("SELECT name FROM learners WHERE id = $1")
         .bind(id)
-        .fetch_one(&mut control)
+        .fetch_one(&mut control_connection)
         .await
         .unwrap();
     assert_eq!(name, "New CLI learner");
@@ -283,13 +285,13 @@ async fn check_postgres_wiring() {
     let id: Uuid = result["id"].as_str().unwrap().parse().unwrap();
     let name: String = sqlx::query_scalar("SELECT name FROM learners WHERE id = $1")
         .bind(id)
-        .fetch_one(&mut control)
+        .fetch_one(&mut control_connection)
         .await
         .unwrap();
     assert_eq!(name, "Alice");
 
     let output = invoke(
-        &["collections", "--learner", LEARNER_ID],
+        &["collections", "--learner-id", LEARNER_ID],
         Some(database_url),
     )
     .await;
@@ -306,7 +308,7 @@ async fn check_postgres_wiring() {
     );
 
     let output = invoke(
-        &["collections", "--learner", LEARNER_ID, "--json"],
+        &["collections", "--learner-id", LEARNER_ID, "--json"],
         Some(database_url),
     )
     .await;
@@ -319,7 +321,7 @@ async fn check_postgres_wiring() {
     let output = invoke(
         &[
             "collections",
-            "--learner",
+            "--learner-id",
             "00000000-0000-0000-0000-000000000099",
         ],
         Some(database_url),
@@ -328,11 +330,11 @@ async fn check_postgres_wiring() {
     assert!(success(&output).is_empty());
 
     sqlx::query("ALTER TABLE learner_progress_sources RENAME TO hidden_progress_sources")
-        .execute(&mut control)
+        .execute(&mut control_connection)
         .await
         .unwrap();
     let output = invoke(
-        &["collections", "--learner", LEARNER_ID],
+        &["collections", "--learner-id", LEARNER_ID],
         Some(database_url),
     )
     .await;
@@ -341,7 +343,7 @@ async fn check_postgres_wiring() {
     assert!(!stderr.contains(&schema));
     assert!(!stderr.contains("postgres://"));
 
-    control.close().await.unwrap();
+    control_connection.close().await.unwrap();
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&mut admin)
         .await

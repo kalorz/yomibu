@@ -40,7 +40,7 @@ docker compose down
 
 ## List collections
 
-`yomibu collections --learner <UUID>` lists the learner's collection UUIDs.
+`yomibu collections --learner-id <UUID>` lists the learner's collection UUIDs.
 Set `YOMIBU_DATABASE_URL` to a PostgreSQL connection URL. The database must
 already have the [retained schema](docs/plan/schema.postgresql.sql), which requires
 PostgreSQL 18+ and pgvector. The connection's role needs read access to
@@ -52,7 +52,7 @@ and `.pgpass` credentials; `YOMIBU_DATABASE_URL` itself is always required.
 
 ```sh
 export YOMIBU_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu'
-./target/debug/yomibu collections --learner 00000000-0000-0000-0000-000000000001
+./target/debug/yomibu collections --learner-id 00000000-0000-0000-0000-000000000001
 ```
 
 Each collection is listed once, even when the learner has several progress sources

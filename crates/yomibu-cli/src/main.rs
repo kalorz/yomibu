@@ -36,8 +36,8 @@ fn cli() -> Command {
                 .about("List a learner's collection UUIDs")
                 .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. By default, prints one UUID per line; no collections produce no output. With --json, prints a JSON array of UUID strings followed by a newline; no collections produce []. Ordering is unspecified in both formats.")
                 .arg(
-                    Arg::new("learner")
-                        .long("learner")
+                    Arg::new("learner_id")
+                        .long("learner-id")
                         .value_name("UUID")
                         .help("Learner whose collections to list")
                         .required(true)
@@ -67,7 +67,7 @@ fn main() -> ExitCode {
         }
         Some(("collections", collections)) => {
             let learner_id = *collections
-                .get_one::<Uuid>("learner")
+                .get_one::<Uuid>("learner_id")
                 .expect("required learner UUID");
             output::report_collections(
                 composition::run_collections(LearnerId(learner_id)),
