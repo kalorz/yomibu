@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
-const LEARNER: &str = "00000000-0000-0000-0000-000000000001";
+const LEARNER_ID: &str = "00000000-0000-0000-0000-000000000001";
 // Allow startup (5s), execution (5s), both shutdowns (1s each), and scheduling margin.
 const CLI_WATCHDOG: Duration = Duration::from_secs(20);
 
@@ -115,9 +115,15 @@ async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
         vec!["collections"],
         vec!["collections", "--learner"],
         vec!["collections", "--learner", "not-a-uuid"],
-        vec!["collections", "--learner", LEARNER, "--unknown"],
-        vec!["collections", "list", "--learner", LEARNER],
-        vec!["collections", "--learner", LEARNER, "--learner", LEARNER],
+        vec!["collections", "--learner", LEARNER_ID, "--unknown"],
+        vec!["collections", "list", "--learner", LEARNER_ID],
+        vec![
+            "collections",
+            "--learner",
+            LEARNER_ID,
+            "--learner",
+            LEARNER_ID,
+        ],
     ] {
         for config in [None, Some(url.as_str())] {
             let output = invoke(&args, config.map(OsStr::new)).await;
@@ -144,7 +150,7 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
         Some(wrong_scheme.as_str()),
     ] {
         let output = invoke(
-            &["collections", "--learner", LEARNER],
+            &["collections", "--learner", LEARNER_ID],
             config.map(OsStr::new),
         )
         .await;
@@ -162,7 +168,7 @@ async fn non_unicode_configuration_is_reported_as_invalid() {
     use std::os::unix::ffi::OsStrExt;
 
     let output = invoke(
-        &["collections", "--learner", LEARNER],
+        &["collections", "--learner", LEARNER_ID],
         Some(OsStr::from_bytes(&[0xff])),
     )
     .await;
@@ -182,7 +188,7 @@ async fn unresponsive_database_startup_is_bounded_and_sanitized() {
         listener.local_addr().unwrap()
     );
     let output = invoke(
-        &["collections", "--learner", LEARNER],
+        &["collections", "--learner", LEARNER_ID],
         Some(OsStr::new(&url)),
     )
     .await;
@@ -282,7 +288,11 @@ async fn check_postgres_wiring() {
         .unwrap();
     assert_eq!(name, "Alice");
 
-    let output = invoke(&["collections", "--learner", LEARNER], Some(database_url)).await;
+    let output = invoke(
+        &["collections", "--learner", LEARNER_ID],
+        Some(database_url),
+    )
+    .await;
     let stdout = success(&output);
     assert!(stdout.ends_with('\n'));
     let mut lines: Vec<_> = stdout.lines().collect();
@@ -296,7 +306,7 @@ async fn check_postgres_wiring() {
     );
 
     let output = invoke(
-        &["collections", "--learner", LEARNER, "--json"],
+        &["collections", "--learner", LEARNER_ID, "--json"],
         Some(database_url),
     )
     .await;
@@ -321,7 +331,11 @@ async fn check_postgres_wiring() {
         .execute(&mut control)
         .await
         .unwrap();
-    let output = invoke(&["collections", "--learner", LEARNER], Some(database_url)).await;
+    let output = invoke(
+        &["collections", "--learner", LEARNER_ID],
+        Some(database_url),
+    )
+    .await;
     let stderr = failure(&output);
     assert!(stderr.contains("collection lookup failed"));
     assert!(!stderr.contains(&schema));

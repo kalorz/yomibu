@@ -46,7 +46,10 @@ Collection metadata describes the current dataset; it is not revision history.
 
 ## Mapping into the shared schema
 
-| Planned table | Grammar meaning |
+The table below describes the proposed NINJAL import's use of the shared schema.
+`collections` remains provider-independent and also holds other source and manual collections.
+
+| Planned table | Use in this grammar import |
 | --- | --- |
 | `collections` | One shared NINJAL collection: `is_reference = true`, no learner owner. |
 | `subjects` | One upstream record, with a collection-scoped `external_id` and normalized `kind = grammar`. |

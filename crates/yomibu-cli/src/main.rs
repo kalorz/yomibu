@@ -66,11 +66,11 @@ fn main() -> ExitCode {
             )
         }
         Some(("collections", collections)) => {
-            let learner = *collections
+            let learner_id = *collections
                 .get_one::<Uuid>("learner")
                 .expect("required learner UUID");
             output::report_collections(
-                composition::run_collections(LearnerId(learner)),
+                composition::run_collections(LearnerId(learner_id)),
                 collections.get_flag("json"),
                 io::BufWriter::new(io::stdout().lock()),
                 io::stderr().lock(),

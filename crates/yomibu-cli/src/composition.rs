@@ -12,9 +12,9 @@ use yomibu_ext::PostgresLearnerStorage;
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
-pub(super) fn run_collections(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
+pub(super) fn run_collections(learner_id: LearnerId) -> Result<Vec<CollectionId>, String> {
     let url = database_url()?;
-    block_on_database(collections(learner, url))
+    block_on_database(collections(learner_id, url))
 }
 
 pub(super) fn run_create_learner(name: &str) -> Result<LearnerId, String> {
@@ -96,11 +96,11 @@ async fn close_pool(pool: &sqlx::PgPool) -> Result<(), &'static str> {
         .map_err(|_| "database shutdown timed out")
 }
 
-async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId>, String> {
+async fn collections(learner_id: LearnerId, url: String) -> Result<Vec<CollectionId>, String> {
     let pool = connect(url).await?;
     let storage = PostgresLearnerStorage::new(pool.clone());
     let result = ListCollectionIds::new(&storage)
-        .execute(learner, Instant::now() + IO_TIMEOUT)
+        .execute(learner_id, Instant::now() + IO_TIMEOUT)
         .await;
     let shutdown = close_pool(&pool).await;
     // Preserve a lookup failure even if cleanup also times out; cleanup failure

@@ -22,11 +22,11 @@ async fn connect(options: PgConnectOptions) -> PgPool {
 
 async fn lookup(
     storage: &dyn LearnerCollectionQuery,
-    learner: u128,
+    learner_id: u128,
 ) -> Result<Vec<CollectionId>, StorageError> {
     storage
         .collection_ids_for_learner(
-            LearnerId(Uuid::from_u128(learner)),
+            LearnerId(Uuid::from_u128(learner_id)),
             Instant::now() + Duration::from_secs(5),
         )
         .await
@@ -74,8 +74,8 @@ async fn check_query_contract(pool: &PgPool, control: &PgPool) {
     ).execute(control).await.unwrap();
 
     let storage = PostgresLearnerStorage::new(pool.clone());
-    for (learner, expected) in [(1, vec![0x10, 0x20]), (2, vec![0x10, 0x30])] {
-        let mut actual: Vec<_> = lookup(&storage, learner)
+    for (learner_id, expected) in [(1, vec![0x10, 0x20]), (2, vec![0x10, 0x30])] {
+        let mut actual: Vec<_> = lookup(&storage, learner_id)
             .await
             .unwrap()
             .into_iter()
@@ -201,28 +201,28 @@ async fn seed_progress_sources(control: &PgPool) {
 
 async fn insert_source(
     control: &PgPool,
-    learner: u128,
-    collection: u128,
-    account: Option<&str>,
+    learner_id: u128,
+    collection_id: u128,
+    external_account_id: Option<&str>,
 ) -> Result<PgQueryResult, sqlx::Error> {
     sqlx::query("INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES ($1, $2, $3)")
-        .bind(Uuid::from_u128(learner))
-        .bind(Uuid::from_u128(collection))
-        .bind(account)
+        .bind(Uuid::from_u128(learner_id))
+        .bind(Uuid::from_u128(collection_id))
+        .bind(external_account_id)
         .execute(control)
         .await
 }
 
 async fn insert_progress(
     control: &PgPool,
-    source: u128,
-    subject: u128,
-    collection: u128,
+    source_id: u128,
+    subject_id: u128,
+    collection_id: u128,
 ) -> Result<PgQueryResult, sqlx::Error> {
     sqlx::query("INSERT INTO learner_progress (learner_progress_source_id, subject_id, collection_id, recorded_at) VALUES ($1, $2, $3, '2026-10-18T00:00:00Z')")
-        .bind(Uuid::from_u128(source))
-        .bind(Uuid::from_u128(subject))
-        .bind(Uuid::from_u128(collection))
+        .bind(Uuid::from_u128(source_id))
+        .bind(Uuid::from_u128(subject_id))
+        .bind(Uuid::from_u128(collection_id))
         .execute(control)
         .await
 }
@@ -242,18 +242,21 @@ async fn postgres_progress_source_identity() {
     with_postgres(async |_, control| {
         seed_progress_sources(control).await;
         // A null account can coexist with named accounts; scope is learner/collection.
-        for (learner, collection, account) in [
+        for (learner_id, collection_id, external_account_id) in [
             (1, 0x10, None),
             (2, 0x10, None),
             (1, 0x20, Some("account-a")),
             (1, 0x20, None),
         ] {
-            insert_source(control, learner, collection, account)
+            insert_source(control, learner_id, collection_id, external_account_id)
                 .await
                 .unwrap();
         }
-        for account in [Some("account-a"), None] {
-            assert_sqlstate(insert_source(control, 1, 0x10, account).await, "23505");
+        for external_account_id in [Some("account-a"), None] {
+            assert_sqlstate(
+                insert_source(control, 1, 0x10, external_account_id).await,
+                "23505",
+            );
         }
     })
     .await;
@@ -306,19 +309,19 @@ async fn postgres_progress_is_source_scoped() {
 async fn postgres_progress_source_references() {
     with_postgres(async |_, control| {
         seed_progress(control).await;
-        for (learner, collection) in [(0x999, 0x10), (1, 0x999)] {
+        for (learner_id, collection_id) in [(0x999, 0x10), (1, 0x999)] {
             assert_sqlstate(
-                insert_source(control, learner, collection, None).await,
+                insert_source(control, learner_id, collection_id, None).await,
                 "23503",
             );
         }
         // Missing source/subject, wrong source collection, then wrong subject collection.
-        for (source, subject, collection) in [
+        for (source_id, subject_id, collection_id) in [
             (0x999, 0x1000, 0x10), (0x100, 0x999, 0x10),
             (0x100, 0x2000, 0x20), (0x100, 0x2000, 0x10),
         ] {
             assert_sqlstate(
-                insert_progress(control, source, subject, collection).await,
+                insert_progress(control, source_id, subject_id, collection_id).await,
                 "23503",
             );
         }
