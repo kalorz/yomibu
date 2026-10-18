@@ -56,13 +56,13 @@ async fn check_query_contract(pool: &PgPool, control: &PgPool) {
         "INSERT INTO learners (id, name) VALUES
             ('00000000-0000-0000-0000-000000000001', 'A'),
             ('00000000-0000-0000-0000-000000000002', 'B'),
-            ('00000000-0000-0000-0000-000000000003', 'No memberships');
+            ('00000000-0000-0000-0000-000000000003', 'No progress sources');
          INSERT INTO collections (id, owner_learner_id, provider, name) VALUES
             ('00000000-0000-0000-0000-000000000010', NULL, 'manual', 'Shared'),
             ('00000000-0000-0000-0000-000000000020', '00000000-0000-0000-0000-000000000001', 'manual', 'A owned'),
             ('00000000-0000-0000-0000-000000000030', '00000000-0000-0000-0000-000000000002', 'manual', 'B owned'),
-            ('00000000-0000-0000-0000-000000000040', '00000000-0000-0000-0000-000000000001', 'manual', 'Owned without membership'),
-            ('00000000-0000-0000-0000-000000000050', NULL, 'manual', 'Shared without membership');
+            ('00000000-0000-0000-0000-000000000040', '00000000-0000-0000-0000-000000000001', 'manual', 'Owned without a progress source'),
+            ('00000000-0000-0000-0000-000000000050', NULL, 'manual', 'Shared without a progress source');
          INSERT INTO learner_progress_sources (learner_id, collection_id) VALUES
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010'),
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000020'),
@@ -81,7 +81,7 @@ async fn check_query_contract(pool: &PgPool, control: &PgPool) {
             .into_iter()
             .map(|id| id.0.as_u128())
             .collect();
-        actual.sort_unstable(); // Compare membership and multiplicity, not database order.
+        actual.sort_unstable(); // Compare IDs and multiplicity, not database order.
         assert_eq!(actual, expected);
     }
     assert_eq!(lookup(&storage, 3).await, Ok(vec![]));

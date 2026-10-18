@@ -40,8 +40,8 @@ docker compose down
 
 ## List collections
 
-`yomibu collections --learner <UUID>` lists collection UUIDs for a learner's
-memberships. Set `YOMIBU_DATABASE_URL` to a PostgreSQL connection URL. The database must
+`yomibu collections --learner <UUID>` lists the learner's collection UUIDs.
+Set `YOMIBU_DATABASE_URL` to a PostgreSQL connection URL. The database must
 already have the [retained schema](docs/plan/schema.postgresql.sql), which requires
 PostgreSQL 18+ and pgvector. The connection's role needs read access to
 `learner_progress_sources`, and its search path must include the schema containing
@@ -58,10 +58,10 @@ export YOMIBU_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu'
 Each collection is listed once, even when the learner has several progress sources
 for it or those sources have no learner progress yet.
 Success prints one UUID per line. Add `--json` to print a JSON array of UUID strings
-followed by a newline. Ordering is unspecified in both formats. No memberships,
-including an unknown learner, succeed with no output by default or `[]` with
-`--json`. Invalid arguments, missing or invalid configuration, and storage
-failures print an error to stderr and exit unsuccessfully. Connection credentials
+followed by a newline. Ordering is unspecified in both formats. For an unknown
+learner or one with no progress sources, the command succeeds with no output by
+default or `[]` with `--json`. Invalid arguments, missing or invalid configuration,
+and storage failures print an error to stderr and exit unsuccessfully. Connection credentials
 and raw provider errors are not printed.
 `yomibu --help` and `yomibu collections --help` need no database configuration.
 

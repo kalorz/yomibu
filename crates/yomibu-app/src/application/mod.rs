@@ -86,7 +86,7 @@ fn complete_creation(
     Ok(id)
 }
 
-/// Lists collection IDs for a learner's memberships through the supplied query.
+/// Lists the learner's collection IDs through the supplied query.
 pub struct ListCollectionIds<'a> {
     storage: &'a dyn LearnerCollectionQuery,
 }
@@ -98,7 +98,7 @@ impl<'a> ListCollectionIds<'a> {
 
     /// Port: inbound / driving.
     ///
-    /// Lists collection IDs for the learner's memberships through the supplied storage.
+    /// Lists the learner's collection IDs through the supplied storage.
     /// Rejects an expired deadline before dispatch; otherwise forwards the learner ID
     /// and unchanged deadline once and awaits storage. Preserves failures and results,
     /// including empty results, except that late success is a deadline error.

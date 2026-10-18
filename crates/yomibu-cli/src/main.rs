@@ -33,13 +33,13 @@ fn cli() -> Command {
         )
         .subcommand(
             Command::new("collections")
-                .about("List collection UUIDs for a learner's memberships")
-                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. By default, prints one UUID per line; no memberships produce no output. With --json, prints a JSON array of UUID strings followed by a newline; no memberships produce []. Ordering is unspecified in both formats.")
+                .about("List a learner's collection UUIDs")
+                .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. By default, prints one UUID per line; no collections produce no output. With --json, prints a JSON array of UUID strings followed by a newline; no collections produce []. Ordering is unspecified in both formats.")
                 .arg(
                     Arg::new("learner")
                         .long("learner")
                         .value_name("UUID")
-                        .help("Learner whose collection memberships to list")
+                        .help("Learner whose collections to list")
                         .required(true)
                         .value_parser(value_parser!(Uuid)),
                 )
