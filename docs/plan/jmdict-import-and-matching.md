@@ -5,7 +5,7 @@
 **Plan only; not implemented.** See the [SQL plan](schema.postgresql.sql).
 
 - **Import once:** load common JMdict vocabulary with English senses into a shared
-  database catalogue. Keep the pinned source file and checksum.
+  database collection. Keep the pinned source file and checksum.
 - **Keep source identity:** a subject represents an upstream record; each vocabulary
   entry represents one spelling, reading and sense. One subject can have many entries.
   Source locators let repeat imports reuse entry IDs.
@@ -63,12 +63,12 @@ filter is the agreed starting point; coverage findings can justify revisiting it
 
 | Planned table | Meaning |
 | --- | --- |
-| `collections` | A source catalogue. JMdict uses a shared collection with `is_reference = true` and no learner owner. Personal collections can have an owner. |
-| `subjects` | An upstream record, identified within its collection by `external_id`. For JMdict this is `ent_seq`; for WaniKani it is the subject ID. Preserve source observations in `source_data`. |
+| `collections` | A group of source subjects. JMdict uses a shared collection with `is_reference = true` and no learner owner. Personal collections can have an owner. |
+| `subjects` | An upstream record, identified within its collection by `external_id`. For JMdict this is `ent_seq`; for WaniKani it is the subject ID. Preserve source content in `source_data`. |
 | `entries`, `vocabulary_details` | One resolved spelling, reading and sense, with identity and details sharing an entry ID. Several entries may share the same spelling and reading. |
 | `vocabulary_translations` | Glosses expressing that entry's sense. Several synonymous glosses do not by themselves create several entries. |
 | `entry_references` | Accepted correspondences between source entries and reference entries of the same kind. |
-| `learner_collections`, `learner_progress` | A learner's source account and progress observations, separate from shared vocabulary. |
+| `learner_progress_sources`, `learner_progress` | A learner's external account or manual-input source, with its own account/access metadata and learner progress, separate from shared vocabulary. |
 
 A subject preserves the source's grouping; it is not a universal definition of
 “one word.” Both JMdict and WaniKani can group several meanings in one record.
@@ -77,7 +77,7 @@ reading and meaning lists do not generally specify those associations.
 
 Keep subjects even when no vocabulary entry can yet be resolved. Moving only
 `external_id` into vocabulary entries would lose the shared parent for source
-observations and progress. Likewise, matching does not require merging subjects
+content and learner progress. Likewise, matching does not require merging subjects
 from different sources.
 
 ## Matching source words to reference words
@@ -131,11 +131,11 @@ exclusion. Preserve Bob's progress separately from content availability.
 Progress remains attached to the original source subject. A match does not mark all
 of the reference dictionary's senses as known. Knowledge preparation derives
 eligibility from the learner's facts and policy; storage does not make eligibility
-an authoritative persisted fact. Updating one learner's progress must preserve
-other learners' progress and access.
+an authoritative persisted fact. Updating one learner progress source must preserve
+other sources' learner progress and access, including other accounts of the same learner.
 
 Initially, manual declarations belong to manual collections. Provider imports
-replace observations only under their own `learner_collection_id`; they never
+update learner progress only under their own `learner_progress_source_id`; they never
 write `is_marked_known` or manual collections. Overrides on imported subjects
 are deferred.
 
@@ -145,7 +145,7 @@ prepared knowledge without implicitly importing, rematching or writing source da
 ## Identity and later updates
 
 Reimporting the same pinned snapshot must reuse collection, subject and entry IDs.
-Atomically find or create shared catalogues by `(provider, key)` with no learner
+Atomically find or create shared collections by `(provider, key)` with no learner
 owner (e.g. `wanikani` / `subjects`). Keys are stable; display names are editable.
 Importers require `external_id` and reuse subjects by `(collection_id, external_id)`;
 JMdict uses `ent_seq`. Manual collections may omit the key; manual subjects use

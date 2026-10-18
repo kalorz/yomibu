@@ -35,7 +35,7 @@ CC BY 4.0, with Japanese explanations. It reported 800 records, 958 senses,
 confirmed 800 distinct entry IDs; the finer counts came from its conversion report.
 Verify the original XML and counts when choosing the import snapshot.
 
-Import the reference catalogue independently of learners. No common-word filter,
+Import the reference collection independently of learners. No common-word filter,
 English-only filter or difficulty cutoff has been selected for grammar.
 [OpenJLPT][openjlpt] remains a candidate for English content, not an additional
 source required for the first importer. Later translations need their own provenance.
@@ -46,9 +46,12 @@ Collection metadata describes the current dataset; it is not revision history.
 
 ## Mapping into the shared schema
 
-| Planned table | Grammar meaning |
+The table below describes the proposed NINJAL import's use of the shared schema.
+`collections` remains provider-independent and also holds other source and manual collections.
+
+| Planned table | Use in this grammar import |
 | --- | --- |
-| `collections` | One shared NINJAL catalogue: `is_reference = true`, no learner owner. |
+| `collections` | One shared NINJAL collection: `is_reference = true`, no learner owner. |
 | `subjects` | One upstream record, with a collection-scoped `external_id` and normalized `kind = grammar`. |
 | `entries`, `grammar_details` | One resolved usage, sharing an entry ID. Details contain the headword, optional reading and explicit assessment-rule bindings. |
 | `grammar_descriptions` | Explanations in their source language, with purpose, position and origin. |
@@ -106,11 +109,11 @@ does not make entire source subjects equivalent or establish interchangeability 
 all their formations. The acceptance criteria and manual disambiguation interface
 remain open. No AI matching model has been selected for grammar.
 
-Manual collections can be owned or shared. `learner_collections` needs no external
-account for them; `learner_progress` records declarations and observations against
-subjects. Create a separate manual subject for each item that needs independent
-progress. Adding content does not mark it known. Reference matches also do not
-grant knowledge of additional usages. Follow the shared
+Manual collections can be owned or shared. `learner_progress_sources` needs no external
+account for them; `learner_progress` records each source's learner progress against
+subjects, including manual declarations. Create a separate manual subject for each
+item that needs independent progress. Adding content does not mark it known.
+Reference matches also do not grant knowledge of additional usages. Follow the shared
 [progress ownership rules](jmdict-import-and-matching.md#sharing-progress-and-eligibility).
 
 Reuse accepted matches for unchanged shared content across learners. Keep their

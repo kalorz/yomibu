@@ -8,7 +8,8 @@ use yomibu_core::ports::infrastructure::{
 
 /// PostgreSQL implementation of [`LearnerCollectionQuery`] and [`LearnerWriter`].
 ///
-/// Uses the retained schema's unique learner/collection association constraint.
+/// Derives collection membership from the retained schema's learner progress sources.
+/// Multiple sources for one collection produce one collection ID.
 /// The composition root supplies a pool backed by a live Tokio runtime with I/O
 /// and time enabled. It configures finite acquisition and session statement
 /// timeouts, credentials, TLS, and the schema search path.
@@ -49,7 +50,7 @@ impl LearnerCollectionQuery for PostgresLearnerStorage {
                 .map_err(storage_error)?;
             reject_expired(deadline)?;
             let query = sqlx::query_scalar::<_, uuid::Uuid>(
-                "SELECT collection_id FROM learner_collections WHERE learner_id = $1",
+                "SELECT DISTINCT collection_id FROM learner_progress_sources WHERE learner_id = $1",
             )
             .bind(learner_id.0)
             .fetch_all(&mut *connection);

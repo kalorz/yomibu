@@ -9,7 +9,7 @@ use yomibu_app::application::ListCollectionIds;
 use yomibu_core::domain::{CollectionId, LearnerId};
 use yomibu_core::ports::infrastructure::{LearnerCollectionQuery, StorageError};
 
-const LEARNER: LearnerId = LearnerId(Uuid::from_u128(1));
+const LEARNER_ID: LearnerId = LearnerId(Uuid::from_u128(1));
 
 struct SuppliedStorage {
     expected_deadline: Instant,
@@ -24,7 +24,7 @@ impl LearnerCollectionQuery for SuppliedStorage {
         learner_id: LearnerId,
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CollectionId>, StorageError>> + '_>> {
-        assert_eq!(learner_id, LEARNER);
+        assert_eq!(learner_id, LEARNER_ID);
         assert_eq!(deadline, self.expected_deadline);
         self.calls.set(self.calls.get() + 1);
         Box::pin(poll_fn(|_| {
@@ -51,7 +51,7 @@ fn storage(result: Result<Vec<CollectionId>, StorageError>) -> SuppliedStorage {
 }
 
 #[test]
-fn forwards_learner_and_deadline_once_and_awaits_supplied_ids() {
+fn forwards_learner_id_and_deadline_once_and_awaits_supplied_ids() {
     let ids = vec![
         CollectionId(Uuid::from_u128(9)),
         CollectionId(Uuid::from_u128(2)),
@@ -59,7 +59,7 @@ fn forwards_learner_and_deadline_once_and_awaits_supplied_ids() {
     let storage = storage(Ok(ids.clone()));
     storage.ready.set(false);
     let service = ListCollectionIds::new(&storage);
-    let mut call = pin!(service.execute(LEARNER, storage.expected_deadline));
+    let mut call = pin!(service.execute(LEARNER_ID, storage.expected_deadline));
     assert!(poll(call.as_mut()).is_pending());
     storage.ready.set(true);
     assert_eq!(poll(call.as_mut()), Poll::Ready(Ok(ids)));
@@ -71,7 +71,7 @@ fn preserves_supplied_empty_result() {
     let storage = storage(Ok(vec![]));
     assert_eq!(
         poll(pin!(
-            ListCollectionIds::new(&storage).execute(LEARNER, storage.expected_deadline)
+            ListCollectionIds::new(&storage).execute(LEARNER_ID, storage.expected_deadline)
         )),
         Poll::Ready(Ok(vec![]))
     );
@@ -83,7 +83,7 @@ fn preserves_storage_failure() {
     let storage = storage(Err(StorageError("storage unavailable".into())));
     assert_eq!(
         poll(pin!(
-            ListCollectionIds::new(&storage).execute(LEARNER, storage.expected_deadline)
+            ListCollectionIds::new(&storage).execute(LEARNER_ID, storage.expected_deadline)
         )),
         Poll::Ready(Err(StorageError("storage unavailable".into())))
     );
@@ -94,7 +94,7 @@ fn expired_deadline_prevents_dispatch() {
     let storage = storage(Ok(vec![]));
     assert_eq!(
         poll(pin!(
-            ListCollectionIds::new(&storage).execute(LEARNER, Instant::now())
+            ListCollectionIds::new(&storage).execute(LEARNER_ID, Instant::now())
         )),
         Poll::Ready(Err(StorageError::collection_lookup_deadline_exceeded()))
     );
