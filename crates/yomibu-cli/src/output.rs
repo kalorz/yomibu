@@ -60,7 +60,7 @@ fn write_collection_ids(
     mut stdout: impl Write,
 ) -> io::Result<()> {
     if json {
-        let ids: Vec<_> = ids.iter().map(|id| id.0.to_string()).collect();
+        let ids: Vec<_> = ids.iter().map(|id| id.0).collect();
         serde_json::to_writer(&mut stdout, &ids)?;
         writeln!(stdout)?;
     } else {
