@@ -5,8 +5,10 @@ use std::time::{Duration, Instant};
 use clap::{Arg, ArgAction, Command, value_parser};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use uuid::Uuid;
-use yomibu_app::application::{CreateLearner, CreateLearnerError, list_collection_ids};
-use yomibu_core::domain::{CollectionId, LearnerId};
+use yomibu_app::application::{
+    CreateLearner, CreateLearnerError, ListCollectionIds, prepare_learner_name,
+};
+use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
 use yomibu_ext::PostgresLearnerStorage;
 
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -155,9 +157,9 @@ fn run_collections(learner: LearnerId) -> Result<Vec<CollectionId>, String> {
 }
 
 fn run_create_learner(name: &str) -> Result<LearnerId, String> {
-    let request = CreateLearner::new(name).map_err(|error| error.to_string())?;
+    let name = prepare_learner_name(name).map_err(|error| error.to_string())?;
     let url = database_url()?;
-    block_on_database(create_learner(request, url))
+    block_on_database(create_learner(name, url))
 }
 
 fn creation_after_shutdown(
@@ -234,7 +236,9 @@ async fn close_pool(pool: &sqlx::PgPool) -> Result<(), &'static str> {
 async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId>, String> {
     let pool = connect(url).await?;
     let storage = PostgresLearnerStorage::new(pool.clone());
-    let result = list_collection_ids(learner, &storage, Instant::now() + IO_TIMEOUT).await;
+    let result = ListCollectionIds::new(&storage)
+        .execute(learner, Instant::now() + IO_TIMEOUT)
+        .await;
     let shutdown = close_pool(&pool).await;
     // Preserve a lookup failure even if cleanup also times out; cleanup failure
     // after a successful lookup must not be reported as successful completion.
@@ -243,10 +247,12 @@ async fn collections(learner: LearnerId, url: String) -> Result<Vec<CollectionId
     Ok(ids)
 }
 
-async fn create_learner(request: CreateLearner, url: String) -> Result<LearnerId, String> {
+async fn create_learner(name: LearnerName, url: String) -> Result<LearnerId, String> {
     let pool = connect(url).await?;
     let storage = PostgresLearnerStorage::new(pool.clone());
-    let result = request.execute(&storage, Instant::now() + IO_TIMEOUT).await;
+    let result = CreateLearner::new(&storage)
+        .execute(name, Instant::now() + IO_TIMEOUT)
+        .await;
     let shutdown = close_pool(&pool).await;
     creation_after_shutdown(result, shutdown)
 }
