@@ -156,6 +156,15 @@ on clarity, correctness, and maintenance cost—not type or line count alone. Pr
 behavioral and architectural guarantees. Routine implementation choices require no
 additional approval.
 
+Names should distinguish entities from identifiers (`learner_id`), single values from
+lists (`collection_ids`), and resources by role (`observer_pool`). Short names are fine
+when context makes their meaning unambiguous; avoid redundant qualifiers.
+
+Name operations for their current inputs and results. For example, `list-collection-ids`
+makes a UUID-only result explicit. Do not choose broader names for hypothetical future
+behavior. Keep CLI names, parser keys, help and examples consistent, using the idiomatic
+spelling in each context, such as `--learner-id` and `learner_id`.
+
 A rule may have equivalent pure and SQL representations. Verify their shared meaning
 through contract tests rather than forcing inefficient data loading to reuse code.
 
@@ -454,6 +463,11 @@ Keep unrelated contract scenarios independently runnable and reported, so an ear
 failure does not hide other results. Keep assertions for one scenario together;
 this does not require one assertion per test. Share setup where useful without
 introducing a generic test framework.
+
+Each test must fail if the specific rule it claims to verify is broken. Isolate that
+rule in the setup: for example, another foreign key must not mask the deletion rule
+under test. Each assertion should detect a plausible regression; remove assertions
+that only repeat an already-established guarantee.
 
 Keep detailed rule edge cases at their owning layer. For example, CLI tests inject
 an application rejection to test its presentation instead of rerunning eligibility

@@ -26,6 +26,7 @@ Read [GLOSSARY.md](GLOSSARY.md) before naming domain concepts. Use this shared d
 language in code, tests, documentation and explanations to the user. Use collection,
 subject and entry with their distinct meanings; do not introduce catalogue as a synonym.
 Older wording in preserved plans is not permission to invent alternative names.
+Follow the [naming guidance](ARCHITECTURE.md#simplicity) for values and operations.
 
 For each ticket, identify the affected domain terms and check them against GLOSSARY.md
 and accepted ticket/epic decisions before editing. Before completion, check terminology
@@ -87,7 +88,12 @@ invent abstractions to fill a plan.
 
 Finish with affected files, exclusions and observable acceptance checks. Keep prose
 to brief tradeoffs and open decisions. Plan only the current step; existing plans
-do not authorize their full implementation.
+do not authorize their full implementation. Keep working plans proportionate and link
+to existing specifications and CI commands instead of copying them.
+
+When the user changes acceptance criteria, update the authoritative issue or
+specification and affected contracts before handoff. A working plan or PR summary
+alone is not the record of the changed requirements.
 
 Optional [task templates](docs/task-templates.md) help write implementation and design briefs.
 
@@ -116,6 +122,10 @@ Optional [task templates](docs/task-templates.md) help write implementation and 
   caused by implementation choices using a simpler viable alternative that preserves
   required behavior and boundaries. Verify uncertain library assumptions from documentation
   or a temporary probe. Review feedback does not itself authorize scope or guarantee changes.
+- Apply accepted review feedback across the affected path: inspect related parameters,
+  callers, tests and documentation for the same issue. Handle routine internal corrections
+  together and propose consequential public-interface changes as a group under the
+  existing approval rules. Keep this pass within the task and its immediate collaborators.
 - For new workflows or changed boundaries, trace the actual path from entry point
   through application, ports and adapters. Cite relevant code and an application test
   using supplied port implementations. New boundary violations block completion;
@@ -138,3 +148,5 @@ Keep rules and examples in `ARCHITECTURE.md`, domain definitions in `GLOSSARY.md
 and behavior guarantees beside interfaces. Link instead of duplicating. Maintain
 CLI help in code and README as a quickstart. Write plain English; add detail to
 resolve concrete ambiguity, not to inventory code or repeat generic tutorials.
+Label provider or workflow examples with their scope so they do not imply restrictions
+on shared model concepts.
