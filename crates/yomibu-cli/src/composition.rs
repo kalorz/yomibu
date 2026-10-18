@@ -39,10 +39,10 @@ fn database_url() -> Result<String, String> {
         }
         std::env::VarError::NotUnicode(_) => "YOMIBU_DATABASE_URL must contain valid Unicode",
     })?;
-    Ok(validate_database_url(&url)?.to_owned())
+    Ok(prepare_database_url(&url)?.to_owned())
 }
 
-fn validate_database_url(url: &str) -> Result<&str, &'static str> {
+fn prepare_database_url(url: &str) -> Result<&str, &'static str> {
     let url = url.trim();
     if url.is_empty() {
         return Err("YOMIBU_DATABASE_URL must not be empty");
@@ -126,7 +126,7 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn database_url_validation_trims_whitespace_and_accepts_postgres_schemes() {
+    fn database_url_preparation_trims_whitespace_and_accepts_postgres_schemes() {
         for (input, expected) in [
             ("postgres://localhost/db", "postgres://localhost/db"),
             (
@@ -134,15 +134,15 @@ mod tests {
                 "PoStGrEsQl://localhost/db",
             ),
         ] {
-            assert_eq!(validate_database_url(input), Ok(expected));
+            assert_eq!(prepare_database_url(input), Ok(expected));
         }
     }
 
     #[test]
-    fn database_url_validation_rejects_empty_input_and_other_schemes() {
+    fn database_url_preparation_rejects_empty_input_and_other_schemes() {
         for input in ["", " \t\n\u{3000}"] {
             assert_eq!(
-                validate_database_url(input),
+                prepare_database_url(input),
                 Err("YOMIBU_DATABASE_URL must not be empty")
             );
         }
@@ -153,7 +153,7 @@ mod tests {
             "://localhost/db",
         ] {
             assert_eq!(
-                validate_database_url(input),
+                prepare_database_url(input),
                 Err("YOMIBU_DATABASE_URL must use the postgres or postgresql URL scheme")
             );
         }
