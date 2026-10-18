@@ -21,13 +21,13 @@ parent reference and explicit budget. Neither changes the original job's history
 
 Freeze effective settings at submission. On the first attempt, capture a coherent
 learner snapshot and the time used to evaluate eligibility. Recovery never replaces
-these with newer source observations.
+these with newer learner progress.
 
 The bundle contains:
 
 - Normalized request, resolved options/limits/seeds, capability identities/settings/
   revisions, application build and capture schema.
-- Source observations and learner declarations, scoped material contents and IDs,
+- Learner progress, scoped material contents and IDs,
   and the versions of eligibility rules and resources used.
 - Metadata/vector profiles and selection evidence, including query vectors and
   ranking values where used; record final selection order.

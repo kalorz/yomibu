@@ -25,6 +25,8 @@ On the first start with an empty volume, PostgreSQL applies the
 [retained schema](docs/plan/schema.postgresql.sql), including the vector extension.
 Later starts reuse the data; changes to the SQL file do not migrate an existing
 database. The database starts without learners or collections.
+Under the current [schema-change policy](ARCHITECTURE.md#schema-changes), recreate
+the database after schema changes using the reset command below.
 
 Open a SQL console or stop the database with:
 
@@ -43,8 +45,8 @@ command above.
 learner. Set `YOMIBU_DATABASE_URL` to a PostgreSQL connection URL. The database must
 already have the [retained schema](docs/plan/schema.postgresql.sql), which requires
 PostgreSQL 18+ and pgvector. The connection's role needs read access to
-`learner_collections`, and its search path must include the schema containing that
-table. The command does not install or migrate the schema.
+`learner_progress_sources`, and its search path must include the schema containing
+that table. The command does not install or migrate the schema.
 Surrounding whitespace in the URL is ignored. SQLx's PostgreSQL defaults apply
 to connection settings omitted from the URL, including `PG*` environment variables
 and `.pgpass` credentials; `YOMIBU_DATABASE_URL` itself is always required.
@@ -54,6 +56,8 @@ export YOMIBU_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu'
 ./target/debug/yomibu collections --learner 00000000-0000-0000-0000-000000000001
 ```
 
+Each collection is listed once, even when the learner has several progress sources
+for it or those sources have no learner progress yet.
 Success prints one UUID per line. Add `--json` to print a JSON array of UUID strings
 followed by a newline. Ordering is unspecified in both formats. No associations,
 including an unknown learner, succeed with no output by default or `[]` with
@@ -86,7 +90,8 @@ Add `--json` to print `{"id":"<assigned UUID>"}` followed by a newline.
 Surrounding Unicode whitespace is trimmed; a blank name is rejected before
 database configuration or connection. Names are not unique: running the command
 again creates another learner with a different UUID. It creates no collections
-or associations. `yomibu create-learner --help` needs no database configuration.
+or learner progress sources. `yomibu create-learner --help` needs no database
+configuration.
 
 Startup and creation each have a five-second limit, with the same acquisition,
 server statement, and shutdown bounds as collection lookup. The write is never

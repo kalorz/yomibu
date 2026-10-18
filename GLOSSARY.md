@@ -16,8 +16,8 @@ changed meanings with the user, then record agreed definitions here before code 
 | Collection | A group of source or manually entered subjects. A collection may be shared or owned by a learner. |
 | Subject | One source record or manually entered item within a collection. It may produce several resolved entries or none; learner progress is recorded against it. |
 | Entry | One resolved vocabulary spelling, reading and sense, or one grammar usage, belonging to a subject. |
-| Learner progress | Saved observations, declarations and exclusions for a learner and subject, from which eligibility is derived. |
-| Source observations | Saved progress data from a provider. Progress does not prove mastery. |
+| Learner progress source | Identifies where progress for one learner and collection comes from—an external account or manual input. Collection membership is derived from progress sources; a source can exist before progress arrives. |
+| Learner progress | Saved information about a subject attributed to a learner progress source, including stage, learning dates, manual declarations and exclusions. |
 | Eligibility | Whether saved learner evidence allows material to be used. |
 | Inventory | All vocabulary and grammar allowed for a generation attempt, whether represented in memory or through a coherent queryable view. |
 | Grammar declaration | Grammar a learner says they know. This declaration alone does not enable an automated check. |
@@ -27,6 +27,9 @@ changed meanings with the user, then record agreed definitions here before code 
 | Plan | The prepared inputs and options bound together for generation. |
 | Model request | The exact model-input bytes and options, excluding credentials and authentication headers. A hash identifies the request bytes. |
 | Candidate | A generated or revised story evaluated as one result. A story can contain multiple scenes and blocks. |
+
+Imported learner progress does not prove mastery. “Evidence” is explanatory language,
+not a separate model concept.
 
 See the [architecture guide](ARCHITECTURE.md).
 Request documents encode identifiers as text; persisted identifiers follow the SQL schema.

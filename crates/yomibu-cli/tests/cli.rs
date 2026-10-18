@@ -239,9 +239,12 @@ async fn check_postgres_wiring() {
          INSERT INTO collections (id, provider, name) VALUES
             ('00000000-0000-0000-0000-000000000010', 'manual', 'First'),
             ('00000000-0000-0000-0000-000000000020', 'manual', 'Second');
-         INSERT INTO learner_collections (learner_id, collection_id) VALUES
+         INSERT INTO learner_progress_sources (learner_id, collection_id) VALUES
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010'),
-            ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000020');"
+            ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000020');
+         INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES
+            ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'account-a'),
+            ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'account-b');"
     ).execute(&mut control).await.unwrap();
 
     // SQLx's URL serializer omits session options; forward the search path explicitly.
@@ -314,7 +317,19 @@ async fn check_postgres_wiring() {
     .await;
     assert!(success(&output).is_empty());
 
-    sqlx::query("ALTER TABLE learner_collections RENAME TO hidden_associations")
+    let output = invoke(
+        &[
+            "collections",
+            "--learner",
+            "00000000-0000-0000-0000-000000000099",
+            "--json",
+        ],
+        Some(database_url),
+    )
+    .await;
+    assert_eq!(success(&output), "[]\n");
+
+    sqlx::query("ALTER TABLE learner_progress_sources RENAME TO hidden_progress_sources")
         .execute(&mut control)
         .await
         .unwrap();

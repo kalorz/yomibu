@@ -63,11 +63,14 @@ async fn check_query_contract(pool: &PgPool, control: &PgPool) {
             ('00000000-0000-0000-0000-000000000030', '00000000-0000-0000-0000-000000000002', 'manual', 'B owned'),
             ('00000000-0000-0000-0000-000000000040', '00000000-0000-0000-0000-000000000001', 'manual', 'Owned but unassociated'),
             ('00000000-0000-0000-0000-000000000050', NULL, 'manual', 'Shared but unassociated');
-         INSERT INTO learner_collections (learner_id, collection_id) VALUES
+         INSERT INTO learner_progress_sources (learner_id, collection_id) VALUES
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010'),
             ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000020'),
             ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000010'),
-            ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000030');"
+            ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000030');
+         INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES
+            ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'account-a'),
+            ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'account-b');"
     ).execute(control).await.unwrap();
 
     let storage = PostgresLearnerStorage::new(pool.clone());
@@ -81,17 +84,6 @@ async fn check_query_contract(pool: &PgPool, control: &PgPool) {
         actual.sort_unstable(); // Compare membership and multiplicity, not database order.
         assert_eq!(actual, expected);
     }
-    let duplicate = sqlx::query(
-        "INSERT INTO learner_collections (learner_id, collection_id)
-         VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010')",
-    )
-    .execute(control)
-    .await
-    .unwrap_err();
-    assert_eq!(
-        duplicate.as_database_error().unwrap().code().as_deref(),
-        Some("23505")
-    );
     assert_eq!(lookup(&storage, 3).await, Ok(vec![]));
     assert_eq!(lookup(&storage, 99).await, Ok(vec![]));
 
@@ -119,7 +111,7 @@ async fn check_query_contract(pool: &PgPool, control: &PgPool) {
     assert_eq!(lookup(&storage, 1).await.unwrap().len(), 2);
 
     // Client deadline is shorter than the session's 3s statement timeout.
-    let lock = lock_table(control, "learner_collections").await;
+    let lock = lock_table(control, "learner_progress_sources").await;
     assert_deadline(&storage).await;
     // The abandoned statement is still blocked. It must not retain the sole slot.
     tokio::time::timeout(
@@ -139,7 +131,7 @@ async fn check_query_contract(pool: &PgPool, control: &PgPool) {
         .await
         .unwrap();
     drop(connection);
-    let lock = lock_table(control, "learner_collections").await;
+    let lock = lock_table(control, "learner_progress_sources").await;
     assert_eq!(
         lookup(&storage, 1).await,
         Err(StorageError(
@@ -187,6 +179,167 @@ async fn assert_deadline(storage: &dyn LearnerCollectionQuery) {
 #[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
 async fn postgres_collection_query_contract() {
     with_postgres(check_query_contract).await;
+}
+
+async fn seed_progress_sources(control: &PgPool) {
+    sqlx::raw_sql(
+        r#"INSERT INTO learners (id, name) VALUES
+            ('00000000-0000-0000-0000-000000000001', 'Alice'),
+            ('00000000-0000-0000-0000-000000000002', 'Bob');
+         INSERT INTO collections (id, provider, name) VALUES
+            ('00000000-0000-0000-0000-000000000010', 'wanikani', 'WaniKani'),
+            ('00000000-0000-0000-0000-000000000020', 'manual', 'Other');
+         INSERT INTO subjects (id, collection_id, external_id, kind, source_data) VALUES
+            ('00000000-0000-0000-0000-000000001000', '00000000-0000-0000-0000-000000000010', '42', 'vocabulary', '{"characters":"食べる"}'),
+            ('00000000-0000-0000-0000-000000002000', '00000000-0000-0000-0000-000000000020', NULL, NULL, NULL);
+         INSERT INTO learner_progress_sources (id, learner_id, collection_id, external_account_id, source_data) VALUES
+            ('00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'account-a', '{"max_level_granted":10}'),
+            ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000010', 'account-b', '{"max_level_granted":3,"expires_at":"2026-11-01T00:00:00Z"}'),
+            ('00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000010', 'account-a', '{"max_level_granted":20}');"#,
+    ).execute(control).await.unwrap();
+}
+
+fn assert_sqlstate(result: Result<sqlx::postgres::PgQueryResult, sqlx::Error>, code: &str) {
+    let error = result.unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some(code),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
+async fn postgres_progress_source_identity() {
+    with_postgres(async |_, control| {
+        seed_progress_sources(control).await;
+        // A null account can coexist with named accounts; scope is learner/collection.
+        for (learner, collection, account) in [
+            (1, 0x10, None),
+            (2, 0x10, None),
+            (1, 0x20, Some("account-a")),
+            (1, 0x20, None),
+        ] {
+            sqlx::query("INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES ($1, $2, $3)")
+                .bind(Uuid::from_u128(learner)).bind(Uuid::from_u128(collection)).bind(account)
+                .execute(control).await.unwrap();
+        }
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM learner_progress_sources WHERE learner_id = $1 AND collection_id = $2")
+            .bind(Uuid::from_u128(1)).bind(Uuid::from_u128(0x10))
+            .fetch_one(control).await.unwrap();
+        assert_eq!(count, 3);
+        for account in [Some("account-a"), None] {
+            assert_sqlstate(
+                sqlx::query("INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES ($1, $2, $3)")
+                    .bind(Uuid::from_u128(1)).bind(Uuid::from_u128(0x10)).bind(account)
+                    .execute(control).await,
+                "23505",
+            );
+            assert_sqlstate(
+                sqlx::query("UPDATE learner_progress_sources SET external_account_id = $1 WHERE id = $2")
+                    .bind(account).bind(Uuid::from_u128(0x101)).execute(control).await,
+                "23505",
+            );
+        }
+    }).await;
+}
+
+async fn seed_progress(control: &PgPool) {
+    seed_progress_sources(control).await;
+    sqlx::raw_sql(
+        r#"INSERT INTO learner_progress (learner_progress_source_id, subject_id, collection_id, progress_stage, is_hidden, learning_started_at, first_passed_at, recorded_at, source_data) VALUES
+            ('00000000-0000-0000-0000-000000000100', '00000000-0000-0000-0000-000000001000', '00000000-0000-0000-0000-000000000010', '5', FALSE, '2026-10-01T00:00:00Z', '2026-10-08T00:00:00Z', '2026-10-18T00:00:00Z', '{"source_updated_at":"2026-10-17T00:00:00Z"}'),
+            ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000001000', '00000000-0000-0000-0000-000000000010', '1', TRUE, '2026-10-17T00:00:00Z', NULL, '2026-10-18T00:00:00Z', '{"excluded":true}'),
+            ('00000000-0000-0000-0000-000000000200', '00000000-0000-0000-0000-000000001000', '00000000-0000-0000-0000-000000000010', '7', FALSE, NULL, NULL, '2026-10-18T00:00:00Z', '{"marker":"bob"}');"#,
+    ).execute(control).await.unwrap();
+}
+
+async fn source_snapshot(control: &PgPool, id: u128) -> String {
+    sqlx::query_scalar(
+        "SELECT jsonb_build_object('source', to_jsonb(s), 'progress',
+            (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.subject_id) FROM learner_progress p WHERE p.learner_progress_source_id = s.id))::text
+         FROM learner_progress_sources s WHERE s.id = $1",
+    ).bind(Uuid::from_u128(id)).fetch_one(control).await.unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
+async fn postgres_progress_is_source_scoped() {
+    with_postgres(async |_, control| {
+        seed_progress(control).await;
+        let b_before = source_snapshot(control, 0x101).await;
+        let bob_before = source_snapshot(control, 0x200).await;
+        let subject_before: Vec<String> = sqlx::query_scalar("SELECT to_jsonb(subjects)::text FROM subjects ORDER BY id")
+            .fetch_all(control).await.unwrap();
+
+        sqlx::query("UPDATE learner_progress SET progress_stage = '7' WHERE learner_progress_source_id = $1")
+            .bind(Uuid::from_u128(0x100)).execute(control).await.unwrap();
+        sqlx::query(r#"UPDATE learner_progress_sources SET source_data = '{"max_level_granted":60}' WHERE id = $1"#)
+            .bind(Uuid::from_u128(0x100)).execute(control).await.unwrap();
+        let updated: (String, i32) = sqlx::query_as(
+            "SELECT p.progress_stage, (s.source_data->>'max_level_granted')::integer
+             FROM learner_progress p JOIN learner_progress_sources s ON s.id = p.learner_progress_source_id
+             WHERE s.id = $1 AND p.subject_id = $2",
+        ).bind(Uuid::from_u128(0x100)).bind(Uuid::from_u128(0x1000)).fetch_one(control).await.unwrap();
+        assert_eq!(updated, ("7".into(), 60));
+        assert_eq!(source_snapshot(control, 0x101).await, b_before);
+        assert_eq!(source_snapshot(control, 0x200).await, bob_before);
+        let subject_after: Vec<String> = sqlx::query_scalar("SELECT to_jsonb(subjects)::text FROM subjects ORDER BY id")
+            .fetch_all(control).await.unwrap();
+        assert_eq!(subject_after, subject_before);
+        assert_sqlstate(
+            sqlx::query("INSERT INTO learner_progress (learner_progress_source_id, subject_id, collection_id, recorded_at) VALUES ($1, $2, $3, '2026-10-18T00:00:00Z')")
+                .bind(Uuid::from_u128(0x100)).bind(Uuid::from_u128(0x1000)).bind(Uuid::from_u128(0x10))
+                .execute(control).await,
+            "23505",
+        );
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires YOMIBU_TEST_DATABASE_URL: disposable PostgreSQL 18+ database with vector installed"]
+async fn postgres_progress_source_references() {
+    with_postgres(async |_, control| {
+        seed_progress(control).await;
+        for (learner, collection) in [(0x999, 0x10), (1, 0x999)] {
+            assert_sqlstate(
+                sqlx::query("INSERT INTO learner_progress_sources (learner_id, collection_id) VALUES ($1, $2)")
+                    .bind(Uuid::from_u128(learner)).bind(Uuid::from_u128(collection)).execute(control).await,
+                "23503",
+            );
+        }
+        // Missing source/subject, wrong source collection, then wrong subject collection.
+        for (source, subject, collection) in [
+            (0x999, 0x1000, 0x10), (0x100, 0x999, 0x10),
+            (0x100, 0x2000, 0x20), (0x100, 0x2000, 0x10),
+        ] {
+            assert_sqlstate(
+                sqlx::query("INSERT INTO learner_progress (learner_progress_source_id, subject_id, collection_id, recorded_at) VALUES ($1, $2, $3, '2026-10-18T00:00:00Z')")
+                    .bind(Uuid::from_u128(source)).bind(Uuid::from_u128(subject)).bind(Uuid::from_u128(collection))
+                    .execute(control).await,
+                "23503",
+            );
+        }
+        for (query, id) in [
+            ("DELETE FROM learners WHERE id = $1", 1),
+            ("DELETE FROM collections WHERE id = $1", 0x10),
+            ("DELETE FROM subjects WHERE id = $1", 0x1000),
+        ] {
+            assert_sqlstate(sqlx::query(query).bind(Uuid::from_u128(id)).execute(control).await, "23001");
+        }
+        let b_before = source_snapshot(control, 0x101).await;
+        let bob_before = source_snapshot(control, 0x200).await;
+        sqlx::query("DELETE FROM learner_progress_sources WHERE id = $1")
+            .bind(Uuid::from_u128(0x100)).execute(control).await.unwrap();
+        let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT learner_progress_source_id FROM learner_progress ORDER BY learner_progress_source_id")
+            .fetch_all(control).await.unwrap();
+        assert_eq!(remaining, [Uuid::from_u128(0x101), Uuid::from_u128(0x200)]);
+        assert_eq!(source_snapshot(control, 0x101).await, b_before);
+        assert_eq!(source_snapshot(control, 0x200).await, bob_before);
+        let subjects: i64 = sqlx::query_scalar("SELECT count(*) FROM subjects")
+            .fetch_one(control).await.unwrap();
+        assert_eq!(subjects, 2);
+    }).await;
 }
 
 #[tokio::test]

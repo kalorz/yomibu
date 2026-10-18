@@ -67,8 +67,9 @@ CREATE TABLE subjects (
     UNIQUE (id, kind)
 );
 
--- Manual collections use the same association, without an external account or import.
-CREATE TABLE learner_collections (
+-- Collection membership is derived from these sources, even before progress arrives.
+-- Manual input uses a source without an external account or import.
+CREATE TABLE learner_progress_sources (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     collection_id UUID NOT NULL
         REFERENCES collections(id) ON DELETE RESTRICT,
@@ -79,19 +80,20 @@ CREATE TABLE learner_collections (
     last_import_started_at TIMESTAMPTZ,
     last_import_completed_at TIMESTAMPTZ,
 
-    -- Account metadata and access limits, including subscription expiry.
+    -- This source's account metadata and access limits, including subscription expiry.
     source_data JSONB,
 
-    UNIQUE (learner_id, collection_id),
+    CONSTRAINT learner_progress_sources_account_key
+        UNIQUE NULLS NOT DISTINCT (learner_id, collection_id, external_account_id),
     UNIQUE (id, collection_id)
 );
 
-CREATE INDEX learner_collections_collection
-    ON learner_collections(collection_id);
+CREATE INDEX learner_progress_sources_collection
+    ON learner_progress_sources(collection_id);
 
--- Store observations and manual declarations; derive eligibility in the application.
+-- Learner progress belongs to a source and subject; derive eligibility in the application.
 CREATE TABLE learner_progress (
-    learner_collection_id UUID NOT NULL,
+    learner_progress_source_id UUID NOT NULL,
     subject_id UUID NOT NULL,
     collection_id UUID NOT NULL,
 
@@ -105,13 +107,14 @@ CREATE TABLE learner_progress (
     first_passed_at TIMESTAMPTZ,
     recorded_at TIMESTAMPTZ NOT NULL,
 
-    -- Per-subject observations and content-access exclusions for this learner.
+    -- This source's per-subject progress payload and content-access exclusions.
     source_data JSONB,
 
-    PRIMARY KEY (learner_collection_id, subject_id),
+    PRIMARY KEY (learner_progress_source_id, subject_id),
 
-    FOREIGN KEY (learner_collection_id, collection_id)
-        REFERENCES learner_collections(id, collection_id)
+    CONSTRAINT learner_progress_source_collection_fkey
+        FOREIGN KEY (learner_progress_source_id, collection_id)
+        REFERENCES learner_progress_sources(id, collection_id)
         ON DELETE CASCADE,
 
     FOREIGN KEY (subject_id, collection_id)

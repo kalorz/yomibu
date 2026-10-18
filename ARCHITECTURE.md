@@ -18,7 +18,7 @@ Supporting practices apply as described here; examples do not add mandatory feat
 | Practice | What we adopt | Yomibu example |
 | --- | --- | --- |
 | Hexagonal architecture | Explicit ports and adapters with dependencies toward inner contracts. | Application calls a generator port; the provider SDK stays in its adapter. |
-| Functional core, imperative shell | Deterministic domain decisions from explicit inputs; effects outside domain. | Core calculates eligibility from supplied learner observations. |
+| Functional core, imperative shell | Deterministic domain decisions from explicit inputs; effects outside domain. | Core calculates eligibility from supplied learner progress. |
 | Strategic DDD | Shared language within model boundaries and explicit translation between models. See [selected concepts](#selected-ddd-concepts). | Collection, subject and entry keep their meanings across operations using the same model. |
 | Tactical DDD | Model identity, values and consistency rules where needed. See [selected concepts](#selected-ddd-concepts). | Distinct subject and entry IDs prevent accidental substitution. |
 | SOLID | Cohesive responsibilities, consumer-sized interfaces, behavioral substitutability and dependency inversion. | A selector receives only the query and embedding interfaces it needs. |
@@ -44,10 +44,10 @@ representations where meanings or responsibilities differ; share values where th
 | --- | --- |
 | Strategic: Ubiquitous Language | Agree new terms or changed meanings with the user, then record them in [GLOSSARY.md](GLOSSARY.md) before code uses them. Follow the [vocabulary agreement rule](AGENTS.md#terminology); reuse established meanings in discussion, code and tests. |
 | Strategic: Bounded Contexts | Identify where a model and its language apply. Crates, phases and tables do not automatically define contexts. Document a meaning that legitimately differs by context. |
-| Strategic: relationships between domain models | Define relationships and translations between models in different bounded contexts, including external domain models. Preserve WaniKani progress semantics when translating observations; Yomibu applies its own eligibility rules. Provider structures must not dictate the domain model. |
+| Strategic: relationships between domain models | Define relationships and translations between models in different bounded contexts, including external domain models. Translate WaniKani assignments into learner progress while preserving their meaning; Yomibu applies its own eligibility rules. Provider structures must not dictate the domain model. |
 | Tactical: Entities and Value Objects | Use identity for entities and meaningful equality/validation for values. Subjects have identity; subject IDs and entry IDs are different value types. |
 | Tactical: Aggregates | Choose consistency boundaries from business invariants. Atomic entry/detail publication informs the decision; a foreign-key graph alone does not define an aggregate. |
-| Tactical: Domain Services | Use pure domain functions for rules with no natural entity owner, such as eligibility calculations across supplied observations. |
+| Tactical: Domain Services | Use pure domain functions for rules with no natural entity owner, such as eligibility calculations across supplied learner progress. |
 | Tactical: Repositories | Use aggregate persistence contracts where needed. Read/query ports may return projections without reconstructing aggregates. |
 
 ## Boundaries
@@ -297,6 +297,21 @@ Pure domain decisions remain in core. Detailed selection and assessment behavior
 belongs in approved requirements and interface contracts, not this illustration.
 
 ## Storage and CQRS
+
+### Schema changes
+
+Until the user explicitly changes this policy, update the retained bootstrap schema
+and recreate the database when its schema changes. Preserving existing data across
+schema versions is not required. Do not add migration frameworks, upgrade scripts,
+schema compatibility layers or migration tests. Verify the current schema and its
+behavior against freshly initialized PostgreSQL databases.
+
+This policy applies across tickets and supersedes earlier ticket or plan requirements
+for data-preserving schema upgrades. Normal data integrity and persistence guarantees
+still apply within the current schema. Database recreation is an explicit setup
+operation, not automatic application startup behavior.
+
+### Storage contracts
 
 Choose contracts by consumer needs, query semantics and required atomic invariants,
 not one per table or foreign-key-connected group. Narrow query and write interfaces

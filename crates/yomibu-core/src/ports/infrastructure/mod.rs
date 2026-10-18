@@ -25,9 +25,10 @@ impl std::error::Error for StorageError {}
 
 /// Port: outbound / driven. Role: infrastructure.
 ///
-/// Read-only lookup of all collection IDs associated with the supplied learner:
-/// `learner_collections.collection_id` where `learner_id` matches the input.
-/// Ownership alone does not establish an association; unrelated shared or owned
+/// Read-only lookup of all collection IDs associated with the supplied learner.
+/// Membership is derived from `learner_progress_sources.collection_id` where
+/// `learner_id` matches the input, even when a source has no learner progress yet.
+/// Ownership alone does not establish membership; unrelated shared or owned
 /// collections must not be included.
 ///
 /// Every associated collection ID is returned exactly once, in unspecified order,
@@ -81,8 +82,8 @@ impl std::error::Error for LearnerWriteError {}
 ///
 /// Creates exactly one learner with the validated name and returns its assigned
 /// UUID only after storage confirms commit. Repeated names create distinct learners;
-/// this operation creates no collections or associations. The adapter owns these
-/// persistence guarantees; callers do not query again to validate success.
+/// this operation creates no collections or learner progress sources. The adapter
+/// owns these persistence guarantees; callers do not query again to validate success.
 ///
 /// Reject expired calls before I/O. Bound acquisition, connection establishment,
 /// and execution by the supplied absolute monotonic deadline, without retrying

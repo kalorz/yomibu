@@ -126,7 +126,7 @@ selection:
       source: wanikani
       lte: 10
 
-    # Category metadata is separate from learner-progress sources.
+    # Category metadata is separate from learner progress sources.
     - type: category_filter
       source: jev
       any_of: [travel, transport]

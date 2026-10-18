@@ -9,6 +9,9 @@ does not authorize deleting or rebuilding code. Preserve all `docs/plan/` files;
 the planned SQL schema remains a requirement. Preserving plans does not approve
 their proposals; use approved requirements and the architecture's stated document statuses.
 
+Follow the [schema-change policy](ARCHITECTURE.md#schema-changes) across tickets
+until the user explicitly revises it.
+
 ### Dependencies and composition
 
 Use the [ownership and dependency rules](ARCHITECTURE.md#boundaries) and
@@ -25,12 +28,25 @@ language in code, tests, documentation and explanations to the user. Use collect
 subject and entry with their distinct meanings; do not introduce catalogue as a synonym.
 Older wording in preserved plans is not permission to invent alternative names.
 
+For each ticket, identify the affected domain terms and check them against GLOSSARY.md
+and accepted ticket/epic decisions before editing. Before completion, check terminology
+across the touched schema, code/contracts, tests and documentation, including the
+translation of provider terms. Reuse canonical terms; raise unresolved naming or meaning
+conflicts instead of introducing synonyms. Keep the check scoped to the affected work.
+
 Before adopting a new domain term or changing an existing meaning, explain it to the
 user and obtain agreement. Record the agreed definition in the glossary before using
 it in code, including API and configuration names. This also governs concepts used in
 documentation and user explanations, not every local variable or ordinary technical word.
 Earlier agreement counts; do not request it again or require a separate glossary commit.
 Document legitimate differences between model contexts; resolve conflicts explicitly.
+
+Qualify external domain terms with their provider or system when ambiguity is possible.
+A namespace counts as qualification. Translate external concepts into Yomibu's agreed
+terminology at the integration boundary. For example, use **WaniKani assignment** in
+prose, `wanikani::Assignment` or `WaniKaniAssignment` in integration code, and
+**learner progress** after translation. Avoid redundant prefixes inside clear provider
+namespaces. Preserve original API field names and captured payloads.
 
 ## Before editing
 
