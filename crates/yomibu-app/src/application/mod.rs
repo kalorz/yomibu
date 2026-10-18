@@ -5,16 +5,22 @@ use yomibu_core::ports::infrastructure::{
     LearnerCollectionQuery, LearnerWriteError, LearnerWriter, StorageError,
 };
 
-/// A validated creation request, prepared before configuring storage dependencies.
-pub struct CreateLearner {
-    name: LearnerName,
+/// Port: inbound / driving.
+///
+/// Prepares creation input before configuring storage dependencies. Trims and
+/// rejects blank input through the core rule, without I/O.
+pub fn prepare_learner_name(name: &str) -> Result<LearnerName, CreateLearnerError> {
+    LearnerName::new(name).ok_or(CreateLearnerError::BlankName)
 }
 
-impl CreateLearner {
-    /// Trims and rejects blank input through the core rule, without I/O.
-    pub fn new(name: &str) -> Result<Self, CreateLearnerError> {
-        let name = LearnerName::new(name).ok_or(CreateLearnerError::BlankName)?;
-        Ok(Self { name })
+/// Creates learners through the supplied writer.
+pub struct CreateLearner<'a> {
+    storage: &'a dyn LearnerWriter,
+}
+
+impl<'a> CreateLearner<'a> {
+    pub fn new(storage: &'a dyn LearnerWriter) -> Self {
+        Self { storage }
     }
 
     /// Port: inbound / driving.
@@ -24,14 +30,14 @@ impl CreateLearner {
     /// confirms persistence. Preserves failures without retries; a late confirmed
     /// creation fails with `Created`, retaining its UUID.
     pub async fn execute(
-        self,
-        storage: &dyn LearnerWriter,
+        &self,
+        name: LearnerName,
         deadline: Instant,
     ) -> Result<LearnerId, CreateLearnerError> {
         if Instant::now() >= deadline {
             return Err(CreateLearnerError::DeadlineExceeded);
         }
-        let result = storage.create_learner(self.name, deadline).await;
+        let result = self.storage.create_learner(name, deadline).await;
         complete_creation(result, deadline, Instant::now())
     }
 }
@@ -80,25 +86,37 @@ fn complete_creation(
     Ok(id)
 }
 
-/// Port: inbound / driving.
-///
-/// Lists the learner's associated collection IDs through the supplied storage.
-/// Rejects an expired deadline before dispatch; otherwise forwards the learner ID
-/// and unchanged deadline once and awaits storage. Preserves failures and results,
-/// including empty results, except that late success is a deadline error.
-/// Storage enforces the I/O deadline. Does not check learner existence.
-pub async fn list_collection_ids(
-    learner_id: LearnerId,
-    storage: &dyn LearnerCollectionQuery,
-    deadline: Instant,
-) -> Result<Vec<CollectionId>, StorageError> {
-    if Instant::now() >= deadline {
-        return Err(StorageError::collection_lookup_deadline_exceeded());
+/// Lists associated collection IDs through the supplied query.
+pub struct ListCollectionIds<'a> {
+    storage: &'a dyn LearnerCollectionQuery,
+}
+
+impl<'a> ListCollectionIds<'a> {
+    pub fn new(storage: &'a dyn LearnerCollectionQuery) -> Self {
+        Self { storage }
     }
-    let result = storage
-        .collection_ids_for_learner(learner_id, deadline)
-        .await;
-    complete_lookup(result, deadline, Instant::now())
+
+    /// Port: inbound / driving.
+    ///
+    /// Lists the learner's associated collection IDs through the supplied storage.
+    /// Rejects an expired deadline before dispatch; otherwise forwards the learner ID
+    /// and unchanged deadline once and awaits storage. Preserves failures and results,
+    /// including empty results, except that late success is a deadline error.
+    /// Storage enforces the I/O deadline. Does not check learner existence.
+    pub async fn execute(
+        &self,
+        learner_id: LearnerId,
+        deadline: Instant,
+    ) -> Result<Vec<CollectionId>, StorageError> {
+        if Instant::now() >= deadline {
+            return Err(StorageError::collection_lookup_deadline_exceeded());
+        }
+        let result = self
+            .storage
+            .collection_ids_for_learner(learner_id, deadline)
+            .await;
+        complete_lookup(result, deadline, Instant::now())
+    }
 }
 
 fn complete_lookup(

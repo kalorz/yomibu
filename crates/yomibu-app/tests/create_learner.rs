@@ -5,7 +5,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
-use yomibu_app::application::{CreateLearner, CreateLearnerError};
+use yomibu_app::application::{CreateLearner, CreateLearnerError, prepare_learner_name};
 use yomibu_core::domain::{LearnerId, LearnerName};
 use yomibu_core::ports::infrastructure::{LearnerWriteError, LearnerWriter};
 
@@ -47,13 +47,10 @@ fn ready<T>(future: impl Future<Output = T>) -> T {
 
 #[test]
 fn normalized_name_and_unchanged_deadline_reach_supplied_writer_once() {
+    let name = prepare_learner_name("  Alice  ").unwrap();
     let writer = writer(Ok(ID));
     assert_eq!(
-        ready(
-            CreateLearner::new("  Alice  ")
-                .unwrap()
-                .execute(&writer, writer.deadline)
-        ),
+        ready(CreateLearner::new(&writer).execute(name, writer.deadline)),
         Ok(ID)
     );
     assert_eq!(writer.calls.get(), 1);
@@ -63,14 +60,13 @@ fn normalized_name_and_unchanged_deadline_reach_supplied_writer_once() {
 fn invalid_name_and_expired_deadline_prevent_dispatch() {
     let writer = writer(Ok(ID));
     assert!(matches!(
-        CreateLearner::new(" "),
+        prepare_learner_name(" "),
         Err(CreateLearnerError::BlankName)
     ));
     assert!(matches!(
         ready(
-            CreateLearner::new("Alice")
-                .unwrap()
-                .execute(&writer, Instant::now())
+            CreateLearner::new(&writer)
+                .execute(prepare_learner_name("Alice").unwrap(), Instant::now())
         ),
         Err(CreateLearnerError::DeadlineExceeded)
     ));
@@ -86,9 +82,8 @@ fn write_failures_preserve_creation_knowledge_without_retrying() {
         let expected = error.to_string();
         let writer = writer(Err(error));
         let actual = ready(
-            CreateLearner::new("Alice")
-                .unwrap()
-                .execute(&writer, writer.deadline),
+            CreateLearner::new(&writer)
+                .execute(prepare_learner_name("Alice").unwrap(), writer.deadline),
         )
         .unwrap_err();
         assert!(matches!(actual, CreateLearnerError::Storage(_)));
