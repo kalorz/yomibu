@@ -32,7 +32,7 @@ fn cli() -> Command {
                 ),
         )
         .subcommand(
-            Command::new("collections")
+            Command::new("list-collection-ids")
                 .about("List a learner's collection UUIDs")
                 .after_help("Requires YOMIBU_DATABASE_URL and a database with the retained schema. By default, prints one UUID per line; no collections produce no output. With --json, prints a JSON array of UUID strings followed by a newline; no collections produce []. Ordering is unspecified in both formats.")
                 .arg(
@@ -65,7 +65,7 @@ fn main() -> ExitCode {
                 io::stderr().lock(),
             )
         }
-        Some(("collections", collections)) => {
+        Some(("list-collection-ids", collections)) => {
             let learner_id = *collections
                 .get_one::<Uuid>("learner_id")
                 .expect("required learner UUID");

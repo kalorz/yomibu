@@ -38,9 +38,9 @@ docker compose down
 
 `docker compose down` preserves the named data volume.
 
-## List collections
+## List collection IDs
 
-`yomibu collections --learner-id <UUID>` lists the learner's collection UUIDs.
+`yomibu list-collection-ids --learner-id <UUID>` lists the learner's collection UUIDs.
 Set `YOMIBU_DATABASE_URL` to a PostgreSQL connection URL. The database must
 already have the [retained schema](docs/plan/schema.postgresql.sql), which requires
 PostgreSQL 18+ and pgvector. The connection's role needs read access to
@@ -52,7 +52,7 @@ and `.pgpass` credentials; `YOMIBU_DATABASE_URL` itself is always required.
 
 ```sh
 export YOMIBU_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu'
-./target/debug/yomibu collections --learner-id 00000000-0000-0000-0000-000000000001
+./target/debug/yomibu list-collection-ids --learner-id 00000000-0000-0000-0000-000000000001
 ```
 
 Each collection is listed once, even when the learner has several progress sources
@@ -63,7 +63,7 @@ learner or one with no progress sources, the command succeeds with no output by
 default or `[]` with `--json`. Invalid arguments, missing or invalid configuration,
 and storage failures print an error to stderr and exit unsuccessfully. Connection credentials
 and raw provider errors are not printed.
-`yomibu --help` and `yomibu collections --help` need no database configuration.
+`yomibu --help` and `yomibu list-collection-ids --help` need no database configuration.
 
 Startup and lookup each have a five-second limit; connection acquisition and
 server statements are also limited to five seconds. Pool shutdown and runtime

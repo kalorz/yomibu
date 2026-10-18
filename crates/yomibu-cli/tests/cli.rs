@@ -59,13 +59,16 @@ fn failure(output: &Output) -> &str {
 #[tokio::test]
 async fn help_succeeds_without_configuration() {
     for (args, expected) in [
-        (vec!["--help"], vec!["collections", "create-learner"]),
+        (
+            vec!["--help"],
+            vec!["list-collection-ids", "create-learner"],
+        ),
         (
             vec!["create-learner", "--help"],
             vec!["--name <NAME>", "--json"],
         ),
         (
-            vec!["collections", "--help"],
+            vec!["list-collection-ids", "--help"],
             vec!["--learner-id <UUID>", "--json"],
         ),
     ] {
@@ -108,18 +111,24 @@ async fn invalid_syntax_is_rejected_before_configuration_or_database_access() {
     for args in [
         vec![],
         vec!["unknown"],
+        vec!["collections", "--learner-id", LEARNER_ID],
         vec!["create-learner"],
         vec!["create-learner", "--name"],
         vec!["create-learner", "--name", "Alice", "--unknown"],
         vec!["create-learner", "--name", "Alice", "--name", "Bob"],
-        vec!["collections"],
-        vec!["collections", "--learner-id"],
-        vec!["collections", "--learner-id", "not-a-uuid"],
-        vec!["collections", "--learner", LEARNER_ID],
-        vec!["collections", "--learner-id", LEARNER_ID, "--unknown"],
-        vec!["collections", "list", "--learner-id", LEARNER_ID],
+        vec!["list-collection-ids"],
+        vec!["list-collection-ids", "--learner-id"],
+        vec!["list-collection-ids", "--learner-id", "not-a-uuid"],
+        vec!["list-collection-ids", "--learner", LEARNER_ID],
         vec![
-            "collections",
+            "list-collection-ids",
+            "--learner-id",
+            LEARNER_ID,
+            "--unknown",
+        ],
+        vec!["list-collection-ids", "list", "--learner-id", LEARNER_ID],
+        vec![
+            "list-collection-ids",
             "--learner-id",
             LEARNER_ID,
             "--learner-id",
@@ -151,7 +160,7 @@ async fn configuration_failures_are_clear_and_do_not_echo_credentials() {
         Some(wrong_scheme.as_str()),
     ] {
         let output = invoke(
-            &["collections", "--learner-id", LEARNER_ID],
+            &["list-collection-ids", "--learner-id", LEARNER_ID],
             config.map(OsStr::new),
         )
         .await;
@@ -169,7 +178,7 @@ async fn non_unicode_configuration_is_reported_as_invalid() {
     use std::os::unix::ffi::OsStrExt;
 
     let output = invoke(
-        &["collections", "--learner-id", LEARNER_ID],
+        &["list-collection-ids", "--learner-id", LEARNER_ID],
         Some(OsStr::from_bytes(&[0xff])),
     )
     .await;
@@ -189,7 +198,7 @@ async fn unresponsive_database_startup_is_bounded_and_sanitized() {
         listener.local_addr().unwrap()
     );
     let output = invoke(
-        &["collections", "--learner-id", LEARNER_ID],
+        &["list-collection-ids", "--learner-id", LEARNER_ID],
         Some(OsStr::new(&url)),
     )
     .await;
@@ -291,7 +300,7 @@ async fn check_postgres_wiring() {
     assert_eq!(name, "Alice");
 
     let output = invoke(
-        &["collections", "--learner-id", LEARNER_ID],
+        &["list-collection-ids", "--learner-id", LEARNER_ID],
         Some(database_url),
     )
     .await;
@@ -308,7 +317,7 @@ async fn check_postgres_wiring() {
     );
 
     let output = invoke(
-        &["collections", "--learner-id", LEARNER_ID, "--json"],
+        &["list-collection-ids", "--learner-id", LEARNER_ID, "--json"],
         Some(database_url),
     )
     .await;
@@ -320,7 +329,7 @@ async fn check_postgres_wiring() {
 
     let output = invoke(
         &[
-            "collections",
+            "list-collection-ids",
             "--learner-id",
             "00000000-0000-0000-0000-000000000099",
         ],
@@ -334,7 +343,7 @@ async fn check_postgres_wiring() {
         .await
         .unwrap();
     let output = invoke(
-        &["collections", "--learner-id", LEARNER_ID],
+        &["list-collection-ids", "--learner-id", LEARNER_ID],
         Some(database_url),
     )
     .await;
