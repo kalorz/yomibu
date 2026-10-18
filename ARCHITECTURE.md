@@ -337,6 +337,11 @@ decision, following the architecture change rules below.
 
 ## Verification
 
+Test architectural restrictions with representative allowed and forbidden examples.
+Enable the dependencies or features needed for the forbidden behavior to compile,
+and verify rejection by the intended rule, not an unrelated compiler error. Reuse
+existing verification tooling.
+
 Current [CI](.github/workflows/ci.yml) runs formatting, Clippy, tests, Rustdoc and Git
 checks, plus [crate dependency checks](tools/check_architecture.py). Run them locally
 with `python3 -B tools/check_architecture.py`; the checker uses offline Cargo metadata
@@ -429,6 +434,11 @@ Test each responsibility where it is owned:
 | Application | Workflow decisions, required/optional failure handling and shared limits across nested/parallel calls. Exercise invalid capability output and uncertain completion through port implementations outside production crates. |
 | Adapter | Translation and actual backend/provider guarantees. Verify the port's contract cases against each implementation; mocks alone cannot prove SQL guarantees. A shared test harness is not required for a single adapter. |
 | Driving adapter | Parsing, input precedence, invocation, output and exit status. Substitute application behavior where needed; a narrow inbound interface can justify that isolation. |
+
+Keep unrelated contract scenarios independently runnable and reported, so an early
+failure does not hide other results. Keep assertions for one scenario together;
+this does not require one assertion per test. Share setup where useful without
+introducing a generic test framework.
 
 Keep detailed rule edge cases at their owning layer. For example, CLI tests inject
 an application rejection to test its presentation instead of rerunning eligibility
