@@ -33,23 +33,25 @@ fn creation_after_shutdown(
 }
 
 fn database_url() -> Result<String, String> {
-    let url = std::env::var("YOMIBU_DATABASE_URL")
-        .map_err(|error| match error {
-            std::env::VarError::NotPresent => {
-                "YOMIBU_DATABASE_URL must be set to a PostgreSQL connection URL"
-            }
-            std::env::VarError::NotUnicode(_) => "YOMIBU_DATABASE_URL must contain valid Unicode",
-        })?
-        .trim()
-        .to_owned();
+    let url = std::env::var("YOMIBU_DATABASE_URL").map_err(|error| match error {
+        std::env::VarError::NotPresent => {
+            "YOMIBU_DATABASE_URL must be set to a PostgreSQL connection URL"
+        }
+        std::env::VarError::NotUnicode(_) => "YOMIBU_DATABASE_URL must contain valid Unicode",
+    })?;
+    Ok(validate_database_url(&url)?.to_owned())
+}
+
+fn validate_database_url(url: &str) -> Result<&str, &'static str> {
+    let url = url.trim();
     if url.is_empty() {
-        return Err("YOMIBU_DATABASE_URL must not be empty".into());
+        return Err("YOMIBU_DATABASE_URL must not be empty");
     }
     // SQLx parses URL components but does not validate the scheme.
     if !url.split_once("://").is_some_and(|(scheme, _)| {
         scheme.eq_ignore_ascii_case("postgres") || scheme.eq_ignore_ascii_case("postgresql")
     }) {
-        return Err("YOMIBU_DATABASE_URL must use the postgres or postgresql URL scheme".into());
+        return Err("YOMIBU_DATABASE_URL must use the postgres or postgresql URL scheme");
     }
     Ok(url)
 }
@@ -122,6 +124,40 @@ async fn create_learner(name: LearnerName, url: String) -> Result<LearnerId, Str
 mod tests {
     use super::*;
     use uuid::Uuid;
+
+    #[test]
+    fn database_url_validation_trims_whitespace_and_accepts_postgres_schemes() {
+        for (input, expected) in [
+            ("postgres://localhost/db", "postgres://localhost/db"),
+            (
+                " \tPoStGrEsQl://localhost/db\n\u{3000}",
+                "PoStGrEsQl://localhost/db",
+            ),
+        ] {
+            assert_eq!(validate_database_url(input), Ok(expected));
+        }
+    }
+
+    #[test]
+    fn database_url_validation_rejects_empty_input_and_other_schemes() {
+        for input in ["", " \t\n\u{3000}"] {
+            assert_eq!(
+                validate_database_url(input),
+                Err("YOMIBU_DATABASE_URL must not be empty")
+            );
+        }
+        for input in [
+            "http://user:secret-marker@localhost/db",
+            "localhost/db",
+            "postgres:db",
+            "://localhost/db",
+        ] {
+            assert_eq!(
+                validate_database_url(input),
+                Err("YOMIBU_DATABASE_URL must use the postgres or postgresql URL scheme")
+            );
+        }
+    }
 
     #[test]
     fn cleanup_failure_preserves_creation_and_prior_errors() {

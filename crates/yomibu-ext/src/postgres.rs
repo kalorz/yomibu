@@ -125,7 +125,7 @@ impl Drop for WriteConnection {
 }
 
 fn write_error(error: sqlx::Error) -> LearnerWriteError {
-    use sqlx::postgres::{PgDatabaseError, PgSeverity};
+    use sqlx::postgres::PgDatabaseError;
 
     // Only classify explicit statement rejections, not fatal connection errors
     // or SQLSTATEs such as 40003 (statement_completion_unknown). No inference from
@@ -133,16 +133,18 @@ fn write_error(error: sqlx::Error) -> LearnerWriteError {
     let rejected = error
         .as_database_error()
         .and_then(|error| error.try_downcast_ref::<PgDatabaseError>())
-        .is_some_and(|error| {
-            error.severity() == PgSeverity::Error
-                && (error.code().starts_with("23") || error.code().starts_with("42"))
-        });
+        .is_some_and(|error| is_statement_rejection(error.severity(), error.code()));
     let reason = failure_reason(error);
     if rejected {
         LearnerWriteError::NotCreated(reason)
     } else {
         LearnerWriteError::CompletionUnknown(reason)
     }
+}
+
+fn is_statement_rejection(severity: sqlx::postgres::PgSeverity, code: &str) -> bool {
+    severity == sqlx::postgres::PgSeverity::Error
+        && (code.starts_with("23") || code.starts_with("42"))
 }
 
 /// Fails once the deadline has been reached.
@@ -188,8 +190,25 @@ fn failure_reason(error: sqlx::Error) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::storage_error;
+    use super::{is_statement_rejection, storage_error};
+    use sqlx::postgres::PgSeverity;
     use yomibu_core::ports::infrastructure::StorageError;
+
+    #[test]
+    fn only_statement_rejections_establish_that_no_learner_was_created() {
+        for code in ["23505", "23503", "42601", "42501", "42P01"] {
+            assert!(is_statement_rejection(PgSeverity::Error, code), "{code}");
+            for severity in [PgSeverity::Fatal, PgSeverity::Panic] {
+                assert!(
+                    !is_statement_rejection(severity, code),
+                    "{severity:?}: {code}"
+                );
+            }
+        }
+        for code in ["40003", "40001", "40P01", "57014", "08006", "XX000"] {
+            assert!(!is_statement_rejection(PgSeverity::Error, code), "{code}");
+        }
+    }
 
     #[test]
     fn provider_details_are_not_exposed() {
