@@ -247,6 +247,9 @@ explicit inputs, preconditions and results; phases and helpers do not automatica
 become services. Here, a service is an in-process application responsibility, not an
 additional deployed process.
 
+Application services receive their required ports at construction. Execution receives
+per-call inputs and applicable execution limits.
+
 Illustrative entry points include assessing an existing story, deconstructing a
 sentence, synchronizing data and generating a story. A standalone assessment entry
 point and generation workflow reuse the same assessment operation. They obtain needed
@@ -261,8 +264,20 @@ the parent's execution limits. No generic workflow engine is required.
 
 Driving adapters translate supported input forms into application inputs. Application
 APIs are independent of those forms. CLI flags, JSON or other formats are delivery
-choices; parsing and input precedence belong there. Shared semantic defaults and domain
-validation belong in application/core so equivalent requests behave consistently.
+choices; parsing and input precedence belong there. Shared semantic defaults belong
+in application/core so equivalent requests behave consistently.
+
+When input needs pure normalization and validation before execution, expose application
+preparation independently of service construction. Use `prepare_*` when producing
+normalized, validated input; use `validate_*` for checks without transformation. Core
+owns domain rules; application preparation applies them and reports application errors.
+
+Perform preparation before the effects that require valid input. Execution should
+accept existing validated values where they enforce its preconditions. Checks requiring
+external state remain part of execution through ports.
+
+Preparation is conditional: do not add empty preparation functions, per-property
+functions or parameter wrappers solely for uniformity.
 
 ### Illustrative selector composition
 
