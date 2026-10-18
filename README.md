@@ -26,8 +26,8 @@ On the first start with an empty volume, PostgreSQL applies the
 Later starts reuse the data; changes to the SQL file do not migrate an existing
 database. The database starts without learners or collections.
 Under the current [schema-change policy](ARCHITECTURE.md#schema-changes), recreate
-the database after schema changes with `docker compose down --volumes`, then
-`docker compose up -d --wait --wait-timeout 60`. This erases the local database.
+the database after schema changes with `docker compose down --volumes`, then the
+startup command above. This erases the local database.
 
 Open a SQL console or stop the database with:
 

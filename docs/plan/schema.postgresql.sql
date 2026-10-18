@@ -83,8 +83,7 @@ CREATE TABLE learner_progress_sources (
     -- This source's account metadata and access limits, including subscription expiry.
     source_data JSONB,
 
-    CONSTRAINT learner_progress_sources_account_key
-        UNIQUE NULLS NOT DISTINCT (learner_id, collection_id, external_account_id),
+    UNIQUE NULLS NOT DISTINCT (learner_id, collection_id, external_account_id),
     UNIQUE (id, collection_id)
 );
 
@@ -112,8 +111,7 @@ CREATE TABLE learner_progress (
 
     PRIMARY KEY (learner_progress_source_id, subject_id),
 
-    CONSTRAINT learner_progress_source_collection_fkey
-        FOREIGN KEY (learner_progress_source_id, collection_id)
+    FOREIGN KEY (learner_progress_source_id, collection_id)
         REFERENCES learner_progress_sources(id, collection_id)
         ON DELETE CASCADE,
 

@@ -9,8 +9,7 @@ does not authorize deleting or rebuilding code. Preserve all `docs/plan/` files;
 the planned SQL schema remains a requirement. Preserving plans does not approve
 their proposals; use approved requirements and the architecture's stated document statuses.
 
-Follow the [schema-change policy](ARCHITECTURE.md#schema-changes) across tickets
-until the user explicitly revises it.
+Follow the [schema-change policy](ARCHITECTURE.md#schema-changes).
 
 ### Dependencies and composition
 

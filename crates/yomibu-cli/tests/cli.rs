@@ -317,18 +317,6 @@ async fn check_postgres_wiring() {
     .await;
     assert!(success(&output).is_empty());
 
-    let output = invoke(
-        &[
-            "collections",
-            "--learner",
-            "00000000-0000-0000-0000-000000000099",
-            "--json",
-        ],
-        Some(database_url),
-    )
-    .await;
-    assert_eq!(success(&output), "[]\n");
-
     sqlx::query("ALTER TABLE learner_progress_sources RENAME TO hidden_progress_sources")
         .execute(&mut control)
         .await

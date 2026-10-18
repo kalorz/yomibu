@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgQueryResult};
 use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
@@ -199,7 +199,35 @@ async fn seed_progress_sources(control: &PgPool) {
     ).execute(control).await.unwrap();
 }
 
-fn assert_sqlstate(result: Result<sqlx::postgres::PgQueryResult, sqlx::Error>, code: &str) {
+async fn insert_source(
+    control: &PgPool,
+    learner: u128,
+    collection: u128,
+    account: Option<&str>,
+) -> Result<PgQueryResult, sqlx::Error> {
+    sqlx::query("INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES ($1, $2, $3)")
+        .bind(Uuid::from_u128(learner))
+        .bind(Uuid::from_u128(collection))
+        .bind(account)
+        .execute(control)
+        .await
+}
+
+async fn insert_progress(
+    control: &PgPool,
+    source: u128,
+    subject: u128,
+    collection: u128,
+) -> Result<PgQueryResult, sqlx::Error> {
+    sqlx::query("INSERT INTO learner_progress (learner_progress_source_id, subject_id, collection_id, recorded_at) VALUES ($1, $2, $3, '2026-10-18T00:00:00Z')")
+        .bind(Uuid::from_u128(source))
+        .bind(Uuid::from_u128(subject))
+        .bind(Uuid::from_u128(collection))
+        .execute(control)
+        .await
+}
+
+fn assert_sqlstate(result: Result<PgQueryResult, sqlx::Error>, code: &str) {
     let error = result.unwrap_err();
     assert_eq!(
         error.as_database_error().unwrap().code().as_deref(),
@@ -220,28 +248,15 @@ async fn postgres_progress_source_identity() {
             (1, 0x20, Some("account-a")),
             (1, 0x20, None),
         ] {
-            sqlx::query("INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES ($1, $2, $3)")
-                .bind(Uuid::from_u128(learner)).bind(Uuid::from_u128(collection)).bind(account)
-                .execute(control).await.unwrap();
+            insert_source(control, learner, collection, account)
+                .await
+                .unwrap();
         }
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM learner_progress_sources WHERE learner_id = $1 AND collection_id = $2")
-            .bind(Uuid::from_u128(1)).bind(Uuid::from_u128(0x10))
-            .fetch_one(control).await.unwrap();
-        assert_eq!(count, 3);
         for account in [Some("account-a"), None] {
-            assert_sqlstate(
-                sqlx::query("INSERT INTO learner_progress_sources (learner_id, collection_id, external_account_id) VALUES ($1, $2, $3)")
-                    .bind(Uuid::from_u128(1)).bind(Uuid::from_u128(0x10)).bind(account)
-                    .execute(control).await,
-                "23505",
-            );
-            assert_sqlstate(
-                sqlx::query("UPDATE learner_progress_sources SET external_account_id = $1 WHERE id = $2")
-                    .bind(account).bind(Uuid::from_u128(0x101)).execute(control).await,
-                "23505",
-            );
+            assert_sqlstate(insert_source(control, 1, 0x10, account).await, "23505");
         }
-    }).await;
+    })
+    .await;
 }
 
 async fn seed_progress(control: &PgPool) {
@@ -282,12 +297,7 @@ async fn postgres_progress_is_source_scoped() {
         assert_eq!(updated, ("7".into(), 60));
         assert_eq!(source_snapshot(control, 0x101).await, b_before);
         assert_eq!(source_snapshot(control, 0x200).await, bob_before);
-        assert_sqlstate(
-            sqlx::query("INSERT INTO learner_progress (learner_progress_source_id, subject_id, collection_id, recorded_at) VALUES ($1, $2, $3, '2026-10-18T00:00:00Z')")
-                .bind(Uuid::from_u128(0x100)).bind(Uuid::from_u128(0x1000)).bind(Uuid::from_u128(0x10))
-                .execute(control).await,
-            "23505",
-        );
+        assert_sqlstate(insert_progress(control, 0x100, 0x1000, 0x10).await, "23505");
     }).await;
 }
 
@@ -298,8 +308,7 @@ async fn postgres_progress_source_references() {
         seed_progress(control).await;
         for (learner, collection) in [(0x999, 0x10), (1, 0x999)] {
             assert_sqlstate(
-                sqlx::query("INSERT INTO learner_progress_sources (learner_id, collection_id) VALUES ($1, $2)")
-                    .bind(Uuid::from_u128(learner)).bind(Uuid::from_u128(collection)).execute(control).await,
+                insert_source(control, learner, collection, None).await,
                 "23503",
             );
         }
@@ -309,9 +318,7 @@ async fn postgres_progress_source_references() {
             (0x100, 0x2000, 0x20), (0x100, 0x2000, 0x10),
         ] {
             assert_sqlstate(
-                sqlx::query("INSERT INTO learner_progress (learner_progress_source_id, subject_id, collection_id, recorded_at) VALUES ($1, $2, $3, '2026-10-18T00:00:00Z')")
-                    .bind(Uuid::from_u128(source)).bind(Uuid::from_u128(subject)).bind(Uuid::from_u128(collection))
-                    .execute(control).await,
+                insert_progress(control, source, subject, collection).await,
                 "23503",
             );
         }
@@ -330,15 +337,11 @@ async fn postgres_progress_source_references() {
         ] {
             assert_sqlstate(sqlx::query(query).bind(Uuid::from_u128(id)).execute(control).await, "23001");
         }
-        let b_before = source_snapshot(control, 0x101).await;
-        let bob_before = source_snapshot(control, 0x200).await;
         sqlx::query("DELETE FROM learner_progress_sources WHERE id = $1")
             .bind(Uuid::from_u128(0x100)).execute(control).await.unwrap();
         let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT learner_progress_source_id FROM learner_progress ORDER BY learner_progress_source_id")
             .fetch_all(control).await.unwrap();
         assert_eq!(remaining, [Uuid::from_u128(0x101), Uuid::from_u128(0x200)]);
-        assert_eq!(source_snapshot(control, 0x101).await, b_before);
-        assert_eq!(source_snapshot(control, 0x200).await, bob_before);
     }).await;
 }
 

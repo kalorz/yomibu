@@ -10,8 +10,7 @@ unique collection lookup and existing interfaces. No import workflow, account
 selection, progress merging or other epic work is included.
 
 The user's standing [schema-change policy](../../../ARCHITECTURE.md#schema-changes)
-replaces the original upgrade requirement: recreate databases when schemas change;
-do not add migrations or existing-data upgrade tests until that policy is revised.
+replaces the original upgrade requirement.
 
 ## Implementation
 
