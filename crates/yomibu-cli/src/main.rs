@@ -1,4 +1,4 @@
-mod execution;
+mod composition;
 mod output;
 
 use std::io;
@@ -59,7 +59,7 @@ fn main() -> ExitCode {
         Some(("create-learner", create)) => {
             let name = create.get_one::<String>("name").expect("required name");
             output::report_created(
-                execution::run_create_learner(name),
+                composition::run_create_learner(name),
                 create.get_flag("json"),
                 io::BufWriter::new(io::stdout().lock()),
                 io::stderr().lock(),
@@ -70,7 +70,7 @@ fn main() -> ExitCode {
                 .get_one::<Uuid>("learner")
                 .expect("required learner UUID");
             output::report_collections(
-                execution::run_collections(LearnerId(learner)),
+                composition::run_collections(LearnerId(learner)),
                 collections.get_flag("json"),
                 io::BufWriter::new(io::stdout().lock()),
                 io::stderr().lock(),
