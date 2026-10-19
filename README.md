@@ -88,9 +88,10 @@ configuration.
 
 The write is never automatically retried. PostgreSQL syntax/access and
 integrity-constraint rejections report that no learner was created. Other failures
-after dispatch, including timeouts and connection failures, conservatively report uncertain completion
-instead of claiming rollback. Once creation is confirmed, any subsequent deadline,
-cleanup, or output failure retains that fact and includes the assigned UUID in stderr.
+after dispatch, including timeouts and connection failures, conservatively report
+uncertain completion instead of claiming rollback. Once creation is confirmed,
+any subsequent deadline, cleanup, or output failure retains that fact and includes
+the assigned UUID in stderr.
 These failures exit unsuccessfully. No UUID is printed to stdout before creation
 and pool shutdown succeed; an output failure can leave partial or complete output
 bytes already written. Repeating creation after a failure may create a duplicate.
@@ -162,7 +163,7 @@ YOMIBU_TEST_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu_te
 ```
 
 Each test applies the complete retained schema in an isolated schema and removes
-its schema on success. The adapter test covers database semantics; the CLI test
+its schema on success. Adapter tests cover database semantics; the CLI test
 checks the real command's output and exit behavior. Failed runs can leave test
 schemas behind; use only a disposable database. Missing prerequisites fail the
 explicit test run rather than substituting another backend.
@@ -177,21 +178,10 @@ deadline handling, and pool configuration responsibilities.
 Use Python 3 and the [repository Rust toolchain](rust-toolchain.toml), which includes
 `rust-src` for semantic analysis, plus Node.js/npm to install ast-grep. Install the pinned
 [cargo-bylaw](https://github.com/danielgerlag/cargo-bylaw) and ast-grep tools using the
-version variables in [CI](.github/workflows/ci.yml). Set `BYLAW_VERSION` and
-`AST_GREP_VERSION` in your shell to the values declared there, then install locally:
-
-```sh
-cargo install cargo-bylaw --version "${BYLAW_VERSION:?Set BYLAW_VERSION from CI}" --locked
-yomibu_ast_grep_dir="${XDG_DATA_HOME:-$HOME/.local/share}/yomibu/ast-grep"
-npm install --prefix "$yomibu_ast_grep_dir" --no-save \
-  "@ast-grep/cli@${AST_GREP_VERSION:?Set AST_GREP_VERSION from CI}"
-export PATH="$yomibu_ast_grep_dir/node_modules/.bin:$PATH"
-```
-
-This uses Cargo's default installation directory for Bylaw and a user-owned directory
-for ast-grep. Ensure Cargo's installation `bin` directory is also on `PATH`.
-CI uses `RUNNER_TEMP` for temporary installation directories and writes to `GITHUB_PATH`
-to configure later steps; a local shell needs the `PATH` update shown above instead.
+version variables and `cargo install` / `npm install` commands in
+[CI](.github/workflows/ci.yml). For a local Bylaw installation, omit `--root` to use
+Cargo's default installation directory. For ast-grep, use a writable local `--prefix`
+and add its `node_modules/.bin` to your shell's `PATH`.
 Bylaw's separate executable keeps its rust-analyzer dependencies out of Yomibu's
 dependency graph.
 

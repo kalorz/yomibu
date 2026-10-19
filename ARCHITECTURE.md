@@ -15,12 +15,12 @@ Use [AGENTS.md](AGENTS.md) for agent workflow and delivery requirements,
 
 | When you need to… | Guidance |
 | --- | --- |
-| Place a responsibility or dependency | [Boundaries](#boundaries) and [provider independence](#provider-independence) |
+| Place a responsibility or crate dependency | [Boundaries](#boundaries) and [provider independence](#provider-independence) |
 | Define an interface | [Architectural rules](#architectural-rules), [port roles and labels](#port-roles-and-labels), and [port contracts](#port-contracts) |
 | Compose an operation and handle its limits or failures | [Composition and request execution](#composition-and-request-execution) |
-| Change a schema or define storage guarantees | [Storage and CQRS](#storage-and-cqrs) and [ingestion boundaries](#ingestion-boundaries) |
-| Choose names, visibility or dependencies | [Domain language](#domain-language), [naming](#naming), [visibility](#visibility), and [dependency reuse](#dependency-reuse) |
-| Verify a change | [Coverage and remaining review](#coverage-and-remaining-review), [behavioral verification](#behavioral-verification), and [local commands](README.md#architecture-checks) |
+| Change a schema or define storage guarantees | [Schema changes](#schema-changes), [storage contracts](#storage-contracts), [atomicity and write outcomes](#atomicity-and-write-outcomes), and [ingestion boundaries](#ingestion-boundaries) |
+| Choose names, visibility or libraries | [Domain language](#domain-language), [naming](#naming), [visibility](#visibility), and [dependency reuse](#dependency-reuse) |
+| Verify a change | [Verification requirements and coverage](#verification), [behavioral verification](#behavioral-verification), [local architecture checks](README.md#architecture-checks), and [tests and database prerequisites](README.md#tests) |
 | Revisit a decision or interpret a plan | [Changing architecture](#changing-architecture) and [design references](#design-references) |
 
 ## Design practices
@@ -459,11 +459,11 @@ existing verification tooling.
 | Obligation | Coverage and next action |
 | --- | --- |
 | Workspace and domain dependency direction | [Dependency checks](#dependency-checks), subject to their configuration limits. |
-| Core/app independence from SDKs, database libraries and delivery frameworks | Bylaw rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
-| Domain avoids ambient effects | Scoped Clippy restrictions reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
-| Public contracts expose domain/application representations | Bylaw checks library dependencies; the provider-placement rule catches configured names. Behavioral tests and [ownership review](AGENTS.md#ownership-review) check meaning and restrictions that both tools miss. |
-| Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
-| Adapters satisfy behavioral contracts | The PostgreSQL learner collection query has [real-backend contract tests](crates/yomibu-ext/tests/postgres.rs), run by CI; see [README tests](README.md#tests) for local invocation and prerequisites. Dependency analysis cannot establish ordering, atomicity or failure semantics. |
+| Core/app independence from SDKs, database libraries and delivery frameworks | [Bylaw](#dependency-checks) rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
+| Domain avoids ambient effects | [Scoped Clippy restrictions](#effect-and-visibility-checks) reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
+| Public contracts expose domain/application representations | [Bylaw](#dependency-checks) checks library dependencies; the [provider-placement rule](#provider-placement) catches configured names. Behavioral tests and [ownership review](AGENTS.md#ownership-review) check meaning and restrictions that both tools miss. |
+| Application uses supplied ports and applies operation-wide policy | [Scoped Clippy checks](#effect-and-visibility-checks) reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
+| Adapters satisfy behavioral contracts | PostgreSQL collection queries and learner writes have [real-backend contract tests](crates/yomibu-ext/tests/postgres.rs), including write disconnection and cancellation checks, run by CI; see [README tests](README.md#tests) for local invocation and prerequisites. Dependency analysis cannot establish ordering, atomicity or failure semantics. |
 | Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
 
 ### Dependency checks
