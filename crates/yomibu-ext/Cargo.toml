@@ -14,7 +14,7 @@ chrono.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "net", "io-util", "sync"] }
 
 [lints.rust]
 unreachable_pub = "warn"

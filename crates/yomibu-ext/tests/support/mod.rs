@@ -55,7 +55,9 @@ async fn run_postgres_contract(check: impl AsyncFnOnce(&PgPool, &PgPool)) {
         .execute(&admin)
         .await
         .unwrap();
-    let options = options.options([("search_path", format!("{schema},public"))]);
+    let options = options
+        .application_name(&schema)
+        .options([("search_path", format!("{schema},public"))]);
     // Keep setup and inspection separate from the adapter pool so tests can hold
     // locks or interrupt its session through an independent database connection.
     let control_pool = connect(options.clone()).await;
@@ -64,6 +66,20 @@ async fn run_postgres_contract(check: impl AsyncFnOnce(&PgPool, &PgPool)) {
     check(&pool, &control_pool).await;
     pool.close().await;
     control_pool.close().await;
+    // A closed client socket can precede backend exit after an interrupted
+    // statement. Avoid racing DROP locks with that still-draining session.
+    loop {
+        let active: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1")
+                .bind(&schema)
+                .fetch_one(&admin)
+                .await
+                .unwrap();
+        if active == 0 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)
         .await

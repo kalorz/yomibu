@@ -56,11 +56,18 @@ pub(super) async fn limits(
 }
 
 pub(super) async fn finish<T>(
-    tx: Transaction<'_, Postgres>,
+    mut tx: Transaction<'_, Postgres>,
     result: Result<T, ImportWriteError>,
     deadline: Instant,
 ) -> Result<T, ImportWriteError> {
-    let value = match result.and_then(|value| expired(deadline).map(|()| value)) {
+    let result = match result {
+        Ok(value) => limits(&mut tx, deadline)
+            .await
+            .and_then(|()| expired(deadline))
+            .map(|()| value),
+        Err(error) => Err(error),
+    };
+    let value = match result {
         Ok(value) => value,
         Err(error) => {
             // Before COMMIT dispatch no durable write is possible, even if the
@@ -94,4 +101,19 @@ pub(super) async fn finish<T>(
 fn commit_rejected(severity: PgSeverity, code: &str) -> bool {
     severity == PgSeverity::Error
         && (code.starts_with("23") || matches!(code, "40001" | "40P01" | "25P02"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_positive_commit_rejection_evidence_means_not_saved() {
+        for code in ["23503", "23505", "23514", "40001", "40P01", "25P02"] {
+            assert!(commit_rejected(PgSeverity::Error, code));
+            assert!(!commit_rejected(PgSeverity::Fatal, code));
+        }
+        for code in ["40003", "08006", "57P01", "57014", "XX000", "P0001"] {
+            assert!(!commit_rejected(PgSeverity::Error, code));
+        }
+    }
 }
