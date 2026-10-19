@@ -1,3 +1,5 @@
+mod wanikani;
+
 use std::{future::Future, pin::Pin, time::Instant};
 
 use sqlx::{PgPool, Postgres, pool::PoolConnection};

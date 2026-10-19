@@ -1,3 +1,5 @@
+pub mod wanikani;
+
 use std::{future::Future, pin::Pin, time::Instant};
 
 use crate::domain::{CollectionId, LearnerId, LearnerName};
