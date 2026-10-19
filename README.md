@@ -7,6 +7,10 @@ architecture enforcement and the [design plans](docs/plan/).
 Build with `cargo build --locked`. Story generation, synchronization and credential
 management are not currently available.
 
+The [WaniKani epic](https://github.com/kalorz/yomibu/issues/97) records approved import
+behavior; [#109](https://github.com/kalorz/yomibu/issues/109) scopes the next storage
+task. These are specifications, not available commands.
+
 ## Local PostgreSQL
 
 On macOS, install and start Docker Desktop, which includes Docker Compose. From

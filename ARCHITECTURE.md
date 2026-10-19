@@ -305,6 +305,18 @@ effectful callback; it may use SQL joins, filters, ranking and limits efficientl
 Pure domain decisions remain in core. Detailed selection and assessment behavior
 belongs in approved requirements and interface contracts, not this illustration.
 
+### Ingestion boundaries
+
+Source adapters own external protocols and translation. The application owns
+consumption, grouping, backpressure and operation-wide limits. Storage receives finite
+prepared values, never a source reader or effectful callback. Do not hold a save
+transaction while waiting for source I/O. Provider pages do not determine atomicity.
+
+For incremental processing, bound records and bytes across decoded responses,
+in-flight work, prepared groups and driver buffers; bounding a queue alone does not
+bound memory. Reuse values and interfaces where their semantics match, including
+coverage: partial input cannot claim the guarantees of a complete traversal.
+
 ## Storage and CQRS
 
 ### Schema changes
@@ -342,6 +354,23 @@ missing/deleted subjects and concurrency; a lookup alone is not equivalent to an
 Keep records together where database-enforced integrity is required. Support mixed
 storage only where the agreed contracts can be met; do not silently weaken guarantees.
 Repository groupings remain design decisions.
+
+### Atomicity and write outcomes
+
+Specify the atomic unit, whether partial saves are permitted, and what establishes
+whole-operation completion. Internal statement chunking must preserve the declared
+atomic unit. A unit's commit alone does not establish completion of a larger operation;
+the application owns continuation policy and combines outcomes across units.
+
+Distinguish confirmed no save, confirmed save and uncertain completion at the atomic
+unit. Cancellation, timeout or connection loss after commit may have been sent does
+not prove rollback. Preserve confirmed saves through later deadline, cleanup or
+presentation failures. Earlier commits or an uncertain write rule out an overall
+"nothing saved" result. Retry policy belongs to the operation contract; never hide
+retries of writes with uncertain completion.
+
+Storage execution limits cover acquisition, locks, statements and commit. Bound
+cleanup so abandoned operations cannot indefinitely retain a scarce connection.
 
 ## Port contracts
 

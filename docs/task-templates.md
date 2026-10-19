@@ -21,6 +21,20 @@ discovery. Replace vague quality goals with concrete requirements.
 
 ## Design
 
+For a requirements discussion before planning, use:
+
+```text
+Discussion only; no implementation plan, code or external edits yet.
+Read: current main, the ticket/epic, accepted decisions and retained requirements.
+First: summarize the outcome, settled constraints and additional assumptions.
+Discuss: unresolved behavior, scope and tradeoffs, one focused question at a time.
+Recommend: explain meaningful alternatives; resolve routine implementation details yourself.
+Finish: summarize decisions, changed guarantees and acceptance checks for review.
+Specification: use the existing ticket; do not create a duplicate design document.
+```
+
+For a focused boundary or contract discussion, use:
+
 ```text
 Design only; implement nothing.
 Question: <the boundary or contract to decide>
