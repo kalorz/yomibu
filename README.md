@@ -41,22 +41,78 @@ docker compose down
 
 `docker compose down` preserves the named data volume.
 
-## List collection IDs
+## Database configuration
 
-`yomibu list-collection-ids --learner-id <UUID>` lists the learner's collection UUIDs.
 Set `YOMIBU_DATABASE_URL` to a PostgreSQL connection URL. The database must
 already have the [retained schema](docs/plan/schema.postgresql.sql), which requires
-PostgreSQL 18+ and pgvector. The connection's role needs read access to
-`learner_progress_sources`, and its search path must include the schema containing
-that table. The command does not install or migrate the schema.
+PostgreSQL 18+ and pgvector. The commands below do not install or migrate the schema.
 Surrounding whitespace in the URL is ignored. SQLx's PostgreSQL defaults apply
 to connection settings omitted from the URL, including `PG*` environment variables
 and `.pgpass` credentials; `YOMIBU_DATABASE_URL` itself is always required.
 
+For the local Compose database:
+
 ```sh
 export YOMIBU_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu'
-./target/debug/yomibu list-collection-ids --learner-id 00000000-0000-0000-0000-000000000001
 ```
+
+For both commands, startup and the requested storage operation each have a five-second
+limit; connection acquisition and server statements are also limited to five seconds.
+Pool shutdown and runtime shutdown each wait at most one second. These are cooperative
+I/O bounds, not hard real-time limits; see the
+[storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs).
+SQLx can retry refused connections within the startup bound.
+
+## Create a learner
+
+`yomibu create-learner --name <NAME>` creates one learner and prints its assigned
+UUID followed by a newline. It uses the
+[database configuration and limits](#database-configuration) above. The database
+role needs `INSERT` on `learners` and `SELECT` on its `id` column for the returned UUID.
+
+Create a learner and keep its UUID in a shell variable for the collection lookup:
+
+```sh
+learner_id=$(./target/debug/yomibu create-learner --name 'Alice') &&
+  printf '%s\n' "$learner_id"
+```
+
+For JSON output instead, run `./target/debug/yomibu create-learner --name 'Alice' --json`.
+It prints `{"id":"<assigned UUID>"}` followed by a newline.
+
+Surrounding Unicode whitespace is trimmed; a blank name is rejected before
+database configuration or connection. Names are not unique: running the command
+again creates another learner with a different UUID. It creates no collections
+or learner progress sources. `yomibu create-learner --help` needs no database
+configuration.
+
+The write is never automatically retried. PostgreSQL syntax/access and
+integrity-constraint rejections report that no learner was created. Other failures
+after dispatch, including timeouts and connection failures, conservatively report
+uncertain completion instead of claiming rollback. Once creation is confirmed,
+any subsequent deadline, cleanup, or output failure retains that fact and includes
+the assigned UUID in stderr.
+These failures exit unsuccessfully. No UUID is printed to stdout before creation
+and pool shutdown succeed; an output failure can leave partial or complete output
+bytes already written. Repeating creation after a failure may create a duplicate.
+In both formats, diagnostics remain plain text on stderr and omit credentials
+and raw provider messages.
+
+## List collection IDs
+
+`yomibu list-collection-ids --learner-id <UUID>` lists the learner's collection UUIDs.
+It uses the [database configuration and limits](#database-configuration) above.
+The connection's role needs read access to `learner_progress_sources`, and its search
+path must include the schema containing that table.
+
+After successful creation above, use the saved learner UUID:
+
+```sh
+./target/debug/yomibu list-collection-ids --learner-id "$learner_id"
+```
+
+On the freshly initialized database, this succeeds with no output: creating a learner
+does not add learner progress sources.
 
 Each collection is listed once, even when the learner has several progress sources
 for it or those sources have no learner progress yet.
@@ -68,45 +124,8 @@ and storage failures print an error to stderr and exit unsuccessfully. Connectio
 and raw provider errors are not printed.
 `yomibu --help` and `yomibu list-collection-ids --help` need no database configuration.
 
-Startup and lookup each have a five-second limit; connection acquisition and
-server statements are also limited to five seconds. Pool shutdown and runtime
-shutdown each wait at most one second. These are cooperative I/O bounds, not
-hard real-time limits; see the [storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs).
-SQLx can retry refused connections within the startup bound. Output is written
-only after lookup and pool shutdown succeed; a pool shutdown timeout fails the
-command without printing IDs. Output write failures also exit unsuccessfully.
-
-## Create a learner
-
-`yomibu create-learner --name <NAME>` creates one learner and prints its assigned
-UUID followed by a newline. It uses the same `YOMIBU_DATABASE_URL` configuration
-and retained schema described above. The database role needs `INSERT` on
-`learners` and `SELECT` on its `id` column for the returned UUID.
-Add `--json` to print `{"id":"<assigned UUID>"}` followed by a newline.
-
-```sh
-./target/debug/yomibu create-learner --name 'Alice'
-./target/debug/yomibu create-learner --name 'Alice' --json
-```
-
-Surrounding Unicode whitespace is trimmed; a blank name is rejected before
-database configuration or connection. Names are not unique: running the command
-again creates another learner with a different UUID. It creates no collections
-or learner progress sources. `yomibu create-learner --help` needs no database
-configuration.
-
-Startup and creation each have a five-second limit, with the same acquisition,
-server statement, and shutdown bounds as collection lookup. The write is never
-automatically retried. PostgreSQL syntax/access and integrity-constraint rejections
-report that no learner was created. Other failures after dispatch, including
-timeouts and connection failures, conservatively report uncertain completion
-instead of claiming rollback. Once creation is confirmed, any subsequent deadline,
-cleanup, or output failure retains that fact and includes the assigned UUID in stderr.
-These failures exit unsuccessfully. No UUID is printed to stdout before creation
-and pool shutdown succeed; an output failure can leave partial or complete output
-bytes already written. Repeating creation after a failure may create a duplicate.
-In both formats, diagnostics remain plain text on stderr and omit credentials
-and raw provider messages.
+Output is written only after lookup and pool shutdown succeed; a pool shutdown timeout
+fails the command without printing IDs. Output write failures also exit unsuccessfully.
 
 ## Developing
 
@@ -144,7 +163,7 @@ YOMIBU_TEST_DATABASE_URL='postgres://yomibu:yomibu-dev@127.0.0.1:55432/yomibu_te
 ```
 
 Each test applies the complete retained schema in an isolated schema and removes
-its schema on success. The adapter test covers database semantics; the CLI test
+its schema on success. Adapter tests cover database semantics; the CLI test
 checks the real command's output and exit behavior. Failed runs can leave test
 schemas behind; use only a disposable database. Missing prerequisites fail the
 explicit test run rather than substituting another backend.
@@ -157,10 +176,12 @@ deadline handling, and pool configuration responsibilities.
 ### Architecture checks
 
 Use Python 3 and the [repository Rust toolchain](rust-toolchain.toml), which includes
-`rust-src` for semantic analysis. The CI installation also uses Node.js/npm to install
-ast-grep. Install the pinned
+`rust-src` for semantic analysis, plus Node.js/npm to install ast-grep. Install the pinned
 [cargo-bylaw](https://github.com/danielgerlag/cargo-bylaw) and ast-grep tools using the
-version variables and installation steps in [CI](.github/workflows/ci.yml).
+version variables and `cargo install` / `npm install` commands in
+[CI](.github/workflows/ci.yml). For a local Bylaw installation, omit `--root` to use
+Cargo's default installation directory. For ast-grep, use a writable local `--prefix`
+and add its `node_modules/.bin` to your shell's `PATH`.
 Bylaw's separate executable keeps its rust-analyzer dependencies out of Yomibu's
 dependency graph.
 
