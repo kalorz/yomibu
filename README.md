@@ -211,25 +211,25 @@ workspace suite does not isolate this test's RSS. RSS includes SQLx, fixtures,
 setup and the local relay; elapsed measurements exclude prepopulation.
 
 On Linux 6.18 x86_64, Rust 1.98.1 debug builds and the CI PostgreSQL 18 image,
-the 2026-10-19 ownership-correction verification produced the following results
+the 2026-10-19 independent-review follow-up verification produced the following results
 from 28 separate test processes. These synthetic
 measurements verify bounds and scaling; they are not an import latency SLA or
 measurements of live WaniKani payloads.
 
 | Scenario | Records per import | Elapsed ms, pool 1 / 2 | Peak RSS KiB, pool 1 / 2 | SQL commands |
 | --- | ---: | ---: | ---: | ---: |
-| Cold | 10,000 | 2,647 / 2,600 | 11,952 / 12,496 | 445 |
-| Reuse | 10,000 | 1,237 / 1,336 | 11,460 / 12,340 | 385 |
-| Stale replay | 10,000 | 1,296 / 1,289 | 11,800 / 12,600 | 385 |
-| Identical replay | 10,000 | 2,396 / 2,388 | 11,992 / 12,468 | 445 |
-| Overlap, same source | 10,000 × 2 | 5,152 / 5,391 | 13,000 / 13,516 | 890 |
-| Overlap, accounts | 10,000 × 2 | 5,272 / 4,661 | 13,400 / 13,660 | 890 |
-| Near byte limit | 1 | 93 / 112 | 33,384 / 33,620 | 18 |
-| Byte-based chunks | 8 | 405 / 398 | 20,504 / 19,708 | 32 |
+| Cold | 10,000 | 2,555 / 2,663 | 11,980 / 12,700 | 425 |
+| Reuse | 10,000 | 1,318 / 1,226 | 11,340 / 11,952 | 365 |
+| Stale replay | 10,000 | 1,271 / 1,141 | 11,964 / 12,488 | 365 |
+| Identical replay | 10,000 | 2,331 / 2,275 | 12,000 / 12,632 | 425 |
+| Overlap, same source | 10,000 × 2 | 5,329 / 4,983 | 13,232 / 13,716 | 850 |
+| Overlap, accounts | 10,000 × 2 | 4,986 / 4,398 | 13,236 / 13,864 | 850 |
+| Near byte limit | 1 | 96 / 88 | 33,348 / 33,508 | 17 |
+| Byte-based chunks | 8 | 402 / 404 | 20,696 / 19,676 | 31 |
 
-At fixed group size, cold-run RSS increased from 11,644 to 11,952 KiB (pool 1)
-and 12,124 to 12,496 KiB (pool 2) when the total rose from 1,000 to 10,000;
-commands grew from 49 to 445. For the 10,000-record cold run, maximum raw group
+At fixed group size, cold-run RSS increased from 11,620 to 11,980 KiB (pool 1)
+and 12,280 to 12,700 KiB (pool 2) when the total rose from 1,000 to 10,000;
+commands grew from 47 to 425. For the 10,000-record cold run, maximum raw group
 size was 947,996 bytes and maximum Bind frame was 393,617 bytes. Its bounded
 2,000-payload sample ranged from 368 to 35,187 UTF-8 bytes (p50 393, p95 2,542),
 with synthetic multibyte text, arrays and long fields across all four subject types.

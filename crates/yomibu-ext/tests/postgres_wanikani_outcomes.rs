@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 use support::{connect, with_postgres};
-use yomibu_core::ports::infrastructure::collection_import::{ImportGroupWriter, ImportWriteError};
+use yomibu_core::ports::infrastructure::collection_import::{ImportWriteError, SaveGroupWriter};
 use yomibu_ext::PostgresLearnerStorage;
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(8)
@@ -44,7 +44,7 @@ async fn blocked(pool: &PgPool, pid: i32) {
         if waiting {
             break;
         }
-        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 
@@ -157,15 +157,32 @@ async fn actual_deadlock_rolls_back_without_retry() {
         storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 20)]), deadline()).await.unwrap();
         sqlx::raw_sql("CREATE SEQUENCE attempts; CREATE FUNCTION count_attempt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM nextval('attempts'); RETURN NEW; END $$; CREATE TRIGGER count_attempt BEFORE INSERT ON learner_progress_sources FOR EACH ROW EXECUTE FUNCTION count_attempt();").execute(control).await.unwrap();
         sqlx::query("SET deadlock_timeout='50ms'").execute(pool).await.unwrap();
+        // Only the import may detect the cycle within the operation's deadline.
+        sqlx::query("SET deadlock_timeout='10s'").execute(control).await.unwrap();
         let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(pool).await.unwrap();
+        let control_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(control).await.unwrap();
         let observer = connect((*pool.connect_options()).clone()).await;
+        let gate: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&observer).await.unwrap();
+        sqlx::query("SELECT pg_advisory_lock($1::bigint)").bind(i64::from(gate)).execute(&observer).await.unwrap();
+        // A test-only gate pauses the import after it owns the source row, but
+        // before it starts waiting for the subject. The PID isolates the gate.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE FUNCTION gate_subject() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_advisory_xact_lock({gate}::bigint); RETURN NEW; END $$; CREATE TRIGGER gate_subject BEFORE INSERT ON subjects FOR EACH ROW EXECUTE FUNCTION gate_subject();"))).execute(control).await.unwrap();
         let mut lock = control.begin().await.unwrap();
         sqlx::query("SELECT id FROM subjects FOR UPDATE").execute(&mut *lock).await.unwrap();
         let input = group(1, "a", 30, vec![subject(1, 30)], vec![progress(1, 30, 40)]);
         let conflict = async {
             blocked(&observer, pid).await;
-            sqlx::query("UPDATE learner_progress_sources SET source_data=source_data").execute(&mut *lock).await.unwrap();
-            lock.commit().await.unwrap();
+            let update = async {
+                sqlx::query("UPDATE learner_progress_sources SET source_data=source_data").execute(&mut *lock).await.unwrap();
+                lock.commit().await.unwrap();
+            };
+            let release = async {
+                blocked(&observer, control_pid).await;
+                // The control is already waiting on the import. Releasing the
+                // gate starts the import's fresh subject wait with the cycle set.
+                assert!(sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock($1::bigint)").bind(i64::from(gate)).fetch_one(&observer).await.unwrap());
+            };
+            tokio::join!(update, release);
         };
         let (result, ()) = tokio::join!(storage.save_group(&input, deadline()), conflict);
         let error = result.unwrap_err();
@@ -216,7 +233,7 @@ async fn lost_commit_response_and_lost_request_are_both_unknown() {
             let durable: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT FROM learner_progress_sources WHERE external_account_id=$1)",
             )
-            .bind(&input.progress_source().external_account_id)
+            .bind(&input.learner_progress_source().external_account_id)
             .fetch_one(control)
             .await
             .unwrap();
@@ -339,6 +356,64 @@ async fn completion_unknown_and_late_confirmation_use_the_shared_lifecycle() {
             recover(&relayed).await;
             relayed.close().await;
         }
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn acknowledged_rollbacks_reuse_the_connection() {
+    with_postgres(async |pool, control| {
+        seed(control).await;
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        // A contract rejection after writes must roll back, preserving the session.
+        let input = group(1, "a", 10, vec![subject(1, 10)], vec![progress(2, 10, 20)]);
+        assert!(matches!(
+            storage.save_group(&input, deadline()).await,
+            Err(ImportWriteError::NotSaved(_))
+        ));
+        empty(control).await;
+        assert_eq!(
+            sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            pid
+        );
+        let receipt = storage
+            .save_group(&group(1, "a", 10, vec![], vec![]), deadline())
+            .await
+            .unwrap();
+        assert!(matches!(
+            storage
+                .record_completion(
+                    receipt.collection_id,
+                    yomibu_core::domain::LearnerProgressSourceId(uuid::Uuid::nil()),
+                    fixtures::at(20),
+                    deadline()
+                )
+                .await,
+            Err(ImportWriteError::NotSaved(_))
+        ));
+        assert_eq!(
+            sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            pid
+        );
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT last_import_completed_at IS NULL FROM learner_progress_sources"
+            )
+            .fetch_one(control)
+            .await
+            .unwrap()
+        );
     })
     .await;
 }

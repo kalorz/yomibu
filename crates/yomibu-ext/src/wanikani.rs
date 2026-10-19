@@ -3,7 +3,7 @@ use std::fmt;
 use yomibu_core::{
     domain::{LearnerId, MaterialKind},
     ports::infrastructure::collection_import::{
-        PreparedProgress, PreparedSaveGroup, PreparedSubject, ProgressSourceIdentity,
+        LearnerProgressSourceIdentity, PreparedProgress, PreparedSaveGroup, PreparedSubject,
         SharedCollection, SourceRecord,
     },
 };
@@ -86,7 +86,7 @@ pub fn prepare_group(
     }
     PreparedSaveGroup::new(
         collection(),
-        ProgressSourceIdentity {
+        LearnerProgressSourceIdentity {
             learner_id,
             external_account_id,
         },
@@ -139,10 +139,13 @@ mod tests {
         for id in ["0", "-1", "lesson:alpha/7", "18446744073709551616"] {
             assert!(prepare(vec![subject(id, None)]).is_err());
         }
-        let input = prepare(vec![subject("001", None)]).unwrap();
-        assert_eq!(input.subjects()[0].external_id, "1");
-        assert_eq!(input.collection(), &collection());
-        assert!(prepare(vec![subject("001", None), subject("1", None)]).is_err());
+        // Equivalent positive integer spellings normalize before identity checks.
+        for id in ["001", "+1", "+001"] {
+            let input = prepare(vec![subject(id, None)]).unwrap();
+            assert_eq!(input.subjects()[0].external_id, "1");
+            assert_eq!(input.collection(), &collection());
+            assert!(prepare(vec![subject(id, None), subject("1", None)]).is_err());
+        }
     }
     #[test]
     fn account_progress_and_payload_shape_are_validated_here() {

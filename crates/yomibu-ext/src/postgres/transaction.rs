@@ -55,11 +55,13 @@ pub(super) async fn limits(
     Ok(())
 }
 
+// The boolean separately reports a confirmed clean transaction boundary. A
+// NotSaved result alone cannot establish that an interrupted connection is reusable.
 pub(super) async fn finish<T>(
     mut tx: Transaction<'_, Postgres>,
     result: Result<T, ImportWriteError>,
     deadline: Instant,
-) -> Result<T, ImportWriteError> {
+) -> (Result<T, ImportWriteError>, bool) {
     let result = match result {
         Ok(value) => limits(&mut tx, deadline)
             .await
@@ -71,15 +73,19 @@ pub(super) async fn finish<T>(
         Ok(value) => value,
         Err(error) => {
             // Before COMMIT dispatch no durable write is possible, even if the
-            // rollback acknowledgement cannot be obtained. The lease is closed.
-            let _ = tokio::time::timeout(Duration::from_millis(250), tx.rollback()).await;
-            return Err(error);
+            // rollback acknowledgement cannot be obtained. Only an acknowledged
+            // rollback allows reuse; timeout/error leaves the lease marked for close.
+            let rolled_back = matches!(
+                tokio::time::timeout(Duration::from_millis(250), tx.rollback()).await,
+                Ok(Ok(()))
+            );
+            return (Err(error), rolled_back);
         }
     };
     // Polling this future may dispatch COMMIT. No later rollback can establish
     // non-commit after a transport failure, timeout or unknown completion error.
-    match tokio::time::timeout_at(deadline.into(), tx.commit()).await {
-        Ok(Ok(())) => Ok(value),
+    let result = match tokio::time::timeout_at(deadline.into(), tx.commit()).await {
+        Ok(Ok(())) => return (Ok(value), true),
         Ok(Err(error)) => {
             let rejected = error
                 .as_database_error()
@@ -95,7 +101,8 @@ pub(super) async fn finish<T>(
         Err(_) => Err(ImportWriteError::CompletionUnknown(
             "storage deadline exceeded during commit".into(),
         )),
-    }
+    };
+    (result, false)
 }
 
 fn commit_rejected(severity: PgSeverity, code: &str) -> bool {

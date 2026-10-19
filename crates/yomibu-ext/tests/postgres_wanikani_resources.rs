@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use yomibu_core::ports::infrastructure::collection_import::{
-    ImportGroupWriter, MAX_GROUP_INPUT_BYTES, PreparedSaveGroup, SourceRecord, SubjectQuery,
+    MAX_REQUEST_INPUT_BYTES, PreparedSaveGroup, SaveGroupWriter, SourceRecord, SubjectQuery,
 };
 use yomibu_ext::PostgresLearnerStorage;
 const GROUP_ROWS: usize = 500;
@@ -71,7 +71,7 @@ fn raw_bytes(input: &PreparedSaveGroup) -> usize {
     input.collection().provider.len()
         + input.collection().key.len()
         + input.collection().name.len()
-        + input.progress_source().external_account_id.len()
+        + input.learner_progress_source().external_account_id.len()
         + input.account().payload().get().len()
         + input
             .subjects()
@@ -250,8 +250,8 @@ async fn storage_resource_scenarios() {
                 let input = generated(1, 1, 1, "a", 10, 20, true);
                 let mut p = input.progress()[0].clone();
                 let fixed = raw_bytes(&input) - p.progress_stage.as_ref().map_or(0, String::len);
-                p.progress_stage = Some("x".repeat(MAX_GROUP_INPUT_BYTES - 4096 - fixed));
-                let input = PreparedSaveGroup::new(input.collection().clone(), input.progress_source().clone(), input.account().clone(), input.subjects().to_vec(), vec![p]).unwrap();
+                p.progress_stage = Some("x".repeat(MAX_REQUEST_INPUT_BYTES - 4096 - fixed));
+                let input = PreparedSaveGroup::new(input.collection().clone(), input.learner_progress_source().clone(), input.account().clone(), input.subjects().to_vec(), vec![p]).unwrap();
                 let mut run = Run::default();
                 run.observe(&input);
                 storage.save_group(&input, deadline()).await.unwrap();
@@ -273,10 +273,16 @@ async fn storage_resource_scenarios() {
         }
         if scenario == "byte-chunks" {
             assert!(after[4] <= 1024 * 1024);
-            assert!(measured_commands >= 32);
+            // Verify full payload persistence plus the measured frame bound,
+            // rather than counting unrelated setup/timeout SQL statements.
+            let complete: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM subjects
+                 WHERE source_data->>'long_synthetic_field'=repeat('x',900*1024)",
+            ).fetch_one(control).await.unwrap();
+            assert_eq!(complete, 8);
         }
         for run in &runs {
-            assert!(run.max_group_bytes <= MAX_GROUP_INPUT_BYTES);
+            assert!(run.max_group_bytes <= MAX_REQUEST_INPUT_BYTES);
             assert!(run.max_subjects <= GROUP_ROWS);
             assert!(run.max_progress <= GROUP_ROWS);
         }

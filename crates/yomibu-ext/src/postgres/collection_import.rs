@@ -1,9 +1,28 @@
-use super::{PostgresLearnerStorage, WriteConnection, failure_reason};
-use std::{future::Future, pin::Pin, time::Instant};
-use yomibu_core::ports::infrastructure::{
-    StorageError,
-    collection_import::{SharedCollection, SubjectQuery, validate_subject_lookup},
+use super::{
+    PostgresLearnerStorage, WriteConnection, failure_reason,
+    transaction::{expired, finish, limits, until},
 };
+use chrono::{DateTime, Utc};
+use sqlx::{Connection, Postgres, QueryBuilder, Transaction};
+use std::{collections::HashMap, future::Future, pin::Pin, time::Instant};
+use yomibu_core::{
+    domain::{CollectionId, LearnerProgressSourceId, MaterialKind},
+    ports::infrastructure::{
+        StorageError,
+        collection_import::{
+            CompletionReceipt, ImportWriteError, PreparedProgress, PreparedSaveGroup,
+            PreparedSubject, SaveGroupWriter, SaveReceipt, SharedCollection, SourceRecord,
+            SubjectQuery, validate_subject_lookup,
+        },
+    },
+};
+
+const CHUNK_ROWS: usize = 250;
+const CHUNK_BYTES: usize = 1024 * 1024;
+const MAX_ENCODED_BYTES: usize = 8 * 1024 * 1024;
+// Conservative per-row allowance for typed IDs, timestamps, lengths and envelope
+// keys. Payloads stay borrowed until SQLx encodes the current bounded chunk.
+const ROW_OVERHEAD: usize = 512;
 
 fn lookup_expired(deadline: Instant) -> Result<(), StorageError> {
     if Instant::now() >= deadline {
@@ -66,25 +85,6 @@ impl SubjectQuery for PostgresLearnerStorage {
     }
 }
 
-use super::transaction::{expired, finish, limits, until};
-use chrono::{DateTime, Utc};
-use sqlx::{Acquire, Postgres, QueryBuilder, Transaction};
-use std::collections::HashMap;
-use yomibu_core::{
-    domain::{CollectionId, LearnerProgressSourceId, MaterialKind},
-    ports::infrastructure::collection_import::{
-        CompletionReceipt, ImportGroupWriter, ImportWriteError, PreparedProgress,
-        PreparedSaveGroup, PreparedSubject, SaveReceipt, SourceRecord,
-    },
-};
-
-const CHUNK_ROWS: usize = 250;
-const CHUNK_BYTES: usize = 1024 * 1024;
-const MAX_ENCODED_BYTES: usize = 8 * 1024 * 1024;
-// Conservative per-row allowance for typed IDs, timestamps, lengths and envelope
-// keys. Payloads stay borrowed until SQLx encodes the current bounded chunk.
-const ROW_OVERHEAD: usize = 512;
-
 fn invalid(reason: &str) -> ImportWriteError {
     ImportWriteError::NotSaved(reason.into())
 }
@@ -126,7 +126,7 @@ fn preflight(group: &PreparedSaveGroup) -> Result<(), ImportWriteError> {
     timestamp(group.account().updated_at())?;
     check_size(encoded_size(
         group.account(),
-        group.progress_source().external_account_id.len(),
+        group.learner_progress_source().external_account_id.len(),
     ))?;
     // Resolution uses one text array containing the supplied/referenced IDs.
     // Bound its encoding too, conservatively counting IDs repeated across lists.
@@ -177,7 +177,7 @@ fn chunk_len<T>(rows: &[T], size: impl Fn(&T) -> usize) -> usize {
     count
 }
 
-impl ImportGroupWriter for PostgresLearnerStorage {
+impl SaveGroupWriter for PostgresLearnerStorage {
     fn save_group<'a>(
         &'a self,
         group: &'a PreparedSaveGroup,
@@ -191,10 +191,16 @@ impl ImportGroupWriter for PostgresLearnerStorage {
                 connection,
                 confirmed: false,
             };
-            let mut tx = until(deadline, lease.connection.begin()).await?;
+            let mut tx = until(
+                deadline,
+                lease
+                    .connection
+                    .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED"),
+            )
+            .await?;
             let result = persist(&mut tx, group, deadline).await;
-            let result = finish(tx, result, deadline).await;
-            lease.confirmed = result.is_ok();
+            let (result, confirmed) = finish(tx, result, deadline).await;
+            lease.confirmed = confirmed;
             result
         })
     }
@@ -213,10 +219,16 @@ impl ImportGroupWriter for PostgresLearnerStorage {
                 connection,
                 confirmed: false,
             };
-            let mut tx = until(deadline, lease.connection.begin()).await?;
+            let mut tx = until(
+                deadline,
+                lease
+                    .connection
+                    .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED"),
+            )
+            .await?;
             let result = complete(&mut tx, collection, source, completed_at, deadline).await;
-            let result = finish(tx, result, deadline).await;
-            lease.confirmed = result.is_ok();
+            let (result, confirmed) = finish(tx, result, deadline).await;
+            lease.confirmed = confirmed;
             result
         })
     }
@@ -227,13 +239,19 @@ async fn persist(
     group: &PreparedSaveGroup,
     deadline: Instant,
 ) -> Result<SaveReceipt, ImportWriteError> {
+    limits(tx, deadline).await?;
     until(
         deadline,
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED").execute(&mut **tx),
+        sqlx::query(
+            "INSERT INTO collections(provider,key,name) VALUES ($1,$2,$3)
+             ON CONFLICT(provider,key) WHERE owner_learner_id IS NULL DO NOTHING",
+        )
+        .bind(&group.collection().provider)
+        .bind(&group.collection().key)
+        .bind(&group.collection().name)
+        .execute(&mut **tx),
     )
     .await?;
-    limits(tx, deadline).await?;
-    until(deadline,sqlx::query("INSERT INTO collections(provider,key,name) VALUES ($1,$2,$3) ON CONFLICT(provider,key) WHERE owner_learner_id IS NULL DO NOTHING").bind(&group.collection().provider).bind(&group.collection().key).bind(&group.collection().name).execute(&mut **tx)).await?;
     // Separate READ COMMITTED statement sees a concurrent conflict winner.
     limits(tx, deadline).await?;
     let collection: uuid::Uuid = until(
@@ -247,13 +265,44 @@ async fn persist(
     )
     .await?;
     limits(tx, deadline).await?;
-    until(deadline,sqlx::query("INSERT INTO learner_progress_sources AS saved(learner_id,collection_id,external_account_id,source_data)
-        VALUES ($1,$2,$3,jsonb_build_object('source_updated_at',$4::timestamptz,'payload',$5::jsonb))
-        ON CONFLICT(learner_id,collection_id,external_account_id) DO UPDATE SET source_data=excluded.source_data
-        WHERE (excluded.source_data->>'source_updated_at')::timestamptz > COALESCE(saved.source_data->>'source_updated_at','')::timestamptz")
-        .bind(group.progress_source().learner_id.0).bind(collection).bind(&group.progress_source().external_account_id).bind(group.account().updated_at()).bind(group.account().payload().get()).execute(&mut **tx)).await?;
+    until(
+        deadline,
+        sqlx::query(
+            "INSERT INTO learner_progress_sources AS saved
+                (learner_id,collection_id,external_account_id,source_data)
+             VALUES ($1,$2,$3,jsonb_build_object('source_updated_at',$4::timestamptz,'payload',$5::jsonb))
+             ON CONFLICT(learner_id,collection_id,external_account_id)
+             DO UPDATE SET source_data=excluded.source_data
+             WHERE (excluded.source_data->>'source_updated_at')::timestamptz
+                 > COALESCE(saved.source_data->>'source_updated_at','')::timestamptz",
+        )
+        .bind(group.learner_progress_source().learner_id.0)
+        .bind(collection)
+        .bind(&group.learner_progress_source().external_account_id)
+        .bind(group.account().updated_at())
+        .bind(group.account().payload().get())
+        .execute(&mut **tx),
+    ).await?;
     limits(tx, deadline).await?;
-    let source:uuid::Uuid=until(deadline,sqlx::query_scalar("SELECT id FROM learner_progress_sources WHERE learner_id=$1 AND collection_id=$2 AND external_account_id=$3").bind(group.progress_source().learner_id.0).bind(collection).bind(&group.progress_source().external_account_id).fetch_one(&mut **tx)).await?;
+    let source: uuid::Uuid = until(
+        deadline,
+        sqlx::query_scalar(
+            "SELECT id FROM learner_progress_sources
+             WHERE learner_id=$1 AND collection_id=$2 AND external_account_id=$3",
+        )
+        .bind(group.learner_progress_source().learner_id.0)
+        .bind(collection)
+        .bind(&group.learner_progress_source().external_account_id)
+        .fetch_one(&mut **tx),
+    )
+    .await?;
+    let receipt = SaveReceipt {
+        collection_id: CollectionId(collection),
+        learner_progress_source_id: LearnerProgressSourceId(source),
+    };
+    if group.subjects().is_empty() && group.progress().is_empty() {
+        return Ok(receipt);
+    }
 
     let mut subjects: Vec<_> = group.subjects().iter().collect();
     subjects.sort_unstable_by(|a, b| a.external_id.cmp(&b.external_id));
@@ -277,13 +326,16 @@ async fn persist(
                 .push_bind(s.source.payload().get())
                 .push_unseparated("::jsonb");
         });
-        sql.push(" ON CONFLICT(collection_id,external_id) DO UPDATE SET kind=excluded.kind,source_updated_at=excluded.source_updated_at,source_data=excluded.source_data WHERE saved.source_updated_at IS NULL OR excluded.source_updated_at>saved.source_updated_at RETURNING old.id IS NOT NULL AND old.source_updated_at IS NULL");
+        // An unavailable stored update time cannot establish newer source data.
+        // Keep that subject unchanged and still resolve it for progress below.
+        sql.push(
+            " ON CONFLICT(collection_id,external_id) DO UPDATE
+              SET kind=excluded.kind,source_updated_at=excluded.source_updated_at,
+                  source_data=excluded.source_data
+              WHERE excluded.source_updated_at>saved.source_updated_at",
+        );
         limits(tx, deadline).await?;
-        let invalid_old: Vec<bool> =
-            until(deadline, sql.build_query_scalar().fetch_all(&mut **tx)).await?;
-        if invalid_old.contains(&true) {
-            return Err(invalid("stored subject freshness is missing"));
-        }
+        until(deadline, sql.build().execute(&mut **tx)).await?;
     }
     // Both buffers are bounded by the constructor's two record counts. No payloads
     // are fetched; concurrent deletion remains guarded by the composite FKs.
@@ -371,10 +423,7 @@ async fn persist(
         limits(tx, deadline).await?;
         until(deadline, sql.build().execute(&mut **tx)).await?;
     }
-    Ok(SaveReceipt {
-        collection_id: CollectionId(collection),
-        learner_progress_source_id: LearnerProgressSourceId(source),
-    })
+    Ok(receipt)
 }
 
 async fn complete(
@@ -385,8 +434,25 @@ async fn complete(
     deadline: Instant,
 ) -> Result<CompletionReceipt, ImportWriteError> {
     limits(tx, deadline).await?;
-    let stored=until(deadline,sqlx::query_scalar("UPDATE learner_progress_sources AS s SET last_import_completed_at=GREATEST(s.last_import_completed_at,$3) FROM collections c WHERE s.id=$1 AND s.collection_id=$2 AND c.id=s.collection_id AND c.owner_learner_id IS NULL AND s.external_account_id IS NOT NULL RETURNING s.last_import_completed_at").bind(source.0).bind(collection.0).bind(completed_at).fetch_optional(&mut **tx)).await?
-        .ok_or_else(|| invalid("external completion source does not exist in supplied shared collection"))?;
+    let stored = until(
+        deadline,
+        sqlx::query_scalar(
+            "UPDATE learner_progress_sources AS s
+             SET last_import_completed_at=GREATEST(s.last_import_completed_at,$3)
+             FROM collections c
+             WHERE s.id=$1 AND s.collection_id=$2 AND c.id=s.collection_id
+                 AND c.owner_learner_id IS NULL AND s.external_account_id IS NOT NULL
+             RETURNING s.last_import_completed_at",
+        )
+        .bind(source.0)
+        .bind(collection.0)
+        .bind(completed_at)
+        .fetch_optional(&mut **tx),
+    )
+    .await?
+    .ok_or_else(|| {
+        invalid("external completion source does not exist in supplied shared collection")
+    })?;
     Ok(CompletionReceipt {
         learner_progress_source_id: source,
         last_import_completed_at: stored,

@@ -24,8 +24,9 @@ use yomibu_core::ports::infrastructure::{
 /// replacement; a client timeout does not prove immediate restoration of pool
 /// capacity.
 ///
-/// Writes use the retained schema's UUID default. A successfully completed write
-/// returns its connection to the pool; failed or abandoned writes close it.
+/// Writes use the retained schema's UUID default. Confirmed commits and explicitly
+/// acknowledged rollbacks return their connections to the pool; interrupted or
+/// uncertain transaction cleanup closes the connection.
 /// Syntax/access and integrity-constraint rejections establish `NotCreated`;
 /// other post-dispatch failures are conservatively `CompletionUnknown`.
 pub struct PostgresLearnerStorage {

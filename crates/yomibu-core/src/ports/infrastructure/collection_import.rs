@@ -1,7 +1,18 @@
 //! Finite shared-collection imports for existing learners and external progress sources.
 //! No source protocol, payload interpretation or traversal ownership.
 use super::StorageError;
-use std::{future::Future, pin::Pin, time::Instant};
+use crate::domain::{LearnerId, MaterialKind};
+use chrono::{DateTime, Utc};
+use serde_json::value::RawValue;
+use std::{collections::HashSet, future::Future, pin::Pin, time::Instant};
+
+/// Per-group record limit, independently for subjects and learner progress.
+pub const MAX_GROUP_RECORDS: usize = 1_000;
+/// Maximum combined raw UTF-8 bytes in one lookup or save-group request.
+/// Includes supplied identities, collection name, stages and payloads.
+pub const MAX_REQUEST_INPUT_BYTES: usize = 8 * 1024 * 1024;
+/// Maximum raw JSON byte length of one source payload.
+pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 
 /// Maximum number of supplied IDs in one lookup (before deduplication).
 pub const MAX_SUBJECT_LOOKUP_IDS: usize = 1_000;
@@ -28,17 +39,6 @@ pub trait SubjectQuery {
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, StorageError>> + 'a>>;
 }
-use crate::domain::{LearnerId, MaterialKind};
-use chrono::{DateTime, Utc};
-use serde_json::value::RawValue;
-use std::collections::HashSet;
-
-/// Per-group record limit, independently for subjects and learner progress.
-pub const MAX_GROUP_RECORDS: usize = 1_000;
-/// Combined raw UTF-8 bytes of supplied identities, collection name, stages and payloads.
-pub const MAX_GROUP_INPUT_BYTES: usize = 8 * 1024 * 1024;
-/// Maximum raw JSON byte length of one source payload.
-pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 
 /// Shared collection to create or reuse, identified by opaque provider/key values.
 /// The name is used only on creation; this operation does not refresh collection metadata.
@@ -58,7 +58,7 @@ impl SharedCollection {
 /// The existing learner and opaque external account ID distinguish independent sources.
 /// Manual sources without an external account are outside this import operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProgressSourceIdentity {
+pub struct LearnerProgressSourceIdentity {
     pub learner_id: LearnerId,
     pub external_account_id: String,
 }
@@ -72,7 +72,7 @@ pub fn validate_subject_lookup(
     let size = ids
         .iter()
         .try_fold(collection.input_bytes(), |n, id| n.checked_add(id.len()));
-    if ids.len() > MAX_SUBJECT_LOOKUP_IDS || size.is_none_or(|n| n > MAX_GROUP_INPUT_BYTES) {
+    if ids.len() > MAX_SUBJECT_LOOKUP_IDS || size.is_none_or(|n| n > MAX_REQUEST_INPUT_BYTES) {
         return Err(StorageError("subject lookup exceeds input limits".into()));
     }
     Ok(())
@@ -146,7 +146,7 @@ pub struct PreparedProgress {
 #[derive(Debug, Clone)]
 pub struct PreparedSaveGroup {
     collection: SharedCollection,
-    progress_source: ProgressSourceIdentity,
+    learner_progress_source: LearnerProgressSourceIdentity,
     account: SourceRecord,
     subjects: Vec<PreparedSubject>,
     progress: Vec<PreparedProgress>,
@@ -154,7 +154,7 @@ pub struct PreparedSaveGroup {
 impl PreparedSaveGroup {
     pub fn new(
         collection: SharedCollection,
-        progress_source: ProgressSourceIdentity,
+        learner_progress_source: LearnerProgressSourceIdentity,
         account: SourceRecord,
         subjects: Vec<PreparedSubject>,
         progress: Vec<PreparedProgress>,
@@ -173,7 +173,7 @@ impl PreparedSaveGroup {
         }
         let mut sizes = [
             collection.input_bytes(),
-            progress_source.external_account_id.len(),
+            learner_progress_source.external_account_id.len(),
             account.payload.get().len(),
         ]
         .into_iter()
@@ -192,12 +192,12 @@ impl PreparedSaveGroup {
         let size = sizes
             .try_fold(0usize, |total, size| total.checked_add(size))
             .ok_or(InvalidSaveGroup("save group exceeds byte limit"))?;
-        if size > MAX_GROUP_INPUT_BYTES {
+        if size > MAX_REQUEST_INPUT_BYTES {
             return Err(InvalidSaveGroup("save group exceeds byte limit"));
         }
         Ok(Self {
             collection,
-            progress_source,
+            learner_progress_source,
             account,
             subjects,
             progress,
@@ -206,8 +206,8 @@ impl PreparedSaveGroup {
     pub fn collection(&self) -> &SharedCollection {
         &self.collection
     }
-    pub fn progress_source(&self) -> &ProgressSourceIdentity {
-        &self.progress_source
+    pub fn learner_progress_source(&self) -> &LearnerProgressSourceIdentity {
+        &self.learner_progress_source
     }
     pub fn account(&self) -> &SourceRecord {
         &self.account
@@ -265,19 +265,22 @@ impl std::error::Error for ImportWriteError {}
 /// Strictly newer upstream timestamps replace each record's source fields and
 /// full payload; equal/older payloads do not. Progress observation time advances
 /// independently and monotonically. Newer explicit null dates replace old dates.
-/// Existing identities remain stable. Invalid stored freshness fails safely.
+/// Existing identities remain stable. Subjects with unavailable stored freshness
+/// remain unchanged and may be reused; unknown freshness never permits replacement.
+/// Malformed stored freshness metadata fails safely.
 ///
 /// One absolute deadline covers preparation, acquisition, locks, statements and
 /// commit. No automatic retry. Receipts require confirmed COMMIT, including a
 /// confirmation observed late. A timeout after COMMIT dispatch is unknown, never
 /// inferred rollback. Dropping the future abandons delivery and may abandon an
-/// unknown commit outcome; the caller must account for this. Interrupted leases
-/// are discarded with bounded cleanup. Failures contain no source diagnostics.
+/// unknown commit outcome; the caller must account for this. Leases without a
+/// confirmed clean transaction boundary are discarded with bounded cleanup.
+/// Failures contain no source diagnostics.
 /// Before I/O, the adapter validates encoded-resource bounds and lossless
 /// timestamp representation independently of the request's raw-input limits.
 /// Database-dependent representation checks can reject the transaction atomically
 /// after earlier statements have run.
-pub trait ImportGroupWriter {
+pub trait SaveGroupWriter {
     fn save_group<'a>(
         &'a self,
         group: &'a PreparedSaveGroup,
@@ -334,7 +337,7 @@ mod tests {
     ) -> Result<PreparedSaveGroup, InvalidSaveGroup> {
         PreparedSaveGroup::new(
             collection(),
-            ProgressSourceIdentity {
+            LearnerProgressSourceIdentity {
                 learner_id: LearnerId(uuid::Uuid::from_u128(1)),
                 external_account_id: "account-a".into(),
             },
@@ -384,10 +387,10 @@ mod tests {
                 .is_err()
         );
         assert!(
-            validate_subject_lookup(&collection(), &["x".repeat(MAX_GROUP_INPUT_BYTES)]).is_err()
+            validate_subject_lookup(&collection(), &["x".repeat(MAX_REQUEST_INPUT_BYTES)]).is_err()
         );
         let mut oversized = collection();
-        oversized.key = "x".repeat(MAX_GROUP_INPUT_BYTES);
+        oversized.key = "x".repeat(MAX_REQUEST_INPUT_BYTES);
         assert!(validate_subject_lookup(&oversized, &[]).is_err());
     }
     #[test]
@@ -424,8 +427,8 @@ mod tests {
             + p.subject_external_id.len()
             + source().payload().get().len()
             + p.source.payload().get().len();
-        p.progress_stage = Some("あ".repeat((MAX_GROUP_INPUT_BYTES - fixed) / 3));
-        let remaining = MAX_GROUP_INPUT_BYTES - fixed - p.progress_stage.as_ref().unwrap().len();
+        p.progress_stage = Some("あ".repeat((MAX_REQUEST_INPUT_BYTES - fixed) / 3));
+        let remaining = MAX_REQUEST_INPUT_BYTES - fixed - p.progress_stage.as_ref().unwrap().len();
         p.progress_stage
             .as_mut()
             .unwrap()
@@ -439,7 +442,7 @@ mod tests {
     fn group_limits_include_every_variable_identity_field() {
         for field in 0..6 {
             let mut collection = collection();
-            let mut identity = ProgressSourceIdentity {
+            let mut identity = LearnerProgressSourceIdentity {
                 learner_id: LearnerId(uuid::Uuid::nil()),
                 external_account_id: "a".into(),
             };
@@ -449,7 +452,7 @@ mod tests {
                 source: source(),
             };
             let mut progress = progress(1);
-            let large = "x".repeat(MAX_GROUP_INPUT_BYTES);
+            let large = "x".repeat(MAX_REQUEST_INPUT_BYTES);
             match field {
                 0 => collection.provider = large,
                 1 => collection.key = large,

@@ -21,16 +21,17 @@ plan-approval round. The original task sequence and execution results below are 
 
 | Superseded choice | Corrected responsibility |
 | --- | --- |
-| Core `wanikani` module and provider-named ports | Core `collection_import::{SubjectQuery, ImportGroupWriter}` express this finite shared-collection/external-source storage operation. |
+| Core `wanikani` module and provider-named ports | Core `collection_import::{SubjectQuery, SaveGroupWriter}` express this finite shared-collection/external-source storage operation. |
 | Implicit fixed collection in lookup/save SQL | Caller supplies `SharedCollection { provider, key, name }`; provider/key identify the shared collection, name is creation metadata. |
-| Implicit account/learner scope | Group receives `ProgressSourceIdentity { learner_id, external_account_id }`; completion receives both collection and progress-source UUIDs. |
+| Implicit account/learner scope | Group receives `LearnerProgressSourceIdentity { learner_id, external_account_id }`; completion receives both collection and progress-source UUIDs. |
 | Positive numeric subject IDs, grammar rejection and JSON-object restriction in Core | Shared IDs are opaque strings, both material kinds are valid, and JSON is opaque. `yomibu-ext::wanikani` owns numeric ID normalization, supported type mapping, provider kind/payload-shape/account validation and its collection identity. |
 | Numeric ID count implicitly bounded bytes | Core counts all variable identity/name bytes in group and lookup limits; PostgreSQL separately bounds encoded arrays and writes before acquisition. |
 | Completion restricted by a provider literal | Completion updates only the explicitly supplied source in its supplied shared collection. Manual sources/private collections remain outside this external import operation. |
+| Rejecting replacement attempts against NULL subject freshness | The user-approved clarification in #109 preserves the existing subject unchanged and continues, including when it is resupplied. Malformed account/progress freshness metadata still fails safely. |
 
 These choices preserve the linked specification's atomicity, stable identities,
 freshness, independent observations, write outcomes and explicit completion. The
-retained schema, HTTP/application/CLI exclusions and transaction lifecycle are unchanged.
+retained schema and HTTP/application/CLI exclusions are unchanged.
 No universal repository, importer, enforcement tooling or architecture-rule expansion
 is introduced. Source response parsing remains outside this slice.
 
@@ -290,3 +291,30 @@ The correction adds `crates/yomibu-ext/src/wanikani.rs` and renames the Core por
 PostgreSQL implementation and main contract-test file to `collection_import` names.
 No schema, architecture guidance, enforcement tool, HTTP reader or application/CLI
 import wiring was added. Resource figures remain synthetic debug-build evidence.
+
+
+## Independent-review follow-up
+
+The user clarified NULL subject freshness in [#109](https://github.com/kalorz/yomibu/issues/109):
+preserve the subject unchanged and continue the save. This supersedes the original
+NULL-rejection plan and test; malformed account/progress metadata still rejects atomically.
+Both writes now begin at READ COMMITTED regardless of session defaults. Confirmed rollback
+permits connection reuse; interrupted cleanup and uncertain commits still discard it.
+Deadlock verification controls cycle formation, and teardown polling is paced.
+Account-only saves skip empty reference resolution. Contract names now consistently use
+save group and learner progress source; raw request limits cover both lookup and save.
+
+PostgreSQL regressions failed before and passed after the NULL, isolation and rollback-reuse
+fixes. Final checks passed: 48 default Rust tests, 42 PostgreSQL tests, 36 enforcement tests,
+crate/provider/Bylaw checks, Clippy, formatting, Rustdoc and dependency analysis. The controlled
+deadlock case also passed ten repetitions. All 28 resource scenarios passed; the byte-chunk
+case directly verifies eight complete large payloads and bounded Bind frames rather than
+requiring an incidental count of setup/timeout commands. README records fresh measurements.
+
+Focused independent re-review found no remaining required code findings; its lease-documentation
+correction was applied. Simplification removed the subject RETURNING buffer and unnecessary
+account-only lookup. Multirow VALUES, repeated freshness expressions and per-statement server
+limits remain: no demonstrated bottleneck justifies a broader SQL rewrite or weaker limits.
+Lookup error helpers retain operation-specific diagnostics, and the lease guard preserves
+cancellation cleanup. Positive integer spelling normalization remains in the integration,
+with duplicate detection after normalization, including leading-plus spellings.

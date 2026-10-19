@@ -78,7 +78,7 @@ async fn run_postgres_contract(check: impl AsyncFnOnce(&PgPool, &PgPool)) {
         if active == 0 {
             break;
         }
-        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)
