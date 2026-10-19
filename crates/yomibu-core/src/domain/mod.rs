@@ -31,6 +31,17 @@ impl LearnerName {
     }
 }
 
+/// UUID identifying a learner progress source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LearnerProgressSourceId(pub uuid::Uuid);
+
+/// Material kind; a subject may have no kind before/outside entry resolution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MaterialKind {
+    Vocabulary,
+    Grammar,
+}
+
 #[cfg(test)]
 mod tests {
     use super::LearnerName;
@@ -49,15 +60,4 @@ mod tests {
             assert!(LearnerName::new(input).is_none());
         }
     }
-}
-
-/// UUID identifying a learner progress source.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LearnerProgressSourceId(pub uuid::Uuid);
-
-/// Material kind; a subject may have no kind before/outside entry resolution.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MaterialKind {
-    Vocabulary,
-    Grammar,
 }

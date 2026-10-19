@@ -4,14 +4,16 @@ mod faults;
 mod fixtures;
 mod support;
 use faults::{Fault, Relay};
-use fixtures::{group, progress, seed, subject};
+use fixtures::{at, group, progress, seed, subject};
 use sqlx::PgPool;
-use std::{
-    sync::atomic::Ordering,
-    time::{Duration, Instant},
+use std::time::{Duration, Instant};
+use support::{
+    another_session, backend_pid, blocked, connect, lock_table, recover, snapshot, with_postgres,
 };
-use support::{connect, with_postgres};
-use yomibu_core::ports::infrastructure::collection_import::{ImportWriteError, SaveGroupWriter};
+use yomibu_core::{
+    domain::LearnerProgressSourceId,
+    ports::infrastructure::collection_import::{ImportWriteError, SaveGroupWriter},
+};
 use yomibu_ext::PostgresLearnerStorage;
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(8)
@@ -20,32 +22,9 @@ async fn empty(pool: &PgPool) {
     let counts: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM collections),(SELECT count(*) FROM subjects),(SELECT count(*) FROM learner_progress_sources),(SELECT count(*) FROM learner_progress)").fetch_one(pool).await.unwrap();
     assert_eq!(counts, (0, 0, 0, 0));
 }
-async fn recover(pool: &PgPool) {
-    tokio::time::timeout(Duration::from_secs(8), async {
-        assert_eq!(
-            sqlx::query_scalar::<_, i32>("SELECT 1")
-                .fetch_one(pool)
-                .await
-                .unwrap(),
-            1
-        );
-    })
-    .await
-    .expect("sole pool slot did not recover");
-}
-async fn blocked(pool: &PgPool, pid: i32) {
-    loop {
-        let waiting: bool =
-            sqlx::query_scalar("SELECT wait_event_type='Lock' FROM pg_stat_activity WHERE pid=$1")
-                .bind(pid)
-                .fetch_one(pool)
-                .await
-                .unwrap_or(false);
-        if waiting {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+/// Rows a completion must never touch.
+async fn progress_and_subjects(pool: &PgPool) -> String {
+    sqlx::query_scalar("SELECT jsonb_build_object('progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(pool).await.unwrap()
 }
 
 #[tokio::test]
@@ -67,11 +46,7 @@ async fn expired_acquisition_and_lock_deadlines_save_nothing() {
             Err(ImportWriteError::NotSaved(_))
         ));
         drop(held);
-        let mut lock = control.begin().await.unwrap();
-        sqlx::query("LOCK TABLE subjects IN SHARE MODE")
-            .execute(&mut *lock)
-            .await
-            .unwrap();
+        let lock = lock_table(control, "subjects", "SHARE").await;
         let began = Instant::now();
         let error = storage
             .save_group(&input, began + Duration::from_millis(100))
@@ -107,17 +82,16 @@ async fn statements_and_chunks_share_one_deadline() {
 async fn cancellation_and_backend_loss_before_commit_recover_the_sole_slot() {
     with_postgres(async |pool, control| {
         seed(control).await;
-        let observer = connect((*pool.connect_options()).clone()).await;
+        let observer = another_session(pool).await;
         let storage = PostgresLearnerStorage::new(pool.clone());
         let input = group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 20)]);
         for terminate in [false, true] {
-            let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(pool).await.unwrap();
-            let mut lock = control.begin().await.unwrap();
-            sqlx::query("LOCK TABLE subjects IN SHARE MODE").execute(&mut *lock).await.unwrap();
+            let pids = [backend_pid(pool).await];
+            let lock = lock_table(control, "subjects", "SHARE").await;
             let mut save = storage.save_group(&input, deadline());
-            tokio::select! {result=&mut save=>panic!("save completed before fault: {result:?}"),()=blocked(&observer,pid)=>{}}
+            tokio::select! {result=&mut save=>panic!("save completed before fault: {result:?}"),()=blocked(&observer,&pids)=>{}}
             if terminate {
-                assert!(sqlx::query_scalar::<_, bool>("SELECT pg_terminate_backend($1)").bind(pid).fetch_one(&observer).await.unwrap());
+                assert!(sqlx::query_scalar::<_, bool>("SELECT pg_terminate_backend($1)").bind(pids[0]).fetch_one(&observer).await.unwrap());
                 assert!(matches!(save.await, Err(ImportWriteError::NotSaved(_))));
             } else {
                 drop(save);
@@ -159,10 +133,10 @@ async fn actual_deadlock_rolls_back_without_retry() {
         sqlx::query("SET deadlock_timeout='50ms'").execute(pool).await.unwrap();
         // Only the import may detect the cycle within the operation's deadline.
         sqlx::query("SET deadlock_timeout='10s'").execute(control).await.unwrap();
-        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(pool).await.unwrap();
-        let control_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(control).await.unwrap();
-        let observer = connect((*pool.connect_options()).clone()).await;
-        let gate: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&observer).await.unwrap();
+        let pid = backend_pid(pool).await;
+        let control_pid = backend_pid(control).await;
+        let observer = another_session(pool).await;
+        let gate = backend_pid(&observer).await;
         sqlx::query("SELECT pg_advisory_lock($1::bigint)").bind(i64::from(gate)).execute(&observer).await.unwrap();
         // A test-only gate pauses the import after it owns the source row, but
         // before it starts waiting for the subject. The PID isolates the gate.
@@ -171,13 +145,13 @@ async fn actual_deadlock_rolls_back_without_retry() {
         sqlx::query("SELECT id FROM subjects FOR UPDATE").execute(&mut *lock).await.unwrap();
         let input = group(1, "a", 30, vec![subject(1, 30)], vec![progress(1, 30, 40)]);
         let conflict = async {
-            blocked(&observer, pid).await;
+            blocked(&observer, &[pid]).await;
             let update = async {
                 sqlx::query("UPDATE learner_progress_sources SET source_data=source_data").execute(&mut *lock).await.unwrap();
                 lock.commit().await.unwrap();
             };
             let release = async {
-                blocked(&observer, control_pid).await;
+                blocked(&observer, &[control_pid]).await;
                 // The control is already waiting on the import. Releasing the
                 // gate starts the import's fresh subject wait with the cycle set.
                 assert!(sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock($1::bigint)").bind(i64::from(gate)).fetch_one(&observer).await.unwrap());
@@ -238,12 +212,12 @@ async fn lost_commit_response_and_lost_request_are_both_unknown() {
             .await
             .unwrap();
             assert_eq!(durable, fault != Fault::DropCommitRequest);
-            let stats = relay.counters();
-            assert!(stats.commands.load(Ordering::Relaxed) > 5);
-            assert!(stats.parses.load(Ordering::Relaxed) > 0);
-            assert!(stats.exchanges.load(Ordering::Relaxed) > 0);
-            assert!(stats.bind_bytes.load(Ordering::Relaxed) > 0);
-            assert!(stats.max_bind_bytes.load(Ordering::Relaxed) < 8 * 1024 * 1024);
+            let stats = relay.counters().sample();
+            assert!(stats.commands > 5);
+            assert!(stats.parses > 0);
+            assert!(stats.exchanges > 0);
+            assert!(stats.bind_bytes > 0);
+            assert!(stats.max_bind_bytes < 8 * 1024 * 1024);
             recover(&relayed).await;
             relayed.close().await;
         }
@@ -306,19 +280,19 @@ async fn completion_failure_preserves_prior_groups_and_completion() {
         let storage = PostgresLearnerStorage::new(pool.clone());
         let saved = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 20)]), deadline()).await.unwrap();
         let source = saved.learner_progress_source_id;
-        storage.record_completion(saved.collection_id, source, fixtures::at(20), deadline()).await.unwrap();
-        let before: String = sqlx::query_scalar("SELECT jsonb_build_object('source',(SELECT to_jsonb(s) FROM learner_progress_sources s),'progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap();
+        storage.record_completion(saved.collection_id, source, at(20), deadline()).await.unwrap();
+        let before = snapshot(control).await;
         let mut lock = control.begin().await.unwrap();
         sqlx::query("SELECT id FROM learner_progress_sources FOR UPDATE").execute(&mut *lock).await.unwrap();
-        assert!(matches!(storage.record_completion(saved.collection_id, source, fixtures::at(30), Instant::now() + Duration::from_millis(50)).await, Err(ImportWriteError::NotSaved(_))));
+        assert!(matches!(storage.record_completion(saved.collection_id, source, at(30), Instant::now() + Duration::from_millis(50)).await, Err(ImportWriteError::NotSaved(_))));
         lock.rollback().await.unwrap();
         recover(pool).await;
-        assert_eq!(sqlx::query_scalar::<_, String>("SELECT jsonb_build_object('source',(SELECT to_jsonb(s) FROM learner_progress_sources s),'progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap(), before);
+        assert_eq!(snapshot(control).await, before);
         sqlx::raw_sql("CREATE FUNCTION reject_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private completion error' USING ERRCODE='23514'; END $$; CREATE CONSTRAINT TRIGGER reject_completion AFTER UPDATE ON learner_progress_sources DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_completion();").execute(control).await.unwrap();
-        let error = storage.record_completion(saved.collection_id, source, fixtures::at(30), deadline()).await.unwrap_err();
+        let error = storage.record_completion(saved.collection_id, source, at(30), deadline()).await.unwrap_err();
         assert!(matches!(error, ImportWriteError::NotSaved(_)));
         assert!(!error.to_string().contains("private"));
-        assert_eq!(sqlx::query_scalar::<_, String>("SELECT jsonb_build_object('source',(SELECT to_jsonb(s) FROM learner_progress_sources s),'progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap(), before);
+        assert_eq!(snapshot(control).await, before);
     })
     .await;
 }
@@ -331,13 +305,13 @@ async fn completion_unknown_and_late_confirmation_use_the_shared_lifecycle() {
         let storage = PostgresLearnerStorage::new(pool.clone());
         let saved = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 20)]), deadline()).await.unwrap();
         let source = saved.learner_progress_source_id;
-        let before: String = sqlx::query_scalar("SELECT jsonb_build_object('progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap();
+        let before = progress_and_subjects(control).await;
         for (index, fault) in [Fault::DropCommitRequest, Fault::DropCommitResponse, Fault::GateCommitResponse].into_iter().enumerate() {
             let relay = Relay::start(&pool.connect_options(), fault).await;
             let relayed = connect(relay.options.clone()).await;
             let writer = PostgresLearnerStorage::new(relayed.clone());
             relay.arm();
-            let completed_at = fixtures::at(30 + index as i64);
+            let completed_at = at(30 + index as i64);
             let end = Instant::now() + Duration::from_millis(300);
             if fault == Fault::GateCommitResponse {
                 let mut completion = writer.record_completion(saved.collection_id, source, completed_at, end);
@@ -352,7 +326,7 @@ async fn completion_unknown_and_late_confirmation_use_the_shared_lifecycle() {
             }
             let actual: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT last_import_completed_at FROM learner_progress_sources").fetch_one(control).await.unwrap();
             assert_eq!(actual, if fault == Fault::DropCommitRequest { None } else { Some(completed_at) });
-            assert_eq!(sqlx::query_scalar::<_, String>("SELECT jsonb_build_object('progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap(), before);
+            assert_eq!(progress_and_subjects(control).await, before);
             recover(&relayed).await;
             relayed.close().await;
         }
@@ -366,10 +340,7 @@ async fn acknowledged_rollbacks_reuse_the_connection() {
     with_postgres(async |pool, control| {
         seed(control).await;
         let storage = PostgresLearnerStorage::new(pool.clone());
-        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-            .fetch_one(pool)
-            .await
-            .unwrap();
+        let pid = backend_pid(pool).await;
         // A contract rejection after writes must roll back, preserving the session.
         let input = group(1, "a", 10, vec![subject(1, 10)], vec![progress(2, 10, 20)]);
         assert!(matches!(
@@ -377,13 +348,7 @@ async fn acknowledged_rollbacks_reuse_the_connection() {
             Err(ImportWriteError::NotSaved(_))
         ));
         empty(control).await;
-        assert_eq!(
-            sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
-                .fetch_one(pool)
-                .await
-                .unwrap(),
-            pid
-        );
+        assert_eq!(backend_pid(pool).await, pid);
         let receipt = storage
             .save_group(&group(1, "a", 10, vec![], vec![]), deadline())
             .await
@@ -392,20 +357,14 @@ async fn acknowledged_rollbacks_reuse_the_connection() {
             storage
                 .record_completion(
                     receipt.collection_id,
-                    yomibu_core::domain::LearnerProgressSourceId(uuid::Uuid::nil()),
-                    fixtures::at(20),
+                    LearnerProgressSourceId(uuid::Uuid::nil()),
+                    at(20),
                     deadline()
                 )
                 .await,
             Err(ImportWriteError::NotSaved(_))
         ));
-        assert_eq!(
-            sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
-                .fetch_one(pool)
-                .await
-                .unwrap(),
-            pid
-        );
+        assert_eq!(backend_pid(pool).await, pid);
         assert!(
             sqlx::query_scalar::<_, bool>(
                 "SELECT last_import_completed_at IS NULL FROM learner_progress_sources"

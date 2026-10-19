@@ -67,14 +67,16 @@ class InnerClippy(unittest.TestCase):
             with self.subTest(crate=crate):
                 self.check_cases(crate, policy, cases)
 
-    def test_domain_restrictions_reject_uuid_generation_when_features_are_enabled(self):
+    def locked_version(self, package_name):
         project = Path(__file__).resolve().parents[1]
         metadata = subprocess.run(
             ["cargo", "metadata", "--locked", "--format-version", "1"],
             cwd=project, capture_output=True, text=True, check=True, timeout=60,
         )
-        uuid = next(package for package in json.loads(metadata.stdout)["packages"]
-                    if package["name"] == "uuid")
+        return next(package["version"] for package in json.loads(metadata.stdout)["packages"]
+                    if package["name"] == package_name)
+
+    def test_domain_restrictions_reject_uuid_generation_when_features_are_enabled(self):
         self.check_cases("yomibu-core", "src/domain/mod.rs", [
             ("pub fn id() -> uuid::Uuid { uuid::Uuid::from_u128(7) }", None),
             ("pub fn id() -> uuid::Uuid { uuid::Uuid::new_v4() }", "disallowed_methods"),
@@ -82,19 +84,12 @@ class InnerClippy(unittest.TestCase):
             ("pub fn id() -> uuid::Uuid { uuid::Uuid::now_v7() }", "disallowed_methods"),
             ("pub fn context(_: uuid::ContextV7) {}", "disallowed_types"),
         ], dependencies=(
-            f'uuid = {{ version = "={uuid["version"]}", default-features = false, '
+            f'uuid = {{ version = "={self.locked_version("uuid")}", default-features = false, '
             'features = ["std", "v4", "v7"] }\n'
         ))
 
     def test_chrono_clock_features_preserve_domain_purity_and_application_timing(self):
-        project = Path(__file__).resolve().parents[1]
-        metadata = subprocess.run(
-            ["cargo", "metadata", "--locked", "--format-version", "1"],
-            cwd=project, capture_output=True, text=True, check=True, timeout=60,
-        )
-        chrono = next(package for package in json.loads(metadata.stdout)["packages"]
-                      if package["name"] == "chrono")
-        dependency = (f'chrono = {{ version = "={chrono["version"]}", '
+        dependency = (f'chrono = {{ version = "={self.locked_version("chrono")}", '
                       'default-features = false, features = ["std", "clock"] }\n')
         self.check_cases("yomibu-core", "src/domain/mod.rs", [
             ("pub fn supplied(seconds: i64) -> Option<chrono::DateTime<chrono::Utc>> { chrono::DateTime::from_timestamp(seconds, 0) }", None),

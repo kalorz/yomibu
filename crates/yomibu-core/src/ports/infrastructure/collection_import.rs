@@ -1,7 +1,7 @@
 //! Finite shared-collection imports for existing learners and external progress sources.
 //! No source protocol, payload interpretation or traversal ownership.
 use super::StorageError;
-use crate::domain::{LearnerId, MaterialKind};
+use crate::domain::{CollectionId, LearnerId, LearnerProgressSourceId, MaterialKind};
 use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
 use std::{collections::HashSet, future::Future, pin::Pin, time::Instant};
@@ -49,7 +49,8 @@ pub struct SharedCollection {
     pub name: String,
 }
 impl SharedCollection {
-    fn input_bytes(&self) -> usize {
+    /// Raw UTF-8 bytes counted toward the request input limits.
+    pub fn input_bytes(&self) -> usize {
         self.provider.len() + self.key.len() + self.name.len()
     }
 }
@@ -171,37 +172,44 @@ impl PreparedSaveGroup {
         {
             return Err(InvalidSaveGroup("duplicate subject/progress identity"));
         }
-        let mut sizes = [
-            collection.input_bytes(),
-            learner_progress_source.external_account_id.len(),
-            account.payload.get().len(),
-        ]
-        .into_iter()
-        .chain(
-            subjects
-                .iter()
-                .flat_map(|s| [s.external_id.len(), s.source.payload.get().len()]),
-        )
-        .chain(progress.iter().flat_map(|p| {
-            [
-                p.subject_external_id.len(),
-                p.source.payload.get().len(),
-                p.progress_stage.as_ref().map_or(0, String::len),
-            ]
-        }));
-        let size = sizes
-            .try_fold(0usize, |total, size| total.checked_add(size))
-            .ok_or(InvalidSaveGroup("save group exceeds byte limit"))?;
-        if size > MAX_REQUEST_INPUT_BYTES {
-            return Err(InvalidSaveGroup("save group exceeds byte limit"));
-        }
-        Ok(Self {
+        let group = Self {
             collection,
             learner_progress_source,
             account,
             subjects,
             progress,
-        })
+        };
+        let size = group
+            .input_sizes()
+            .try_fold(0usize, |total, size| total.checked_add(size));
+        if size.is_none_or(|n| n > MAX_REQUEST_INPUT_BYTES) {
+            return Err(InvalidSaveGroup("save group exceeds byte limit"));
+        }
+        Ok(group)
+    }
+    fn input_sizes(&self) -> impl Iterator<Item = usize> + '_ {
+        [
+            self.collection.input_bytes(),
+            self.learner_progress_source.external_account_id.len(),
+            self.account.payload.get().len(),
+        ]
+        .into_iter()
+        .chain(
+            self.subjects
+                .iter()
+                .flat_map(|s| [s.external_id.len(), s.source.payload.get().len()]),
+        )
+        .chain(self.progress.iter().flat_map(|p| {
+            [
+                p.subject_external_id.len(),
+                p.source.payload.get().len(),
+                p.progress_stage.as_ref().map_or(0, String::len),
+            ]
+        }))
+    }
+    /// Raw UTF-8 input bytes counted toward [`MAX_REQUEST_INPUT_BYTES`].
+    pub fn input_bytes(&self) -> usize {
+        self.input_sizes().sum()
     }
     pub fn collection(&self) -> &SharedCollection {
         &self.collection
@@ -223,14 +231,14 @@ impl PreparedSaveGroup {
 /// Stable identities from one confirmed atomic save; no traversal/completion claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SaveReceipt {
-    pub collection_id: crate::domain::CollectionId,
-    pub learner_progress_source_id: crate::domain::LearnerProgressSourceId,
+    pub collection_id: CollectionId,
+    pub learner_progress_source_id: LearnerProgressSourceId,
 }
 
 /// The stored completion timestamp after a confirmed explicit completion write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompletionReceipt {
-    pub learner_progress_source_id: crate::domain::LearnerProgressSourceId,
+    pub learner_progress_source_id: LearnerProgressSourceId,
     pub last_import_completed_at: DateTime<Utc>,
 }
 
@@ -298,8 +306,8 @@ pub trait SaveGroupWriter {
     /// Uses the same atomic outcome/deadline/drop guarantees as `save_group`.
     fn record_completion(
         &self,
-        collection: crate::domain::CollectionId,
-        source: crate::domain::LearnerProgressSourceId,
+        collection: CollectionId,
+        source: LearnerProgressSourceId,
         completed_at: DateTime<Utc>,
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<CompletionReceipt, ImportWriteError>> + '_>>;
@@ -349,9 +357,16 @@ mod tests {
         )
     }
     #[test]
-    fn group_accepts_account_only_and_existing_subject_references() {
+    fn group_accepts_account_only_existing_references_and_both_kinds() {
         assert!(group(vec![], vec![]).is_ok());
         assert!(group(vec![], vec![progress(99)]).is_ok());
+        let grammar = PreparedSubject {
+            external_id: "lesson:alpha/7".into(),
+            kind: Some(MaterialKind::Grammar),
+            source: source(),
+        };
+        let input = group(vec![grammar], vec![]).unwrap();
+        assert_eq!(input.subjects()[0].external_id, "lesson:alpha/7"); // No normalization.
         assert_eq!(source().updated_at(), time()); // Nanoseconds are not a contract rejection.
     }
     #[test]
@@ -363,21 +378,6 @@ mod tests {
             source: source(),
         };
         assert!(group(vec![subject(), subject()], vec![]).is_err());
-    }
-    #[test]
-    fn shared_values_preserve_opaque_identity_and_grammar() {
-        let input = group(
-            vec![PreparedSubject {
-                external_id: "lesson:alpha/7".into(),
-                kind: Some(MaterialKind::Grammar),
-                source: source(),
-            }],
-            vec![],
-        )
-        .unwrap();
-        assert_eq!(input.subjects()[0].external_id, "lesson:alpha/7");
-        assert_eq!(input.subjects()[0].kind, Some(MaterialKind::Grammar));
-        assert!(group(vec![], vec![progress(0)]).is_ok());
     }
     #[test]
     fn lookup_limits_include_identity_bytes() {

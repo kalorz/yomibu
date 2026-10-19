@@ -1,9 +1,9 @@
 use super::{
-    PostgresLearnerStorage, WriteConnection, failure_reason,
-    transaction::{expired, finish, limits, until},
+    PostgresLearnerStorage, WriteConnection, bounded, expired, failure_reason,
+    transaction::{deadline_error, limits, transact, until},
 };
 use chrono::{DateTime, Utc};
-use sqlx::{Connection, Postgres, QueryBuilder, Transaction};
+use sqlx::{Postgres, QueryBuilder, Transaction};
 use std::{collections::HashMap, future::Future, pin::Pin, time::Instant};
 use yomibu_core::{
     domain::{CollectionId, LearnerProgressSourceId, MaterialKind},
@@ -23,19 +23,60 @@ const MAX_ENCODED_BYTES: usize = 8 * 1024 * 1024;
 // Conservative per-row allowance for typed IDs, timestamps, lengths and envelope
 // keys. Payloads stay borrowed until SQLx encodes the current bounded chunk.
 const ROW_OVERHEAD: usize = 512;
+// PostgreSQL's finite MIN_TIMESTAMP (4714-11-24 BC) as microseconds since the
+// Unix epoch. Chrono's range ends before PostgreSQL's maximum.
+const PG_MIN_UNIX_MICROS: i64 = 946_684_800_000_000 - 211_813_488_000_000_000;
 
-fn lookup_expired(deadline: Instant) -> Result<(), StorageError> {
-    if Instant::now() >= deadline {
-        Err(lookup_deadline())
-    } else {
-        Ok(())
-    }
+// Stored freshness for account and progress records lives inside the JSONB
+// envelope. A missing or malformed key fails the cast and the transaction.
+macro_rules! newer {
+    () => {
+        "(excluded.source_data->>'source_updated_at')::timestamptz>COALESCE(saved.source_data->>'source_updated_at','')::timestamptz"
+    };
 }
+const SOURCE_UPSERT: &str = concat!(
+    "INSERT INTO learner_progress_sources AS saved
+        (learner_id,collection_id,external_account_id,source_data)
+     VALUES ($1,$2,$3,jsonb_build_object('source_updated_at',$4::timestamptz,'payload',$5::jsonb))
+     ON CONFLICT(learner_id,collection_id,external_account_id)
+     DO UPDATE SET source_data=excluded.source_data WHERE ",
+    newer!()
+);
+// A source field takes the supplied value only when the supplied source is newer.
+macro_rules! keep_newer {
+    ($column:literal) => {
+        concat!(
+            $column,
+            "=CASE WHEN ",
+            newer!(),
+            " THEN excluded.",
+            $column,
+            " ELSE saved.",
+            $column,
+            " END,"
+        )
+    };
+}
+// The observation time advances independently of source freshness.
+const PROGRESS_UPSERT: &str = concat!(
+    " ON CONFLICT(learner_progress_source_id,subject_id) DO UPDATE SET ",
+    keep_newer!("progress_stage"),
+    keep_newer!("is_hidden"),
+    keep_newer!("learning_started_at"),
+    keep_newer!("first_passed_at"),
+    keep_newer!("source_data"),
+    "recorded_at=GREATEST(saved.recorded_at,excluded.recorded_at) WHERE ",
+    newer!(),
+    " OR excluded.recorded_at>saved.recorded_at"
+);
+
 fn lookup_deadline() -> StorageError {
     StorageError("subject lookup deadline exceeded".into())
 }
-fn lookup_error(error: sqlx::Error) -> StorageError {
-    StorageError(format!("subject lookup failed ({})", failure_reason(error)))
+fn lookup_failure(error: Option<sqlx::Error>) -> StorageError {
+    error.map_or_else(lookup_deadline, |error| {
+        StorageError(format!("subject lookup failed ({})", failure_reason(error)))
+    })
 }
 
 impl SubjectQuery for PostgresLearnerStorage {
@@ -46,40 +87,38 @@ impl SubjectQuery for PostgresLearnerStorage {
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, StorageError>> + 'a>> {
         Box::pin(async move {
-            lookup_expired(deadline)?;
+            expired(deadline, lookup_deadline)?;
             validate_subject_lookup(collection, ids)?;
             // The contract bounds raw bytes; this adapter also bounds array and
             // parameter encoding before SQLx allocates argument buffers.
-            let encoded = collection.provider.len()
-                + collection.key.len()
-                + ids.iter().map(|id| id.len() + 4).sum::<usize>()
-                + ROW_OVERHEAD;
-            check_size(encoded).map_err(|_| {
-                StorageError("subject lookup exceeds encoded argument limit".into())
-            })?;
-            lookup_expired(deadline)?;
+            if collection.provider.len() + collection.key.len() + array_bytes(ids)
+                > MAX_ENCODED_BYTES
+            {
+                return Err(StorageError(
+                    "subject lookup exceeds encoded argument limit".into(),
+                ));
+            }
             if ids.is_empty() {
                 return Ok(vec![]);
             }
-            let connection = tokio::time::timeout_at(deadline.into(), self.pool.acquire())
-                .await
-                .map_err(|_| lookup_deadline())?
-                .map_err(lookup_error)?;
+            let connection = bounded(deadline, self.pool.acquire(), lookup_failure).await?;
             let mut lease = WriteConnection {
                 connection,
                 confirmed: false,
             };
-            lookup_expired(deadline)?;
-            let mut rows = tokio::time::timeout_at(deadline.into(), sqlx::query_scalar::<_,String>(
+            let query = sqlx::query_scalar::<_, String>(
                 "SELECT s.external_id FROM subjects s JOIN collections c ON c.id=s.collection_id
                  WHERE c.provider=$1 AND c.key=$2 AND c.owner_learner_id IS NULL
-                 AND s.external_id = ANY($3)")
-                 .bind(&collection.provider).bind(&collection.key).bind(ids).fetch_all(&mut *lease.connection)).await
-                 .map_err(|_|lookup_deadline())?.map_err(lookup_error)?;
+                 AND s.external_id = ANY($3)",
+            )
+            .bind(&collection.provider)
+            .bind(&collection.key)
+            .bind(ids)
+            .fetch_all(&mut *lease.connection);
+            let mut rows = bounded(deadline, query, lookup_failure).await?;
             lease.confirmed = true;
-            lookup_expired(deadline)?;
+            expired(deadline, lookup_deadline)?;
             rows.sort_unstable();
-            lookup_expired(deadline)?;
             Ok(rows)
         })
     }
@@ -89,14 +128,11 @@ fn invalid(reason: &str) -> ImportWriteError {
     ImportWriteError::NotSaved(reason.into())
 }
 fn timestamp(value: DateTime<Utc>) -> Result<(), ImportWriteError> {
-    let epoch = DateTime::from_timestamp(946_684_800, 0).expect("PostgreSQL epoch");
-    // PostgreSQL's finite MIN_TIMESTAMP and its microsecond wire representation.
-    if !value.timestamp_subsec_nanos().is_multiple_of(1000)
-        || value.timestamp_subsec_nanos() >= 1_000_000_000
-        || value
-            .signed_duration_since(epoch)
-            .num_microseconds()
-            .is_none_or(|v| v < -211_813_488_000_000_000)
+    // Leap-second and sub-microsecond values have no lossless microsecond wire form.
+    let nanos = value.timestamp_subsec_nanos();
+    if !nanos.is_multiple_of(1000)
+        || nanos >= 1_000_000_000
+        || value.timestamp_micros() < PG_MIN_UNIX_MICROS
     {
         return Err(invalid(
             "timestamp is not losslessly representable by PostgreSQL",
@@ -116,25 +152,20 @@ fn progress_size(progress: &PreparedProgress) -> usize {
         progress.progress_stage.as_ref().map_or(0, String::len),
     )
 }
+/// Encoded size of one text-array parameter holding the given IDs.
+fn array_bytes<'a>(ids: impl IntoIterator<Item = &'a String>) -> usize {
+    ids.into_iter().map(|id| id.len() + 4).sum::<usize>() + ROW_OVERHEAD
+}
 fn preflight(group: &PreparedSaveGroup) -> Result<(), ImportWriteError> {
-    check_size(
-        group.collection().provider.len()
-            + group.collection().key.len()
-            + group.collection().name.len()
-            + ROW_OVERHEAD,
-    )?;
+    check_size(group.collection().input_bytes() + ROW_OVERHEAD)?;
     timestamp(group.account().updated_at())?;
     check_size(encoded_size(
         group.account(),
         group.learner_progress_source().external_account_id.len(),
     ))?;
-    // Resolution uses one text array containing the supplied/referenced IDs.
-    // Bound its encoding too, conservatively counting IDs repeated across lists.
-    let mut resolution_bytes = ROW_OVERHEAD;
     for subject in group.subjects() {
         timestamp(subject.source.updated_at())?;
         check_size(subject_size(subject))?;
-        resolution_bytes += subject.external_id.len() + 4;
     }
     for progress in group.progress() {
         for value in [
@@ -149,9 +180,16 @@ fn preflight(group: &PreparedSaveGroup) -> Result<(), ImportWriteError> {
             timestamp(value)?;
         }
         check_size(progress_size(progress))?;
-        resolution_bytes += progress.subject_external_id.len() + 4;
     }
-    check_size(resolution_bytes)?;
+    // Resolution uses one text array containing the supplied/referenced IDs.
+    // Bound its encoding too, conservatively counting IDs repeated across lists.
+    check_size(array_bytes(
+        group
+            .subjects()
+            .iter()
+            .map(|s| &s.external_id)
+            .chain(group.progress().iter().map(|p| &p.subject_external_id)),
+    ))?;
     Ok(())
 }
 
@@ -162,19 +200,30 @@ fn check_size(size: usize) -> Result<(), ImportWriteError> {
     Ok(())
 }
 
-// A singleton may exceed the normal target, but preflight enforces the hard cap.
-fn chunk_len<T>(rows: &[T], size: impl Fn(&T) -> usize) -> usize {
-    let mut bytes = 0;
-    let mut count = 0;
-    for row in rows.iter().take(CHUNK_ROWS) {
-        let next = size(row);
-        if count > 0 && bytes + next > CHUNK_BYTES {
-            break;
+// Statement-sized chunks. A singleton may exceed the normal byte target, but
+// preflight enforces the hard cap.
+fn chunks<'a, T>(
+    mut rows: &'a [T],
+    size: impl Fn(&T) -> usize + 'a,
+) -> impl Iterator<Item = &'a [T]> + 'a {
+    std::iter::from_fn(move || {
+        if rows.is_empty() {
+            return None;
         }
-        count += 1;
-        bytes += next;
-    }
-    count
+        let mut bytes = 0;
+        let mut count = 0;
+        for row in rows.iter().take(CHUNK_ROWS) {
+            let next = size(row);
+            if count > 0 && bytes + next > CHUNK_BYTES {
+                break;
+            }
+            count += 1;
+            bytes += next;
+        }
+        let (chunk, tail) = rows.split_at(count);
+        rows = tail;
+        Some(chunk)
+    })
 }
 
 impl SaveGroupWriter for PostgresLearnerStorage {
@@ -184,24 +233,12 @@ impl SaveGroupWriter for PostgresLearnerStorage {
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<SaveReceipt, ImportWriteError>> + 'a>> {
         Box::pin(async move {
-            expired(deadline)?;
+            expired(deadline, deadline_error)?;
             preflight(group)?;
-            let connection = until(deadline, self.pool.acquire()).await?;
-            let mut lease = WriteConnection {
-                connection,
-                confirmed: false,
-            };
-            let mut tx = until(
-                deadline,
-                lease
-                    .connection
-                    .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED"),
-            )
-            .await?;
-            let result = persist(&mut tx, group, deadline).await;
-            let (result, confirmed) = finish(tx, result, deadline).await;
-            lease.confirmed = confirmed;
-            result
+            transact(&self.pool, deadline, async |tx| {
+                persist(tx, group, deadline).await
+            })
+            .await
         })
     }
     fn record_completion(
@@ -212,24 +249,12 @@ impl SaveGroupWriter for PostgresLearnerStorage {
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<CompletionReceipt, ImportWriteError>> + '_>> {
         Box::pin(async move {
-            expired(deadline)?;
+            expired(deadline, deadline_error)?;
             timestamp(completed_at)?;
-            let connection = until(deadline, self.pool.acquire()).await?;
-            let mut lease = WriteConnection {
-                connection,
-                confirmed: false,
-            };
-            let mut tx = until(
-                deadline,
-                lease
-                    .connection
-                    .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED"),
-            )
-            .await?;
-            let result = complete(&mut tx, collection, source, completed_at, deadline).await;
-            let (result, confirmed) = finish(tx, result, deadline).await;
-            lease.confirmed = confirmed;
-            result
+            transact(&self.pool, deadline, async |tx| {
+                complete(tx, collection, source, completed_at, deadline).await
+            })
+            .await
         })
     }
 }
@@ -267,22 +292,15 @@ async fn persist(
     limits(tx, deadline).await?;
     until(
         deadline,
-        sqlx::query(
-            "INSERT INTO learner_progress_sources AS saved
-                (learner_id,collection_id,external_account_id,source_data)
-             VALUES ($1,$2,$3,jsonb_build_object('source_updated_at',$4::timestamptz,'payload',$5::jsonb))
-             ON CONFLICT(learner_id,collection_id,external_account_id)
-             DO UPDATE SET source_data=excluded.source_data
-             WHERE (excluded.source_data->>'source_updated_at')::timestamptz
-                 > COALESCE(saved.source_data->>'source_updated_at','')::timestamptz",
-        )
-        .bind(group.learner_progress_source().learner_id.0)
-        .bind(collection)
-        .bind(&group.learner_progress_source().external_account_id)
-        .bind(group.account().updated_at())
-        .bind(group.account().payload().get())
-        .execute(&mut **tx),
-    ).await?;
+        sqlx::query(SOURCE_UPSERT)
+            .bind(group.learner_progress_source().learner_id.0)
+            .bind(collection)
+            .bind(&group.learner_progress_source().external_account_id)
+            .bind(group.account().updated_at())
+            .bind(group.account().payload().get())
+            .execute(&mut **tx),
+    )
+    .await?;
     limits(tx, deadline).await?;
     let source: uuid::Uuid = until(
         deadline,
@@ -306,11 +324,7 @@ async fn persist(
 
     let mut subjects: Vec<_> = group.subjects().iter().collect();
     subjects.sort_unstable_by(|a, b| a.external_id.cmp(&b.external_id));
-    let mut remaining = subjects.as_slice();
-    while !remaining.is_empty() {
-        let count = chunk_len(remaining, |s| subject_size(s));
-        let (chunk, tail) = remaining.split_at(count);
-        remaining = tail;
+    for chunk in chunks(&subjects, |s| subject_size(s)) {
         let mut sql = QueryBuilder::<Postgres>::new(
             "INSERT INTO subjects AS saved(collection_id,external_id,kind,source_updated_at,source_data) ",
         );
@@ -371,11 +385,7 @@ async fn persist(
         .map(|p| (resolved[&p.subject_external_id], p))
         .collect();
     progress.sort_unstable_by_key(|(id, _)| *id);
-    let mut remaining = progress.as_slice();
-    while !remaining.is_empty() {
-        let count = chunk_len(remaining, |(_, p)| progress_size(p));
-        let (chunk, tail) = remaining.split_at(count);
-        remaining = tail;
+    for chunk in chunks(&progress, |(_, p)| progress_size(p)) {
         let mut sql = QueryBuilder::<Postgres>::new(
             "INSERT INTO learner_progress AS saved(learner_progress_source_id,subject_id,collection_id,progress_stage,is_hidden,learning_started_at,first_passed_at,recorded_at,source_data) ",
         );
@@ -394,33 +404,7 @@ async fn persist(
                 .push_bind_unseparated(p.source.payload().get())
                 .push_unseparated("::jsonb)");
         });
-        sql.push(" ON CONFLICT(learner_progress_source_id,subject_id) DO UPDATE SET ");
-        const NEWER: &str = "(excluded.source_data->>'source_updated_at')::timestamptz>COALESCE(saved.source_data->>'source_updated_at','')::timestamptz";
-        for (index, column) in [
-            "progress_stage",
-            "is_hidden",
-            "learning_started_at",
-            "first_passed_at",
-            "source_data",
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            if index > 0 {
-                sql.push(",");
-            }
-            sql.push(column)
-                .push("=CASE WHEN ")
-                .push(NEWER)
-                .push(" THEN excluded.")
-                .push(column)
-                .push(" ELSE saved.")
-                .push(column)
-                .push(" END");
-        }
-        sql.push(", recorded_at=GREATEST(saved.recorded_at,excluded.recorded_at) WHERE ")
-            .push(NEWER)
-            .push(" OR excluded.recorded_at>saved.recorded_at");
+        sql.push(PROGRESS_UPSERT);
         limits(tx, deadline).await?;
         until(deadline, sql.build().execute(&mut **tx)).await?;
     }

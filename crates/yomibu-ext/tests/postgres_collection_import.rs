@@ -1,12 +1,83 @@
-use sqlx::postgres::PgPoolOptions;
-use std::time::{Duration, Instant};
-use yomibu_core::ports::infrastructure::collection_import::SubjectQuery;
-use yomibu_ext::PostgresLearnerStorage;
+#[path = "support/wanikani.rs"]
+mod fixtures;
 mod support;
-use support::with_postgres;
+use fixtures::{at, group, progress, seed, source, subject};
+use std::time::{Duration, Instant};
+use support::{
+    another_session, backend_pid, blocked, closed_storage, lock_table, recover, snapshot,
+    with_postgres,
+};
+use yomibu_core::{
+    domain::{CollectionId, LearnerId, LearnerProgressSourceId, MaterialKind},
+    ports::infrastructure::collection_import::{
+        ImportWriteError, LearnerProgressSourceIdentity, MAX_GROUP_RECORDS,
+        MAX_REQUEST_INPUT_BYTES, PreparedProgress, PreparedSaveGroup, PreparedSubject,
+        SaveGroupWriter, SharedCollection, SourceRecord, SubjectQuery, validate_subject_lookup,
+    },
+};
+use yomibu_ext::{PostgresLearnerStorage, wanikani};
 
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(5)
+}
+
+fn shared_collection(provider: &str, key: &str) -> SharedCollection {
+    SharedCollection {
+        provider: provider.into(),
+        key: key.into(),
+        name: "Supplied lessons".into(),
+    }
+}
+
+// Direct shared-contract construction for backend representation tests. Provider
+// validation is exercised once in the integration's unit tests.
+fn prepared(
+    collection: SharedCollection,
+    learner: u128,
+    account: &str,
+    source: SourceRecord,
+    subjects: Vec<PreparedSubject>,
+    progress: Vec<PreparedProgress>,
+) -> PreparedSaveGroup {
+    PreparedSaveGroup::new(
+        collection,
+        LearnerProgressSourceIdentity {
+            learner_id: LearnerId(uuid::Uuid::from_u128(learner)),
+            external_account_id: account.into(),
+        },
+        source,
+        subjects,
+        progress,
+    )
+    .unwrap()
+}
+
+fn shared_group(
+    collection: SharedCollection,
+    id: &str,
+    t: i64,
+    supply_subject: bool,
+) -> PreparedSaveGroup {
+    let subjects = if supply_subject {
+        vec![PreparedSubject {
+            external_id: id.into(),
+            kind: Some(MaterialKind::Vocabulary),
+            source: SourceRecord::new(at(t), r#"["opaque",{"content":"lesson"}]"#).unwrap(),
+        }]
+    } else {
+        vec![]
+    };
+    prepared(
+        collection,
+        1,
+        "account:learner/1",
+        source(t, "account"),
+        subjects,
+        vec![PreparedProgress {
+            subject_external_id: id.into(),
+            ..progress(1, t, t + 5)
+        }],
+    )
 }
 
 #[tokio::test]
@@ -14,7 +85,7 @@ fn deadline() -> Instant {
 async fn lookup_is_grouped_read_only_and_collection_scoped() {
     with_postgres(async |pool, control| {
         let storage = PostgresLearnerStorage::new(pool.clone());
-        assert!(storage.existing_subject_ids(&yomibu_ext::wanikani::collection(), &["2".into(), "10".into()], deadline()).await.unwrap().is_empty());
+        assert!(storage.existing_subject_ids(&wanikani::collection(), &["2".into(), "10".into()], deadline()).await.unwrap().is_empty());
         sqlx::raw_sql(
             "INSERT INTO collections (provider,key,name) VALUES ('wanikani','subjects','WaniKani'), ('manual','other','Other');
           INSERT INTO subjects (collection_id, external_id) SELECT id, '2' FROM collections;
@@ -24,24 +95,20 @@ async fn lookup_is_grouped_read_only_and_collection_scoped() {
         .execute(control)
         .await
         .unwrap();
-        assert_eq!(storage.existing_subject_ids(&yomibu_ext::wanikani::collection(), &["10".into(), "2".into(), "2".into(), "3".into(), "99".into()], deadline()).await.unwrap(), ["10", "2"]);
+        assert_eq!(storage.existing_subject_ids(&wanikani::collection(), &["10".into(), "2".into(), "2".into(), "3".into(), "99".into()], deadline()).await.unwrap(), ["10", "2"]);
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM collections").fetch_one(control).await.unwrap(), 2);
         let ids: Vec<String> = (1..=1000).map(|id| id.to_string()).collect();
-        assert_eq!(storage.existing_subject_ids(&yomibu_ext::wanikani::collection(), &ids, deadline()).await.unwrap(), ["10", "2"]);
+        assert_eq!(storage.existing_subject_ids(&wanikani::collection(), &ids, deadline()).await.unwrap(), ["10", "2"]);
     })
     .await;
 }
 
 #[tokio::test]
 async fn lookup_checks_contract_limits_before_acquisition() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgres://localhost/unused")
-        .unwrap();
-    pool.close().await;
-    let storage = PostgresLearnerStorage::new(pool);
+    let storage = closed_storage().await;
     assert!(
         storage
-            .existing_subject_ids(&yomibu_ext::wanikani::collection(), &[], deadline())
+            .existing_subject_ids(&wanikani::collection(), &[], deadline())
             .await
             .unwrap()
             .is_empty()
@@ -50,7 +117,7 @@ async fn lookup_checks_contract_limits_before_acquisition() {
     // before attempting to acquire the closed pool.
     let ids = ["x".repeat(MAX_REQUEST_INPUT_BYTES)];
     let error = storage
-        .existing_subject_ids(&yomibu_ext::wanikani::collection(), &ids, deadline())
+        .existing_subject_ids(&wanikani::collection(), &ids, deadline())
         .await
         .unwrap_err();
     assert!(error.to_string().contains("input limits"));
@@ -58,19 +125,11 @@ async fn lookup_checks_contract_limits_before_acquisition() {
 
 #[tokio::test]
 async fn lookup_encoding_rejection_precedes_acquisition() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgres://localhost/unused")
-        .unwrap();
-    pool.close().await;
     let collection = shared_collection("source", "lessons");
-    let size = collection.provider.len() + collection.key.len() + collection.name.len();
-    let ids = ["x".repeat(MAX_REQUEST_INPUT_BYTES - size)];
-    yomibu_core::ports::infrastructure::collection_import::validate_subject_lookup(
-        &collection,
-        &ids,
-    )
-    .unwrap();
-    let error = PostgresLearnerStorage::new(pool)
+    let ids = ["x".repeat(MAX_REQUEST_INPUT_BYTES - collection.input_bytes())];
+    validate_subject_lookup(&collection, &ids).unwrap();
+    let error = closed_storage()
+        .await
         .existing_subject_ids(&collection, &ids, deadline())
         .await
         .unwrap_err();
@@ -79,21 +138,9 @@ async fn lookup_encoding_rejection_precedes_acquisition() {
 
 #[tokio::test]
 async fn reference_resolution_encoding_is_bounded_before_acquisition() {
-    use yomibu_core::ports::infrastructure::collection_import::{
-        MAX_GROUP_RECORDS, PreparedSubject,
-    };
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgres://localhost/unused")
-        .unwrap();
-    pool.close().await;
     let collection = shared_collection("source", "lessons");
     let payload = SourceRecord::new(at(10), "{}").unwrap();
-    let fixed = collection.provider.len()
-        + collection.key.len()
-        + collection.name.len()
-        + 1
-        + 2
-        + MAX_GROUP_RECORDS * 2;
+    let fixed = collection.input_bytes() + 1 + 2 + MAX_GROUP_RECORDS * 2;
     let identity_bytes = MAX_REQUEST_INPUT_BYTES - fixed;
     let subjects = (0..MAX_GROUP_RECORDS)
         .map(|i| {
@@ -106,18 +153,9 @@ async fn reference_resolution_encoding_is_bounded_before_acquisition() {
             }
         })
         .collect();
-    let input = yomibu_core::ports::infrastructure::collection_import::PreparedSaveGroup::new(
-        collection,
-        yomibu_core::ports::infrastructure::collection_import::LearnerProgressSourceIdentity {
-            learner_id: yomibu_core::domain::LearnerId(uuid::Uuid::nil()),
-            external_account_id: "a".into(),
-        },
-        payload,
-        subjects,
-        vec![],
-    )
-    .unwrap();
-    let error = PostgresLearnerStorage::new(pool)
+    let input = prepared(collection, 0, "a", payload, subjects, vec![]);
+    let error = closed_storage()
+        .await
         .save_group(&input, deadline())
         .await
         .unwrap_err();
@@ -133,30 +171,16 @@ async fn lookup_obeys_deadline() {
     with_postgres(async |pool, control| {
         let storage = PostgresLearnerStorage::new(pool.clone());
         let error = storage
-            .existing_subject_ids(
-                &yomibu_ext::wanikani::collection(),
-                &["1".into()],
-                Instant::now(),
-            )
+            .existing_subject_ids(&wanikani::collection(), &["1".into()], Instant::now())
             .await
             .unwrap_err();
         assert!(error.to_string().contains("deadline"));
         let held = pool.acquire().await.unwrap();
         assert_lookup_deadline(&storage).await;
         drop(held);
-        let mut lock = control.begin().await.unwrap();
-        sqlx::query("LOCK TABLE subjects IN ACCESS EXCLUSIVE MODE")
-            .execute(&mut *lock)
-            .await
-            .unwrap();
+        let lock = lock_table(control, "subjects", "ACCESS EXCLUSIVE").await;
         assert_lookup_deadline(&storage).await;
-        tokio::time::timeout(
-            Duration::from_secs(7),
-            sqlx::query("SELECT 1").execute(pool),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        recover(pool).await;
         lock.rollback().await.unwrap();
     })
     .await;
@@ -165,7 +189,7 @@ async fn assert_lookup_deadline(storage: &PostgresLearnerStorage) {
     let error = tokio::time::timeout(
         Duration::from_secs(1),
         storage.existing_subject_ids(
-            &yomibu_ext::wanikani::collection(),
+            &wanikani::collection(),
             &["1".into()],
             Instant::now() + Duration::from_millis(50),
         ),
@@ -174,18 +198,6 @@ async fn assert_lookup_deadline(storage: &PostgresLearnerStorage) {
     .unwrap()
     .unwrap_err();
     assert!(error.to_string().contains("deadline"));
-}
-
-#[path = "support/wanikani.rs"]
-mod fixtures;
-use fixtures::{at, group, progress, seed, source, subject};
-use sqlx::PgPool;
-use yomibu_core::ports::infrastructure::collection_import::{
-    ImportWriteError, MAX_REQUEST_INPUT_BYTES, SaveGroupWriter, SourceRecord,
-};
-
-async fn snapshot(pool: &PgPool) -> String {
-    sqlx::query_scalar("SELECT jsonb_build_object('collections',(SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM collections c), 'sources',(SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM learner_progress_sources s),'subjects',(SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM subjects s),'progress',(SELECT jsonb_agg(to_jsonb(p) ORDER BY learner_progress_source_id,subject_id) FROM learner_progress p))::text").fetch_one(pool).await.unwrap()
 }
 
 #[tokio::test]
@@ -218,18 +230,16 @@ async fn shared_storage_persists_grammar_kind() {
     with_postgres(async |pool, control| {
         seed(control).await;
         let mut grammar = subject(1, 10);
-        grammar.kind = Some(yomibu_core::domain::MaterialKind::Grammar);
-        let input = yomibu_core::ports::infrastructure::collection_import::PreparedSaveGroup::new(
+        grammar.kind = Some(MaterialKind::Grammar);
+        // The shared model permits grammar subjects; only WaniKani preparation rejects them.
+        let input = prepared(
             shared_collection("lessons", "grammar"),
-            yomibu_core::ports::infrastructure::collection_import::LearnerProgressSourceIdentity {
-                learner_id: yomibu_core::domain::LearnerId(uuid::Uuid::from_u128(1)),
-                external_account_id: "account".into(),
-            },
+            1,
+            "account",
             source(10, "account"),
             vec![grammar],
             vec![],
-        )
-        .expect("the shared model permits grammar subjects");
+        );
         PostgresLearnerStorage::new(pool.clone())
             .save_group(&input, deadline())
             .await
@@ -243,53 +253,6 @@ async fn shared_storage_persists_grammar_kind() {
         );
     })
     .await;
-}
-
-fn shared_collection(
-    provider: &str,
-    key: &str,
-) -> yomibu_core::ports::infrastructure::collection_import::SharedCollection {
-    yomibu_core::ports::infrastructure::collection_import::SharedCollection {
-        provider: provider.into(),
-        key: key.into(),
-        name: "Supplied lessons".into(),
-    }
-}
-
-fn shared_group(
-    collection: yomibu_core::ports::infrastructure::collection_import::SharedCollection,
-    id: &str,
-    t: i64,
-    supply_subject: bool,
-) -> yomibu_core::ports::infrastructure::collection_import::PreparedSaveGroup {
-    use yomibu_core::ports::infrastructure::collection_import::{
-        LearnerProgressSourceIdentity, PreparedSubject,
-    };
-    let subjects = if supply_subject {
-        vec![PreparedSubject {
-            external_id: id.into(),
-            kind: Some(yomibu_core::domain::MaterialKind::Vocabulary),
-            source: SourceRecord::new(at(t), r#"["opaque",{"content":"lesson"}]"#).unwrap(),
-        }]
-    } else {
-        vec![]
-    };
-    yomibu_core::ports::infrastructure::collection_import::PreparedSaveGroup::new(
-        collection,
-        LearnerProgressSourceIdentity {
-            learner_id: yomibu_core::domain::LearnerId(uuid::Uuid::from_u128(1)),
-            external_account_id: "account:learner/1".into(),
-        },
-        source(t, "account"),
-        subjects,
-        vec![
-            yomibu_core::ports::infrastructure::collection_import::PreparedProgress {
-                subject_external_id: id.into(),
-                ..progress(1, t, t + 5)
-            },
-        ],
-    )
-    .unwrap()
 }
 
 #[tokio::test]
@@ -341,11 +304,11 @@ async fn identical_external_ids_are_isolated_by_supplied_collection() {
         assert!(storage.existing_subject_ids(&shared_collection("absent", "alpha"), &requested, deadline()).await.unwrap().is_empty());
 
         let mut changed = shared_group(collections[0].clone(), id, 30, true).subjects()[0].clone();
-        changed.kind = Some(yomibu_core::domain::MaterialKind::Grammar);
-        let input = yomibu_core::ports::infrastructure::collection_import::PreparedSaveGroup::new(
-            collections[0].clone(), shared_group(collections[0].clone(), id, 30, false).learner_progress_source().clone(),
-            source(30, "changed account"), vec![changed], vec![yomibu_core::ports::infrastructure::collection_import::PreparedProgress { subject_external_id: id.into(), ..progress(1, 30, 35) }],
-        ).unwrap();
+        changed.kind = Some(MaterialKind::Grammar);
+        let input = prepared(
+            collections[0].clone(), 1, "account:learner/1", source(30, "changed account"),
+            vec![changed], vec![PreparedProgress { subject_external_id: id.into(), ..progress(1, 30, 35) }],
+        );
         assert_eq!(storage.save_group(&input, deadline()).await.unwrap(), receipts[0]);
         for index in 0..3 {
             let row: (uuid::Uuid, String, chrono::DateTime<chrono::Utc>, uuid::Uuid, chrono::DateTime<chrono::Utc>) = sqlx::query_as("SELECT s.id,s.kind::text,s.source_updated_at,p.subject_id,p.recorded_at FROM subjects s JOIN learner_progress p ON p.subject_id=s.id WHERE s.collection_id=$1 AND s.external_id=$2 AND p.learner_progress_source_id=$3")
@@ -393,11 +356,7 @@ async fn reuse_subjects_and_resolve_a_concurrent_insert() {
         let storage = PostgresLearnerStorage::new(pool.clone());
         assert!(
             storage
-                .existing_subject_ids(
-                    &yomibu_ext::wanikani::collection(),
-                    &["1".into()],
-                    deadline()
-                )
+                .existing_subject_ids(&wanikani::collection(), &["1".into()], deadline())
                 .await
                 .unwrap()
                 .is_empty()
@@ -561,52 +520,34 @@ async fn failure_in_later_chunk_rolls_back_only_its_group() {
 
 #[tokio::test]
 async fn postgres_representation_checks_belong_to_the_adapter() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgres://localhost/unused")
-        .unwrap();
-    pool.close().await;
-    let storage = PostgresLearnerStorage::new(pool);
     let bad = SourceRecord::new(at(0) + chrono::Duration::nanoseconds(1), "{}").unwrap();
-    let input = prepared_group(
-        yomibu_core::domain::LearnerId(uuid::Uuid::nil()),
-        "a".into(),
-        bad,
-        vec![],
-        vec![],
-    )
-    .unwrap();
-    let error = storage.save_group(&input, deadline()).await.unwrap_err();
+    let input = prepared(wanikani::collection(), 0, "a", bad, vec![], vec![]);
+    let error = closed_storage()
+        .await
+        .save_group(&input, deadline())
+        .await
+        .unwrap_err();
     assert!(matches!(error, ImportWriteError::NotSaved(_)));
     assert!(error.to_string().contains("timestamp"));
 }
 
 #[tokio::test]
 async fn encoding_preserves_payload_and_accounts_for_envelope_bytes() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgres://localhost/unused")
-        .unwrap();
-    pool.close().await;
-    let storage = PostgresLearnerStorage::new(pool);
     let account = source(10, "a");
     let mut p = progress(1, 10, 20);
-    let collection = yomibu_ext::wanikani::collection();
-    let fixed = collection.provider.len()
-        + collection.key.len()
-        + collection.name.len()
+    let collection = wanikani::collection();
+    let fixed = collection.input_bytes()
         + 1
         + p.subject_external_id.len()
         + account.payload().get().len()
         + p.source.payload().get().len();
     p.progress_stage = Some("x".repeat(MAX_REQUEST_INPUT_BYTES - fixed));
-    let input = prepared_group(
-        yomibu_core::domain::LearnerId(uuid::Uuid::nil()),
-        "a".into(),
-        account,
-        vec![],
-        vec![p],
-    )
-    .unwrap();
-    let error = storage.save_group(&input, deadline()).await.unwrap_err();
+    let input = prepared(collection, 0, "a", account, vec![], vec![p]);
+    let error = closed_storage()
+        .await
+        .save_group(&input, deadline())
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("encoded"));
 }
 
@@ -637,27 +578,20 @@ async fn jsonb_rejection_rolls_back_preceding_writes() {
 async fn controlled_overlapping_first_saves_and_reimports() {
     with_postgres(async |pool, control| {
         seed(control).await;
-        let other = support::connect((*pool.connect_options()).clone()).await;
-        let observer = support::connect((*pool.connect_options()).clone()).await;
-        let pids: Vec<i32> = vec![sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(pool).await.unwrap(), sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&other).await.unwrap()];
+        let other = another_session(pool).await;
+        let observer = another_session(pool).await;
+        let pids = [backend_pid(pool).await, backend_pid(&other).await];
         let first = PostgresLearnerStorage::new(pool.clone());
         let second = PostgresLearnerStorage::new(other.clone());
         for (repeated, unknown_freshness) in [(false, false), (true, false), (false, true)] {
             if unknown_freshness {
                 sqlx::query("UPDATE subjects SET source_updated_at=NULL").execute(control).await.unwrap();
             }
-            let mut lock = control.begin().await.unwrap();
-            sqlx::query(if repeated { "LOCK TABLE learner_progress_sources IN SHARE MODE" } else { "LOCK TABLE subjects IN SHARE MODE" }).execute(&mut *lock).await.unwrap();
+            let lock = lock_table(control, if repeated { "learner_progress_sources" } else { "subjects" }, "SHARE").await;
             let left = group(1, "a", 30, vec![subject(2, 30), subject(1, 30)], vec![progress(2, 30, 20), progress(1, 30, 20)]);
             let right = group(if repeated { 1 } else { 2 }, if repeated { "a" } else { "b" }, 5, vec![subject(1, 5), subject(2, 5)], vec![progress(1, 5, 40), progress(2, 5, 40)]);
             let release = async {
-                loop {
-                    let blocked: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1) AND wait_event_type='Lock'").bind(&pids).fetch_one(&observer).await.unwrap();
-                    if blocked == 2 {
-                        break;
-                    }
-                    tokio::task::yield_now().await;
-                }
+                blocked(&observer, &pids).await;
                 lock.commit().await.unwrap();
             };
             let (a, b, ()) = tokio::join!(first.save_group(&left, deadline()), second.save_group(&right, deadline()), release);
@@ -681,24 +615,24 @@ async fn equal_and_older_account_and_subject_payloads_do_not_replace() {
     with_postgres(async |pool, control| {
         seed(control).await;
         let storage = PostgresLearnerStorage::new(pool.clone());
-        let first = group(1, "a", 10, vec![subject(1, 10)], vec![]);
-        storage.save_group(&first, deadline()).await.unwrap();
+        storage
+            .save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![]), deadline())
+            .await
+            .unwrap();
         let before = snapshot(control).await;
         for t in [10, 5] {
-            let changed = prepared_group(
-                first.learner_progress_source().learner_id,
-                "a".into(),
+            let changed = prepared(
+                wanikani::collection(),
+                1,
+                "a",
                 source(t, "changed access"),
-                vec![
-                    yomibu_core::ports::infrastructure::collection_import::PreparedSubject {
-                        external_id: "1".into(),
-                        kind: None,
-                        source: source(t, "changed subject"),
-                    },
-                ],
+                vec![PreparedSubject {
+                    external_id: "1".into(),
+                    kind: None,
+                    source: source(t, "changed subject"),
+                }],
                 vec![],
-            )
-            .unwrap();
+            );
             storage.save_group(&changed, deadline()).await.unwrap();
             assert_eq!(snapshot(control).await, before);
         }
@@ -741,7 +675,7 @@ async fn completion_rejects_unknown_mismatched_and_out_of_scope_sources() {
         let manual_source: uuid::Uuid = sqlx::query_scalar("INSERT INTO learner_progress_sources(learner_id,collection_id) VALUES($1,$2) RETURNING id").bind(uuid::Uuid::from_u128(1)).bind(saved.collection_id.0).fetch_one(control).await.unwrap();
         let before = snapshot(control).await;
         for (collection, source) in [(private, private_source), (saved.collection_id.0, manual_source), (private, saved.learner_progress_source_id.0), (saved.collection_id.0, uuid::Uuid::nil())] {
-            assert!(matches!(storage.record_completion(yomibu_core::domain::CollectionId(collection), yomibu_core::domain::LearnerProgressSourceId(source), at(20), deadline()).await, Err(ImportWriteError::NotSaved(_))));
+            assert!(matches!(storage.record_completion(CollectionId(collection), LearnerProgressSourceId(source), at(20), deadline()).await, Err(ImportWriteError::NotSaved(_))));
             assert_eq!(snapshot(control).await, before);
         }
     }).await;
@@ -753,34 +687,48 @@ async fn overlapping_completions_do_not_regress() {
     with_postgres(async |pool, control| {
         seed(control).await;
         let storage = PostgresLearnerStorage::new(pool.clone());
-        let saved = storage.save_group(&group(1, "a", 10, vec![], vec![]), deadline()).await.unwrap();
+        let saved = storage
+            .save_group(&group(1, "a", 10, vec![], vec![]), deadline())
+            .await
+            .unwrap();
         let source = saved.learner_progress_source_id;
-        let other = support::connect((*pool.connect_options()).clone()).await;
-        let observer = support::connect((*pool.connect_options()).clone()).await;
+        let other = another_session(pool).await;
+        let observer = another_session(pool).await;
         let second = PostgresLearnerStorage::new(other.clone());
         // Both completion calls must select their own isolation, independently of
         // the pool's session default. Otherwise one overlapping update gets 40001.
         for connection in [pool, &other] {
             sqlx::query("SET default_transaction_isolation='repeatable read'")
-                .execute(connection).await.unwrap();
+                .execute(connection)
+                .await
+                .unwrap();
         }
-        let pids: Vec<i32> = vec![sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(pool).await.unwrap(), sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&other).await.unwrap()];
+        let pids = [backend_pid(pool).await, backend_pid(&other).await];
         let mut lock = control.begin().await.unwrap();
-        sqlx::query("SELECT id FROM learner_progress_sources FOR UPDATE").execute(&mut *lock).await.unwrap();
+        sqlx::query("SELECT id FROM learner_progress_sources FOR UPDATE")
+            .execute(&mut *lock)
+            .await
+            .unwrap();
         let release = async {
-            loop {
-                let count: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1) AND wait_event_type='Lock'").bind(&pids).fetch_one(&observer).await.unwrap();
-                if count == 2 {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
+            blocked(&observer, &pids).await;
             lock.commit().await.unwrap();
         };
-        let (new, old, ()) = tokio::join!(storage.record_completion(saved.collection_id, source, at(40), deadline()), second.record_completion(saved.collection_id, source, at(20), deadline()), release);
+        let (new, old, ()) = tokio::join!(
+            storage.record_completion(saved.collection_id, source, at(40), deadline()),
+            second.record_completion(saved.collection_id, source, at(20), deadline()),
+            release
+        );
         assert_eq!(new.unwrap().last_import_completed_at, at(40));
         assert!(old.unwrap().last_import_completed_at >= at(20));
-        assert_eq!(sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>("SELECT last_import_completed_at FROM learner_progress_sources").fetch_one(control).await.unwrap(), at(40));
+        assert_eq!(
+            sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+                "SELECT last_import_completed_at FROM learner_progress_sources"
+            )
+            .fetch_one(control)
+            .await
+            .unwrap(),
+            at(40)
+        );
         other.close().await;
         observer.close().await;
     })
@@ -789,15 +737,11 @@ async fn overlapping_completions_do_not_regress() {
 
 #[tokio::test]
 async fn completion_representation_rejection_precedes_acquisition() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgres://localhost/unused")
-        .unwrap();
-    pool.close().await;
-    let storage = PostgresLearnerStorage::new(pool);
-    let error = storage
+    let error = closed_storage()
+        .await
         .record_completion(
-            yomibu_core::domain::CollectionId(uuid::Uuid::nil()),
-            yomibu_core::domain::LearnerProgressSourceId(uuid::Uuid::nil()),
+            CollectionId(uuid::Uuid::nil()),
+            LearnerProgressSourceId(uuid::Uuid::nil()),
             at(0) + chrono::Duration::nanoseconds(1),
             deadline(),
         )
@@ -809,11 +753,7 @@ async fn completion_representation_rejection_precedes_acquisition() {
 
 #[tokio::test]
 async fn every_timestamp_field_is_validated_before_acquisition() {
-    let pool = PgPoolOptions::new()
-        .connect_lazy("postgres://localhost/unused")
-        .unwrap();
-    pool.close().await;
-    let storage = PostgresLearnerStorage::new(pool);
+    let storage = closed_storage().await;
     let submicro = at(10) + chrono::Duration::nanoseconds(1);
     for field in 0..5 {
         let mut s = subject(1, 10);
@@ -838,14 +778,14 @@ async fn every_timestamp_field_is_validated_before_acquisition() {
         chrono::DateTime::<chrono::Utc>::MIN_UTC,
         chrono::DateTime::from_timestamp(1_700_000_039, 1_000_000_000).unwrap(),
     ] {
-        let input = prepared_group(
-            yomibu_core::domain::LearnerId(uuid::Uuid::nil()),
-            "a".into(),
+        let input = prepared(
+            wanikani::collection(),
+            0,
+            "a",
             SourceRecord::new(timestamp, "{}").unwrap(),
             vec![],
             vec![],
-        )
-        .unwrap();
+        );
         assert!(
             storage
                 .save_group(&input, deadline())
@@ -867,7 +807,7 @@ async fn supported_timestamp_endpoints_round_trip_without_loss() {
         let lower = epoch - chrono::Duration::microseconds(211_813_488_000_000_000);
         let upper = chrono::DateTime::<chrono::Utc>::MAX_UTC - chrono::Duration::nanoseconds(999);
         for (account, time) in [("lower", lower), ("upper", upper)] {
-            let input = prepared_group(yomibu_core::domain::LearnerId(uuid::Uuid::from_u128(1)), account.into(), SourceRecord::new(time, "{}").unwrap(), vec![], vec![]).unwrap();
+            let input = prepared(wanikani::collection(), 1, account, SourceRecord::new(time, "{}").unwrap(), vec![], vec![]);
             let receipt = storage.save_group(&input, deadline()).await.unwrap();
             // Replaying exercises a timestamp cast from the persisted envelope.
             assert_eq!(storage.save_group(&input, deadline()).await.unwrap(), receipt);
@@ -876,30 +816,6 @@ async fn supported_timestamp_endpoints_round_trip_without_loss() {
             assert_eq!(storage.record_completion(receipt.collection_id, receipt.learner_progress_source_id, time, deadline()).await.unwrap().last_import_completed_at, time);
         }
     }).await;
-}
-
-// Direct shared-contract construction for backend representation tests. Provider
-// validation is exercised once in the integration's unit tests.
-fn prepared_group(
-    learner: yomibu_core::domain::LearnerId,
-    account: String,
-    source: SourceRecord,
-    subjects: Vec<yomibu_core::ports::infrastructure::collection_import::PreparedSubject>,
-    progress: Vec<yomibu_core::ports::infrastructure::collection_import::PreparedProgress>,
-) -> Result<
-    yomibu_core::ports::infrastructure::collection_import::PreparedSaveGroup,
-    yomibu_core::ports::infrastructure::collection_import::InvalidSaveGroup,
-> {
-    yomibu_core::ports::infrastructure::collection_import::PreparedSaveGroup::new(
-        yomibu_ext::wanikani::collection(),
-        yomibu_core::ports::infrastructure::collection_import::LearnerProgressSourceIdentity {
-            learner_id: learner,
-            external_account_id: account,
-        },
-        source,
-        subjects,
-        progress,
-    )
 }
 
 #[tokio::test]
@@ -911,7 +827,7 @@ async fn unknown_subject_freshness_initializes_without_changing_identity() {
         let original = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 50)]), deadline()).await.unwrap();
         sqlx::query("UPDATE subjects SET source_updated_at=NULL").execute(control).await.unwrap();
         let before: (uuid::Uuid, String) = sqlx::query_as("SELECT id,to_jsonb(s)::text FROM subjects s").fetch_one(control).await.unwrap();
-        assert_eq!(storage.existing_subject_ids(&yomibu_ext::wanikani::collection(), &["1".into()], deadline()).await.unwrap(), vec!["1"]);
+        assert_eq!(storage.existing_subject_ids(&wanikani::collection(), &["1".into()], deadline()).await.unwrap(), vec!["1"]);
         let mut incoming = subject(1, 30);
         incoming.kind = None;
         let expected_payload: serde_json::Value = serde_json::from_str(incoming.source.payload().get()).unwrap();

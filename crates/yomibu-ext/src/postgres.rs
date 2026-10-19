@@ -3,7 +3,11 @@ mod transaction;
 
 use std::{future::Future, pin::Pin, time::Instant};
 
-use sqlx::{PgPool, Postgres, pool::PoolConnection};
+use sqlx::{
+    PgPool, Postgres,
+    pool::PoolConnection,
+    postgres::{PgDatabaseError, PgSeverity},
+};
 use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
 use yomibu_core::ports::infrastructure::{
     LearnerCollectionQuery, LearnerWriteError, LearnerWriter, StorageError,
@@ -47,12 +51,15 @@ impl LearnerCollectionQuery for PostgresLearnerStorage {
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CollectionId>, StorageError>> + '_>> {
         Box::pin(async move {
-            reject_expired(deadline)?;
-            let mut connection = tokio::time::timeout_at(deadline.into(), self.pool.acquire())
-                .await
-                .map_err(|_| StorageError::collection_lookup_deadline_exceeded())?
-                .map_err(storage_error)?;
-            reject_expired(deadline)?;
+            expired(deadline, StorageError::collection_lookup_deadline_exceeded)?;
+            let mut connection = bounded(deadline, self.pool.acquire(), |error| {
+                error.map_or_else(
+                    StorageError::collection_lookup_deadline_exceeded,
+                    storage_error,
+                )
+            })
+            .await?;
+            expired(deadline, StorageError::collection_lookup_deadline_exceeded)?;
             let query = sqlx::query_scalar::<_, uuid::Uuid>(
                 "SELECT DISTINCT collection_id FROM learner_progress_sources WHERE learner_id = $1",
             )
@@ -65,7 +72,7 @@ impl LearnerCollectionQuery for PostgresLearnerStorage {
                     return Err(StorageError::collection_lookup_deadline_exceeded());
                 }
             };
-            reject_expired(deadline)?;
+            expired(deadline, StorageError::collection_lookup_deadline_exceeded)?;
             Ok(ids.into_iter().map(CollectionId).collect())
         })
     }
@@ -78,17 +85,14 @@ impl LearnerWriter for PostgresLearnerStorage {
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<LearnerId, LearnerWriteError>> + '_>> {
         Box::pin(async move {
-            let expired = || LearnerWriteError::NotCreated("creation deadline exceeded".into());
-            if Instant::now() >= deadline {
-                return Err(expired());
-            }
-            let connection = tokio::time::timeout_at(deadline.into(), self.pool.acquire())
-                .await
-                .map_err(|_| expired())?
-                .map_err(|error| LearnerWriteError::NotCreated(failure_reason(error)))?;
-            if Instant::now() >= deadline {
-                return Err(expired());
-            }
+            let not_created = || LearnerWriteError::NotCreated("creation deadline exceeded".into());
+            let connection = bounded(deadline, self.pool.acquire(), |error| {
+                error.map_or_else(not_created, |error| {
+                    LearnerWriteError::NotCreated(failure_reason(error))
+                })
+            })
+            .await?;
+            expired(deadline, not_created)?;
             let mut connection = WriteConnection {
                 connection,
                 confirmed: false,
@@ -100,12 +104,13 @@ impl LearnerWriter for PostgresLearnerStorage {
             )
             .bind(name.as_str())
             .fetch_one(&mut *connection.connection);
-            let id = tokio::time::timeout_at(deadline.into(), insert)
-                .await
-                .map_err(|_| {
-                    LearnerWriteError::CompletionUnknown("creation deadline exceeded".into())
-                })?
-                .map_err(write_error)?;
+            let id = bounded(deadline, insert, |error| {
+                error.map_or_else(
+                    || LearnerWriteError::CompletionUnknown("creation deadline exceeded".into()),
+                    write_error,
+                )
+            })
+            .await?;
             connection.confirmed = true;
             // Preserve confirmed creation even if observed after the deadline.
             // Application classifies late completion while retaining the UUID.
@@ -130,15 +135,8 @@ impl Drop for WriteConnection {
 }
 
 fn write_error(error: sqlx::Error) -> LearnerWriteError {
-    use sqlx::postgres::PgDatabaseError;
-
-    // Only classify explicit statement rejections, not fatal connection errors
-    // or SQLSTATEs such as 40003 (statement_completion_unknown). No inference from
-    // provider messages or from the mere presence of an ErrorResponse is safe.
-    let rejected = error
-        .as_database_error()
-        .and_then(|error| error.try_downcast_ref::<PgDatabaseError>())
-        .is_some_and(|error| is_statement_rejection(error.severity(), error.code()));
+    // SQLSTATEs such as 40003 (statement_completion_unknown) never qualify.
+    let rejected = rejected_by(&error, is_statement_rejection);
     let reason = failure_reason(error);
     if rejected {
         LearnerWriteError::NotCreated(reason)
@@ -147,17 +145,40 @@ fn write_error(error: sqlx::Error) -> LearnerWriteError {
     }
 }
 
-fn is_statement_rejection(severity: sqlx::postgres::PgSeverity, code: &str) -> bool {
-    severity == sqlx::postgres::PgSeverity::Error
-        && (code.starts_with("23") || code.starts_with("42"))
+fn is_statement_rejection(severity: PgSeverity, code: &str) -> bool {
+    severity == PgSeverity::Error && (code.starts_with("23") || code.starts_with("42"))
 }
 
-/// Fails once the deadline has been reached.
-fn reject_expired(deadline: Instant) -> Result<(), StorageError> {
+/// Whether `error` is an explicit statement rejection whose severity and SQLSTATE
+/// satisfy `rule`. Fatal connection errors and the mere presence of an
+/// ErrorResponse never qualify; provider messages are never inspected.
+fn rejected_by(error: &sqlx::Error, rule: fn(PgSeverity, &str) -> bool) -> bool {
+    error
+        .as_database_error()
+        .and_then(|error| error.try_downcast_ref::<PgDatabaseError>())
+        .is_some_and(|error| rule(error.severity(), error.code()))
+}
+
+/// Fails with `error` once the deadline has been reached.
+fn expired<E>(deadline: Instant, error: impl FnOnce() -> E) -> Result<(), E> {
     if Instant::now() >= deadline {
-        return Err(StorageError::collection_lookup_deadline_exceeded());
+        return Err(error());
     }
     Ok(())
+}
+
+/// Runs one driver operation under the deadline. `failure` receives the driver
+/// error, or `None` when the deadline preceded or interrupted the operation.
+async fn bounded<T, E>(
+    deadline: Instant,
+    operation: impl Future<Output = Result<T, sqlx::Error>>,
+    failure: impl Fn(Option<sqlx::Error>) -> E,
+) -> Result<T, E> {
+    expired(deadline, || failure(None))?;
+    match tokio::time::timeout_at(deadline.into(), operation).await {
+        Ok(result) => result.map_err(|error| failure(Some(error))),
+        Err(_) => Err(failure(None)),
+    }
 }
 
 fn storage_error(error: sqlx::Error) -> StorageError {

@@ -29,13 +29,33 @@ pub(crate) struct Counters {
     pub(crate) bind_bytes: AtomicUsize,
     pub(crate) max_bind_bytes: AtomicUsize,
 }
+/// One consistent reading of the relay counters.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Sample {
+    pub(crate) commands: usize,
+    pub(crate) parses: usize,
+    pub(crate) exchanges: usize,
+    pub(crate) bind_bytes: usize,
+    pub(crate) max_bind_bytes: usize,
+}
+impl Counters {
+    pub(crate) fn sample(&self) -> Sample {
+        Sample {
+            commands: self.commands.load(Ordering::Relaxed),
+            parses: self.parses.load(Ordering::Relaxed),
+            exchanges: self.exchanges.load(Ordering::Relaxed),
+            bind_bytes: self.bind_bytes.load(Ordering::Relaxed),
+            max_bind_bytes: self.max_bind_bytes.load(Ordering::Relaxed),
+        }
+    }
+}
 struct State {
     fault: Fault,
     armed: AtomicBool,
     reached: Notify,
     release: Notify,
     delivered: Notify,
-    counters: Arc<Counters>,
+    counters: Counters,
 }
 pub(crate) struct Relay {
     pub(crate) options: PgConnectOptions,
@@ -57,7 +77,7 @@ impl Relay {
             reached: Notify::new(),
             release: Notify::new(),
             delivered: Notify::new(),
-            counters: Arc::new(Counters::default()),
+            counters: Counters::default(),
         });
         let shared = Arc::clone(&state);
         let task = tokio::spawn(async move {
@@ -94,8 +114,8 @@ impl Relay {
     pub(crate) async fn delivered(&self) {
         self.state.delivered.notified().await;
     }
-    pub(crate) fn counters(&self) -> Arc<Counters> {
-        Arc::clone(&self.state.counters)
+    pub(crate) fn counters(&self) -> &Counters {
+        &self.state.counters
     }
 }
 impl Drop for Relay {

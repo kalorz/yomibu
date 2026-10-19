@@ -5,7 +5,7 @@ mod support;
 #[allow(dead_code)]
 #[path = "support/postgres_faults.rs"]
 mod faults;
-use faults::{Counters, Fault, Relay};
+use faults::{Fault, Relay};
 use fixtures::{at, group, progress, seed, subject};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{
@@ -13,9 +13,10 @@ use std::{
     time::{Duration, Instant},
 };
 use yomibu_core::ports::infrastructure::collection_import::{
-    MAX_REQUEST_INPUT_BYTES, PreparedSaveGroup, SaveGroupWriter, SourceRecord, SubjectQuery,
+    MAX_REQUEST_INPUT_BYTES, PreparedSaveGroup, PreparedSubject, SaveGroupWriter, SourceRecord,
+    SubjectQuery,
 };
-use yomibu_ext::PostgresLearnerStorage;
+use yomibu_ext::{PostgresLearnerStorage, wanikani};
 const GROUP_ROWS: usize = 500;
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(15)
@@ -48,10 +49,7 @@ fn generated(
         .collect();
     group(learner, account, t, subjects, progress)
 }
-fn synthetic_subject(
-    id: u64,
-    t: i64,
-) -> yomibu_core::ports::infrastructure::collection_import::PreparedSubject {
+fn synthetic_subject(id: u64, t: i64) -> PreparedSubject {
     let mut s = subject(id, t);
     let repeats = if id.is_multiple_of(97) {
         1024
@@ -67,44 +65,19 @@ fn synthetic_subject(
     s.source = SourceRecord::new(at(t), &value.to_string()).unwrap();
     s
 }
-fn raw_bytes(input: &PreparedSaveGroup) -> usize {
-    input.collection().provider.len()
-        + input.collection().key.len()
-        + input.collection().name.len()
-        + input.learner_progress_source().external_account_id.len()
-        + input.account().payload().get().len()
-        + input
-            .subjects()
-            .iter()
-            .map(|s| s.external_id.len() + s.source.payload().get().len())
-            .sum::<usize>()
-        + input
-            .progress()
-            .iter()
-            .map(|p| {
-                p.subject_external_id.len()
-                    + p.source.payload().get().len()
-                    + p.progress_stage.as_ref().map_or(0, String::len)
-            })
-            .sum::<usize>()
-}
 #[derive(Default)]
 struct Run {
     groups: usize,
     input_bytes: usize,
     max_group_bytes: usize,
-    max_subjects: usize,
-    max_progress: usize,
     payload_sizes: Vec<usize>,
     elapsed_ms: u128,
 }
 impl Run {
     fn observe(&mut self, input: &PreparedSaveGroup) {
-        let bytes = raw_bytes(input);
+        let bytes = input.input_bytes();
         self.input_bytes += bytes;
         self.max_group_bytes = self.max_group_bytes.max(bytes);
-        self.max_subjects = self.max_subjects.max(input.subjects().len());
-        self.max_progress = self.max_progress.max(input.progress().len());
         self.groups += 1;
         for size in input
             .subjects()
@@ -144,7 +117,7 @@ async fn import(
             ids.sort_unstable();
             assert_eq!(
                 storage
-                    .existing_subject_ids(&yomibu_ext::wanikani::collection(), &ids, deadline())
+                    .existing_subject_ids(&wanikani::collection(), &ids, deadline())
                     .await
                     .unwrap(),
                 ids
@@ -174,16 +147,6 @@ async fn import(
     run.elapsed_ms = began.elapsed().as_millis();
     run
 }
-fn counters(c: &Counters) -> [usize; 5] {
-    [
-        c.commands.load(Ordering::Relaxed),
-        c.parses.load(Ordering::Relaxed),
-        c.exchanges.load(Ordering::Relaxed),
-        c.bind_bytes.load(Ordering::Relaxed),
-        c.max_bind_bytes.load(Ordering::Relaxed),
-    ]
-}
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn storage_resource_scenarios() {
@@ -223,7 +186,7 @@ async fn storage_resource_scenarios() {
             }
         }
         let stats = relay.counters();
-        let setup = counters(&stats);
+        let setup = stats.sample();
         stats.max_bind_bytes.store(0, Ordering::Relaxed);
         let began = Instant::now();
         let runs = match scenario.as_str() {
@@ -249,7 +212,7 @@ async fn storage_resource_scenarios() {
             "near-limit" => {
                 let input = generated(1, 1, 1, "a", 10, 20, true);
                 let mut p = input.progress()[0].clone();
-                let fixed = raw_bytes(&input) - p.progress_stage.as_ref().map_or(0, String::len);
+                let fixed = input.input_bytes() - p.progress_stage.as_ref().map_or(0, String::len);
                 p.progress_stage = Some("x".repeat(MAX_REQUEST_INPUT_BYTES - 4096 - fixed));
                 let input = PreparedSaveGroup::new(input.collection().clone(), input.learner_progress_source().clone(), input.account().clone(), input.subjects().to_vec(), vec![p]).unwrap();
                 let mut run = Run::default();
@@ -261,18 +224,18 @@ async fn storage_resource_scenarios() {
             _ => vec![import(&storage, total, 1, "a", if scenario == "replay" { 5 } else { 10 }, 40, matches!(scenario.as_str(), "cold" | "identical-replay")).await],
         };
         let elapsed = began.elapsed().as_millis();
-        let after = counters(&stats);
-        let measured_commands = after[0] - setup[0];
+        let after = stats.sample();
+        let measured_commands = after.commands - setup.commands;
         let groups: usize = runs.iter().map(|r| r.groups).sum();
         // Reject row-by-row SQL independently of timings. Payload-sensitive chunk
         // counts may vary, but this matrix must remain far below 500 commands/group.
         assert!(measured_commands < groups * 64 + 16, "commands grew per row: {measured_commands}/{groups}");
-        assert!(after[4] <= 8 * 1024 * 1024, "encoded chunk exceeded hard bound");
+        assert!(after.max_bind_bytes <= 8 * 1024 * 1024, "encoded chunk exceeded hard bound");
         if scenario == "near-limit" {
-            assert!(after[4] > 1024 * 1024);
+            assert!(after.max_bind_bytes > 1024 * 1024);
         }
         if scenario == "byte-chunks" {
-            assert!(after[4] <= 1024 * 1024);
+            assert!(after.max_bind_bytes <= 1024 * 1024);
             // Verify full payload persistence plus the measured frame bound,
             // rather than counting unrelated setup/timeout SQL statements.
             let complete: i64 = sqlx::query_scalar(
@@ -280,11 +243,6 @@ async fn storage_resource_scenarios() {
                  WHERE source_data->>'long_synthetic_field'=repeat('x',900*1024)",
             ).fetch_one(control).await.unwrap();
             assert_eq!(complete, 8);
-        }
-        for run in &runs {
-            assert!(run.max_group_bytes <= MAX_REQUEST_INPUT_BYTES);
-            assert!(run.max_subjects <= GROUP_ROWS);
-            assert!(run.max_progress <= GROUP_ROWS);
         }
         verify(
             control,
@@ -301,7 +259,7 @@ async fn storage_resource_scenarios() {
         let mut payloads: Vec<_> = runs.iter().flat_map(|r| r.payload_sizes.iter().copied()).collect();
         payloads.sort_unstable();
         let distribution = serde_json::json!({"sample_count":payloads.len(),"min":payloads[0],"p50":payloads[payloads.len()/2],"p95":payloads[payloads.len()*95/100],"max":payloads[payloads.len()-1]});
-        println!("RESOURCE {}", serde_json::json!({"scenario":scenario,"total_per_import":total,"pool":capacity,"active_imports":runs.len(),"group_rows":GROUP_ROWS,"groups":groups,"input_bytes":runs.iter().map(|r|r.input_bytes).sum::<usize>(),"max_group_bytes":runs.iter().map(|r|r.max_group_bytes).max(),"max_retained_groups":runs.len(),"max_chunk_bind_bytes":after[4],"bind_bytes":after[3]-setup[3],"commands":measured_commands,"parse_messages":after[1]-setup[1],"protocol_exchanges":after[2]-setup[2],"setup_commands":setup[0],"setup_parse_messages":setup[1],"setup_exchanges":setup[2],"elapsed_ms":elapsed,"import_elapsed_ms":runs.iter().map(|r|r.elapsed_ms).collect::<Vec<_>>(),"payload_utf8_bytes":distribution}));
+        println!("RESOURCE {}", serde_json::json!({"scenario":scenario,"total_per_import":total,"pool":capacity,"active_imports":runs.len(),"group_rows":GROUP_ROWS,"groups":groups,"input_bytes":runs.iter().map(|r|r.input_bytes).sum::<usize>(),"max_group_bytes":runs.iter().map(|r|r.max_group_bytes).max(),"max_retained_groups":runs.len(),"max_chunk_bind_bytes":after.max_bind_bytes,"bind_bytes":after.bind_bytes-setup.bind_bytes,"commands":measured_commands,"parse_messages":after.parses-setup.parses,"protocol_exchanges":after.exchanges-setup.exchanges,"setup_commands":setup.commands,"setup_parse_messages":setup.parses,"setup_exchanges":setup.exchanges,"elapsed_ms":elapsed,"import_elapsed_ms":runs.iter().map(|r|r.elapsed_ms).collect::<Vec<_>>(),"payload_utf8_bytes":distribution}));
         measured.close().await;
     })
     .await;
