@@ -234,8 +234,10 @@ impl std::error::Error for ImportWriteError {}
 /// inferred rollback. Dropping the future abandons delivery and may abandon an
 /// unknown commit outcome; the caller must account for this. Interrupted leases
 /// are discarded with bounded cleanup. Failures contain no source diagnostics.
-/// The adapter validates its encoded-resource bounds and backend representation
-/// before I/O, independently of the request's raw-input limits.
+/// Before I/O, the adapter validates encoded-resource bounds and lossless
+/// timestamp representation independently of the request's raw-input limits.
+/// Database-dependent checks, including JSONB representability, can reject the
+/// transaction atomically after earlier statements have run.
 pub trait WaniKaniGroupWriter {
     fn save_group<'a>(
         &'a self,

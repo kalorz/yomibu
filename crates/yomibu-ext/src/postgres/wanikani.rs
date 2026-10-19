@@ -116,13 +116,13 @@ fn progress_size(progress: &PreparedProgress) -> usize {
 }
 fn preflight(group: &PreparedSaveGroup) -> Result<(), ImportWriteError> {
     timestamp(group.account().updated_at())?;
-    let mut sizes = vec![encoded_size(
+    check_size(encoded_size(
         group.account(),
         group.external_account_id().len(),
-    )];
+    ))?;
     for subject in group.subjects() {
         timestamp(subject.source.updated_at())?;
-        sizes.push(subject_size(subject));
+        check_size(subject_size(subject))?;
     }
     for progress in group.progress() {
         for value in [
@@ -136,9 +136,13 @@ fn preflight(group: &PreparedSaveGroup) -> Result<(), ImportWriteError> {
         {
             timestamp(value)?;
         }
-        sizes.push(progress_size(progress));
+        check_size(progress_size(progress))?;
     }
-    if sizes.into_iter().any(|size| size > MAX_ENCODED_BYTES) {
+    Ok(())
+}
+
+fn check_size(size: usize) -> Result<(), ImportWriteError> {
+    if size > MAX_ENCODED_BYTES {
         return Err(invalid("record exceeds encoded argument limit"));
     }
     Ok(())

@@ -6,6 +6,11 @@ disallowed-methods = [
     "std::time::SystemTime::now",
     "std::env::var",
     "std::fs::read_to_string",
+    # SQLx can enable Chrono clock features through workspace feature unification.
+    { path = "chrono::Utc::now", allow-invalid = true },
+    { path = "chrono::Utc::today", allow-invalid = true },
+    { path = "chrono::Local::now", allow-invalid = true },
+    { path = "chrono::Local::today", allow-invalid = true },
     # These APIs only exist when dependencies enable UUID generation features.
     { path = "uuid::Uuid::now_v1", allow-invalid = true },
     { path = "uuid::Uuid::new_v4", allow-invalid = true },
@@ -16,6 +21,8 @@ disallowed-methods = [
     { path = "uuid::Timestamp::now", allow-invalid = true },
 ]
 disallowed-types = [
+    # Local timezone conversion consults ambient system configuration.
+    { path = "chrono::Local", allow-invalid = true },
     "std::fs::File",
     "std::net::TcpStream",
     { path = "uuid::ContextV7", allow-invalid = true },

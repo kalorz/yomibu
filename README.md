@@ -128,7 +128,8 @@ The PostgreSQL adapter contract and CLI wiring tests are explicitly ignored by
 that default command; CI runs them separately against PostgreSQL with pgvector. For a local run,
 supply a disposable PostgreSQL 18+ database with the `vector` extension
 installed in `public`, no application tables in `public`, and a test role permitted
-to create/drop schemas and terminate its own connections. With Compose running,
+to create/drop schemas, terminate its own connections, and set `deadlock_timeout`
+for the controlled deadlock test. With Compose running,
 create a separate test database once:
 
 ```sh
@@ -148,6 +149,72 @@ its schema on success. The adapter test covers database semantics; the CLI test
 checks the real command's output and exit behavior. Failed runs can leave test
 schemas behind; use only a disposable database. Missing prerequisites fail the
 explicit test run rather than substituting another backend.
+
+The [WaniKani storage contracts](crates/yomibu-core/src/ports/infrastructure/wanikani.rs)
+cover finite atomic groups and explicit successful-sync completion from
+[#109](https://github.com/kalorz/yomibu/issues/109). This storage slice has no HTTP
+reader, application import operation or CLI import command. Its PostgreSQL tests
+include controlled overlap, cancellation, deadlock rollback without retry,
+deferred commit rejection, and lost/late commit responses through a test-only
+loopback protocol relay. Use a trusted disposable local database for these fault tests.
+
+The ignored-test invocation also runs a bounded resource smoke test: 1,000 subjects
+and progress records, generated in groups of 500. The larger measurement matrix is
+opt-in. Run each combination in a separate process, setting the test database URL
+as above:
+
+```sh
+YOMIBU_STORAGE_RESOURCE_SCENARIO=cold \
+YOMIBU_STORAGE_RESOURCE_TOTAL=10000 \
+YOMIBU_STORAGE_RESOURCE_POOL=2 \
+  cargo test --locked -p yomibu-ext --test postgres_wanikani_resources -- --ignored --nocapture --test-threads=1
+```
+
+Scenarios are `cold`, `reuse` (no resupplied subjects), `replay` (stale progress
+with later observations), `identical-replay` (equal subject/progress payloads with
+later observations), `overlap-source`, and `overlap-accounts`. Measure each at
+1,000 and 10,000 records per import with pool sizes 1 and 2. The overlap scenarios
+have two active imports. Also run `near-limit` (one almost-8-MiB group) and
+`byte-chunks` (eight approximately 900-KiB subject payloads); their totals are fixed.
+The fixture generator retains one group per active import and a bounded size sample.
+
+Each `RESOURCE` JSON record reports raw input bytes, maximum group and Bind-frame
+bytes, SQL command count, Parse messages, protocol exchanges, elapsed time and a
+payload-size sample. Setup/prepopulation counters are separate. Exchanges count
+Simple Query and Sync boundaries, not TCP packets or measured network RTTs. For
+process peak memory, first compile with `--no-run`, then run the test executable
+printed by Cargo directly under the host's resource tool (Linux `/usr/bin/time -v`
+or Python `os.wait4`). Run one scenario per process; measuring Cargo or a parallel
+workspace suite does not isolate this test's RSS. RSS includes SQLx, fixtures,
+setup and the local relay; elapsed measurements exclude prepopulation.
+
+On Linux 6.18 x86_64, Rust 1.98.1 debug builds and the CI PostgreSQL 18 image,
+the 2026-10-19 measurement runs produced the following results. These synthetic
+measurements verify bounds and scaling; they are not an import latency SLA or
+measurements of live WaniKani payloads.
+
+| Scenario | Records per import | Elapsed ms, pool 1 / 2 | Peak RSS KiB, pool 1 / 2 | SQL commands |
+| --- | ---: | ---: | ---: | ---: |
+| Cold | 10,000 | 2,542 / 2,641 | 11,588 / 12,176 | 445 |
+| Reuse | 10,000 | 1,151 / 1,081 | 11,292 / 11,332 | 385 |
+| Stale replay | 10,000 | 1,107 / 1,156 | 11,608 / 12,284 | 385 |
+| Identical replay | 10,000 | 2,463 / 2,146 | 11,744 / 12,012 | 445 |
+| Overlap, same source | 10,000 × 2 | 4,501 / 4,740 | 12,792 / 13,408 | 890 |
+| Overlap, accounts | 10,000 × 2 | 4,648 / 4,004 | 12,896 / 13,428 | 890 |
+| Near byte limit | 1 | 93 / 90 | 33,468 / 33,016 | 18 |
+| Byte-based chunks | 8 | 391 / 374 | 19,484 / 19,336 | 32 |
+
+At fixed group size, cold-run RSS increased from 11,188 to 11,588 KiB (pool 1)
+and 11,640 to 12,176 KiB (pool 2) when the total rose from 1,000 to 10,000;
+commands grew from 49 to 445. For the 10,000-record cold run, maximum raw group
+size was 943,970 bytes and maximum Bind frame was 393,617 bytes. Its bounded
+2,000-payload sample ranged from 368 to 35,187 UTF-8 bytes (p50 393, p95 2,542),
+with synthetic multibyte text, arrays and long fields across all four subject types.
+The near-limit group contained 8,384,512 raw bytes and its largest Bind frame was
+8,384,124 bytes. Its larger RSS reflects the bounded large input/encoding/relay
+buffers. Constructor rejection, adapter preflight rejection, grouped command
+bounds and multi-chunk rollback are asserted independently of these timings.
+HTTP/workflow resource verification belongs to the future import orchestration work.
 
 See the [application operations](crates/yomibu-app/src/application/mod.rs),
 [storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs), and

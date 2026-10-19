@@ -49,6 +49,30 @@ class InnerClippy(unittest.TestCase):
             'features = ["std", "v4", "v7"] }\n'
         ))
 
+    def test_chrono_clock_features_preserve_domain_purity_and_application_timing(self):
+        project = Path(__file__).resolve().parents[1]
+        metadata = subprocess.run(
+            ["cargo", "metadata", "--locked", "--format-version", "1"],
+            cwd=project, capture_output=True, text=True, check=True, timeout=60,
+        )
+        chrono = next(package for package in json.loads(metadata.stdout)["packages"]
+                      if package["name"] == "chrono")
+        dependency = (f'chrono = {{ version = "={chrono["version"]}", '
+                      'default-features = false, features = ["std", "clock"] }\n')
+        self.check_cases("yomibu-core", "src/domain/mod.rs", [
+            ("pub fn supplied(seconds: i64) -> Option<chrono::DateTime<chrono::Utc>> { chrono::DateTime::from_timestamp(seconds, 0) }", None),
+            ("pub fn now() -> chrono::DateTime<chrono::Utc> { chrono::Utc::now() }", "disallowed_methods"),
+            ("use chrono::Utc as Clock; pub fn now() -> chrono::DateTime<Clock> { let clock = Clock::now; clock() }", "disallowed_methods"),
+            ("pub fn now() -> chrono::DateTime<chrono::Local> { chrono::Local::now() }", "disallowed_methods"),
+            ("use chrono::Local as Clock; pub fn now() -> chrono::DateTime<Clock> { let clock = Clock::now; clock() }", "disallowed_methods"),
+            ("#[allow(deprecated)] pub fn today() -> chrono::Date<chrono::Utc> { chrono::Utc::today() }", "disallowed_methods"),
+            ("#[allow(deprecated)] pub fn today() -> chrono::Date<chrono::Local> { chrono::Local::today() }", "disallowed_methods"),
+            ("pub fn local(_: chrono::DateTime<chrono::Local>) {}", "disallowed_types"),
+        ], dependencies=dependency)
+        self.check_cases("yomibu-app", "src/lib.rs", [
+            ("pub fn now() -> chrono::DateTime<chrono::Utc> { chrono::Utc::now() }", None),
+        ], dependencies=dependency)
+
     def test_domain_restrictions_preserve_shell_and_fixture_operations(self):
         self.check_cases("yomibu-core", "src/domain/mod.rs", [
             ("pub fn duration(d: std::time::Duration) -> u128 { d.as_millis() }", None),
