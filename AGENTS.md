@@ -3,30 +3,25 @@
 ## Architecture
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing architecture or implementing
-features. It defines enduring boundaries and accepted practices; existing code
-is not proof of compliance. Follow the task's scope: architecture documentation
-does not authorize deleting or rebuilding code. Preserve all `docs/plan/` files;
-the planned SQL schema remains a requirement. Preserving plans does not approve
-their proposals; use approved requirements and the architecture's stated document statuses.
-
-Follow the [schema-change policy](ARCHITECTURE.md#schema-changes).
+features. Follow the task's scope: architecture documentation does not authorize
+deleting or rebuilding code. Preserve all `docs/plan/` files. Use approved requirements
+and the [design reference guidance](ARCHITECTURE.md#design-references) when interpreting
+plans. Use [README.md](README.md#developing) and existing configuration for tools and
+commands.
 
 ### Dependencies and composition
 
-Use the [ownership and dependency rules](ARCHITECTURE.md#boundaries) and
-[composition rules](ARCHITECTURE.md#composition-and-request-execution).
-The application owns workflows; domain code computes decisions without invoking
-ports; extensions implement supplied capabilities and infrastructure. Required
-ports exist from their first implementation. Do not defer them until a second
-adapter or weaken them for fewer lines, types or apparent duplication.
+The rules are maintained in ARCHITECTURE.md. Follow its
+[architectural obligations](ARCHITECTURE.md#architectural-rules),
+[ownership and dependency rules](ARCHITECTURE.md#boundaries),
+[composition rules](ARCHITECTURE.md#composition-and-request-execution) and
+[schema-change policy](ARCHITECTURE.md#schema-changes).
 
 ## Terminology
 
-Read [GLOSSARY.md](GLOSSARY.md) before naming domain concepts. Use this shared domain
-language in code, tests, documentation and explanations to the user. Use collection,
-subject and entry with their distinct meanings; do not introduce catalogue as a synonym.
-Older wording in preserved plans is not permission to invent alternative names.
-Follow the [naming guidance](ARCHITECTURE.md#simplicity) for values and operations.
+Read [GLOSSARY.md](GLOSSARY.md) before naming domain concepts. Follow the
+[domain language rules](ARCHITECTURE.md#domain-language), including provider translation.
+Follow the [naming guidance](ARCHITECTURE.md#naming) for values and operations.
 
 For each ticket, identify the affected domain terms and check them against GLOSSARY.md
 and accepted ticket/epic decisions before editing. Before completion, check terminology
@@ -39,14 +34,6 @@ user and obtain agreement. Record the agreed definition in the glossary before u
 it in code, including API and configuration names. This also governs concepts used in
 documentation and user explanations, not every local variable or ordinary technical word.
 Earlier agreement counts; do not request it again or require a separate glossary commit.
-Document legitimate differences between model contexts; resolve conflicts explicitly.
-
-Qualify external domain terms with their provider or system when ambiguity is possible.
-A namespace counts as qualification. Translate external concepts into Yomibu's agreed
-terminology at the integration boundary. For example, use **WaniKani assignment** in
-prose, `wanikani::Assignment` or `WaniKaniAssignment` in integration code, and
-**learner progress** after translation. Avoid redundant prefixes inside clear provider
-namespaces. Preserve original API field names and captured payloads.
 
 ## Before editing
 
@@ -57,12 +44,8 @@ namespaces. Preserve original API field names and captured payloads.
   approach, explain the cause and reassess it before adding more machinery.
 - Identify verification that would reject the likely boundary violation or incorrect
   behavior. Distinguish existing checks from proposed checks.
-- Keep visibility as narrow as required. Public APIs must serve a current consumer
-  or an approved contract. Do not expose modules or items merely to silence
-  visibility or unused-code warnings.
 - When adding substantial general-purpose functionality or custom tooling, follow
-  the [reuse guidance](ARCHITECTURE.md#simplicity). Start with adopted dependencies;
-  evaluate alternatives when a concrete gap arises, not on every task or session.
+  the [reuse guidance](ARCHITECTURE.md#dependency-reuse).
 - Resolve ordinary implementation choices within the rules. For changes to agreed
   boundaries or behavioral guarantees, follow [architecture change rules](ARCHITECTURE.md#changing-architecture).
   Never silently alter rules or checks to accommodate a violating implementation.
@@ -108,7 +91,33 @@ into the architecture guide and glossary.
 
 Optional [task templates](docs/task-templates.md) help write implementation and design briefs.
 
+## Ownership review
+
+For changed inner contracts or validation, review
+[provider independence](ARCHITECTURE.md#provider-independence) during design and
+implementation review, before SQL, performance or plan-adherence checks. Treat the
+implementation plan as fallible; its approval is not an implicit architecture exception.
+For each changed inner contract or validation rule, justify restrictions against the
+approved model, identify provider/backend assumptions even under generic names, and use
+a concrete counterexample to test the boundary at its owning layer. Cite blockers by
+file, line and violated rule.
+
 ## Delivery
+
+### Review
+
+- Give reviewers the approved scope and exclusions; distinguish requirements from
+  revisable implementation choices. Required findings must identify a concrete defect
+  or violated contract or rule; distinguish optional improvements. Challenge complexity
+  caused by implementation choices using a simpler viable alternative that preserves
+  required behavior and boundaries. Verify uncertain library assumptions from documentation
+  or a temporary probe. Review feedback does not itself authorize scope or guarantee changes.
+- Apply accepted review feedback across the affected path: inspect related parameters,
+  callers, tests and documentation for the same issue. Handle routine internal corrections
+  together and propose consequential public-interface changes as a group under the
+  existing approval rules. Keep this pass within the task and its immediate collaborators.
+
+### Simplification and cleanup
 
 - After implementation and review fixes, make one final simplification pass over
   the complete diff using [implementation economy](ARCHITECTURE.md#simplicity),
@@ -127,16 +136,9 @@ Optional [task templates](docs/task-templates.md) help write implementation and 
   unrelated rewrites, speculative abstractions, or cosmetic churn. Propose broader
   improvements separately. Briefly identify incidental refactoring and its benefit in
   the delivery report; cleanup is not mandatory when no useful improvement is evident.
-- Give reviewers the approved scope and exclusions; distinguish requirements from
-  revisable implementation choices. Required findings must identify a concrete defect
-  or violated contract or rule; distinguish optional improvements. Challenge complexity
-  caused by implementation choices using a simpler viable alternative that preserves
-  required behavior and boundaries. Verify uncertain library assumptions from documentation
-  or a temporary probe. Review feedback does not itself authorize scope or guarantee changes.
-- Apply accepted review feedback across the affected path: inspect related parameters,
-  callers, tests and documentation for the same issue. Handle routine internal corrections
-  together and propose consequential public-interface changes as a group under the
-  existing approval rules. Keep this pass within the task and its immediate collaborators.
+
+### Verification
+
 - For new workflows or changed boundaries, trace the actual path from entry point
   through application, ports and adapters. Cite relevant code and an application test
   using supplied port implementations. New boundary violations block completion;
@@ -147,7 +149,12 @@ Optional [task templates](docs/task-templates.md) help write implementation and 
   Never silently substitute another backend. Rerun affected checks after final edits.
 - Use [CI](.github/workflows/ci.yml) for existing completion commands. Run focused
   checks during development and workspace checks when shared contracts change.
-  For documentation-only work, check links, consistency and whitespace.
+  For changes limited to documentation, check links, consistency and whitespace;
+  local architecture checks are not required. Otherwise, run the
+  [local architecture checks](README.md#architecture-checks) before committing.
+
+### Reporting
+
 - Report actual results, unverified guarantees and boundary changes. For substantial
   changes, report additions and deletions separately and list new files. Passing CI
   is not proof of purity. Follow the [verification requirements](ARCHITECTURE.md#verification)
@@ -155,9 +162,12 @@ Optional [task templates](docs/task-templates.md) help write implementation and 
 
 ## Documentation
 
-Keep rules and examples in `ARCHITECTURE.md`, domain definitions in `GLOSSARY.md`,
-and behavior guarantees beside interfaces. Link instead of duplicating. Maintain
-CLI help in code and README as a quickstart. Write plain English; add detail to
-resolve concrete ambiguity, not to inventory code or repeat generic tutorials.
+Keep agent workflow and delivery requirements here, architectural rules, rationale,
+examples and coverage limits in [ARCHITECTURE.md](ARCHITECTURE.md), and agreed domain
+definitions in [GLOSSARY.md](GLOSSARY.md). Keep behavior guarantees beside interfaces,
+CLI help in code, and tool usage and configuration in [README.md](README.md) and
+existing configuration. README remains a quickstart. Link instead of duplicating.
+Write plain English; add detail to resolve concrete ambiguity, not to inventory code
+or repeat generic tutorials.
 Label provider or workflow examples with their scope so they do not imply restrictions
 on shared model concepts.

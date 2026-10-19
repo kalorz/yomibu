@@ -5,10 +5,23 @@ proof of compliance. Examples illustrate the rules; they are not exhaustive desi
 or commitments to exact APIs. [Verification](#verification) distinguishes implemented
 checks from rules still requiring enforcement or review.
 
-The [SQL schema](docs/plan/schema.postgresql.sql) is a retained requirement.
-Other [design references](#design-references) contain proposals: preserving a plan
-does not approve all its contents. Product behavior comes from approved requirements
-and interface contracts. Architectural decisions can [evolve explicitly](#changing-architecture).
+[Design references](#design-references) distinguish the retained SQL requirement from
+proposals. Product behavior comes from approved requirements and interface contracts.
+Architectural decisions can [evolve explicitly](#changing-architecture).
+
+Use [AGENTS.md](AGENTS.md) for agent workflow and delivery requirements,
+[GLOSSARY.md](GLOSSARY.md) for agreed domain meanings, and
+[README.md](README.md#developing) for tool usage and configuration.
+
+| When you need to… | Guidance |
+| --- | --- |
+| Place a responsibility or crate dependency | [Boundaries](#boundaries) and [provider independence](#provider-independence) |
+| Define an interface | [Architectural rules](#architectural-rules), [port roles and labels](#port-roles-and-labels), and [port contracts](#port-contracts) |
+| Compose an operation and handle its limits or failures | [Composition and request execution](#composition-and-request-execution) |
+| Change a schema or define storage guarantees | [Schema changes](#schema-changes), [storage contracts](#storage-contracts), [atomicity and write outcomes](#atomicity-and-write-outcomes), and [ingestion boundaries](#ingestion-boundaries) |
+| Choose names, visibility or libraries | [Domain language](#domain-language), [naming](#naming), [visibility](#visibility), and [dependency reuse](#dependency-reuse) |
+| Verify a change | [Verification requirements and coverage](#verification), [behavioral verification](#behavioral-verification), [local architecture checks](README.md#architecture-checks), and [tests and database prerequisites](README.md#tests) |
+| Revisit a decision or interpret a plan | [Changing architecture](#changing-architecture) and [design references](#design-references) |
 
 ## Design practices
 
@@ -42,13 +55,29 @@ representations where meanings or responsibilities differ; share values where th
 
 | Area / concept | Rule and illustrative application |
 | --- | --- |
-| Strategic: Ubiquitous Language | Agree new terms or changed meanings with the user, then record them in [GLOSSARY.md](GLOSSARY.md) before code uses them. Follow the [vocabulary agreement rule](AGENTS.md#terminology); reuse established meanings in discussion, code and tests. |
+| Strategic: Ubiquitous Language | Use the agreed glossary within each model context; follow the [domain language rules](#domain-language) and [vocabulary agreement workflow](AGENTS.md#terminology). |
 | Strategic: Bounded Contexts | Identify where a model and its language apply. Crates, phases and tables do not automatically define contexts. Document a meaning that legitimately differs by context. |
 | Strategic: relationships between domain models | Define relationships and translations between models in different bounded contexts, including external domain models. Translate WaniKani assignments into learner progress while preserving their meaning; Yomibu applies its own eligibility rules. Provider structures must not dictate the domain model. |
 | Tactical: Entities and Value Objects | Use identity for entities and meaningful equality/validation for values. Subjects have identity; subject IDs and entry IDs are different value types. |
 | Tactical: Aggregates | Choose consistency boundaries from business invariants. Atomic entry/detail publication informs the decision; a foreign-key graph alone does not define an aggregate. |
 | Tactical: Domain Services | Use pure domain functions for rules with no natural entity owner, such as eligibility calculations across supplied learner progress. |
 | Tactical: Repositories | Use aggregate persistence contracts where needed. Read/query ports may return projections without reconstructing aggregates. |
+
+### Domain language
+
+Use [GLOSSARY.md](GLOSSARY.md) consistently in code, tests, documentation and
+explanations to the user within the same model context. Document legitimate differences
+between model contexts and resolve conflicts explicitly. Older wording in preserved
+plans is not permission to introduce alternative names. Follow the
+[vocabulary agreement workflow](AGENTS.md#terminology) before adopting new terms or
+changing meanings.
+
+Qualify external domain terms with their provider or system when ambiguity is possible.
+A namespace counts as qualification. Translate external concepts into Yomibu's agreed
+terminology at the integration boundary. For example, use **WaniKani assignment** in
+prose, `wanikani::Assignment` or `WaniKaniAssignment` in integration code, and
+**learner progress** after translation. Avoid redundant prefixes inside clear provider
+namespaces. Preserve original API field names and captured payloads.
 
 ## Boundaries
 
@@ -60,11 +89,14 @@ yomibu-ext -> yomibu-core
 yomibu-cli -> yomibu-app + yomibu-ext (+ yomibu-core)
 ```
 
-Future `yomibu-web` and `yomibu-mcp` have the CLI's position. Retain these boundaries;
-create directories for actual responsibilities. A workflow phase does not automatically
-require a domain module. Purity alone does not place a helper in domain; it must express
+The four workspace crates shown above must remain present. Future `yomibu-web` and
+`yomibu-mcp` are optional driving peers with the CLI's position. New workspace crates require
+explicit role classification. Retain these boundaries; create directories for actual
+responsibilities. A workflow phase does not automatically require a domain module.
+Purity alone does not place a helper in domain; it must express
 domain meaning. Pure library dependencies are allowed. Review integration-test
 dependencies separately; they must not leak into production dependencies or public APIs.
+Reviewed app-to-ext integration-test dependencies are permitted only as dev-dependencies.
 
 Paths below are relative to `crates/`:
 
@@ -76,6 +108,19 @@ Paths below are relative to `crates/`:
 | `yomibu-app/src/application/` | Inbound APIs, shared normalization through core rules, operation composition, execution limits and failure handling. |
 | `yomibu-ext/src/` | Implementations grouped by provider or component; SDK clients, SQL, file formats, provider options and error translation. |
 | Driving crates | Translate supported inputs into application requests, invoke operations and present results. Composition roots configure and connect implementations. |
+
+### Provider independence
+
+Core and application contracts, including port inputs, constructors and validation,
+express Yomibu concepts and operation guarantees. Provider-specific ID formats,
+type mappings and restrictions belong in integrations; backend representations belong
+in storage adapters. Source identities and captured payloads may cross as opaque data.
+For example, WaniKani's numeric IDs and lack of grammar subjects must not narrow a
+shared subject-storage contract. A deliberately vocabulary-only operation may still
+exclude grammar because of its agreed purpose.
+
+Apply the [ownership review](AGENTS.md#ownership-review) when changing inner contracts
+or validation.
 
 ### Port roles and labels
 
@@ -117,7 +162,6 @@ a new category; propose a distinct responsibility through an architecture decisi
 | Application | Execute operations through supplied ports and apply core decisions. External data/service access stays behind ports; runtime scheduling may live in the shell. |
 | Adapters | Translate external representations and honor contracts. Optimizations preserve semantics; expected failures are results, not panics. |
 | Simplicity | Every extra abstraction serves a required boundary, behavior or invariant. A single implementation does not weaken that justification. |
-| Terminology | Use glossary terms within their model context. Obtain agreement on new or changed meanings and record them before introducing them into code. |
 
 A domain object invoking a generator or even a pure selector port violates the
 boundary: invoke capabilities outside domain, then pass returned data to pure
@@ -156,6 +200,17 @@ on clarity, correctness, and maintenance cost—not type or line count alone. Pr
 behavioral and architectural guarantees. Routine implementation choices require no
 additional approval.
 
+A rule may have equivalent pure and SQL representations. Verify their shared meaning
+through contract tests rather than forcing inefficient data loading to reuse code.
+
+#### Visibility
+
+Keep visibility as narrow as required. Public APIs must serve a current consumer
+or an approved contract. Do not expose modules or items merely to silence
+visibility or unused-code warnings.
+
+#### Naming
+
 Names should distinguish entities from identifiers (`learner_id`), single values from
 lists (`collection_ids`), and resources by role (`observer_pool`). Short names are fine
 when context makes their meaning unambiguous; avoid redundant qualifiers.
@@ -165,8 +220,7 @@ makes a UUID-only result explicit. Do not choose broader names for hypothetical 
 behavior. Keep CLI names, parser keys, help and examples consistent, using the idiomatic
 spelling in each context, such as `--learner-id` and `learner_id`.
 
-A rule may have equivalent pure and SQL representations. Verify their shared meaning
-through contract tests rather than forcing inefficient data loading to reuse code.
+#### Dependency reuse
 
 Evaluate established libraries for standard representations as well as general-purpose
 functionality. Prefer the standard library and adopted dependencies when they fit the
@@ -390,33 +444,39 @@ decision, following the architecture change rules below.
 
 ## Verification
 
+Use the [README architecture checks](README.md#architecture-checks) for local commands
+and prerequisites, and [CI](.github/workflows/ci.yml) for the full completion checks.
+The coverage below distinguishes automated checks from obligations requiring tests
+or review. There are no baselined violations.
+
 Test architectural restrictions with representative allowed and forbidden examples.
 Enable the dependencies or features needed for the forbidden behavior to compile,
 and verify rejection by the intended rule, not an unrelated compiler error. Reuse
 existing verification tooling.
 
-Current [CI](.github/workflows/ci.yml) runs formatting, Clippy, tests, Rustdoc and Git
-checks, plus [crate dependency checks](tools/check_architecture.py). Run them locally
-with `python3 -B tools/check_architecture.py`; the checker uses offline Cargo metadata
-with the repository toolchain and requires Python 3, without building the application.
-It checks declared workspace dependencies, including renamed, optional, build and
-platform-specific edges.
-The four retained crates must remain present; web/MCP are optional driving peers. New
-workspace crates require explicit role classification. Reviewed app-to-ext integration
-test dependencies are permitted only as dev-dependencies; other deviations fail.
+### Coverage and remaining review
 
+| Obligation | Coverage and next action |
+| --- | --- |
+| Workspace and domain dependency direction | [Dependency checks](#dependency-checks), subject to their configuration limits. |
+| Core/app independence from SDKs, database libraries and delivery frameworks | [Bylaw](#dependency-checks) rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
+| Domain avoids ambient effects | [Scoped Clippy restrictions](#effect-and-visibility-checks) reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
+| Public contracts expose domain/application representations | [Bylaw](#dependency-checks) checks library dependencies; the [provider-placement rule](#provider-placement) catches configured names. Behavioral tests and [ownership review](AGENTS.md#ownership-review) check meaning and restrictions that both tools miss. |
+| Application uses supplied ports and applies operation-wide policy | [Scoped Clippy checks](#effect-and-visibility-checks) reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
+| Adapters satisfy behavioral contracts | PostgreSQL collection queries and learner writes have [real-backend contract tests](crates/yomibu-ext/tests/postgres.rs), including write disconnection and cancellation checks, run by CI; see [README tests](README.md#tests) for local invocation and prerequisites. Dependency analysis cannot establish ordering, atomicity or failure semantics. |
+| Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
+
+### Dependency checks
+
+The [crate dependency checker](tools/check_architecture.py) enforces the
+[workspace boundaries](#boundaries) for declared dependencies, including renamed,
+optional, build and platform-specific edges. It also rejects missing required crates,
+unclassified workspace crates and app-to-ext edges outside dev-dependencies.
 The [checker tests](tools/test_architecture.py) use isolated Cargo workspaces to prove
-rejection of forbidden edges and acceptance of allowed ones. Run them with
-`python3 -B -m unittest discover -s tools -p 'test_*.py' -v`; CI runs both commands.
+rejection of forbidden edges and acceptance of allowed ones.
 
-Domain and core/app dependency rules are configured in [bylaw.toml](bylaw.toml), using
-[cargo-bylaw](https://github.com/danielgerlag/cargo-bylaw) 0.1.0. Install it with
-`cargo install cargo-bylaw --version 0.1.0 --locked`; the separate executable keeps
-its rust-analyzer dependencies out of Yomibu's dependency graph. The repository
-Rust toolchain includes `rust-src`, required for semantic analysis. Run these
-checks with `python3 -B tools/check_domain.py`.
-
-Bylaw analyzes core/app libraries with all features on each CI host (Linux and macOS).
+Domain and core/app dependency rules are configured in [bylaw.toml](bylaw.toml).
+Bylaw analyzes core/app libraries with all features on each CI host.
 Domain may depend on domain modules and reviewed external libraries; other core
 modules are forbidden. Core/app declared and actual dependencies are restricted to
 the inner crates and the reviewed library list; the manifest check separately enforces
@@ -431,17 +491,27 @@ feature combination. Unit-test-only code also requires appropriate verification.
 The manifest check above covers all declared platform dependencies between workspace crates.
 
 The [dependency runner](tools/check_domain.py) delegates analysis to Bylaw and rejects
-incomplete reports or missing/weakened rules. It applies one Bylaw 0.1.0 namespace
-correction: ignore root prefixes (`crate`, `super`, `self`)
+incomplete reports or missing/weakened rules. It applies one namespace correction
+for the pinned analyzer: ignore root prefixes (`crate`, `super`, `self`)
 recorded for grouped imports, while still rejecting items owned by the crate root. The
 [contract tests](tools/test_domain.py) check these responsibilities and a few
 allowed/forbidden examples against the real analyzer; they do not recreate its parser
-suite. Run the Python tests above after installing Bylaw. CI runs both the tests and
-the dependency runner; `cargo test` alone does not run architecture checks.
+suite. Keep the namespace correction only until the analyzer handles those imports
+correctly; then run Bylaw directly while retaining equivalent verification.
 
-There are no baselined violations. The old implementation and its temporary exceptions
-have been removed. Keep the namespace correction only until the analyzer handles those
-imports correctly; then run Bylaw directly while retaining equivalent verification.
+### Provider placement
+
+The [provider-placement rule](tools/provider_placement.yml) uses ast-grep, verified by
+[real-CLI tests](tools/test_provider_placement.py). It rejects known provider words in
+snake_case/CamelCase identifiers and standalone identity literals in core/app source.
+Comments, doc attributes, opaque JSON and integration tests remain usable. Only
+same-file outer `#[cfg(test)]` ancestry is exempt; inner/compound cfg and out-of-line
+test modules are not. Extend the name list when adding an integration.
+The rule does not expand macros, decode escaped identities or recognize restrictions
+under neutral names. Behavioral tests and [ownership review](AGENTS.md#ownership-review)
+remain required; renaming does not establish provider independence.
+
+### Effect and visibility checks
 
 Clippy's [core configuration](crates/yomibu-core/clippy.toml) restricts selected ambient
 APIs inside [domain](crates/yomibu-core/src/domain/mod.rs). The separate
@@ -469,15 +539,7 @@ indirect effect or source of nondeterminism. Review new APIs and libraries, incl
 randomness sources; extend the restrictions when adopting them. Adopted tools own
 parsing and resolution; keep custom code limited to demonstrated gaps.
 
-| Obligation | Coverage and next action |
-| --- | --- |
-| Workspace and domain dependency direction | Implemented above, subject to the configuration limits. No legacy exceptions remain. |
-| Core/app independence from SDKs, database libraries and delivery frameworks | Bylaw rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
-| Domain avoids ambient effects | Scoped Clippy restrictions reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
-| Public contracts expose domain/application representations | The library gate catches explicit references to unapproved SDK types, not poor contract design. Review associated types, opaque payload handling and representation ownership. |
-| Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
-| Adapters satisfy behavioral contracts | The PostgreSQL learner collection query has real-backend contract tests in `crates/yomibu-ext/tests/postgres.rs`, run by CI; see the README for local invocation and prerequisites. Dependency analysis cannot establish ordering, atomicity or failure semantics. |
-| Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
+### Behavioral verification
 
 Test each responsibility where it is owned:
 
@@ -527,9 +589,14 @@ the rules need no further approval or new document.
 
 ## Design references
 
+The [SQL schema](docs/plan/schema.postgresql.sql) is a retained requirement.
+Preserving any plan does not approve its proposals. Use approved requirements and
+settled decisions when interpreting all files in `docs/plan/`, including those not
+named below.
+
 The [request example](docs/plan/story-generation-request.yml) explores a possible
 structure; it neither specifies CLI input formats nor finalizes product behavior.
 [Durability](docs/plan/durable-execution.md) and [replay](docs/plan/replay.md) remain
 exploratory proposals, not binding contracts. Adopt their details only by explicit
-decision. Preserve these files as design history; existing-code references do not
-require retaining that implementation. The SQL schema's retained status is stated above.
+decision. The plans record design history; existing-code references do not require
+retaining that implementation.

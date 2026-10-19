@@ -12,6 +12,7 @@ serde_json.workspace = true
 
 [lints.rust]
 unreachable_pub = "warn"
+unsafe_code = "forbid"
 
 [lints.clippy]
 disallowed_methods = "allow"
