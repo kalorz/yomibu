@@ -21,13 +21,13 @@ discovery. Replace vague quality goals with concrete requirements.
 
 ## Design
 
-For an interview before planning, use:
+For a requirements discussion before planning, use:
 
 ```text
 Discussion only; no implementation plan, code or external edits yet.
 Read: current main, the ticket/epic, accepted decisions and retained requirements.
 First: summarize the outcome, settled constraints and additional assumptions.
-Interview: one consequential behavior, scope or tradeoff question at a time.
+Discuss: unresolved behavior, scope and tradeoffs, one focused question at a time.
 Recommend: explain meaningful alternatives; resolve routine implementation details yourself.
 Finish: summarize decisions, changed guarantees and acceptance checks for review.
 Specification: use the existing ticket; do not create a duplicate design document.

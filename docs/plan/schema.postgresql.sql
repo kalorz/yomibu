@@ -77,9 +77,8 @@ CREATE TABLE learner_progress_sources (
         REFERENCES learners(id) ON DELETE RESTRICT,
     external_account_id TEXT,
 
-    -- Paired times for the latest recorded successful progress sync, not per-group
-    -- commits or current-attempt status. Partial saves do not advance this pair.
-    last_import_started_at TIMESTAMPTZ,
+    -- Latest recorded successful progress sync, not per-group or current-attempt status.
+    -- Partial saves do not advance this timestamp; no attempt start time is stored.
     last_import_completed_at TIMESTAMPTZ,
 
     -- This source's account metadata and access limits, including subscription expiry.

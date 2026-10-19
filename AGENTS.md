@@ -69,11 +69,10 @@ namespaces. Preserve original API field names and captured payloads.
 
 ## Plans and design discussions
 
-When asked to start with an interview, first read current main, the authoritative
-ticket/epic and retained requirements. Separate settled decisions, new ticket
-assumptions and unapproved plan choices. Ask one consequential question at a time;
-do not ask the user to choose routine Rust, SQL or library details, or invent
-questions to satisfy a process. Summarize the outcome and acceptance checks for review.
+During design discussions, start from current repository guidance, authoritative
+specifications and settled decisions. Identify new assumptions and distinguish
+requirements from unapproved plan choices. Ask focused questions about unresolved
+behavior, scope and tradeoffs; summarize decisions and acceptance checks for review.
 Respect the requested stage: approval to record decisions does not itself authorize
 implementation planning or implementation.
 
