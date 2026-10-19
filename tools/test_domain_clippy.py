@@ -30,6 +30,28 @@ class LintHeader(unittest.TestCase):
 
 
 class InnerClippy(unittest.TestCase):
+    def test_inner_layers_reject_external_access_but_allow_pure_utilities(self):
+        cases = [
+            ('pub fn read() -> std::io::Result<Vec<u8>> { std::fs::read("fixture") }', "disallowed_methods"),
+            ('pub fn write() -> std::io::Result<()> { std::fs::write("fixture", b"data") }', "disallowed_methods"),
+            ('use std::fs::remove_file as remove; pub fn delete() -> std::io::Result<()> { let f = remove::<&str>; f("fixture") }', "disallowed_methods"),
+            ('pub fn setting() -> Option<std::ffi::OsString> { std::env::var_os("INPUT") }', "disallowed_methods"),
+            ('pub fn directory() -> std::io::Result<std::path::PathBuf> { std::env::current_dir() }', "disallowed_methods"),
+            ('pub fn arguments() -> std::env::ArgsOs { std::env::args_os() }', "disallowed_methods"),
+            ('pub fn exists(p: &std::path::Path) -> bool { p.exists() }', "disallowed_methods"),
+            ('pub fn input() -> std::io::Stdin { std::io::stdin() }', "disallowed_methods"),
+            ('pub fn open() -> std::fs::OpenOptions { std::fs::OpenOptions::new() }', "disallowed_types"),
+            ('pub fn command() -> std::process::Command { std::process::Command::new("fixture") }', "disallowed_types"),
+            ('pub fn network(_: std::net::UdpSocket) {}', "disallowed_types"),
+            ('pub const CONTENT: &[u8] = include_bytes!("../Cargo.toml");', "disallowed_macros"),
+            ('pub fn extension(p: &std::path::Path) -> Option<&std::ffi::OsStr> { p.extension() }', None),
+            ('pub fn parts(value: &std::ffi::OsStr) -> usize { std::env::split_paths(value).count() }', None),
+            ('pub fn buffer(bytes: Vec<u8>) -> std::io::Cursor<Vec<u8>> { std::io::Cursor::new(bytes) }', None),
+        ]
+        for crate, policy in (("yomibu-core", "src/domain/mod.rs"), ("yomibu-app", "src/lib.rs")):
+            with self.subTest(crate=crate):
+                self.check_cases(crate, policy, cases)
+
     def test_domain_restrictions_reject_uuid_generation_when_features_are_enabled(self):
         project = Path(__file__).resolve().parents[1]
         metadata = subprocess.run(
@@ -85,7 +107,9 @@ class InnerClippy(unittest.TestCase):
             (root / "clippy.toml").write_bytes((crate / "clippy.toml").read_bytes())
             (root / "tests/fixture.rs").write_text(
                 'pub const FIXTURE: &str = include_str!("../Cargo.toml");'
-                'pub fn fixture_io() -> std::io::Result<String> { std::fs::read_to_string("fixture") }')
+                'pub const BYTES: &[u8] = include_bytes!("../Cargo.toml");'
+                'pub fn fixture_io() -> std::io::Result<Vec<u8>> { std::fs::read("fixture") }'
+                'pub fn fixture_env() -> Option<std::ffi::OsString> { std::env::var_os("FIXTURE") }')
             if dependencies:
                 # Keep shared dependencies on the workspace's reviewed versions.
                 (root / "Cargo.lock").write_bytes((project / "Cargo.lock").read_bytes())
@@ -95,10 +119,11 @@ class InnerClippy(unittest.TestCase):
                     check=True, timeout=60,
                 )
             for source, diagnostic in cases:
-                with self.subTest(diagnostic=diagnostic):
+                with self.subTest(source=source, diagnostic=diagnostic):
                     (root / "src/lib.rs").write_text(
                         'pub mod checked {\n' + lint_header + source + '\n}\n'
-                        'pub fn shell_clock() -> std::time::Instant { std::time::Instant::now() }')
+                        'pub fn shell_clock() -> std::time::Instant { std::time::Instant::now() }'
+                        'pub fn shell_io() -> std::io::Result<Vec<u8>> { std::fs::read("fixture") }')
                     result = subprocess.run(
                         ["cargo", "clippy", "--offline", "--all-targets", "--", "-D", "warnings"],
                         cwd=root, capture_output=True, text=True, timeout=60,
