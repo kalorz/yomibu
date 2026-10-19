@@ -69,6 +69,11 @@ jobs:
         run: rustup show active-toolchain
       - name: Verify committed lockfile
         run: git ls-files --error-unmatch Cargo.lock
+      - name: Install and run the provider-placement check
+        run: |
+          npm install --prefix "$RUNNER_TEMP/ast-grep" --no-save @ast-grep/cli@0.51.0
+          echo "$RUNNER_TEMP/ast-grep/node_modules/.bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/ast-grep/node_modules/.bin/ast-grep" scan --rule tools/provider_placement.yml .
       - name: Check crate dependencies
         run: python3 -B tools/check_architecture.py
       - name: Cache Rust dependencies

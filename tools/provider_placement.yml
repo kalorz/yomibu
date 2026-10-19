@@ -1,0 +1,39 @@
+id: provider-placement
+language: Rust
+severity: error
+message: Provider-specific code belongs in integrations, not inner contracts.
+files:
+  - crates/yomibu-core/src/**/*.rs
+  - crates/yomibu-app/src/**/*.rs
+utils:
+  provider-name:
+    regex: '(?i)(wani_?kani|open_?ai|anthropic|sudachi|jev)'
+rule:
+  all:
+    - any:
+        - all:
+            - any:
+                - kind: identifier
+                - kind: type_identifier
+                - kind: field_identifier
+            - matches: provider-name
+        - all:
+            - any:
+                - kind: string_literal
+                - kind: raw_string_literal
+            - has:
+                kind: string_content
+                regex: '^[A-Za-z_]+$'
+                matches: provider-name
+    - not:
+        inside:
+          stopBy: end
+          follows:
+            kind: attribute_item
+            regex: '^#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]$'
+            stopBy:
+              not:
+                any:
+                  - kind: attribute_item
+                  - kind: line_comment
+                  - kind: block_comment

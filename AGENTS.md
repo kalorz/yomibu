@@ -87,6 +87,9 @@ For consequential infrastructure choices, such as the first I/O adapter or a new
 obtain a focused independent technical review in the same session before presenting the
 recommendation or implementing it. Resolve technical findings yourself; escalate only
 decisions within the approval scope above.
+For changed inner contracts or validation, apply the
+[ownership review](ARCHITECTURE.md#provider-independence) during design and implementation
+review, before SQL, performance or plan-adherence checks.
 
 For these discussions, lead with the recommendation and user-visible consequences.
 Show inputs, outputs, important failures, owning layers and a minimal example with
