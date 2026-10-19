@@ -1,6 +1,6 @@
 use super::{
     PostgresLearnerStorage, WriteConnection, bounded, expired, failure_reason,
-    transaction::{deadline_error, limits, transact, until},
+    transaction::{deadline_error, transact, until},
 };
 use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder, Transaction};
@@ -270,7 +270,6 @@ async fn persist(
     group: &PreparedSaveGroup,
     deadline: Instant,
 ) -> Result<SaveReceipt, ImportWriteError> {
-    limits(tx, deadline).await?;
     until(
         deadline,
         sqlx::query(
@@ -284,7 +283,6 @@ async fn persist(
     )
     .await?;
     // Separate READ COMMITTED statement sees a concurrent conflict winner.
-    limits(tx, deadline).await?;
     let collection: uuid::Uuid = until(
         deadline,
         sqlx::query_scalar(
@@ -295,7 +293,6 @@ async fn persist(
         .fetch_one(&mut **tx),
     )
     .await?;
-    limits(tx, deadline).await?;
     until(
         deadline,
         sqlx::query(SOURCE_UPSERT)
@@ -307,7 +304,6 @@ async fn persist(
             .execute(&mut **tx),
     )
     .await?;
-    limits(tx, deadline).await?;
     let source: uuid::Uuid = until(
         deadline,
         sqlx::query_scalar(
@@ -355,7 +351,6 @@ async fn persist(
               WHERE saved.source_updated_at IS NULL
                   OR excluded.source_updated_at>saved.source_updated_at",
         );
-        limits(tx, deadline).await?;
         until(deadline, sql.build().execute(&mut **tx)).await?;
     }
     // Both buffers are bounded by the constructor's two record counts. No payloads
@@ -368,7 +363,6 @@ async fn persist(
         .collect();
     ids.sort_unstable();
     ids.dedup();
-    limits(tx, deadline).await?;
     let resolved: Vec<(String, uuid::Uuid)> = until(
         deadline,
         sqlx::query_as(
@@ -411,7 +405,6 @@ async fn persist(
                 .push_unseparated("::jsonb)");
         });
         sql.push(PROGRESS_UPSERT);
-        limits(tx, deadline).await?;
         until(deadline, sql.build().execute(&mut **tx)).await?;
     }
     Ok(receipt)
@@ -424,7 +417,6 @@ async fn complete(
     completed_at: DateTime<Utc>,
     deadline: Instant,
 ) -> Result<CompletionReceipt, ImportWriteError> {
-    limits(tx, deadline).await?;
     let stored = until(
         deadline,
         sqlx::query_scalar(
@@ -454,6 +446,19 @@ async fn complete(
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn chunks_bound_rows_and_bytes_without_dropping_large_records() {
+        for (sizes, lengths) in [
+            (vec![1; CHUNK_ROWS + 1], vec![CHUNK_ROWS, 1]),
+            (vec![CHUNK_BYTES / 2 + 1; 3], vec![1, 1, 1]),
+            (vec![CHUNK_BYTES + 1, 1], vec![1, 1]),
+        ] {
+            let groups: Vec<_> = chunks(&sizes, |size| *size).collect();
+            assert_eq!(groups.iter().map(|g| g.len()).collect::<Vec<_>>(), lengths);
+            assert_eq!(groups.concat(), sizes);
+        }
+    }
 
     #[test]
     fn lookup_completion_rejects_expiry_and_returns_sorted_ids_within_budget() {

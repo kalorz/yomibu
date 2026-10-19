@@ -1,5 +1,4 @@
 //! Preparation of supplied WaniKani records; no HTTP reading or import orchestration.
-use std::fmt;
 use yomibu_core::{
     domain::{LearnerId, MaterialKind},
     ports::infrastructure::collection_import::{
@@ -9,14 +8,9 @@ use yomibu_core::{
 };
 
 /// Sanitized failure preparing supplied integration data.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
 pub struct InvalidImport(String);
-impl fmt::Display for InvalidImport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-impl std::error::Error for InvalidImport {}
 
 /// Shared identity selected by this integration, never by the storage adapter.
 pub fn collection() -> SharedCollection {

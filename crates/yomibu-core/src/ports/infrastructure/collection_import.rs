@@ -80,14 +80,9 @@ pub fn validate_subject_lookup(
 }
 
 /// A rejected storage request. Messages never contain supplied payloads.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
 pub struct InvalidSaveGroup(&'static str);
-impl std::fmt::Display for InvalidSaveGroup {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-impl std::error::Error for InvalidSaveGroup {}
 
 /// Opaque source content and its own upstream update time, supplied after
 /// translation. This storage-contract value does not prescribe a database JSON
@@ -207,10 +202,6 @@ impl PreparedSaveGroup {
             ]
         }))
     }
-    /// Raw UTF-8 input bytes counted toward [`MAX_REQUEST_INPUT_BYTES`].
-    pub fn input_bytes(&self) -> usize {
-        self.input_sizes().sum()
-    }
     pub fn collection(&self) -> &SharedCollection {
         &self.collection
     }
@@ -243,24 +234,15 @@ pub struct CompletionReceipt {
 }
 
 /// Knowledge of this transaction's outcome, not the outcome of earlier groups.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ImportWriteError {
     /// The transaction cannot have committed. Earlier confirmed groups survive.
+    #[error("transaction not saved: {0}")]
     NotSaved(String),
-    /// COMMIT may have reached storage; the caller must retain uncertainty.
+    /// COMMIT failed or was interrupted; even a rejection may be reported conservatively.
+    #[error("transaction completion unknown: {0}")]
     CompletionUnknown(String),
 }
-impl std::fmt::Display for ImportWriteError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotSaved(reason) => write!(f, "transaction not saved: {reason}"),
-            Self::CompletionUnknown(reason) => {
-                write!(f, "transaction completion unknown: {reason}")
-            }
-        }
-    }
-}
-impl std::error::Error for ImportWriteError {}
 
 /// Port: outbound / driven. Role: infrastructure.
 ///
@@ -281,8 +263,8 @@ impl std::error::Error for ImportWriteError {}
 ///
 /// One absolute deadline covers preparation, acquisition, locks, statements and
 /// commit. No automatic retry. Receipts require confirmed COMMIT, including a
-/// confirmation observed late. A timeout after COMMIT dispatch is unknown, never
-/// inferred rollback. Dropping the future abandons delivery and may abandon an
+/// confirmation observed late. Commit errors/timeouts conservatively report unknown
+/// completion, never inferred rollback. Dropping the future may abandon an
 /// unknown commit outcome; the caller must account for this. Leases without a
 /// confirmed clean transaction boundary are discarded with bounded cleanup.
 /// Failures contain no source diagnostics.

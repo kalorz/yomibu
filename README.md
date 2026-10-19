@@ -177,67 +177,8 @@ groups and explicit successful-sync completion from
 [#109](https://github.com/kalorz/yomibu/issues/109). This storage slice has no HTTP
 reader, application import operation or CLI import command. Its PostgreSQL tests
 include controlled overlap, cancellation, deadlock rollback without retry,
-deferred commit rejection, and lost/late commit responses through a test-only
-loopback protocol relay. Use a trusted disposable local database for these fault tests.
-
-The ignored-test invocation also runs a bounded resource smoke test: 1,000 subjects
-and progress records, generated in groups of 500. The larger measurement matrix is
-opt-in. Run each combination in a separate process, setting the test database URL
-as above:
-
-```sh
-YOMIBU_STORAGE_RESOURCE_SCENARIO=cold \
-YOMIBU_STORAGE_RESOURCE_TOTAL=10000 \
-YOMIBU_STORAGE_RESOURCE_POOL=2 \
-  cargo test --locked -p yomibu-ext --test postgres_wanikani_resources -- --ignored --nocapture --test-threads=1
-```
-
-Scenarios are `cold`, `reuse` (no resupplied subjects), `replay` (stale progress
-with later observations), `identical-replay` (equal subject/progress payloads with
-later observations), `overlap-source`, and `overlap-accounts`. Measure each at
-1,000 and 10,000 records per import with pool sizes 1 and 2. The overlap scenarios
-have two active imports. Also run `near-limit` (one almost-8-MiB group) and
-`byte-chunks` (eight approximately 900-KiB subject payloads); their totals are fixed.
-The fixture generator retains one group per active import and a bounded size sample.
-
-Each `RESOURCE` JSON record reports raw input bytes, maximum group and Bind-frame
-bytes, SQL command count, Parse messages, protocol exchanges, elapsed time and a
-payload-size sample. Setup/prepopulation counters are separate. Exchanges count
-Simple Query and Sync boundaries, not TCP packets or measured network RTTs. For
-process peak memory, first compile with `--no-run`, then run the test executable
-printed by Cargo directly under the host's resource tool (Linux `/usr/bin/time -v`
-or Python `os.wait4`). Run one scenario per process; measuring Cargo or a parallel
-workspace suite does not isolate this test's RSS. RSS includes SQLx, fixtures,
-setup and the local relay; elapsed measurements exclude prepopulation.
-
-On Linux 6.18 x86_64, Rust 1.98.1 debug builds and the CI PostgreSQL 18 image,
-the 2026-10-19 independent-review follow-up verification produced the following results
-from 28 separate test processes. These synthetic
-measurements verify bounds and scaling; they are not an import latency SLA or
-measurements of live WaniKani payloads.
-
-| Scenario | Records per import | Elapsed ms, pool 1 / 2 | Peak RSS KiB, pool 1 / 2 | SQL commands |
-| --- | ---: | ---: | ---: | ---: |
-| Cold | 10,000 | 2,555 / 2,663 | 11,980 / 12,700 | 425 |
-| Reuse | 10,000 | 1,318 / 1,226 | 11,340 / 11,952 | 365 |
-| Stale replay | 10,000 | 1,271 / 1,141 | 11,964 / 12,488 | 365 |
-| Identical replay | 10,000 | 2,331 / 2,275 | 12,000 / 12,632 | 425 |
-| Overlap, same source | 10,000 × 2 | 5,329 / 4,983 | 13,232 / 13,716 | 850 |
-| Overlap, accounts | 10,000 × 2 | 4,986 / 4,398 | 13,236 / 13,864 | 850 |
-| Near byte limit | 1 | 96 / 88 | 33,348 / 33,508 | 17 |
-| Byte-based chunks | 8 | 402 / 404 | 20,696 / 19,676 | 31 |
-
-At fixed group size, cold-run RSS increased from 11,620 to 11,980 KiB (pool 1)
-and 12,280 to 12,700 KiB (pool 2) when the total rose from 1,000 to 10,000;
-commands grew from 47 to 425. For the 10,000-record cold run, maximum raw group
-size was 947,996 bytes and maximum Bind frame was 393,617 bytes. Its bounded
-2,000-payload sample ranged from 368 to 35,187 UTF-8 bytes (p50 393, p95 2,542),
-with synthetic multibyte text, arrays and long fields across all four subject types.
-The near-limit group contained 8,384,512 raw bytes and its largest Bind frame was
-8,384,098 bytes. Its larger RSS reflects the bounded large input/encoding/relay
-buffers. Constructor rejection, adapter preflight rejection, grouped command
-bounds and multi-chunk rollback are asserted independently of these timings.
-HTTP/workflow resource verification belongs to the future import orchestration work.
+and conservative commit-failure reporting. Lost acknowledgements and late
+commit-response delivery are not simulated by this suite.
 
 See the [application operations](crates/yomibu-app/src/application/mod.rs),
 [storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs), and

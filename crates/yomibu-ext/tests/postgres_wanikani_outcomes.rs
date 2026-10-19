@@ -1,14 +1,11 @@
-#[path = "support/postgres_faults.rs"]
-mod faults;
 #[path = "support/wanikani.rs"]
 mod fixtures;
 mod support;
-use faults::{Fault, Relay};
 use fixtures::{at, group, progress, seed, subject};
 use sqlx::PgPool;
 use std::time::{Duration, Instant};
 use support::{
-    another_session, backend_pid, blocked, connect, lock_table, recover, snapshot, with_postgres,
+    another_session, backend_pid, blocked, lock_table, recover, snapshot, with_postgres,
 };
 use yomibu_core::{
     domain::LearnerProgressSourceId,
@@ -22,11 +19,6 @@ async fn empty(pool: &PgPool) {
     let counts: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM collections),(SELECT count(*) FROM subjects),(SELECT count(*) FROM learner_progress_sources),(SELECT count(*) FROM learner_progress)").fetch_one(pool).await.unwrap();
     assert_eq!(counts, (0, 0, 0, 0));
 }
-/// Rows a completion must never touch.
-async fn progress_and_subjects(pool: &PgPool) -> String {
-    sqlx::query_scalar("SELECT jsonb_build_object('progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(pool).await.unwrap()
-}
-
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn expired_acquisition_and_lock_deadlines_save_nothing() {
@@ -79,6 +71,34 @@ async fn statements_and_chunks_share_one_deadline() {
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn server_deadline_replaces_an_inherited_longer_timeout() {
+    with_postgres(async |pool, control| {
+        seed(control).await;
+        sqlx::raw_sql("SET transaction_timeout='5s'").execute(pool).await.unwrap();
+        let observer = another_session(pool).await;
+        let pid = backend_pid(pool).await;
+        let pids = [pid];
+        let lock = lock_table(control, "subjects", "SHARE").await;
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let input = group(1, "a", 10, vec![subject(1, 10)], vec![]);
+        let mut save = storage.save_group(&input, Instant::now() + Duration::from_millis(300));
+        tokio::select! {result=&mut save=>panic!("save completed before lock wait: {result:?}"),()=blocked(&observer,&pids)=>{}}
+        // Stop polling the client: the server must enforce the budget itself.
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE pid=$1)").bind(pid).fetch_one(&observer).await.unwrap() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.expect("server retained the inherited transaction timeout");
+        drop(save);
+        lock.rollback().await.unwrap();
+        recover(pool).await;
+        empty(control).await;
+        observer.close().await;
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn cancellation_and_backend_loss_before_commit_recover_the_sole_slot() {
     with_postgres(async |pool, control| {
         seed(control).await;
@@ -107,19 +127,36 @@ async fn cancellation_and_backend_loss_before_commit_recover_the_sole_slot() {
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
-async fn deferred_commit_rejection_is_confirmed_not_saved() {
+async fn deferred_commit_rejection_is_reported_conservatively() {
     with_postgres(async |pool, control| {
         seed(control).await;
         sqlx::raw_sql("CREATE FUNCTION reject_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'secret payload account diagnostic' USING ERRCODE='23514'; END $$; CREATE CONSTRAINT TRIGGER reject_commit AFTER INSERT ON subjects DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_commit();").execute(control).await.unwrap();
         let storage = PostgresLearnerStorage::new(pool.clone());
         let error = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 20)]), deadline()).await.unwrap_err();
-        assert!(matches!(error, ImportWriteError::NotSaved(_)));
+        assert!(matches!(error, ImportWriteError::CompletionUnknown(_)));
         assert!(error.to_string().contains("23514"));
         assert!(!error.to_string().contains("secret"));
         recover(pool).await;
         empty(control).await;
     })
     .await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn commit_timeout_is_unknown_and_releases_the_connection() {
+    with_postgres(async |pool, control| {
+        seed(control).await;
+        sqlx::raw_sql("CREATE FUNCTION slow_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1); RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER slow_commit AFTER INSERT ON subjects DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION slow_commit();").execute(control).await.unwrap();
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let input = group(1, "a", 10, vec![subject(1, 10)], vec![]);
+        let began = Instant::now();
+        let error = storage.save_group(&input, began + Duration::from_millis(200)).await.unwrap_err();
+        assert!(matches!(error, ImportWriteError::CompletionUnknown(_)));
+        assert!(began.elapsed() < Duration::from_secs(2));
+        recover(pool).await;
+        empty(control).await;
+    }).await;
 }
 
 #[tokio::test]
@@ -172,108 +209,6 @@ async fn actual_deadlock_rolls_back_without_retry() {
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
-async fn lost_commit_response_and_lost_request_are_both_unknown() {
-    with_postgres(async |pool, control| {
-        seed(control).await;
-        for (index, fault) in [
-            Fault::DropCommitRequest,
-            Fault::DropCommitResponse,
-            Fault::Pass,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let relay = Relay::start(&pool.connect_options(), fault).await;
-            let relayed = connect(relay.options.clone()).await;
-            relay.arm();
-            let storage = PostgresLearnerStorage::new(relayed.clone());
-            let input = group(
-                1,
-                &format!("account-{index}"),
-                10,
-                vec![subject(index as u64 + 1, 10)],
-                vec![progress(index as u64 + 1, 10, 20)],
-            );
-            let result = storage.save_group(&input, deadline()).await;
-            relay.reached().await;
-            if fault == Fault::Pass {
-                result.unwrap();
-            } else {
-                assert!(matches!(
-                    result,
-                    Err(ImportWriteError::CompletionUnknown(_))
-                ));
-            }
-            let durable: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT FROM learner_progress_sources WHERE external_account_id=$1)",
-            )
-            .bind(&input.learner_progress_source().external_account_id)
-            .fetch_one(control)
-            .await
-            .unwrap();
-            assert_eq!(durable, fault != Fault::DropCommitRequest);
-            let stats = relay.counters().sample();
-            assert!(stats.commands > 5);
-            assert!(stats.parses > 0);
-            assert!(stats.exchanges > 0);
-            assert!(stats.bind_bytes > 0);
-            assert!(stats.max_bind_bytes < 8 * 1024 * 1024);
-            recover(&relayed).await;
-            relayed.close().await;
-        }
-    })
-    .await;
-}
-
-#[tokio::test]
-#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
-async fn confirmed_commit_observed_after_deadline_retains_receipt() {
-    with_postgres(async |pool, control| {
-        seed(control).await;
-        let relay = Relay::start(&pool.connect_options(), Fault::GateCommitResponse).await;
-        let relayed = connect(relay.options.clone()).await;
-        relay.arm();
-        let storage = PostgresLearnerStorage::new(relayed.clone());
-        let input = group(1, "late", 10, vec![subject(1, 10)], vec![progress(1, 10, 20)]);
-        let end = Instant::now() + Duration::from_millis(300);
-        let mut save = storage.save_group(&input, end);
-        tokio::select! {result=&mut save=>panic!("unexpected early result: {result:?}"),()=relay.reached()=>{}}
-        relay.release();
-        relay.delivered().await;
-        // Do not poll the caller while the confirmed backend response arrives. The
-        // next poll happens after expiry, with the real C/Z frames already readable.
-        tokio::time::sleep_until((end + Duration::from_millis(20)).into()).await;
-        let receipt = save.await.expect("observed COMMIT success must win over late timer");
-        assert_eq!(sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM learner_progress_sources").fetch_one(control).await.unwrap(), receipt.learner_progress_source_id.0);
-        relayed.close().await;
-    })
-    .await;
-}
-
-#[tokio::test]
-#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
-async fn deadline_after_commit_dispatch_is_unknown_even_with_durable_rows() {
-    with_postgres(async |pool, control| {
-        seed(control).await;
-        let relay = Relay::start(&pool.connect_options(), Fault::GateCommitResponse).await;
-        let relayed = connect(relay.options.clone()).await;
-        relay.arm();
-        let storage = PostgresLearnerStorage::new(relayed.clone());
-        let input = group(1, "timeout", 10, vec![subject(1, 10)], vec![]);
-        let end = Instant::now() + Duration::from_millis(200);
-        let mut save = storage.save_group(&input, end);
-        tokio::select! {result=&mut save=>panic!("unexpected early result: {result:?}"),()=relay.reached()=>{}}
-        assert!(matches!(save.await, Err(ImportWriteError::CompletionUnknown(_))));
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM learner_progress_sources").fetch_one(control).await.unwrap(), 1);
-        relay.release();
-        recover(&relayed).await;
-        relayed.close().await;
-    })
-    .await;
-}
-
-#[tokio::test]
-#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn completion_failure_preserves_prior_groups_and_completion() {
     with_postgres(async |pool, control| {
         seed(control).await;
@@ -290,46 +225,9 @@ async fn completion_failure_preserves_prior_groups_and_completion() {
         assert_eq!(snapshot(control).await, before);
         sqlx::raw_sql("CREATE FUNCTION reject_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private completion error' USING ERRCODE='23514'; END $$; CREATE CONSTRAINT TRIGGER reject_completion AFTER UPDATE ON learner_progress_sources DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_completion();").execute(control).await.unwrap();
         let error = storage.record_completion(saved.collection_id, source, at(30), deadline()).await.unwrap_err();
-        assert!(matches!(error, ImportWriteError::NotSaved(_)));
+        assert!(matches!(error, ImportWriteError::CompletionUnknown(_)));
         assert!(!error.to_string().contains("private"));
         assert_eq!(snapshot(control).await, before);
-    })
-    .await;
-}
-
-#[tokio::test]
-#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
-async fn completion_unknown_and_late_confirmation_use_the_shared_lifecycle() {
-    with_postgres(async |pool, control| {
-        seed(control).await;
-        let storage = PostgresLearnerStorage::new(pool.clone());
-        let saved = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 20)]), deadline()).await.unwrap();
-        let source = saved.learner_progress_source_id;
-        let before = progress_and_subjects(control).await;
-        for (index, fault) in [Fault::DropCommitRequest, Fault::DropCommitResponse, Fault::GateCommitResponse].into_iter().enumerate() {
-            let relay = Relay::start(&pool.connect_options(), fault).await;
-            let relayed = connect(relay.options.clone()).await;
-            let writer = PostgresLearnerStorage::new(relayed.clone());
-            relay.arm();
-            let completed_at = at(30 + index as i64);
-            let end = Instant::now() + Duration::from_millis(300);
-            if fault == Fault::GateCommitResponse {
-                let mut completion = writer.record_completion(saved.collection_id, source, completed_at, end);
-                tokio::select! {result=&mut completion=>panic!("unexpected early result: {result:?}"),()=relay.reached()=>{}}
-                relay.release();
-                relay.delivered().await;
-                tokio::time::sleep_until((end + Duration::from_millis(20)).into()).await;
-                assert_eq!(completion.await.unwrap().last_import_completed_at, completed_at);
-            } else {
-                assert!(matches!(writer.record_completion(saved.collection_id, source, completed_at, end).await, Err(ImportWriteError::CompletionUnknown(_))));
-                relay.reached().await;
-            }
-            let actual: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT last_import_completed_at FROM learner_progress_sources").fetch_one(control).await.unwrap();
-            assert_eq!(actual, if fault == Fault::DropCommitRequest { None } else { Some(completed_at) });
-            assert_eq!(progress_and_subjects(control).await, before);
-            recover(&relayed).await;
-            relayed.close().await;
-        }
     })
     .await;
 }

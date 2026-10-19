@@ -136,7 +136,10 @@ impl Drop for WriteConnection {
 
 fn write_error(error: sqlx::Error) -> LearnerWriteError {
     // SQLSTATEs such as 40003 (statement_completion_unknown) never qualify.
-    let rejected = rejected_by(&error, is_statement_rejection);
+    let rejected = error
+        .as_database_error()
+        .and_then(|error| error.try_downcast_ref::<PgDatabaseError>())
+        .is_some_and(|error| is_statement_rejection(error.severity(), error.code()));
     let reason = failure_reason(error);
     if rejected {
         LearnerWriteError::NotCreated(reason)
@@ -147,16 +150,6 @@ fn write_error(error: sqlx::Error) -> LearnerWriteError {
 
 fn is_statement_rejection(severity: PgSeverity, code: &str) -> bool {
     severity == PgSeverity::Error && (code.starts_with("23") || code.starts_with("42"))
-}
-
-/// Whether `error` is an explicit statement rejection whose severity and SQLSTATE
-/// satisfy `rule`. Fatal connection errors and the mere presence of an
-/// ErrorResponse never qualify; provider messages are never inspected.
-fn rejected_by(error: &sqlx::Error, rule: fn(PgSeverity, &str) -> bool) -> bool {
-    error
-        .as_database_error()
-        .and_then(|error| error.try_downcast_ref::<PgDatabaseError>())
-        .is_some_and(|error| rule(error.severity(), error.code()))
 }
 
 /// Fails with `error` once the deadline has been reached.

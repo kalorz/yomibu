@@ -226,6 +226,34 @@ async fn first_save_and_replay_all_subject_types() {
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn large_payloads_round_trip_across_byte_chunks() {
+    with_postgres(async |pool, control| {
+        seed(control).await;
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let text = "食".repeat(300_000);
+        let payload = serde_json::json!({"text": text}).to_string();
+        let subjects = (1..=3)
+            .map(|id| {
+                let mut s = subject(id, 10);
+                s.source = SourceRecord::new(at(10), &payload).unwrap();
+                s
+            })
+            .collect();
+        storage
+            .save_group(&group(1, "a", 10, subjects, vec![]), deadline())
+            .await
+            .unwrap();
+        let saved: Vec<String> = sqlx::query_scalar("SELECT source_data->>'text' FROM subjects")
+            .fetch_all(control)
+            .await
+            .unwrap();
+        assert_eq!(saved, vec![text; 3]);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn shared_storage_persists_grammar_kind() {
     with_postgres(async |pool, control| {
         seed(control).await;
