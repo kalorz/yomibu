@@ -272,7 +272,7 @@ pub enum ImportWriteError {
 /// timestamp representation independently of the request's raw-input limits.
 /// Database-dependent representation checks can reject the transaction atomically
 /// after earlier statements have run.
-pub trait SaveGroupWriter {
+pub trait LearnerProgressImportWriter {
     fn save_group<'a>(
         &'a self,
         group: &'a PreparedSaveGroup,
@@ -286,7 +286,7 @@ pub trait SaveGroupWriter {
     /// maximum. Account-only syncs are valid. Unknown/wrong-collection sources
     /// fail without insertion. Does not change payloads or ordinary group rows.
     /// Uses the same atomic outcome/deadline/drop guarantees as `save_group`.
-    fn record_completion(
+    fn record_import_completion(
         &self,
         collection: CollectionId,
         source: LearnerProgressSourceId,

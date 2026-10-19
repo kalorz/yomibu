@@ -10,9 +10,9 @@ use support::{
 use yomibu_core::{
     domain::{CollectionId, LearnerId, LearnerProgressSourceId, MaterialKind},
     ports::infrastructure::collection_import::{
-        ImportWriteError, LearnerProgressSourceIdentity, MAX_GROUP_RECORDS,
-        MAX_REQUEST_INPUT_BYTES, PreparedProgress, PreparedSaveGroup, PreparedSubject,
-        SaveGroupWriter, SharedCollection, SourceRecord, SubjectQuery, validate_subject_lookup,
+        ImportWriteError, LearnerProgressImportWriter, LearnerProgressSourceIdentity,
+        MAX_GROUP_RECORDS, MAX_REQUEST_INPUT_BYTES, PreparedProgress, PreparedSaveGroup,
+        PreparedSubject, SharedCollection, SourceRecord, SubjectQuery, validate_subject_lookup,
     },
 };
 use yomibu_ext::{PostgresLearnerStorage, wanikani};
@@ -347,9 +347,9 @@ async fn identical_external_ids_are_isolated_by_supplied_collection() {
         let before = snapshot(control).await;
         let missing = shared_group(collections[0].clone(), "only-beta", 40, false);
         assert!(matches!(storage.save_group(&missing, deadline()).await, Err(ImportWriteError::NotSaved(_))));
-        assert!(matches!(storage.record_completion(receipts[0].collection_id, receipts[1].learner_progress_source_id, at(50), deadline()).await, Err(ImportWriteError::NotSaved(_))));
+        assert!(matches!(storage.record_import_completion(receipts[0].collection_id, receipts[1].learner_progress_source_id, at(50), deadline()).await, Err(ImportWriteError::NotSaved(_))));
         assert_eq!(snapshot(control).await, before);
-        storage.record_completion(receipts[0].collection_id, receipts[0].learner_progress_source_id, at(50), deadline()).await.unwrap();
+        storage.record_import_completion(receipts[0].collection_id, receipts[0].learner_progress_source_id, at(50), deadline()).await.unwrap();
         let completed: Vec<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM learner_progress_sources WHERE last_import_completed_at IS NOT NULL").fetch_all(control).await.unwrap();
         assert_eq!(completed, [receipts[0].learner_progress_source_id.0]);
     }).await;
@@ -679,7 +679,7 @@ async fn ordinary_saves_and_explicit_account_only_completion() {
         assert!(sqlx::query_scalar::<_, bool>("SELECT last_import_completed_at IS NULL FROM learner_progress_sources").fetch_one(control).await.unwrap());
         let payload: String = sqlx::query_scalar("SELECT source_data::text FROM learner_progress_sources").fetch_one(control).await.unwrap();
         for time in [30, 20, 30, 40] {
-            let receipt = storage.record_completion(saved.collection_id, source, at(time), deadline()).await.unwrap();
+            let receipt = storage.record_import_completion(saved.collection_id, source, at(time), deadline()).await.unwrap();
             assert_eq!(receipt.learner_progress_source_id, source);
             assert_eq!(receipt.last_import_completed_at, at(time.max(30)));
             assert_eq!(sqlx::query_scalar::<_, String>("SELECT source_data::text FROM learner_progress_sources").fetch_one(control).await.unwrap(), payload);
@@ -703,7 +703,7 @@ async fn completion_rejects_unknown_mismatched_and_out_of_scope_sources() {
         let manual_source: uuid::Uuid = sqlx::query_scalar("INSERT INTO learner_progress_sources(learner_id,collection_id) VALUES($1,$2) RETURNING id").bind(uuid::Uuid::from_u128(1)).bind(saved.collection_id.0).fetch_one(control).await.unwrap();
         let before = snapshot(control).await;
         for (collection, source) in [(private, private_source), (saved.collection_id.0, manual_source), (private, saved.learner_progress_source_id.0), (saved.collection_id.0, uuid::Uuid::nil())] {
-            assert!(matches!(storage.record_completion(CollectionId(collection), LearnerProgressSourceId(source), at(20), deadline()).await, Err(ImportWriteError::NotSaved(_))));
+            assert!(matches!(storage.record_import_completion(CollectionId(collection), LearnerProgressSourceId(source), at(20), deadline()).await, Err(ImportWriteError::NotSaved(_))));
             assert_eq!(snapshot(control).await, before);
         }
     }).await;
@@ -742,8 +742,8 @@ async fn overlapping_completions_do_not_regress() {
             lock.commit().await.unwrap();
         };
         let (new, old, ()) = tokio::join!(
-            storage.record_completion(saved.collection_id, source, at(40), deadline()),
-            second.record_completion(saved.collection_id, source, at(20), deadline()),
+            storage.record_import_completion(saved.collection_id, source, at(40), deadline()),
+            second.record_import_completion(saved.collection_id, source, at(20), deadline()),
             release
         );
         assert_eq!(new.unwrap().last_import_completed_at, at(40));
@@ -767,7 +767,7 @@ async fn overlapping_completions_do_not_regress() {
 async fn completion_representation_rejection_precedes_acquisition() {
     let error = closed_storage()
         .await
-        .record_completion(
+        .record_import_completion(
             CollectionId(uuid::Uuid::nil()),
             LearnerProgressSourceId(uuid::Uuid::nil()),
             at(0) + chrono::Duration::nanoseconds(1),
@@ -841,7 +841,7 @@ async fn supported_timestamp_endpoints_round_trip_without_loss() {
             assert_eq!(storage.save_group(&input, deadline()).await.unwrap(), receipt);
             let stored: chrono::DateTime<chrono::Utc> = sqlx::query_scalar("SELECT (source_data->>'source_updated_at')::timestamptz FROM learner_progress_sources WHERE id=$1").bind(receipt.learner_progress_source_id.0).fetch_one(control).await.unwrap();
             assert_eq!(stored, time);
-            assert_eq!(storage.record_completion(receipt.collection_id, receipt.learner_progress_source_id, time, deadline()).await.unwrap().last_import_completed_at, time);
+            assert_eq!(storage.record_import_completion(receipt.collection_id, receipt.learner_progress_source_id, time, deadline()).await.unwrap().last_import_completed_at, time);
         }
     }).await;
 }

@@ -10,8 +10,8 @@ use yomibu_core::{
     ports::infrastructure::{
         StorageError,
         collection_import::{
-            CompletionReceipt, ImportWriteError, PreparedProgress, PreparedSaveGroup,
-            PreparedSubject, SaveGroupWriter, SaveReceipt, SharedCollection, SourceRecord,
+            CompletionReceipt, ImportWriteError, LearnerProgressImportWriter, PreparedProgress,
+            PreparedSaveGroup, PreparedSubject, SaveReceipt, SharedCollection, SourceRecord,
             SubjectQuery, validate_subject_lookup,
         },
     },
@@ -232,7 +232,7 @@ fn chunks<'a, T>(
     })
 }
 
-impl SaveGroupWriter for PostgresLearnerStorage {
+impl LearnerProgressImportWriter for PostgresLearnerStorage {
     fn save_group<'a>(
         &'a self,
         group: &'a PreparedSaveGroup,
@@ -247,7 +247,7 @@ impl SaveGroupWriter for PostgresLearnerStorage {
             .await
         })
     }
-    fn record_completion(
+    fn record_import_completion(
         &self,
         collection: CollectionId,
         source: LearnerProgressSourceId,
