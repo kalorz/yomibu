@@ -21,7 +21,7 @@ The rules are maintained in ARCHITECTURE.md. Follow its
 
 Read [GLOSSARY.md](GLOSSARY.md) before naming domain concepts. Follow the
 [domain language rules](ARCHITECTURE.md#domain-language), including provider translation.
-Follow the [naming guidance](ARCHITECTURE.md#simplicity) for values and operations.
+Follow the [naming guidance](ARCHITECTURE.md#naming) for values and operations.
 
 For each ticket, identify the affected domain terms and check them against GLOSSARY.md
 and accepted ticket/epic decisions before editing. Before completion, check terminology
@@ -45,7 +45,7 @@ Earlier agreement counts; do not request it again or require a separate glossary
 - Identify verification that would reject the likely boundary violation or incorrect
   behavior. Distinguish existing checks from proposed checks.
 - When adding substantial general-purpose functionality or custom tooling, follow
-  the [reuse guidance](ARCHITECTURE.md#simplicity).
+  the [reuse guidance](ARCHITECTURE.md#dependency-reuse).
 - Resolve ordinary implementation choices within the rules. For changes to agreed
   boundaries or behavioral guarantees, follow [architecture change rules](ARCHITECTURE.md#changing-architecture).
   Never silently alter rules or checks to accommodate a violating implementation.
@@ -104,6 +104,21 @@ file, line and violated rule.
 
 ## Delivery
 
+### Review
+
+- Give reviewers the approved scope and exclusions; distinguish requirements from
+  revisable implementation choices. Required findings must identify a concrete defect
+  or violated contract or rule; distinguish optional improvements. Challenge complexity
+  caused by implementation choices using a simpler viable alternative that preserves
+  required behavior and boundaries. Verify uncertain library assumptions from documentation
+  or a temporary probe. Review feedback does not itself authorize scope or guarantee changes.
+- Apply accepted review feedback across the affected path: inspect related parameters,
+  callers, tests and documentation for the same issue. Handle routine internal corrections
+  together and propose consequential public-interface changes as a group under the
+  existing approval rules. Keep this pass within the task and its immediate collaborators.
+
+### Simplification and cleanup
+
 - After implementation and review fixes, make one final simplification pass over
   the complete diff using [implementation economy](ARCHITECTURE.md#simplicity),
   including tests and documentation. Use behavior-preserving refactoring to remove
@@ -121,16 +136,9 @@ file, line and violated rule.
   unrelated rewrites, speculative abstractions, or cosmetic churn. Propose broader
   improvements separately. Briefly identify incidental refactoring and its benefit in
   the delivery report; cleanup is not mandatory when no useful improvement is evident.
-- Give reviewers the approved scope and exclusions; distinguish requirements from
-  revisable implementation choices. Required findings must identify a concrete defect
-  or violated contract or rule; distinguish optional improvements. Challenge complexity
-  caused by implementation choices using a simpler viable alternative that preserves
-  required behavior and boundaries. Verify uncertain library assumptions from documentation
-  or a temporary probe. Review feedback does not itself authorize scope or guarantee changes.
-- Apply accepted review feedback across the affected path: inspect related parameters,
-  callers, tests and documentation for the same issue. Handle routine internal corrections
-  together and propose consequential public-interface changes as a group under the
-  existing approval rules. Keep this pass within the task and its immediate collaborators.
+
+### Verification
+
 - For new workflows or changed boundaries, trace the actual path from entry point
   through application, ports and adapters. Cite relevant code and an application test
   using supplied port implementations. New boundary violations block completion;
@@ -144,6 +152,9 @@ file, line and violated rule.
   For changes limited to documentation, check links, consistency and whitespace;
   local architecture checks are not required. Otherwise, run the
   [local architecture checks](README.md#architecture-checks) before committing.
+
+### Reporting
+
 - Report actual results, unverified guarantees and boundary changes. For substantial
   changes, report additions and deletions separately and list new files. Passing CI
   is not proof of purity. Follow the [verification requirements](ARCHITECTURE.md#verification)
