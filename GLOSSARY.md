@@ -1,14 +1,12 @@
 # Glossary
 
-This records Yomibu's Ubiquitous Language: use these terms consistently in code,
-tests, documentation and conversation within the same model context. Document any
-legitimate differences between contexts explicitly. The retained
-[SQL schema](docs/plan/schema.postgresql.sql) grounds the data terms; the
-[request example](docs/plan/story-generation-request.yml) illustrates proposed use,
-not final product behavior or CLI formats. Existing code may use older names.
+This records Yomibu's agreed domain meanings. The
+[SQL schema](docs/plan/schema.postgresql.sql) grounds the data terms; see
+[design reference statuses](ARCHITECTURE.md#design-references) for requirements and
+proposals. Existing code may use older names.
 
-Follow the [vocabulary agreement rule](AGENTS.md#terminology): discuss new terms or
-changed meanings with the user, then record agreed definitions here before code uses them.
+Follow the [domain language rules](ARCHITECTURE.md#domain-language) and
+[vocabulary agreement workflow](AGENTS.md#terminology).
 
 | Term | Meaning |
 | --- | --- |
@@ -30,6 +28,8 @@ changed meanings with the user, then record agreed definitions here before code 
 | Plan | The prepared inputs and options bound together for generation. |
 | Model request | The exact model-input bytes and options, excluding credentials and authentication headers. A hash identifies the request bytes. |
 | Candidate | A generated or revised story evaluated as one result. A story can contain multiple scenes and blocks. |
+
+Collection, subject and entry have distinct meanings; **catalogue** is not a synonym.
 
 Imported learner progress does not prove mastery. “Evidence” is explanatory language,
 not a separate model concept.
@@ -59,5 +59,5 @@ Avoid unqualified **batch** where it could mean a page, save group or complete i
 A reader is an ingestion capability; a **learner progress source** is the domain
 association defined above. **ImportRecord** is not an agreed universal domain entity.
 
-See the [architecture guide](ARCHITECTURE.md).
-Request documents encode identifiers as text; persisted identifiers follow the SQL schema.
+Request documents encode identifiers as text; persisted identifiers follow the
+[SQL schema](docs/plan/schema.postgresql.sql).

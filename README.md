@@ -1,15 +1,14 @@
 # Yomibu
 
-Yomibu is being rebuilt to create Japanese reading material. The previous
-implementation has been removed; the workspace retains four minimal crates,
-architecture enforcement and the [design plans](docs/plan/).
+Yomibu is being built to create Japanese reading material. The current CLI supports
+learner creation and collection ID listing.
 
 Build with `cargo build --locked`. Story generation, synchronization and credential
 management are not currently available.
 
 The [WaniKani epic](https://github.com/kalorz/yomibu/issues/97) records approved import
-behavior; [#109](https://github.com/kalorz/yomibu/issues/109) scopes the next storage
-task. These are specifications, not available commands.
+behavior; [#109](https://github.com/kalorz/yomibu/issues/109) scopes a storage task.
+These are specifications, not available commands.
 
 ## Local PostgreSQL
 
@@ -111,15 +110,16 @@ and raw provider messages.
 
 ## Developing
 
-`crates/yomibu-app` is the application library; `crates/yomibu-cli` builds `yomibu`.
-Shared contracts live in `yomibu-core`; implementations live in `yomibu-ext`.
-The [architecture guide](ARCHITECTURE.md) defines enduring boundaries and practices;
+`crates/yomibu-cli` builds the `yomibu` binary used in the examples above.
+
+The [architecture guide](ARCHITECTURE.md) defines boundaries, rules and coverage limits;
 [AGENTS.md](AGENTS.md) gives the working instructions for agents.
 The [glossary](GLOSSARY.md) explains domain terms.
-The [request example](docs/plan/story-generation-request.yml) explores a possible
-structure; it neither specifies CLI input formats nor finalizes product behavior.
-[Durable execution](docs/plan/durable-execution.md) and [replay](docs/plan/replay.md)
-are exploratory proposals.
+See [crate ownership](ARCHITECTURE.md#boundaries) and
+[design reference statuses](ARCHITECTURE.md#design-references) before using the
+preserved plans.
+
+### Tests
 
 Run Rust tests with `cargo test --locked --all`. [CI](.github/workflows/ci.yml)
 defines the full checks and runs them on Linux and macOS.
@@ -154,15 +154,33 @@ See the [application operations](crates/yomibu-app/src/application/mod.rs),
 [PostgreSQL adapters](crates/yomibu-ext/src/postgres.rs) for read/write guarantees,
 deadline handling, and pool configuration responsibilities.
 
-Check crate boundaries with `python3 -B tools/check_architecture.py` using Python 3
-and the repository Rust toolchain. Install the pinned Bylaw and ast-grep tools using
-the version variables and installation steps in [CI](.github/workflows/ci.yml), then run
-`python3 -B tools/check_domain.py` and `ast-grep scan --rule tools/provider_placement.yml .`.
-Verify the enforcement contracts with
-`python3 -B -m unittest discover -s tools -p 'test_*.py' -v`.
-Architecture checks run separately from `cargo test`.
-See [verification](ARCHITECTURE.md#verification) for coverage and remaining
-enforcement gaps. No legacy violations are exempted.
+### Architecture checks
+
+Use Python 3 and the [repository Rust toolchain](rust-toolchain.toml), which includes
+`rust-src` for semantic analysis. The CI installation also uses Node.js/npm to install
+ast-grep. Install the pinned
+[cargo-bylaw](https://github.com/danielgerlag/cargo-bylaw) and ast-grep tools using the
+version variables and installation steps in [CI](.github/workflows/ci.yml).
+Bylaw's separate executable keeps its rust-analyzer dependencies out of Yomibu's
+dependency graph.
+
+Run from the repository root. `check_domain.py` invokes `cargo bylaw`; the provider
+scan invokes `ast-grep` on `PATH`. Install both tools before running the Python
+enforcement tests, which invoke them as well:
+
+```sh
+python3 -B tools/check_architecture.py
+python3 -B tools/check_domain.py
+ast-grep scan --rule tools/provider_placement.yml .
+python3 -B -m unittest discover -s tools -p 'test_*.py' -v
+```
+
+The crate checker uses offline Cargo metadata without building the application.
+Architecture checks run separately from `cargo test`; CI runs them on Linux and macOS.
+See [verification](ARCHITECTURE.md#verification) for the rules each check covers and
+the remaining review obligations.
+
+### API documentation
 
 Build API documentation with `cargo doc --locked --no-deps`; the output is in
 `target/doc/yomibu_app`.
