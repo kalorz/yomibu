@@ -7,11 +7,13 @@ publish.workspace = true
 
 [dependencies]
 yomibu-core = { path = "../yomibu-core" }
-sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "uuid", "tls-rustls"] }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "uuid", "tls-rustls", "chrono"] }
 tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 
 [lints.rust]
