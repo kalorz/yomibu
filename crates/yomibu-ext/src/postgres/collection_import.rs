@@ -115,13 +115,19 @@ impl SubjectQuery for PostgresLearnerStorage {
             .bind(&collection.key)
             .bind(ids)
             .fetch_all(&mut *lease.connection);
-            let mut rows = bounded(deadline, query, lookup_failure).await?;
+            let rows = bounded(deadline, query, lookup_failure).await?;
             lease.confirmed = true;
             expired(deadline, lookup_deadline)?;
-            rows.sort_unstable();
-            Ok(rows)
+            finish_lookup(rows, deadline)
         })
     }
+}
+
+// Sorting is part of the read operation and can exhaust its remaining budget.
+fn finish_lookup(mut rows: Vec<String>, deadline: Instant) -> Result<Vec<String>, StorageError> {
+    rows.sort_unstable();
+    expired(deadline, lookup_deadline)?;
+    Ok(rows)
 }
 
 fn invalid(reason: &str) -> ImportWriteError {
@@ -442,4 +448,26 @@ async fn complete(
         learner_progress_source_id: source,
         last_import_completed_at: stored,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn lookup_completion_rejects_expiry_and_returns_sorted_ids_within_budget() {
+        assert_eq!(
+            finish_lookup(vec!["2".into(), "10".into()], Instant::now()),
+            Err(lookup_deadline()),
+        );
+        assert_eq!(
+            finish_lookup(
+                vec!["2".into(), "10".into()],
+                Instant::now() + Duration::from_secs(5),
+            )
+            .unwrap(),
+            ["10", "2"],
+        );
+    }
 }
