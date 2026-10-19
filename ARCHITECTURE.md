@@ -77,6 +77,23 @@ Paths below are relative to `crates/`:
 | `yomibu-ext/src/` | Implementations grouped by provider or component; SDK clients, SQL, file formats, provider options and error translation. |
 | Driving crates | Translate supported inputs into application requests, invoke operations and present results. Composition roots configure and connect implementations. |
 
+### Provider independence
+
+Core and application contracts, including port inputs, constructors and validation,
+express Yomibu concepts and operation guarantees. Provider-specific ID formats,
+type mappings and restrictions belong in integrations; backend representations belong
+in storage adapters. Source identities and captured payloads may cross as opaque data.
+For example, WaniKani's numeric IDs and lack of grammar subjects must not narrow a
+shared subject-storage contract. A deliberately vocabulary-only operation may still
+exclude grammar because of its agreed purpose.
+
+Review ownership before backend mechanics or plan adherence. Treat the implementation
+plan as fallible; its approval is not an implicit architecture exception. For each
+changed inner contract or validation rule, justify restrictions against the approved
+model, identify provider/backend assumptions even under generic names, and use a
+concrete counterexample to test the boundary at its owning layer. Cite blockers by
+file, line and violated rule.
+
 ### Port roles and labels
 
 Direction is relative to the application/domain boundary: inbound/driving ports
@@ -409,6 +426,17 @@ The [checker tests](tools/test_architecture.py) use isolated Cargo workspaces to
 rejection of forbidden edges and acceptance of allowed ones. Run them with
 `python3 -B -m unittest discover -s tools -p 'test_*.py' -v`; CI runs both commands.
 
+The [provider-placement rule](tools/provider_placement.yml) uses ast-grep, pinned in
+[CI](.github/workflows/ci.yml) and verified by [real-CLI tests](tools/test_provider_placement.py).
+Run the [local checks](README.md#developing) before committing. The rule rejects known
+provider words in snake_case/CamelCase identifiers and standalone identity literals
+in core/app source. Comments, doc attributes, opaque JSON and integration tests remain
+usable. Only same-file outer `#[cfg(test)]` ancestry is exempt; inner/compound cfg and
+out-of-line test modules are not. Extend the name list when adding an integration.
+The rule does not expand macros, decode escaped identities or recognize restrictions
+under neutral names. Behavioral tests and ownership review remain required; renaming
+does not establish provider independence.
+
 Domain and core/app dependency rules are configured in [bylaw.toml](bylaw.toml), using
 [cargo-bylaw](https://github.com/danielgerlag/cargo-bylaw) 0.1.0. Install it with
 `cargo install cargo-bylaw --version 0.1.0 --locked`; the separate executable keeps
@@ -474,7 +502,7 @@ parsing and resolution; keep custom code limited to demonstrated gaps.
 | Workspace and domain dependency direction | Implemented above, subject to the configuration limits. No legacy exceptions remain. |
 | Core/app independence from SDKs, database libraries and delivery frameworks | Bylaw rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
 | Domain avoids ambient effects | Scoped Clippy restrictions reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
-| Public contracts expose domain/application representations | The library gate catches explicit references to unapproved SDK types, not poor contract design. Review associated types, opaque payload handling and representation ownership. |
+| Public contracts expose domain/application representations | Bylaw checks library dependencies; the provider-placement rule catches configured names. Behavioral tests and [ownership review](#provider-independence) check meaning and restrictions that both tools miss. |
 | Application uses supplied ports and applies operation-wide policy | Scoped Clippy checks reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
 | Adapters satisfy behavioral contracts | The PostgreSQL learner collection query has real-backend contract tests in `crates/yomibu-ext/tests/postgres.rs`, run by CI; see the README for local invocation and prerequisites. Dependency analysis cannot establish ordering, atomicity or failure semantics. |
 | Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
