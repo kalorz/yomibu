@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use yomibu_core::domain::{LearnerId, MaterialKind};
-use yomibu_core::ports::infrastructure::wanikani::{
+use yomibu_core::domain::LearnerId;
+use yomibu_core::ports::infrastructure::collection_import::{
     PreparedProgress, PreparedSaveGroup, PreparedSubject, SourceRecord,
 };
 
@@ -13,11 +13,11 @@ pub(crate) fn source(t: i64, marker: &str) -> SourceRecord {
 }
 pub(crate) fn subject(id: u64, t: i64) -> PreparedSubject {
     let object = ["vocabulary", "kana_vocabulary", "kanji", "radical"][(id as usize - 1) % 4];
-    PreparedSubject { external_id: id, kind: if id % 4 == 1 || id % 4 == 2 { Some(MaterialKind::Vocabulary) } else { None }, source: SourceRecord::new(at(t), &serde_json::json!({"id":id,"object":object,"data":{"characters":"食べる","meanings":[{"meaning":"to eat","primary":true}],"readings":[{"reading":"たべる"}]},"version":t}).to_string()).unwrap() }
+    PreparedSubject { external_id: id.to_string(), kind: yomibu_ext::wanikani::subject_kind(object).unwrap(), source: SourceRecord::new(at(t), &serde_json::json!({"id":id,"object":object,"data":{"characters":"食べる","meanings":[{"meaning":"to eat","primary":true}],"readings":[{"reading":"たべる"}]},"version":t}).to_string()).unwrap() }
 }
 pub(crate) fn progress(id: u64, t: i64, observed: i64) -> PreparedProgress {
     PreparedProgress {
-        subject_external_id: id,
+        subject_external_id: id.to_string(),
         progress_stage: Some("5".into()),
         is_hidden: false,
         learning_started_at: Some(at(1)),
@@ -33,7 +33,7 @@ pub(crate) fn group(
     subjects: Vec<PreparedSubject>,
     progress: Vec<PreparedProgress>,
 ) -> PreparedSaveGroup {
-    PreparedSaveGroup::new(
+    yomibu_ext::wanikani::prepare_group(
         LearnerId(uuid::Uuid::from_u128(learner)),
         account.into(),
         source(t, account),

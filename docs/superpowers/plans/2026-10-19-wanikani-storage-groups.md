@@ -10,7 +10,37 @@
 
 **Spec:** [#109](https://github.com/kalorz/yomibu/issues/109), its authoritative parent [#97](https://github.com/kalorz/yomibu/issues/97), [AGENTS.md](../../../AGENTS.md), [ARCHITECTURE.md](../../../ARCHITECTURE.md), [GLOSSARY.md](../../../GLOSSARY.md), and the [retained SQL schema](../../plan/schema.postgresql.sql). These remain authoritative; this file records implementation choices and execution steps, not another design specification.
 
-**Baseline:** Fresh plan against `main` at `cf0b2b29aa3591acc5d8dc17416d23a915e4908c`, including merged PR #110, inspected on 2026-10-19. Historical #106 is not needed for this plan. Status: plan approved; implementation separately authorized and completed.
+**Baseline:** Fresh plan against `main` at `cf0b2b29aa3591acc5d8dc17416d23a915e4908c`, including merged PR #110, inspected on 2026-10-19. Historical #106 is not needed for this plan. Status: original implementation completed; its ownership choices are superseded by the correction below.
+
+## Ownership correction (supersedes the choices below)
+
+The initial plan and implementation placed provider semantics in Core. Their approval
+and earlier reviews did not authorize an architecture exception. The user authorized
+correction of PR #111 against current main, including merged #114/#115, without another
+plan-approval round. The original task sequence and execution results below are historical.
+
+| Superseded choice | Corrected responsibility |
+| --- | --- |
+| Core `wanikani` module and provider-named ports | Core `collection_import::{SubjectQuery, ImportGroupWriter}` express this finite shared-collection/external-source storage operation. |
+| Implicit fixed collection in lookup/save SQL | Caller supplies `SharedCollection { provider, key, name }`; provider/key identify the shared collection, name is creation metadata. |
+| Implicit account/learner scope | Group receives `ProgressSourceIdentity { learner_id, external_account_id }`; completion receives both collection and progress-source UUIDs. |
+| Positive numeric subject IDs, grammar rejection and JSON-object restriction in Core | Shared IDs are opaque strings, both material kinds are valid, and JSON is opaque. `yomibu-ext::wanikani` owns numeric ID normalization, supported type mapping, provider kind/payload-shape/account validation and its collection identity. |
+| Numeric ID count implicitly bounded bytes | Core counts all variable identity/name bytes in group and lookup limits; PostgreSQL separately bounds encoded arrays and writes before acquisition. |
+| Completion restricted by a provider literal | Completion updates only the explicitly supplied source in its supplied shared collection. Manual sources/private collections remain outside this external import operation. |
+
+These choices preserve the linked specification's atomicity, stable identities,
+freshness, independent observations, write outcomes and explicit completion. The
+retained schema, HTTP/application/CLI exclusions and transaction lifecycle are unchanged.
+No universal repository, importer, enforcement tooling or architecture-rule expansion
+is introduced. Source response parsing remains outside this slice.
+
+Correction verification adds real-PostgreSQL opaque-ID persistence/reuse, grammar-kind
+persistence, and same-ID isolation by collection provider/key, including reference
+resolution and completion. The old `u64` API could not represent `lesson:alpha/7` or
+caller-supplied collection scope; the grammar test was observed failing at its old
+constructor. Detailed provider rejection cases live in the integration's unit tests;
+SQL tests exercise persistence and boundary wiring. The new reference-array byte-limit
+test was observed failing before the adapter's encoding preflight was corrected.
 
 ## Global constraints
 
@@ -230,10 +260,33 @@ Source inspection by both planner and reviewer confirmed that SQLx 0.9 transacti
 Planning verification consists of current-main/specification inspection, link/consistency/whitespace checks and independent review. No implementation, PostgreSQL acceptance suite or resource measurement has been performed by this planning request.
 
 
-## Authorized implementation results
+## Initial implementation results (before ownership correction)
 
 All five increments compile with complete trait implementations. Final verification passed: 41 default Rust tests, 37 real-PostgreSQL tests (including existing adapter/CLI contracts and the resource smoke), all-target/all-feature Clippy, formatting, Rustdoc with warnings denied, crate/domain dependency checks, 25 architecture-enforcement tests, unused-dependency analysis and whitespace checks. The retained schema was recreated for each backend test and was not changed. [README measurements](../../../README.md#developing) report all 28 separately executed resource scenarios, including both replay variants, two overlapping imports, pools of one/two connections, 1,000/10,000 totals, the near-limit singleton and byte-based chunks. Measurements are synthetic debug-build evidence, not an HTTP/import SLA.
 
 Fresh independent implementation review found two required corrections: extend domain restrictions for newly enabled Chrono clock APIs, and distinguish timestamp/encoded-size preflight from in-transaction JSONB rejection in the port documentation. Both were corrected and independently rechecked, with no remaining required findings. The final simplification pass removed an unnecessary preflight size buffer; shared PostgreSQL fixture setup was extracted, and teardown now waits for interrupted backend sessions before dropping schemas. Timestamp boundary and field-coverage tests preserve lossless representation checks. No approved behavior or scope changed.
 
 New files: `crates/yomibu-core/src/ports/infrastructure/wanikani.rs`; `crates/yomibu-ext/src/postgres/{wanikani,transaction}.rs`; `crates/yomibu-ext/tests/postgres_wanikani{,_outcomes,_resources}.rs`; `crates/yomibu-ext/tests/support/{mod,wanikani,postgres_faults}.rs`; and this implementation plan. No application/CLI import path, HTTP reader, GitHub record, retained schema or domain JSON encoding was added. No further behavior decision is pending.
+
+
+## Ownership-correction verification
+
+Current main `16bc014` (#114/#115) was merged without discarding the original work.
+Focused independent review checked ownership before backend mechanics and found no
+remaining required findings. Its early warning about variable-sized ID buffers is
+addressed by raw-input limits and PostgreSQL lookup/reference-array encoding preflight.
+The final simplification pass removed duplicated lookup-limit edge cases from adapter
+tests; Core owns those cases, while one adapter case proves pre-acquisition enforcement.
+
+Verification passed: 48 default Rust tests, 40 real-PostgreSQL tests, all 36 existing
+architecture-enforcement tests, provider-placement scan, crate/Bylaw dependency checks,
+Clippy, formatting, Rustdoc with warnings denied and unused-dependency analysis. All 28
+resource scenarios were rerun in separate processes; [README](../../../README.md#tests)
+records current results. The new persistence tests were also checked against deliberate
+SQL regressions: mapping grammar to vocabulary and omitting the collection-key predicate
+each caused the corresponding regression to fail; both changes were restored.
+
+The correction adds `crates/yomibu-ext/src/wanikani.rs` and renames the Core port,
+PostgreSQL implementation and main contract-test file to `collection_import` names.
+No schema, architecture guidance, enforcement tool, HTTP reader or application/CLI
+import wiring was added. Resource figures remain synthetic debug-build evidence.

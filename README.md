@@ -169,8 +169,11 @@ checks the real command's output and exit behavior. Failed runs can leave test
 schemas behind; use only a disposable database. Missing prerequisites fail the
 explicit test run rather than substituting another backend.
 
-The [WaniKani storage contracts](crates/yomibu-core/src/ports/infrastructure/wanikani.rs)
-cover finite atomic groups and explicit successful-sync completion from
+The [shared collection import contracts](crates/yomibu-core/src/ports/infrastructure/collection_import.rs)
+accept supplied collection/progress-source identities, opaque subject IDs and both
+material kinds. [WaniKani preparation](crates/yomibu-ext/src/wanikani.rs) owns its
+provider-specific validation and type mapping. The contracts cover finite atomic
+groups and explicit successful-sync completion from
 [#109](https://github.com/kalorz/yomibu/issues/109). This storage slice has no HTTP
 reader, application import operation or CLI import command. Its PostgreSQL tests
 include controlled overlap, cancellation, deadlock rollback without retry,
@@ -208,29 +211,30 @@ workspace suite does not isolate this test's RSS. RSS includes SQLx, fixtures,
 setup and the local relay; elapsed measurements exclude prepopulation.
 
 On Linux 6.18 x86_64, Rust 1.98.1 debug builds and the CI PostgreSQL 18 image,
-the 2026-10-19 measurement runs produced the following results. These synthetic
+the 2026-10-19 ownership-correction verification produced the following results
+from 28 separate test processes. These synthetic
 measurements verify bounds and scaling; they are not an import latency SLA or
 measurements of live WaniKani payloads.
 
 | Scenario | Records per import | Elapsed ms, pool 1 / 2 | Peak RSS KiB, pool 1 / 2 | SQL commands |
 | --- | ---: | ---: | ---: | ---: |
-| Cold | 10,000 | 2,542 / 2,641 | 11,588 / 12,176 | 445 |
-| Reuse | 10,000 | 1,151 / 1,081 | 11,292 / 11,332 | 385 |
-| Stale replay | 10,000 | 1,107 / 1,156 | 11,608 / 12,284 | 385 |
-| Identical replay | 10,000 | 2,463 / 2,146 | 11,744 / 12,012 | 445 |
-| Overlap, same source | 10,000 × 2 | 4,501 / 4,740 | 12,792 / 13,408 | 890 |
-| Overlap, accounts | 10,000 × 2 | 4,648 / 4,004 | 12,896 / 13,428 | 890 |
-| Near byte limit | 1 | 93 / 90 | 33,468 / 33,016 | 18 |
-| Byte-based chunks | 8 | 391 / 374 | 19,484 / 19,336 | 32 |
+| Cold | 10,000 | 2,647 / 2,600 | 11,952 / 12,496 | 445 |
+| Reuse | 10,000 | 1,237 / 1,336 | 11,460 / 12,340 | 385 |
+| Stale replay | 10,000 | 1,296 / 1,289 | 11,800 / 12,600 | 385 |
+| Identical replay | 10,000 | 2,396 / 2,388 | 11,992 / 12,468 | 445 |
+| Overlap, same source | 10,000 × 2 | 5,152 / 5,391 | 13,000 / 13,516 | 890 |
+| Overlap, accounts | 10,000 × 2 | 5,272 / 4,661 | 13,400 / 13,660 | 890 |
+| Near byte limit | 1 | 93 / 112 | 33,384 / 33,620 | 18 |
+| Byte-based chunks | 8 | 405 / 398 | 20,504 / 19,708 | 32 |
 
-At fixed group size, cold-run RSS increased from 11,188 to 11,588 KiB (pool 1)
-and 11,640 to 12,176 KiB (pool 2) when the total rose from 1,000 to 10,000;
+At fixed group size, cold-run RSS increased from 11,644 to 11,952 KiB (pool 1)
+and 12,124 to 12,496 KiB (pool 2) when the total rose from 1,000 to 10,000;
 commands grew from 49 to 445. For the 10,000-record cold run, maximum raw group
-size was 943,970 bytes and maximum Bind frame was 393,617 bytes. Its bounded
+size was 947,996 bytes and maximum Bind frame was 393,617 bytes. Its bounded
 2,000-payload sample ranged from 368 to 35,187 UTF-8 bytes (p50 393, p95 2,542),
 with synthetic multibyte text, arrays and long fields across all four subject types.
 The near-limit group contained 8,384,512 raw bytes and its largest Bind frame was
-8,384,124 bytes. Its larger RSS reflects the bounded large input/encoding/relay
+8,384,098 bytes. Its larger RSS reflects the bounded large input/encoding/relay
 buffers. Constructor rejection, adapter preflight rejection, grouped command
 bounds and multi-chunk rollback are asserted independently of these timings.
 HTTP/workflow resource verification belongs to the future import orchestration work.

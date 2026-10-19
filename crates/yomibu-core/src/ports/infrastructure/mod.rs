@@ -1,4 +1,4 @@
-pub mod wanikani;
+pub mod collection_import;
 
 use std::{future::Future, pin::Pin, time::Instant};
 

@@ -1,5 +1,5 @@
+mod collection_import;
 mod transaction;
-mod wanikani;
 
 use std::{future::Future, pin::Pin, time::Instant};
 

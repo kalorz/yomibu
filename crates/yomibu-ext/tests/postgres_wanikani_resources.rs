@@ -12,9 +12,8 @@ use std::{
     sync::atomic::Ordering,
     time::{Duration, Instant},
 };
-use yomibu_core::ports::infrastructure::wanikani::{
-    MAX_GROUP_INPUT_BYTES, PreparedSaveGroup, SourceRecord, WaniKaniGroupWriter,
-    WaniKaniSubjectQuery,
+use yomibu_core::ports::infrastructure::collection_import::{
+    ImportGroupWriter, MAX_GROUP_INPUT_BYTES, PreparedSaveGroup, SourceRecord, SubjectQuery,
 };
 use yomibu_ext::PostgresLearnerStorage;
 const GROUP_ROWS: usize = 500;
@@ -52,7 +51,7 @@ fn generated(
 fn synthetic_subject(
     id: u64,
     t: i64,
-) -> yomibu_core::ports::infrastructure::wanikani::PreparedSubject {
+) -> yomibu_core::ports::infrastructure::collection_import::PreparedSubject {
     let mut s = subject(id, t);
     let repeats = if id.is_multiple_of(97) {
         1024
@@ -69,18 +68,23 @@ fn synthetic_subject(
     s
 }
 fn raw_bytes(input: &PreparedSaveGroup) -> usize {
-    input.external_account_id().len()
+    input.collection().provider.len()
+        + input.collection().key.len()
+        + input.collection().name.len()
+        + input.progress_source().external_account_id.len()
         + input.account().payload().get().len()
         + input
             .subjects()
             .iter()
-            .map(|s| s.source.payload().get().len())
+            .map(|s| s.external_id.len() + s.source.payload().get().len())
             .sum::<usize>()
         + input
             .progress()
             .iter()
             .map(|p| {
-                p.source.payload().get().len() + p.progress_stage.as_ref().map_or(0, String::len)
+                p.subject_external_id.len()
+                    + p.source.payload().get().len()
+                    + p.progress_stage.as_ref().map_or(0, String::len)
             })
             .sum::<usize>()
 }
@@ -134,10 +138,13 @@ async fn import(
     for offset in (0..total).step_by(GROUP_ROWS) {
         let count = GROUP_ROWS.min(total - offset);
         if !include_subjects {
-            let ids: Vec<u64> = (offset as u64 + 1..=offset as u64 + count as u64).collect();
+            let mut ids: Vec<String> = (offset + 1..=offset + count)
+                .map(|id| id.to_string())
+                .collect();
+            ids.sort_unstable();
             assert_eq!(
                 storage
-                    .existing_subject_ids(&ids, deadline())
+                    .existing_subject_ids(&yomibu_ext::wanikani::collection(), &ids, deadline())
                     .await
                     .unwrap(),
                 ids
@@ -157,6 +164,7 @@ async fn import(
     }
     storage
         .record_completion(
+            saved.unwrap().collection_id,
             saved.unwrap().learner_progress_source_id,
             at(t + 100),
             deadline(),
@@ -243,7 +251,7 @@ async fn storage_resource_scenarios() {
                 let mut p = input.progress()[0].clone();
                 let fixed = raw_bytes(&input) - p.progress_stage.as_ref().map_or(0, String::len);
                 p.progress_stage = Some("x".repeat(MAX_GROUP_INPUT_BYTES - 4096 - fixed));
-                let input = PreparedSaveGroup::new(input.learner_id(), input.external_account_id().into(), input.account().clone(), input.subjects().to_vec(), vec![p]).unwrap();
+                let input = PreparedSaveGroup::new(input.collection().clone(), input.progress_source().clone(), input.account().clone(), input.subjects().to_vec(), vec![p]).unwrap();
                 let mut run = Run::default();
                 run.observe(&input);
                 storage.save_group(&input, deadline()).await.unwrap();

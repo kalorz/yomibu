@@ -1,4 +1,5 @@
-//! Storage contracts for supplied WaniKani data; no HTTP or traversal ownership.
+//! Finite shared-collection imports for existing learners and external progress sources.
+//! No source protocol, payload interpretation or traversal ownership.
 use super::StorageError;
 use std::{future::Future, pin::Pin, time::Instant};
 
@@ -7,10 +8,10 @@ pub const MAX_SUBJECT_LOOKUP_IDS: usize = 1_000;
 
 /// Port: outbound / driven. Role: infrastructure.
 ///
-/// Returns unique requested external subject IDs, sorted numerically, from the
-/// shared WaniKani collection. An absent collection means no matches; this query
-/// never creates anything. Reject zero IDs or more than [`MAX_SUBJECT_LOOKUP_IDS`]
-/// before I/O; an empty valid request returns immediately. Results are advisory:
+/// Returns unique requested external subject IDs, sorted lexicographically, from the
+/// supplied shared collection (provider/key). An absent collection means no matches;
+/// this query never creates anything. Enforce [`validate_subject_lookup`] before I/O;
+/// an empty valid request returns immediately. Results are advisory:
 /// a subsequent save must resolve references under its own database constraints.
 ///
 /// The absolute monotonic deadline covers acquisition, connection setup, locks
@@ -19,12 +20,13 @@ pub const MAX_SUBJECT_LOOKUP_IDS: usize = 1_000;
 /// them to a pool while commands remain pending. Cleanup is bounded separately
 /// by the adapter; a timeout does not promise immediate server cancellation.
 /// Failures are sanitized errors, never partial or successful empty results.
-pub trait WaniKaniSubjectQuery {
+pub trait SubjectQuery {
     fn existing_subject_ids<'a>(
         &'a self,
-        ids: &'a [u64],
+        collection: &'a SharedCollection,
+        ids: &'a [String],
         deadline: Instant,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<u64>, StorageError>> + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, StorageError>> + 'a>>;
 }
 use crate::domain::{LearnerId, MaterialKind};
 use chrono::{DateTime, Utc};
@@ -33,10 +35,48 @@ use std::collections::HashSet;
 
 /// Per-group record limit, independently for subjects and learner progress.
 pub const MAX_GROUP_RECORDS: usize = 1_000;
-/// Combined raw UTF-8 input bytes: account ID, stages and all source payloads.
+/// Combined raw UTF-8 bytes of supplied identities, collection name, stages and payloads.
 pub const MAX_GROUP_INPUT_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum raw JSON byte length of one source payload.
 pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
+
+/// Shared collection to create or reuse, identified by opaque provider/key values.
+/// The name is used only on creation; this operation does not refresh collection metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedCollection {
+    pub provider: String,
+    pub key: String,
+    pub name: String,
+}
+impl SharedCollection {
+    fn input_bytes(&self) -> usize {
+        self.provider.len() + self.key.len() + self.name.len()
+    }
+}
+
+/// External progress-source identity within the group's supplied collection.
+/// The existing learner and opaque external account ID distinguish independent sources.
+/// Manual sources without an external account are outside this import operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressSourceIdentity {
+    pub learner_id: LearnerId,
+    pub external_account_id: String,
+}
+
+/// Storage-contract resource validation for a lookup, before any adapter I/O.
+/// IDs are opaque and may repeat; no provider ID parsing or normalization occurs.
+pub fn validate_subject_lookup(
+    collection: &SharedCollection,
+    ids: &[String],
+) -> Result<(), StorageError> {
+    let size = ids
+        .iter()
+        .try_fold(collection.input_bytes(), |n, id| n.checked_add(id.len()));
+    if ids.len() > MAX_SUBJECT_LOOKUP_IDS || size.is_none_or(|n| n > MAX_GROUP_INPUT_BYTES) {
+        return Err(StorageError("subject lookup exceeds input limits".into()));
+    }
+    Ok(())
+}
 
 /// A rejected storage request. Messages never contain supplied payloads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,10 +102,7 @@ impl SourceRecord {
             return Err(InvalidSaveGroup("source payload exceeds byte limit"));
         }
         let payload: Box<RawValue> = serde_json::from_str(raw_json)
-            .map_err(|_| InvalidSaveGroup("source payload must be a JSON object"))?;
-        if !payload.get().starts_with('{') {
-            return Err(InvalidSaveGroup("source payload must be a JSON object"));
-        }
+            .map_err(|_| InvalidSaveGroup("source payload must be valid JSON"))?;
         Ok(Self {
             updated_at,
             payload,
@@ -79,11 +116,11 @@ impl SourceRecord {
     }
 }
 
-/// A translated supplied subject. Vocabulary/kana vocabulary use vocabulary;
-/// kanji/radicals use no material kind and keep their provider type in source data.
+/// A supplied subject with an opaque collection-local external ID.
+/// Both material kinds and unresolved/out-of-model kinds (`None`) are supported.
 #[derive(Debug, Clone)]
 pub struct PreparedSubject {
-    pub external_id: u64,
+    pub external_id: String,
     pub kind: Option<MaterialKind>,
     pub source: SourceRecord,
 }
@@ -92,7 +129,7 @@ pub struct PreparedSubject {
 /// source freshness. Provider writes do not accept a manual mastery declaration.
 #[derive(Debug, Clone)]
 pub struct PreparedProgress {
-    pub subject_external_id: u64,
+    pub subject_external_id: String,
     pub progress_stage: Option<String>,
     pub is_hidden: bool,
     pub learning_started_at: Option<DateTime<Utc>>,
@@ -102,54 +139,56 @@ pub struct PreparedProgress {
 }
 
 /// One finite storage request, not an API page or proof of complete traversal.
-/// Construction validates storage-input limits/identity shape without I/O.
+/// Construction validates duplicate identities and storage-input limits without I/O.
+/// External IDs are exact opaque text; this contract performs no normalization.
 /// The caller bounds upstream preparation; the adapter separately validates its
 /// encoding and database constraints. References may resolve to stored subjects.
 #[derive(Debug, Clone)]
 pub struct PreparedSaveGroup {
-    learner_id: LearnerId,
-    external_account_id: String,
+    collection: SharedCollection,
+    progress_source: ProgressSourceIdentity,
     account: SourceRecord,
     subjects: Vec<PreparedSubject>,
     progress: Vec<PreparedProgress>,
 }
 impl PreparedSaveGroup {
     pub fn new(
-        learner_id: LearnerId,
-        external_account_id: String,
+        collection: SharedCollection,
+        progress_source: ProgressSourceIdentity,
         account: SourceRecord,
         subjects: Vec<PreparedSubject>,
         progress: Vec<PreparedProgress>,
     ) -> Result<Self, InvalidSaveGroup> {
-        if external_account_id.is_empty() {
-            return Err(InvalidSaveGroup("account ID must not be empty"));
-        }
         if subjects.len() > MAX_GROUP_RECORDS || progress.len() > MAX_GROUP_RECORDS {
             return Err(InvalidSaveGroup("save group exceeds record limit"));
         }
         let mut subject_ids = HashSet::new();
         let mut progress_ids = HashSet::new();
-        if subjects.iter().any(|s| {
-            s.external_id == 0
-                || s.kind == Some(MaterialKind::Grammar)
-                || !subject_ids.insert(s.external_id)
-        }) || progress
-            .iter()
-            .any(|p| p.subject_external_id == 0 || !progress_ids.insert(p.subject_external_id))
+        if subjects.iter().any(|s| !subject_ids.insert(&s.external_id))
+            || progress
+                .iter()
+                .any(|p| !progress_ids.insert(&p.subject_external_id))
         {
-            return Err(InvalidSaveGroup(
-                "invalid or duplicate subject/progress identity or kind",
-            ));
+            return Err(InvalidSaveGroup("duplicate subject/progress identity"));
         }
-        let mut sizes = [external_account_id.len(), account.payload.get().len()]
-            .into_iter()
-            .chain(subjects.iter().map(|s| s.source.payload.get().len()))
-            .chain(progress.iter().flat_map(|p| {
-                [
-                    p.source.payload.get().len(),
-                    p.progress_stage.as_ref().map_or(0, String::len),
-                ]
-            }));
+        let mut sizes = [
+            collection.input_bytes(),
+            progress_source.external_account_id.len(),
+            account.payload.get().len(),
+        ]
+        .into_iter()
+        .chain(
+            subjects
+                .iter()
+                .flat_map(|s| [s.external_id.len(), s.source.payload.get().len()]),
+        )
+        .chain(progress.iter().flat_map(|p| {
+            [
+                p.subject_external_id.len(),
+                p.source.payload.get().len(),
+                p.progress_stage.as_ref().map_or(0, String::len),
+            ]
+        }));
         let size = sizes
             .try_fold(0usize, |total, size| total.checked_add(size))
             .ok_or(InvalidSaveGroup("save group exceeds byte limit"))?;
@@ -157,18 +196,18 @@ impl PreparedSaveGroup {
             return Err(InvalidSaveGroup("save group exceeds byte limit"));
         }
         Ok(Self {
-            learner_id,
-            external_account_id,
+            collection,
+            progress_source,
             account,
             subjects,
             progress,
         })
     }
-    pub fn learner_id(&self) -> LearnerId {
-        self.learner_id
+    pub fn collection(&self) -> &SharedCollection {
+        &self.collection
     }
-    pub fn external_account_id(&self) -> &str {
-        &self.external_account_id
+    pub fn progress_source(&self) -> &ProgressSourceIdentity {
+        &self.progress_source
     }
     pub fn account(&self) -> &SourceRecord {
         &self.account
@@ -217,8 +256,8 @@ impl std::error::Error for ImportWriteError {}
 
 /// Port: outbound / driven. Role: infrastructure.
 ///
-/// Atomically saves one finite, prepared group for an existing learner. Shared
-/// subjects are identified by collection/external ID; progress references must
+/// Atomically saves the supplied shared collection, external progress source and
+/// finite prepared records for an existing learner. Shared subjects are identified by collection/external ID; progress references must
 /// resolve to supplied or existing subjects in that collection. Never fabricates
 /// learners/subjects, publishes entries, deletes omitted records or records sync
 /// completion. Empty progress is valid. Account sources remain independent.
@@ -236,9 +275,9 @@ impl std::error::Error for ImportWriteError {}
 /// are discarded with bounded cleanup. Failures contain no source diagnostics.
 /// Before I/O, the adapter validates encoded-resource bounds and lossless
 /// timestamp representation independently of the request's raw-input limits.
-/// Database-dependent checks, including JSONB representability, can reject the
-/// transaction atomically after earlier statements have run.
-pub trait WaniKaniGroupWriter {
+/// Database-dependent representation checks can reject the transaction atomically
+/// after earlier statements have run.
+pub trait ImportGroupWriter {
     fn save_group<'a>(
         &'a self,
         group: &'a PreparedSaveGroup,
@@ -248,12 +287,13 @@ pub trait WaniKaniGroupWriter {
     /// Explicit successful-sync bookkeeping. The caller has established complete
     /// traversal; source existence or previous group receipts do not prove it.
     /// Monotonically advances only `last_import_completed_at` for an existing
-    /// source in the shared WaniKani collection, returning the actually stored
+    /// external source in the supplied shared collection, returning the stored
     /// maximum. Account-only syncs are valid. Unknown/wrong-collection sources
     /// fail without insertion. Does not change payloads or ordinary group rows.
     /// Uses the same atomic outcome/deadline/drop guarantees as `save_group`.
     fn record_completion(
         &self,
+        collection: crate::domain::CollectionId,
         source: crate::domain::LearnerProgressSourceId,
         completed_at: DateTime<Utc>,
         deadline: Instant,
@@ -264,6 +304,13 @@ pub trait WaniKaniGroupWriter {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    fn collection() -> SharedCollection {
+        SharedCollection {
+            provider: "source".into(),
+            key: "lessons".into(),
+            name: "Lessons".into(),
+        }
+    }
     fn time() -> DateTime<Utc> {
         Utc.timestamp_opt(1_700_000_000, 1).unwrap()
     }
@@ -272,7 +319,7 @@ mod tests {
     }
     fn progress(id: u64) -> PreparedProgress {
         PreparedProgress {
-            subject_external_id: id,
+            subject_external_id: id.to_string(),
             progress_stage: Some("5".into()),
             is_hidden: false,
             learning_started_at: None,
@@ -286,8 +333,11 @@ mod tests {
         progress: Vec<PreparedProgress>,
     ) -> Result<PreparedSaveGroup, InvalidSaveGroup> {
         PreparedSaveGroup::new(
-            LearnerId(uuid::Uuid::from_u128(1)),
-            "account-a".into(),
+            collection(),
+            ProgressSourceIdentity {
+                learner_id: LearnerId(uuid::Uuid::from_u128(1)),
+                external_account_id: "account-a".into(),
+            },
             source(),
             subjects,
             progress,
@@ -302,38 +352,49 @@ mod tests {
     #[test]
     fn group_rejects_duplicate_identities() {
         assert!(group(vec![], vec![progress(1), progress(1)]).is_err());
-        assert!(group(vec![], vec![progress(0)]).is_err());
         let subject = || PreparedSubject {
-            external_id: 1,
+            external_id: "1".into(),
             kind: Some(MaterialKind::Vocabulary),
             source: source(),
         };
         assert!(group(vec![subject(), subject()], vec![]).is_err());
+    }
+    #[test]
+    fn shared_values_preserve_opaque_identity_and_grammar() {
+        let input = group(
+            vec![PreparedSubject {
+                external_id: "lesson:alpha/7".into(),
+                kind: Some(MaterialKind::Grammar),
+                source: source(),
+            }],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(input.subjects()[0].external_id, "lesson:alpha/7");
+        assert_eq!(input.subjects()[0].kind, Some(MaterialKind::Grammar));
+        assert!(group(vec![], vec![progress(0)]).is_ok());
+    }
+    #[test]
+    fn lookup_limits_include_identity_bytes() {
         assert!(
-            group(
-                vec![PreparedSubject {
-                    kind: Some(MaterialKind::Grammar),
-                    ..subject()
-                }],
-                vec![]
-            )
-            .is_err()
+            validate_subject_lookup(&collection(), &["lesson:alpha/7".into(), "0".into()]).is_ok()
         );
         assert!(
-            PreparedSaveGroup::new(
-                LearnerId(uuid::Uuid::nil()),
-                String::new(),
-                source(),
-                vec![],
-                vec![]
-            )
-            .is_err()
+            validate_subject_lookup(&collection(), &vec!["x".into(); MAX_SUBJECT_LOOKUP_IDS + 1])
+                .is_err()
         );
+        assert!(
+            validate_subject_lookup(&collection(), &["x".repeat(MAX_GROUP_INPUT_BYTES)]).is_err()
+        );
+        let mut oversized = collection();
+        oversized.key = "x".repeat(MAX_GROUP_INPUT_BYTES);
+        assert!(validate_subject_lookup(&oversized, &[]).is_err());
     }
     #[test]
     fn source_record_validates_opaque_json_and_raw_bytes() {
-        for raw in ["null", "[]", "123", "{bad}"] {
-            assert!(SourceRecord::new(time(), raw).is_err());
+        assert!(SourceRecord::new(time(), "{bad}").is_err());
+        for raw in ["null", "[]", "123"] {
+            assert!(SourceRecord::new(time(), raw).is_ok());
         }
         let payload = format!("{{\"x\":\"{}\"}}", "a".repeat(MAX_SOURCE_BYTES - 8));
         assert_eq!(payload.len(), MAX_SOURCE_BYTES);
@@ -358,8 +419,11 @@ mod tests {
             .is_err()
         );
         let mut p = progress(1);
-        let fixed =
-            "account-a".len() + source().payload().get().len() + p.source.payload().get().len();
+        let fixed = collection().input_bytes()
+            + "account-a".len()
+            + p.subject_external_id.len()
+            + source().payload().get().len()
+            + p.source.payload().get().len();
         p.progress_stage = Some("あ".repeat((MAX_GROUP_INPUT_BYTES - fixed) / 3));
         let remaining = MAX_GROUP_INPUT_BYTES - fixed - p.progress_stage.as_ref().unwrap().len();
         p.progress_stage
@@ -369,5 +433,43 @@ mod tests {
         assert!(group(vec![], vec![p.clone()]).is_ok());
         p.progress_stage.as_mut().unwrap().push('x');
         assert!(group(vec![], vec![p]).is_err());
+    }
+
+    #[test]
+    fn group_limits_include_every_variable_identity_field() {
+        for field in 0..6 {
+            let mut collection = collection();
+            let mut identity = ProgressSourceIdentity {
+                learner_id: LearnerId(uuid::Uuid::nil()),
+                external_account_id: "a".into(),
+            };
+            let mut subject = PreparedSubject {
+                external_id: "s".into(),
+                kind: None,
+                source: source(),
+            };
+            let mut progress = progress(1);
+            let large = "x".repeat(MAX_GROUP_INPUT_BYTES);
+            match field {
+                0 => collection.provider = large,
+                1 => collection.key = large,
+                2 => collection.name = large,
+                3 => identity.external_account_id = large,
+                4 => subject.external_id = large,
+                _ => progress.subject_external_id = large,
+            }
+            let error = PreparedSaveGroup::new(
+                collection,
+                identity,
+                source(),
+                vec![subject],
+                vec![progress],
+            )
+            .unwrap_err();
+            assert!(
+                error.to_string().contains("byte limit"),
+                "field {field}: {error}"
+            );
+        }
     }
 }

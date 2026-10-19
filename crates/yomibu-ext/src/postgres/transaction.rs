@@ -8,7 +8,7 @@ use std::{
     future::Future,
     time::{Duration, Instant},
 };
-use yomibu_core::ports::infrastructure::wanikani::ImportWriteError;
+use yomibu_core::ports::infrastructure::collection_import::ImportWriteError;
 
 pub(super) fn expired(deadline: Instant) -> Result<(), ImportWriteError> {
     if Instant::now() >= deadline {
