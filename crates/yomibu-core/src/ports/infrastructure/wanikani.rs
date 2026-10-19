@@ -188,6 +188,13 @@ pub struct SaveReceipt {
     pub learner_progress_source_id: crate::domain::LearnerProgressSourceId,
 }
 
+/// The stored completion timestamp after a confirmed explicit completion write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompletionReceipt {
+    pub learner_progress_source_id: crate::domain::LearnerProgressSourceId,
+    pub last_import_completed_at: DateTime<Utc>,
+}
+
 /// Knowledge of this transaction's outcome, not the outcome of earlier groups.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportWriteError {
@@ -235,6 +242,20 @@ pub trait WaniKaniGroupWriter {
         group: &'a PreparedSaveGroup,
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<SaveReceipt, ImportWriteError>> + 'a>>;
+
+    /// Explicit successful-sync bookkeeping. The caller has established complete
+    /// traversal; source existence or previous group receipts do not prove it.
+    /// Monotonically advances only `last_import_completed_at` for an existing
+    /// source in the shared WaniKani collection, returning the actually stored
+    /// maximum. Account-only syncs are valid. Unknown/wrong-collection sources
+    /// fail without insertion. Does not change payloads or ordinary group rows.
+    /// Uses the same atomic outcome/deadline/drop guarantees as `save_group`.
+    fn record_completion(
+        &self,
+        source: crate::domain::LearnerProgressSourceId,
+        completed_at: DateTime<Utc>,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<CompletionReceipt, ImportWriteError>> + '_>>;
 }
 
 #[cfg(test)]

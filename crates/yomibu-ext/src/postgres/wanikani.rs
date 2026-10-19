@@ -71,8 +71,8 @@ use std::collections::HashMap;
 use yomibu_core::{
     domain::{CollectionId, LearnerProgressSourceId},
     ports::infrastructure::wanikani::{
-        ImportWriteError, PreparedProgress, PreparedSaveGroup, PreparedSubject, SaveReceipt,
-        SourceRecord, WaniKaniGroupWriter,
+        CompletionReceipt, ImportWriteError, PreparedProgress, PreparedSaveGroup, PreparedSubject,
+        SaveReceipt, SourceRecord, WaniKaniGroupWriter,
     },
 };
 
@@ -175,6 +175,27 @@ impl WaniKaniGroupWriter for PostgresLearnerStorage {
             };
             let mut tx = until(deadline, lease.connection.begin()).await?;
             let result = persist(&mut tx, group, deadline).await;
+            let result = finish(tx, result, deadline).await;
+            lease.confirmed = result.is_ok();
+            result
+        })
+    }
+    fn record_completion(
+        &self,
+        source: LearnerProgressSourceId,
+        completed_at: DateTime<Utc>,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<CompletionReceipt, ImportWriteError>> + '_>> {
+        Box::pin(async move {
+            expired(deadline)?;
+            timestamp(completed_at)?;
+            let connection = until(deadline, self.pool.acquire()).await?;
+            let mut lease = WriteConnection {
+                connection,
+                confirmed: false,
+            };
+            let mut tx = until(deadline, lease.connection.begin()).await?;
+            let result = complete(&mut tx, source, completed_at, deadline).await;
             let result = finish(tx, result, deadline).await;
             lease.confirmed = result.is_ok();
             result
@@ -323,5 +344,20 @@ async fn persist(
     Ok(SaveReceipt {
         collection_id: CollectionId(collection),
         learner_progress_source_id: LearnerProgressSourceId(source),
+    })
+}
+
+async fn complete(
+    tx: &mut Transaction<'_, Postgres>,
+    source: LearnerProgressSourceId,
+    completed_at: DateTime<Utc>,
+    deadline: Instant,
+) -> Result<CompletionReceipt, ImportWriteError> {
+    limits(tx, deadline).await?;
+    let stored=until(deadline,sqlx::query_scalar("UPDATE learner_progress_sources AS s SET last_import_completed_at=GREATEST(s.last_import_completed_at,$2) FROM collections c WHERE s.id=$1 AND c.id=s.collection_id AND c.provider='wanikani' AND c.key='subjects' AND c.owner_learner_id IS NULL RETURNING s.last_import_completed_at").bind(source.0).bind(completed_at).fetch_optional(&mut **tx)).await?
+        .ok_or_else(|| invalid("completion source does not exist in shared WaniKani collection"))?;
+    Ok(CompletionReceipt {
+        learner_progress_source_id: source,
+        last_import_completed_at: stored,
     })
 }

@@ -423,3 +423,89 @@ async fn equal_and_older_account_and_subject_payloads_do_not_replace() {
     })
     .await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn ordinary_saves_and_explicit_account_only_completion() {
+    with_postgres(async |pool,control| {
+        seed(control).await;
+        let storage=PostgresLearnerStorage::new(pool.clone());
+        let saved=storage.save_group(&group(1,"a",10,vec![],vec![]),deadline()).await.unwrap();
+        let source=saved.learner_progress_source_id;
+        assert!(sqlx::query_scalar::<_,bool>("SELECT last_import_completed_at IS NULL FROM learner_progress_sources").fetch_one(control).await.unwrap());
+        let payload:String=sqlx::query_scalar("SELECT source_data::text FROM learner_progress_sources").fetch_one(control).await.unwrap();
+        for time in [30,20,30,40] {
+            let receipt=storage.record_completion(source,at(time),deadline()).await.unwrap();
+            assert_eq!(receipt.learner_progress_source_id,source);
+            assert_eq!(receipt.last_import_completed_at,at(time.max(30)));
+            assert_eq!(sqlx::query_scalar::<_,String>("SELECT source_data::text FROM learner_progress_sources").fetch_one(control).await.unwrap(),payload);
+        }
+        storage.save_group(&group(1,"a",50,vec![subject(1,50)],vec![progress(1,50,60)]),deadline()).await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_,chrono::DateTime<chrono::Utc>>("SELECT last_import_completed_at FROM learner_progress_sources").fetch_one(control).await.unwrap(),at(40));
+        assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND column_name='last_import_started_at'").fetch_one(control).await.unwrap(),0);
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn completion_rejects_unknown_or_non_shared_wanikani_sources() {
+    with_postgres(async |pool,control| {
+        seed(control).await;
+        let storage=PostgresLearnerStorage::new(pool.clone());
+        for (provider,key,owner) in [("manual","subjects",None),("wanikani","other",None),("wanikani","subjects",Some(uuid::Uuid::from_u128(1)))] {
+            let collection:uuid::Uuid=sqlx::query_scalar("INSERT INTO collections(provider,key,name,owner_learner_id) VALUES($1,$2,'Other',$3) RETURNING id").bind(provider).bind(key).bind(owner).fetch_one(control).await.unwrap();
+            let source:uuid::Uuid=sqlx::query_scalar("INSERT INTO learner_progress_sources(learner_id,collection_id) VALUES($1,$2) RETURNING id").bind(uuid::Uuid::from_u128(1)).bind(collection).fetch_one(control).await.unwrap();
+            let before=snapshot(control).await;
+            assert!(matches!(storage.record_completion(yomibu_core::domain::LearnerProgressSourceId(source),at(20),deadline()).await,Err(ImportWriteError::NotSaved(_))));
+            assert_eq!(snapshot(control).await,before);
+        }
+        assert!(matches!(storage.record_completion(yomibu_core::domain::LearnerProgressSourceId(uuid::Uuid::nil()),at(20),deadline()).await,Err(ImportWriteError::NotSaved(_))));
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn overlapping_completions_do_not_regress() {
+    with_postgres(async |pool,control| {
+        seed(control).await;
+        let storage=PostgresLearnerStorage::new(pool.clone());
+        let source=storage.save_group(&group(1,"a",10,vec![],vec![]),deadline()).await.unwrap().learner_progress_source_id;
+        let other=support::connect((*pool.connect_options()).clone()).await;
+        let observer=support::connect((*pool.connect_options()).clone()).await;
+        let second=PostgresLearnerStorage::new(other.clone());
+        let pids:Vec<i32>=vec![sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(pool).await.unwrap(),sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&other).await.unwrap()];
+        let mut lock=control.begin().await.unwrap();
+        sqlx::query("SELECT id FROM learner_progress_sources FOR UPDATE").execute(&mut *lock).await.unwrap();
+        let release=async {
+            loop {
+                let count:i64=sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE pid=ANY($1) AND wait_event_type='Lock'").bind(&pids).fetch_one(&observer).await.unwrap();
+                if count==2 {break;}
+                tokio::task::yield_now().await;
+            }
+            lock.commit().await.unwrap();
+        };
+        let (new,old,())=tokio::join!(storage.record_completion(source,at(40),deadline()),second.record_completion(source,at(20),deadline()),release);
+        assert_eq!(new.unwrap().last_import_completed_at,at(40));assert!(old.unwrap().last_import_completed_at>=at(20));
+        assert_eq!(sqlx::query_scalar::<_,chrono::DateTime<chrono::Utc>>("SELECT last_import_completed_at FROM learner_progress_sources").fetch_one(control).await.unwrap(),at(40));
+        other.close().await;observer.close().await;
+    }).await;
+}
+
+#[tokio::test]
+async fn completion_representation_rejection_precedes_acquisition() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .unwrap();
+    pool.close().await;
+    let storage = PostgresLearnerStorage::new(pool);
+    let error = storage
+        .record_completion(
+            yomibu_core::domain::LearnerProgressSourceId(uuid::Uuid::nil()),
+            at(0) + chrono::Duration::nanoseconds(1),
+            deadline(),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ImportWriteError::NotSaved(_)));
+    assert!(error.to_string().contains("timestamp"));
+}

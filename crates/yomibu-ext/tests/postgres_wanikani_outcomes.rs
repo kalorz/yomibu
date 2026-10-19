@@ -241,3 +241,51 @@ async fn deadline_after_commit_dispatch_is_unknown_even_with_durable_rows() {
     relay.release();recover(&relayed).await;relayed.close().await;
 }).await;
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn completion_failure_preserves_prior_groups_and_completion() {
+    with_postgres(async |pool,control| {
+        seed(control).await;
+        let storage=PostgresLearnerStorage::new(pool.clone());
+        let saved=storage.save_group(&group(1,"a",10,vec![subject(1,10)],vec![progress(1,10,20)]),deadline()).await.unwrap();
+        let source=saved.learner_progress_source_id;
+        storage.record_completion(source,fixtures::at(20),deadline()).await.unwrap();
+        let before:String=sqlx::query_scalar("SELECT jsonb_build_object('source',(SELECT to_jsonb(s) FROM learner_progress_sources s),'progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap();
+        let mut lock=control.begin().await.unwrap();sqlx::query("SELECT id FROM learner_progress_sources FOR UPDATE").execute(&mut *lock).await.unwrap();
+        assert!(matches!(storage.record_completion(source,fixtures::at(30),Instant::now()+Duration::from_millis(50)).await,Err(ImportWriteError::NotSaved(_))));
+        lock.rollback().await.unwrap();recover(pool).await;
+        assert_eq!(sqlx::query_scalar::<_,String>("SELECT jsonb_build_object('source',(SELECT to_jsonb(s) FROM learner_progress_sources s),'progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap(),before);
+        sqlx::raw_sql("CREATE FUNCTION reject_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private completion error' USING ERRCODE='23514'; END $$; CREATE CONSTRAINT TRIGGER reject_completion AFTER UPDATE ON learner_progress_sources DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_completion();").execute(control).await.unwrap();
+        let error=storage.record_completion(source,fixtures::at(30),deadline()).await.unwrap_err();assert!(matches!(error,ImportWriteError::NotSaved(_)));assert!(!error.to_string().contains("private"));
+        assert_eq!(sqlx::query_scalar::<_,String>("SELECT jsonb_build_object('source',(SELECT to_jsonb(s) FROM learner_progress_sources s),'progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap(),before);
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn completion_unknown_and_late_confirmation_use_the_shared_lifecycle() {
+    with_postgres(async |pool,control| {
+        seed(control).await;let storage=PostgresLearnerStorage::new(pool.clone());
+        let source=storage.save_group(&group(1,"a",10,vec![subject(1,10)],vec![progress(1,10,20)]),deadline()).await.unwrap().learner_progress_source_id;
+        let before:String=sqlx::query_scalar("SELECT jsonb_build_object('progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap();
+        for (index,fault) in [Fault::DropCommitRequest,Fault::DropCommitResponse,Fault::GateCommitResponse].into_iter().enumerate() {
+            let relay=Relay::start(&pool.connect_options(),fault).await;let relayed=connect(relay.options.clone()).await;
+            let writer=PostgresLearnerStorage::new(relayed.clone());relay.arm();
+            let completed_at=fixtures::at(30+index as i64);let end=Instant::now()+Duration::from_millis(300);
+            if fault==Fault::GateCommitResponse {
+                let mut completion=writer.record_completion(source,completed_at,end);
+                tokio::select! {result=&mut completion=>panic!("unexpected early result: {result:?}"),()=relay.reached()=>{}}
+                relay.release();relay.delivered().await;tokio::time::sleep_until((end+Duration::from_millis(20)).into()).await;
+                assert_eq!(completion.await.unwrap().last_import_completed_at,completed_at);
+            } else {
+                assert!(matches!(writer.record_completion(source,completed_at,end).await,Err(ImportWriteError::CompletionUnknown(_))));
+                relay.reached().await;
+            }
+            let actual:Option<chrono::DateTime<chrono::Utc>>=sqlx::query_scalar("SELECT last_import_completed_at FROM learner_progress_sources").fetch_one(control).await.unwrap();
+            assert_eq!(actual,if fault==Fault::DropCommitRequest {None} else {Some(completed_at)});
+            assert_eq!(sqlx::query_scalar::<_,String>("SELECT jsonb_build_object('progress',(SELECT to_jsonb(p) FROM learner_progress p),'subject',(SELECT to_jsonb(s) FROM subjects s))::text").fetch_one(control).await.unwrap(),before);
+            recover(&relayed).await;relayed.close().await;
+        }
+    }).await;
+}
