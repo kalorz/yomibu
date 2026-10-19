@@ -642,7 +642,10 @@ async fn controlled_overlapping_first_saves_and_reimports() {
         let pids: Vec<i32> = vec![sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(pool).await.unwrap(), sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&other).await.unwrap()];
         let first = PostgresLearnerStorage::new(pool.clone());
         let second = PostgresLearnerStorage::new(other.clone());
-        for repeated in [false, true] {
+        for (repeated, unknown_freshness) in [(false, false), (true, false), (false, true)] {
+            if unknown_freshness {
+                sqlx::query("UPDATE subjects SET source_updated_at=NULL").execute(control).await.unwrap();
+            }
             let mut lock = control.begin().await.unwrap();
             sqlx::query(if repeated { "LOCK TABLE learner_progress_sources IN SHARE MODE" } else { "LOCK TABLE subjects IN SHARE MODE" }).execute(&mut *lock).await.unwrap();
             let left = group(1, "a", 30, vec![subject(2, 30), subject(1, 30)], vec![progress(2, 30, 20), progress(1, 30, 20)]);
@@ -663,8 +666,9 @@ async fn controlled_overlapping_first_saves_and_reimports() {
         }
         let counts: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM collections),(SELECT count(*) FROM subjects),(SELECT count(*) FROM learner_progress_sources)").fetch_one(control).await.unwrap();
         assert_eq!(counts, (1, 2, 2));
-        let rows: Vec<(i64, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as("SELECT (s.source_data->>'version')::bigint,(p.source_data->>'source_updated_at')::timestamptz,p.recorded_at FROM learner_progress p JOIN subjects s ON s.id=p.subject_id JOIN learner_progress_sources a ON a.id=p.learner_progress_source_id WHERE a.external_account_id='a'").fetch_all(control).await.unwrap();
-        assert_eq!(rows, vec![(30, at(30), at(40)); 2]);
+        type Row = (i64, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>);
+        let rows: Vec<Row> = sqlx::query_as("SELECT (s.source_data->>'version')::bigint,s.source_updated_at,(p.source_data->>'source_updated_at')::timestamptz,p.recorded_at FROM learner_progress p JOIN subjects s ON s.id=p.subject_id JOIN learner_progress_sources a ON a.id=p.learner_progress_source_id WHERE a.external_account_id='a'").fetch_all(control).await.unwrap();
+        assert_eq!(rows, vec![(30, at(30), at(30), at(40)); 2]);
         other.close().await;
         observer.close().await;
     })
@@ -900,28 +904,41 @@ fn prepared_group(
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
-async fn unknown_subject_freshness_preserves_content_and_allows_progress() {
+async fn unknown_subject_freshness_initializes_without_changing_identity() {
     with_postgres(async |pool, control| {
         seed(control).await;
         let storage = PostgresLearnerStorage::new(pool.clone());
-        let original = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![]), deadline()).await.unwrap();
+        let original = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 50)]), deadline()).await.unwrap();
         sqlx::query("UPDATE subjects SET source_updated_at=NULL").execute(control).await.unwrap();
         let before: (uuid::Uuid, String) = sqlx::query_as("SELECT id,to_jsonb(s)::text FROM subjects s").fetch_one(control).await.unwrap();
         assert_eq!(storage.existing_subject_ids(&yomibu_ext::wanikani::collection(), &["1".into()], deadline()).await.unwrap(), vec!["1"]);
         let mut incoming = subject(1, 30);
         incoming.kind = None;
+        let expected_payload: serde_json::Value = serde_json::from_str(incoming.source.payload().get()).unwrap();
         let saved = storage.save_group(&group(1, "a", 30, vec![incoming], vec![progress(1, 30, 40)]), deadline()).await.unwrap();
         assert_eq!(saved, original);
-        assert_eq!(sqlx::query_as::<_, (uuid::Uuid, String)>("SELECT id,to_jsonb(s)::text FROM subjects s").fetch_one(control).await.unwrap(), before);
+        let initialized: (uuid::Uuid, String) = sqlx::query_as("SELECT id,to_jsonb(s)::text FROM subjects s").fetch_one(control).await.unwrap();
+        assert_eq!(initialized.0, before.0);
+        let stored: serde_json::Value = serde_json::from_str(&initialized.1).unwrap();
+        assert_eq!(stored["source_data"], expected_payload);
+        assert!(stored["kind"].is_null());
+        assert_eq!(sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>("SELECT source_updated_at FROM subjects").fetch_one(control).await.unwrap(), at(30));
         let row: (uuid::Uuid, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
             "SELECT p.subject_id,(p.source_data->>'source_updated_at')::timestamptz,
                 (s.source_data->>'source_updated_at')::timestamptz,p.recorded_at
              FROM learner_progress p JOIN learner_progress_sources s ON s.id=p.learner_progress_source_id"
         ).fetch_one(control).await.unwrap();
-        assert_eq!(row, (before.0, at(30), at(30), at(40)));
+        assert_eq!(row, (before.0, at(30), at(30), at(50)));
+        // After initialization, equal/older input cannot replace any source fields.
+        for time in [30, 10] {
+            let mut changed = subject(1, time);
+            changed.source = source(time, "different payload");
+            storage.save_group(&group(1, "a", 30, vec![changed], vec![]), deadline()).await.unwrap();
+            assert_eq!(sqlx::query_as::<_, (uuid::Uuid, String)>("SELECT id,to_jsonb(s)::text FROM subjects s").fetch_one(control).await.unwrap(), initialized);
+        }
         // Reuse without resupplying the subject also remains valid.
         storage.save_group(&group(1, "a", 30, vec![], vec![progress(1, 30, 50)]), deadline()).await.unwrap();
-        assert_eq!(sqlx::query_as::<_, (uuid::Uuid, String)>("SELECT id,to_jsonb(s)::text FROM subjects s").fetch_one(control).await.unwrap(), before);
+        assert_eq!(sqlx::query_as::<_, (uuid::Uuid, String)>("SELECT id,to_jsonb(s)::text FROM subjects s").fetch_one(control).await.unwrap(), initialized);
         assert_eq!(sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>("SELECT recorded_at FROM learner_progress").fetch_one(control).await.unwrap(), at(50));
     }).await;
 }

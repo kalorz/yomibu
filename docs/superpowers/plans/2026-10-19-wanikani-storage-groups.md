@@ -27,7 +27,7 @@ plan-approval round. The original task sequence and execution results below are 
 | Positive numeric subject IDs, grammar rejection and JSON-object restriction in Core | Shared IDs are opaque strings, both material kinds are valid, and JSON is opaque. `yomibu-ext::wanikani` owns numeric ID normalization, supported type mapping, provider kind/payload-shape/account validation and its collection identity. |
 | Numeric ID count implicitly bounded bytes | Core counts all variable identity/name bytes in group and lookup limits; PostgreSQL separately bounds encoded arrays and writes before acquisition. |
 | Completion restricted by a provider literal | Completion updates only the explicitly supplied source in its supplied shared collection. Manual sources/private collections remain outside this external import operation. |
-| Rejecting replacement attempts against NULL subject freshness | The user-approved clarification in #109 preserves the existing subject unchanged and continues, including when it is resupplied. Malformed account/progress freshness metadata still fails safely. |
+| Rejecting or preserving resupplied subjects with NULL freshness | The latest user-approved rule in #109 initializes source fields/payload/timestamp from supplied timestamped content while retaining identity. Known freshness still requires strictly newer input; malformed account/progress metadata fails safely. |
 
 These choices preserve the linked specification's atomicity, stable identities,
 freshness, independent observations, write outcomes and explicit completion. The
@@ -295,9 +295,11 @@ import wiring was added. Resource figures remain synthetic debug-build evidence.
 
 ## Independent-review follow-up
 
-The user clarified NULL subject freshness in [#109](https://github.com/kalorz/yomibu/issues/109):
-preserve the subject unchanged and continue the save. This supersedes the original
-NULL-rejection plan and test; malformed account/progress metadata still rejects atomically.
+The initial review follow-up preserved subjects with NULL freshness. The user subsequently
+approved initialization from supplied timestamped content in [#109](https://github.com/kalorz/yomibu/issues/109),
+superseding both rejection and preservation choices. Subject identity and independent
+observation bookkeeping remain stable; known freshness requires strictly newer input.
+Malformed account/progress metadata still rejects atomically.
 Both writes now begin at READ COMMITTED regardless of session defaults. Confirmed rollback
 permits connection reuse; interrupted cleanup and uncertain commits still discard it.
 Deadlock verification controls cycle formation, and teardown polling is paced.
@@ -318,3 +320,11 @@ limits remain: no demonstrated bottleneck justifies a broader SQL rewrite or wea
 Lookup error helpers retain operation-specific diagnostics, and the lease guard preserves
 cancellation cleanup. Positive integer spelling normalization remains in the integration,
 with duplicate detection after normalization, including leading-plus spellings.
+
+The later NULL-initialization change passed the 48 default Rust tests, 42 PostgreSQL
+tests and 36 enforcement tests, plus the existing quality checks. Its regression
+first failed on retained old payloads, then verified incoming payload/kind/timestamp,
+stable identity, monotonic observations and rejection of equal/older replacements.
+Focused review added a subject-timestamp assertion to the overlap case; that case
+passes with two writers starting from NULL freshness. The resource matrix above
+was measured before this predicate-only change; the PostgreSQL resource smoke was rerun.

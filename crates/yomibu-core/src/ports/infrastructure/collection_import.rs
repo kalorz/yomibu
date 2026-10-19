@@ -262,11 +262,13 @@ impl std::error::Error for ImportWriteError {}
 /// learners/subjects, publishes entries, deletes omitted records or records sync
 /// completion. Empty progress is valid. Account sources remain independent.
 ///
-/// Strictly newer upstream timestamps replace each record's source fields and
-/// full payload; equal/older payloads do not. Progress observation time advances
-/// independently and monotonically. Newer explicit null dates replace old dates.
-/// Existing identities remain stable. Subjects with unavailable stored freshness
-/// remain unchanged and may be reused; unknown freshness never permits replacement.
+/// With known stored freshness, only strictly newer upstream timestamps replace
+/// each record's source fields and full payload; equal/older payloads do not.
+/// Progress observation time advances independently and monotonically. Newer
+/// explicit null dates replace old dates.
+/// Existing identities remain stable. For subjects with unavailable stored freshness,
+/// supplied timestamped content initializes the source fields, full payload and
+/// upstream timestamp. Subsequent replacement requires a strictly newer timestamp.
 /// Malformed stored freshness metadata fails safely.
 ///
 /// One absolute deadline covers preparation, acquisition, locks, statements and

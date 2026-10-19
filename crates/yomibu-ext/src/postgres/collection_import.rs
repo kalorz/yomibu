@@ -326,13 +326,14 @@ async fn persist(
                 .push_bind(s.source.payload().get())
                 .push_unseparated("::jsonb");
         });
-        // An unavailable stored update time cannot establish newer source data.
-        // Keep that subject unchanged and still resolve it for progress below.
+        // Timestamped input initializes unavailable subject freshness. Once known,
+        // the same atomic predicate permits only strictly newer source data.
         sql.push(
             " ON CONFLICT(collection_id,external_id) DO UPDATE
               SET kind=excluded.kind,source_updated_at=excluded.source_updated_at,
                   source_data=excluded.source_data
-              WHERE excluded.source_updated_at>saved.source_updated_at",
+              WHERE saved.source_updated_at IS NULL
+                  OR excluded.source_updated_at>saved.source_updated_at",
         );
         limits(tx, deadline).await?;
         until(deadline, sql.build().execute(&mut **tx)).await?;
