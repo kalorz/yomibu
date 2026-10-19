@@ -77,6 +77,8 @@ CREATE TABLE learner_progress_sources (
         REFERENCES learners(id) ON DELETE RESTRICT,
     external_account_id TEXT,
 
+    -- Paired times for the latest recorded successful progress sync, not per-group
+    -- commits or current-attempt status. Partial saves do not advance this pair.
     last_import_started_at TIMESTAMPTZ,
     last_import_completed_at TIMESTAMPTZ,
 
@@ -104,6 +106,9 @@ CREATE TABLE learner_progress (
 
     learning_started_at TIMESTAMPTZ,
     first_passed_at TIMESTAMPTZ,
+    -- Provider imports retain the latest successfully saved observation time here.
+    -- Equal/older source payloads may advance it; omitted records leave it unchanged.
+    -- Observation time never establishes upstream freshness or moves backward.
     recorded_at TIMESTAMPTZ NOT NULL,
 
     -- This source's per-subject progress payload and content-access exclusions.
@@ -148,6 +153,7 @@ CREATE INDEX entries_subject
 -- Accepted same-kind correspondences only; the application checks that the target
 -- belongs to a reference collection. Shared matches are reused across learners;
 -- learner progress stays on the original subject.
+-- Many-to-many across reference collections; these links do not equate whole subjects.
 -- Remove incoming links explicitly before deleting a referenced entry.
 CREATE TABLE entry_references (
     entry_id UUID NOT NULL,

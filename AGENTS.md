@@ -69,6 +69,14 @@ namespaces. Preserve original API field names and captured payloads.
 
 ## Plans and design discussions
 
+When asked to start with an interview, first read current main, the authoritative
+ticket/epic and retained requirements. Separate settled decisions, new ticket
+assumptions and unapproved plan choices. Ask one consequential question at a time;
+do not ask the user to choose routine Rust, SQL or library details, or invent
+questions to satisfy a process. Summarize the outcome and acceptance checks for review.
+Respect the requested stage: approval to record decisions does not itself authorize
+implementation planning or implementation.
+
 Agents own Rust signatures, async/sync mechanics, driver choices and internal wiring
 within approved behavior, guarantees and architectural boundaries. Internal API changes
 do not themselves require approval; Rust `pub` alone does not establish an external
@@ -93,7 +101,11 @@ to existing specifications and CI commands instead of copying them.
 
 When the user changes acceptance criteria, update the authoritative issue or
 specification and affected contracts before handoff. A working plan or PR summary
-alone is not the record of the changed requirements.
+alone is not the record of the changed requirements. Make superseded guarantees
+and obsolete plans explicit; preserving a plan does not make its choices requirements.
+When the ticket is the specification, keep it authoritative rather than creating
+a duplicate design document. Extract only reusable rules and agreed terminology
+into the architecture guide and glossary.
 
 Optional [task templates](docs/task-templates.md) help write implementation and design briefs.
 

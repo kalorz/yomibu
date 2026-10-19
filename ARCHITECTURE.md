@@ -305,6 +305,32 @@ effectful callback; it may use SQL joins, filters, ranking and limits efficientl
 Pure domain decisions remain in core. Detailed selection and assessment behavior
 belongs in approved requirements and interface contracts, not this illustration.
 
+### Ingestion boundaries
+
+Keep source reading, application grouping and storage writes separate. Readers hide
+provider pagination or file parsing and yield appropriate validated values through
+a fallible, pull-based interface. The application controls consumption, grouping,
+backpressure and operation-wide limits. Storage receives finite prepared values,
+never a reader or effectful callback. No save transaction waits for source I/O;
+independent fetching may overlap a save when the operation permits it.
+
+An API page is not a transaction boundary. Bound records and bytes across decoded
+responses, in-flight work, prepared groups and driver buffers; bounding a queue alone
+does not bound memory. Use grouped lookups and writes where they preserve the contract.
+When performance motivates extra concurrency or staging, justify it with representative
+payload and overlap measurements. Dataset estimates are not measured guarantees or caps.
+
+Reuse domain values where their meanings fit. Incoming save values may lack local
+identities; do not force them into persisted entities or a universal import-record
+wrapper. API, file and parameter inputs may share a contract when their semantics
+match. A partial input cannot claim the coverage of a complete source traversal.
+
+Keep shared content refresh, learner progress synchronization and entry resolution
+as separate responsibilities. An existing subject can satisfy a progress reference
+without proving its content is current or resolved. Reusing shared content or matches
+does not share account access or establish learner mastery. Operation-specific
+coverage and refresh policies belong in the authoritative specification.
+
 ## Storage and CQRS
 
 ### Schema changes
@@ -342,6 +368,47 @@ missing/deleted subjects and concurrency; a lookup alone is not equivalent to an
 Keep records together where database-enforced integrity is required. Support mixed
 storage only where the agreed contracts can be met; do not silently weaken guarantees.
 Repository groupings remain design decisions.
+
+### Atomicity and write outcomes
+
+Define the atomic unit and whole-operation completion separately. When an operation
+permits partial saves, each prepared save group is atomic, including its internal SQL
+chunks; earlier commits survive a later group failure. A group commit alone does not
+establish whole-operation completion; completion follows the declared coverage contract.
+The application applies the operation's continuation policy and preserves confirmed
+outcomes of any in-flight work.
+
+Distinguish confirmed no save, confirmed save and uncertain commit completion at the
+atomic unit. Cancellation, timeout or connection loss after commit may have been sent
+does not prove rollback. Preserve confirmed saves through later deadline, cleanup or
+presentation failures. An operation with earlier saves or an uncertain write must not
+report that nothing was saved. Retry policy belongs to the caller's operation contract;
+storage must not hide retries of writes with uncertain completion.
+
+Enforce the storage deadline across acquisition, locks, statements and commit, with
+bounded cleanup that cannot indefinitely retain a scarce connection. Preliminary
+lookups do not replace atomic freshness guards, uniqueness or foreign keys. Use native
+constraints, consistent lock ordering and bounded waits before adding broad locking
+mechanisms; document any stronger coordination required by an invariant.
+
+### Freshness, observation and coverage
+
+For imported data, distinguish upstream version, local observation and operation
+completion. Local times do not establish source freshness. Where the contract records
+observations, processing equal or older source data may advance observation bookkeeping
+without replacing the saved payload; overlapping observations must not move it backward.
+Omitted records are not observations. Absence implies deletion or reset only under an
+explicit authoritative-source contract, not merely because a group omitted a record.
+
+Successful-completion metadata describes the operation's declared scope. A paired
+start/completion record must describe the same successful operation, not independently
+selected timestamps. Historical completion is not a durable status for current or
+interrupted attempts, nor proof of a single upstream snapshot. Add attempt history or
+resume state only for an agreed consumer and behavior.
+
+Incremental checkpoints require complete coverage of their resource and query scope.
+Partial or filtered retrieval must not advance a checkpoint for a broader traversal.
+A maximum record update time is not by itself evidence that coverage is complete.
 
 ## Port contracts
 
