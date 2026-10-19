@@ -426,18 +426,16 @@ The [checker tests](tools/test_architecture.py) use isolated Cargo workspaces to
 rejection of forbidden edges and acceptance of allowed ones. Run them with
 `python3 -B -m unittest discover -s tools -p 'test_*.py' -v`; CI runs both commands.
 
-The [provider-placement rule](tools/provider_placement.yml) uses ast-grep 0.51.0
-(`npm install --global @ast-grep/cli@0.51.0`). Run
-`ast-grep scan --rule tools/provider_placement.yml .` before committing. CI runs it
-and [scope/rejection tests](tools/test_provider_placement.py) using the real CLI.
-It rejects configured provider names in core/app source identifiers and standalone
-provider identity literals; comments, opaque JSON, integration tests and items under
-an outer `#[cfg(test)]` attribute in the same file remain usable. Compound/file-level
-test configurations and out-of-line test modules are not recognized. Extend the
-known-name list when adding an integration. It does not expand macros, decode obfuscated
-strings or recognize provider assumptions under neutral names. Behavioral contract
-tests and ownership review remain required; renaming a declaration does not establish
-provider independence.
+The [provider-placement rule](tools/provider_placement.yml) uses ast-grep, pinned in
+[CI](.github/workflows/ci.yml) and verified by [real-CLI tests](tools/test_provider_placement.py).
+Run the [local checks](README.md#developing) before committing. The rule rejects known
+provider words in snake_case/CamelCase identifiers and standalone identity literals
+in core/app source. Comments, doc attributes, opaque JSON and integration tests remain
+usable. Only same-file outer `#[cfg(test)]` ancestry is exempt; inner/compound cfg and
+out-of-line test modules are not. Extend the name list when adding an integration.
+The rule does not expand macros, decode escaped identities or recognize restrictions
+under neutral names. Behavioral tests and ownership review remain required; renaming
+does not establish provider independence.
 
 Domain and core/app dependency rules are configured in [bylaw.toml](bylaw.toml), using
 [cargo-bylaw](https://github.com/danielgerlag/cargo-bylaw) 0.1.0. Install it with

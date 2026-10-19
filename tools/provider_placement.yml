@@ -5,9 +5,6 @@ message: Provider-specific code belongs in integrations, not inner contracts.
 files:
   - crates/yomibu-core/src/**/*.rs
   - crates/yomibu-app/src/**/*.rs
-utils:
-  provider-name:
-    regex: '(?i)(wani_?kani|open_?ai|anthropic|sudachi|jev)'
 rule:
   all:
     - any:
@@ -16,15 +13,25 @@ rule:
                 - kind: identifier
                 - kind: type_identifier
                 - kind: field_identifier
-            - matches: provider-name
+            # Snake case / uppercase words, then CamelCase words.
+            - regex: |-
+                (?x)
+                (^|_|r\#)(?i:wani_?kani|open_?ai|anthropic|sudachi|jev)(_|$)
+                |(WaniKani|Wanikani|OpenAI|OpenAi|Anthropic|Sudachi|Jev)([A-Z0-9_]|$)
+                |JEV([A-Z][a-z]|[0-9_]|$)
         - all:
             - any:
                 - kind: string_literal
                 - kind: raw_string_literal
-            - has:
-                kind: string_content
-                regex: '^[A-Za-z_]+$'
-                matches: provider-name
+            # Match the whole literal, never a fragment between escape sequences.
+            - regex: '^[bc]?(r#*)?"(?i:wani_?kani|open_?ai|anthropic|sudachi|jev)"#*$'
+    - not:
+        inside:
+          any:
+            - kind: attribute_item
+            - kind: inner_attribute_item
+          regex: '^#\s*!?\s*\[\s*doc\b'
+          stopBy: end
     - not:
         inside:
           stopBy: end

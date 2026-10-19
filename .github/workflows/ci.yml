@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 20
     env:
       BYLAW_VERSION: 0.1.0
+      AST_GREP_VERSION: 0.51.0
     strategy:
       fail-fast: false
       matrix:
@@ -71,7 +72,7 @@ jobs:
         run: git ls-files --error-unmatch Cargo.lock
       - name: Install and run the provider-placement check
         run: |
-          npm install --prefix "$RUNNER_TEMP/ast-grep" --no-save @ast-grep/cli@0.51.0
+          npm install --prefix "$RUNNER_TEMP/ast-grep" --no-save "@ast-grep/cli@$AST_GREP_VERSION"
           echo "$RUNNER_TEMP/ast-grep/node_modules/.bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/ast-grep/node_modules/.bin/ast-grep" scan --rule tools/provider_placement.yml .
       - name: Check crate dependencies
