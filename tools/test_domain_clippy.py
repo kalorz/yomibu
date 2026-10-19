@@ -1,6 +1,7 @@
 """Verify scoped domain/application restrictions with isolated Rust examples."""
 
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -42,12 +43,26 @@ class InnerClippy(unittest.TestCase):
             ('pub fn input() -> std::io::Stdin { std::io::stdin() }', "disallowed_methods"),
             ('pub fn open() -> std::fs::OpenOptions { std::fs::OpenOptions::new() }', "disallowed_types"),
             ('pub fn command() -> std::process::Command { std::process::Command::new("fixture") }', "disallowed_types"),
+            ('pub fn stop() -> ! { std::process::exit(1) }', "disallowed_methods"),
+            ('pub fn stop() -> ! { std::process::abort() }', "disallowed_methods"),
             ('pub fn network(_: std::net::UdpSocket) {}', "disallowed_types"),
+            ('use std::net::ToSocketAddrs; pub fn lookup() -> std::io::Result<impl Iterator<Item=std::net::SocketAddr>> { "example.com:80".to_socket_addrs() }', "disallowed_methods"),
+            ('pub fn pipe() -> std::io::Result<(std::io::PipeReader, std::io::PipeWriter)> { std::io::pipe() }', "disallowed_methods"),
+            ('#[allow(deprecated)] pub fn link() -> std::io::Result<()> { std::fs::soft_link("a", "b") }', "disallowed_methods"),
             ('pub const CONTENT: &[u8] = include_bytes!("../Cargo.toml");', "disallowed_macros"),
+            ('pub fn debug() { dbg!(1); }', "disallowed_macros"),
+            ('unsafe extern "C" { pub safe fn abort() -> !; }', 'usage of an `unsafe extern` block'),
             ('pub fn extension(p: &std::path::Path) -> Option<&std::ffi::OsStr> { p.extension() }', None),
             ('pub fn parts(value: &std::ffi::OsStr) -> usize { std::env::split_paths(value).count() }', None),
             ('pub fn buffer(bytes: Vec<u8>) -> std::io::Cursor<Vec<u8>> { std::io::Cursor::new(bytes) }', None),
         ]
+        if os.name == "posix":
+            cases += [
+                ('pub fn link() -> std::io::Result<()> { std::os::unix::fs::symlink("a", "b") }', "disallowed_methods"),
+                ('pub fn network(_: std::os::unix::net::UnixStream) {}', "disallowed_types"),
+                ('pub fn network(_: std::os::unix::net::UnixListener) {}', "disallowed_types"),
+                ('pub fn network(_: std::os::unix::net::UnixDatagram) {}', "disallowed_types"),
+            ]
         for crate, policy in (("yomibu-core", "src/domain/mod.rs"), ("yomibu-app", "src/lib.rs")):
             with self.subTest(crate=crate):
                 self.check_cases(crate, policy, cases)
@@ -75,6 +90,7 @@ class InnerClippy(unittest.TestCase):
         self.check_cases("yomibu-core", "src/domain/mod.rs", [
             ("pub fn duration(d: std::time::Duration) -> u128 { d.as_millis() }", None),
             ("use std::time::Instant as Clock; pub fn now() -> Clock { let f = Clock::now; f() }", "disallowed_methods"),
+            ("pub fn elapsed() -> Result<std::time::Duration, std::time::SystemTimeError> { std::time::UNIX_EPOCH.elapsed() }", "disallowed_methods"),
             ("pub fn file(_: std::fs::File) {}", "disallowed_types"),
             ('pub const SETTING: Option<&str> = option_env!("YOMIBU_LINT_FIXTURE");', "disallowed_macros"),
             ('pub fn report() { println!("output"); }', "print_stdout"),
@@ -84,6 +100,7 @@ class InnerClippy(unittest.TestCase):
     def test_app_io_restrictions_preserve_timing_and_fixture_operations(self):
         self.check_cases("yomibu-app", "src/lib.rs", [
             ("pub fn timing() -> std::time::Duration { std::time::Instant::now().elapsed() }", None),
+            ("pub fn elapsed() -> Result<std::time::Duration, std::time::SystemTimeError> { std::time::UNIX_EPOCH.elapsed() }", None),
             ('pub fn read() -> std::io::Result<String> { std::fs::read_to_string("input.json") }', "disallowed_methods"),
             ('use std::env::var as setting; pub fn read() -> Result<String, std::env::VarError> { setting("INPUT") }', "disallowed_methods"),
             ("pub fn network(_: std::net::TcpStream) {}", "disallowed_types"),
@@ -95,7 +112,7 @@ class InnerClippy(unittest.TestCase):
         project = Path(__file__).resolve().parents[1]
         crate = project / "crates" / crate_name
         lint_header = extract_lint_header((crate / policy_path).read_text())
-        _, lint_section, lint_settings = (crate / "Cargo.toml").read_text().partition("[lints.clippy]")
+        _, lint_section, lint_settings = (crate / "Cargo.toml").read_text().partition("[lints.rust]")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "src").mkdir()
@@ -106,10 +123,11 @@ class InnerClippy(unittest.TestCase):
             (root / "rust-toolchain.toml").write_bytes((project / "rust-toolchain.toml").read_bytes())
             (root / "clippy.toml").write_bytes((crate / "clippy.toml").read_bytes())
             (root / "tests/fixture.rs").write_text(
-                'pub const FIXTURE: &str = include_str!("../Cargo.toml");'
-                'pub const BYTES: &[u8] = include_bytes!("../Cargo.toml");'
-                'pub fn fixture_io() -> std::io::Result<Vec<u8>> { std::fs::read("fixture") }'
-                'pub fn fixture_env() -> Option<std::ffi::OsString> { std::env::var_os("FIXTURE") }')
+                '#[test] fn fixture_io() {'
+                'let _ = include_str!("../Cargo.toml");'
+                'let _ = include_bytes!("../Cargo.toml");'
+                'let _ = std::fs::read("fixture");'
+                'let _ = std::env::var_os("FIXTURE"); }')
             if dependencies:
                 # Keep shared dependencies on the workspace's reviewed versions.
                 (root / "Cargo.lock").write_bytes((project / "Cargo.lock").read_bytes())
