@@ -74,6 +74,26 @@ fn group_rejects_duplicate_identities() {
 }
 
 #[test]
+fn lookup_limits_include_identity_bytes() {
+    let collection = collection();
+    let provider = collection.provider.as_str();
+    let key = collection.key.as_str();
+    let ids = ["x".repeat(MAX_REQUEST_INPUT_BYTES - provider.len() - key.len())];
+    assert!(validate_subject_lookup(provider, key, &ids).is_ok());
+    assert!(validate_subject_lookup(provider, key, &["lesson:alpha/7".into(), "0".into()]).is_ok());
+    assert!(
+        validate_subject_lookup(provider, key, &vec!["x".into(); MAX_SUBJECT_LOOKUP_IDS + 1])
+            .is_err()
+    );
+    assert!(
+        validate_subject_lookup(provider, key, &["x".repeat(MAX_REQUEST_INPUT_BYTES)]).is_err()
+    );
+    let oversized = "x".repeat(MAX_REQUEST_INPUT_BYTES);
+    assert!(validate_subject_lookup(&oversized, key, &[]).is_err());
+    assert!(validate_subject_lookup(provider, &oversized, &[]).is_err());
+}
+
+#[test]
 fn source_record_validates_opaque_json_and_raw_bytes() {
     assert!(SourceRecord::new(time(), "{bad}").is_err());
     for raw in ["null", "[]", "123"] {

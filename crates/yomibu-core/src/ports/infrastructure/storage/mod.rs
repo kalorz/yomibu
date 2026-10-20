@@ -1,6 +1,6 @@
 //! Storage contracts for learners, collections, subjects and learner progress.
 
-use crate::domain::{CollectionId, LearnerId, LearnerName, MaterialKind};
+use crate::domain::{CollectionId, LearnerId, LearnerName, LearnerProgressSourceId, MaterialKind};
 use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
 use std::{collections::HashSet, future::Future, pin::Pin, time::Instant};
@@ -114,6 +114,33 @@ pub const MAX_REQUEST_INPUT_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum raw JSON byte length of one source payload.
 pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 
+/// Maximum number of supplied IDs in one lookup (before deduplication).
+pub const MAX_SUBJECT_LOOKUP_IDS: usize = 1_000;
+
+/// Port: outbound / driven. Role: infrastructure.
+///
+/// Returns unique requested external subject IDs, sorted lexicographically, from the
+/// supplied shared collection (provider/key). An absent collection means no matches;
+/// this query never creates anything. Enforce [`validate_subject_lookup`] before I/O;
+/// an empty valid request returns immediately. Results are advisory:
+/// a subsequent save must independently enforce its reference guarantees.
+///
+/// One absolute monotonic deadline covers the entire lookup, including resource
+/// acquisition and waits. Reject expired calls and late read success. Dropping the
+/// future abandons delivery; a timeout does not promise immediate cancellation of
+/// underlying work. Cleanup is separately bounded so abandoned work cannot
+/// indefinitely retain shared resources.
+/// Failures are sanitized errors, never partial or successful empty results.
+pub trait SubjectQuery {
+    fn existing_subject_ids<'a>(
+        &'a self,
+        provider: &'a str,
+        key: &'a str,
+        ids: &'a [String],
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, StorageError>> + 'a>>;
+}
+
 /// Shared collection to create or reuse, identified by opaque provider/key values.
 /// The name is used only on creation; this operation does not refresh collection metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +163,23 @@ impl SharedCollection {
 pub struct LearnerProgressSourceIdentity {
     pub learner_id: LearnerId,
     pub external_account_id: String,
+}
+
+/// Storage-contract resource validation for a lookup, before any adapter I/O.
+/// IDs are opaque and may repeat; no provider ID parsing or normalization occurs.
+pub fn validate_subject_lookup(
+    provider: &str,
+    key: &str,
+    ids: &[String],
+) -> Result<(), StorageError> {
+    let size = [provider.len(), key.len()]
+        .into_iter()
+        .chain(ids.iter().map(String::len))
+        .try_fold(0usize, usize::checked_add);
+    if ids.len() > MAX_SUBJECT_LOOKUP_IDS || size.is_none_or(|n| n > MAX_REQUEST_INPUT_BYTES) {
+        return Err(StorageError("subject lookup exceeds input limits".into()));
+    }
+    Ok(())
 }
 
 /// A rejected storage request. Messages never contain supplied payloads.
@@ -276,4 +320,56 @@ impl PreparedSaveGroup {
     pub fn progress(&self) -> &[PreparedProgress] {
         &self.progress
     }
+}
+
+/// Stable identities from one confirmed atomic save; no traversal/completion claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SaveReceipt {
+    pub collection_id: CollectionId,
+    pub learner_progress_source_id: LearnerProgressSourceId,
+}
+
+/// Knowledge of this atomic save's outcome, not the outcome of earlier groups.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ImportWriteError {
+    /// This save made no durable changes. Earlier confirmed groups survive.
+    #[error("transaction not saved: {0}")]
+    NotSaved(String),
+    /// Persistence was not confirmed; the supplied data may or may not have been saved.
+    #[error("transaction completion unknown: {0}")]
+    CompletionUnknown(String),
+}
+
+/// Port: outbound / driven. Role: infrastructure.
+///
+/// Atomically saves the supplied shared collection, external progress source and
+/// finite prepared records for an existing learner. Shared subjects are identified by collection/external ID; progress references must
+/// resolve to supplied or existing subjects in that collection. Never fabricates
+/// learners/subjects, publishes entries, deletes omitted records or records sync
+/// completion. Empty progress is valid. Account sources remain independent.
+///
+/// With known stored freshness, only strictly newer upstream timestamps replace
+/// each record's source fields and full payload; equal/older payloads do not.
+/// Progress observation time advances independently and monotonically. Newer
+/// explicit null dates replace old dates.
+/// Existing identities remain stable. For subjects with unavailable stored freshness,
+/// supplied timestamped content initializes the source fields, full payload and
+/// upstream timestamp. Subsequent replacement requires a strictly newer timestamp.
+/// Malformed stored freshness metadata fails safely.
+///
+/// One absolute deadline covers the entire save, including preparation, resource
+/// acquisition, waits and confirmation. No automatic retry. Receipts require
+/// confirmed persistence, including confirmation observed late. Failed or
+/// interrupted finalization conservatively reports unknown completion. Dropping
+/// the future may leave an unknown save outcome; the caller must account for this.
+/// Cleanup is separately bounded so abandoned work cannot indefinitely retain
+/// shared resources. Failures contain no source diagnostics.
+/// Adapters bound internal resource use independently of the raw-input limits.
+/// Unsupported representations fail without partial saves or silent data loss.
+pub trait LearnerProgressImportWriter {
+    fn save_group<'a>(
+        &'a self,
+        group: &'a PreparedSaveGroup,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<SaveReceipt, ImportWriteError>> + 'a>>;
 }
