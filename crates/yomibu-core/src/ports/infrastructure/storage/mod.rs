@@ -1,15 +1,115 @@
-//! Finite shared-collection imports for existing learners and external progress sources.
-//! No source protocol, payload interpretation or traversal ownership.
-use super::StorageError;
-use crate::domain::{CollectionId, LearnerId, LearnerProgressSourceId, MaterialKind};
+//! Storage contracts for learners, collections, subjects and learner progress.
+
+use crate::domain::{CollectionId, LearnerId, LearnerName, LearnerProgressSourceId, MaterialKind};
 use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
 use std::{collections::HashSet, future::Future, pin::Pin, time::Instant};
 
+/// A storage port's provider-independent failure description.
+/// Adapters must supply a presentable message without credentials or raw
+/// connection strings.
+#[derive(Debug, PartialEq, Eq)]
+pub struct StorageError(pub String);
+
+impl StorageError {
+    /// The shared failure for an expired collection lookup deadline.
+    pub fn collection_lookup_deadline_exceeded() -> Self {
+        Self("collection lookup deadline exceeded".into())
+    }
+}
+
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for StorageError {}
+
+/// Port: outbound / driven. Role: infrastructure.
+///
+/// Read-only lookup of the supplied learner's collection IDs.
+/// Collection membership is derived from `learner_progress_sources.collection_id`
+/// where `learner_id` matches the input, even when a source has no learner progress yet.
+/// Ownership alone does not establish membership; unrelated shared or owned
+/// collections must not be included.
+///
+/// Every collection ID is returned exactly once, in unspecified order,
+/// with no pagination. Uniqueness is an adapter obligation, verified by each
+/// adapter's contract tests. An unknown learner or one with no progress sources
+/// yields an empty vector; learner existence is not checked.
+/// Storage failures must return `Err`, never partial or successful empty results.
+///
+/// Application supplies an absolute monotonic deadline, shared with any parent
+/// operation. Adapters must reject expired calls before I/O, bound all request
+/// waits (including connection acquisition and establishment) by that deadline,
+/// and reject success observed after expiry. Deadlines are cooperative I/O bounds,
+/// not hard real-time CPU or memory limits.
+/// Dropping the future abandons the result, without guaranteeing immediate server
+/// cancellation. Provider cleanup may continue outside the request deadline.
+/// Composition separately bounds startup/shutdown and configures finite backend
+/// execution limits. No retry or separate cancellation-token contract is provided.
+pub trait LearnerCollectionQuery {
+    fn collection_ids_for_learner(
+        &self,
+        learner_id: LearnerId,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<CollectionId>, StorageError>> + '_>>;
+}
+
+/// Storage's knowledge of a failed write. Reasons must be safe to present,
+/// without credentials, connection URLs, or raw provider messages.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LearnerWriteError {
+    /// No learner was created by this invocation.
+    NotCreated(String),
+    /// The write may have committed. This must never be treated as safe to retry.
+    CompletionUnknown(String),
+}
+
+impl std::fmt::Display for LearnerWriteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotCreated(reason) => write!(f, "learner was not created: {reason}"),
+            Self::CompletionUnknown(reason) => write!(
+                f,
+                "learner creation completion is unknown: {reason}; it may have been saved; do not automatically retry"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LearnerWriteError {}
+
+/// Port: outbound / driven. Role: infrastructure.
+///
+/// Creates exactly one learner with the validated name and returns its assigned
+/// UUID only after storage confirms commit. Repeated names create distinct learners;
+/// this operation creates no collections or learner progress sources. The adapter
+/// owns these persistence guarantees; callers do not query again to validate success.
+///
+/// Reject expired calls before I/O. Bound acquisition, connection establishment,
+/// and execution by the supplied absolute monotonic deadline, without retrying
+/// the write. Failures before dispatch and proven server rejections are
+/// `NotCreated`; ambiguous failures after dispatch are `CompletionUnknown`. Preserve
+/// a confirmed UUID even if observed after expiry; application handles late results.
+///
+/// Dropping the future abandons its result, not necessarily the server operation.
+/// A timeout or cancellation does not prove rollback. Cleanup may continue beyond
+/// the cooperative I/O deadline; composition bounds startup/shutdown separately
+/// and configures finite server execution limits.
+pub trait LearnerWriter {
+    fn create_learner(
+        &self,
+        name: LearnerName,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<LearnerId, LearnerWriteError>> + '_>>;
+}
+
 /// Per-group record limit, independently for subjects and learner progress.
 pub const MAX_GROUP_RECORDS: usize = 1_000;
 /// Maximum combined raw UTF-8 bytes in one lookup or save-group request.
-/// Includes supplied identities, collection name, stages and payloads.
+/// Lookups count provider, key and IDs; saves also count names, stages and payloads.
 pub const MAX_REQUEST_INPUT_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum raw JSON byte length of one source payload.
 pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
@@ -23,18 +123,19 @@ pub const MAX_SUBJECT_LOOKUP_IDS: usize = 1_000;
 /// supplied shared collection (provider/key). An absent collection means no matches;
 /// this query never creates anything. Enforce [`validate_subject_lookup`] before I/O;
 /// an empty valid request returns immediately. Results are advisory:
-/// a subsequent save must resolve references under its own database constraints.
+/// a subsequent save must independently enforce its reference guarantees.
 ///
-/// The absolute monotonic deadline covers acquisition, connection setup, locks
-/// and statements. Reject expired calls and late read success. Dropping the
-/// future abandons delivery; close interrupted connections rather than returning
-/// them to a pool while commands remain pending. Cleanup is bounded separately
-/// by the adapter; a timeout does not promise immediate server cancellation.
+/// One absolute monotonic deadline covers the entire lookup, including resource
+/// acquisition and waits. Reject expired calls and late read success. Dropping the
+/// future abandons delivery; a timeout does not promise immediate cancellation of
+/// underlying work. Cleanup is separately bounded so abandoned work cannot
+/// indefinitely retain shared resources.
 /// Failures are sanitized errors, never partial or successful empty results.
 pub trait SubjectQuery {
     fn existing_subject_ids<'a>(
         &'a self,
-        collection: &'a SharedCollection,
+        provider: &'a str,
+        key: &'a str,
         ids: &'a [String],
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, StorageError>> + 'a>>;
@@ -67,12 +168,14 @@ pub struct LearnerProgressSourceIdentity {
 /// Storage-contract resource validation for a lookup, before any adapter I/O.
 /// IDs are opaque and may repeat; no provider ID parsing or normalization occurs.
 pub fn validate_subject_lookup(
-    collection: &SharedCollection,
+    provider: &str,
+    key: &str,
     ids: &[String],
 ) -> Result<(), StorageError> {
-    let size = ids
-        .iter()
-        .try_fold(collection.input_bytes(), |n, id| n.checked_add(id.len()));
+    let size = [provider.len(), key.len()]
+        .into_iter()
+        .chain(ids.iter().map(String::len))
+        .try_fold(0usize, usize::checked_add);
     if ids.len() > MAX_SUBJECT_LOOKUP_IDS || size.is_none_or(|n| n > MAX_REQUEST_INPUT_BYTES) {
         return Err(StorageError("subject lookup exceeds input limits".into()));
     }
@@ -137,8 +240,8 @@ pub struct PreparedProgress {
 /// One finite storage request, not an API page or proof of complete traversal.
 /// Construction validates duplicate identities and storage-input limits without I/O.
 /// External IDs are exact opaque text; this contract performs no normalization.
-/// The caller bounds upstream preparation; the adapter separately validates its
-/// encoding and database constraints. References may resolve to stored subjects.
+/// The caller bounds upstream preparation; the adapter separately enforces its
+/// representation and resource limits. References may resolve to stored subjects.
 #[derive(Debug, Clone)]
 pub struct PreparedSaveGroup {
     collection: SharedCollection,
@@ -233,13 +336,13 @@ pub struct CompletionReceipt {
     pub last_import_completed_at: DateTime<Utc>,
 }
 
-/// Knowledge of this transaction's outcome, not the outcome of earlier groups.
+/// Knowledge of this atomic save's outcome, not the outcome of earlier groups.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ImportWriteError {
-    /// The transaction cannot have committed. Earlier confirmed groups survive.
+    /// This save made no durable changes. Earlier confirmed groups survive.
     #[error("transaction not saved: {0}")]
     NotSaved(String),
-    /// COMMIT failed or was interrupted; even a rejection may be reported conservatively.
+    /// Persistence was not confirmed; the supplied data may or may not have been saved.
     #[error("transaction completion unknown: {0}")]
     CompletionUnknown(String),
 }
@@ -261,17 +364,15 @@ pub enum ImportWriteError {
 /// upstream timestamp. Subsequent replacement requires a strictly newer timestamp.
 /// Malformed stored freshness metadata fails safely.
 ///
-/// One absolute deadline covers preparation, acquisition, locks, statements and
-/// commit. No automatic retry. Receipts require confirmed COMMIT, including a
-/// confirmation observed late. Commit errors/timeouts conservatively report unknown
-/// completion, never inferred rollback. Dropping the future may abandon an
-/// unknown commit outcome; the caller must account for this. Leases without a
-/// confirmed clean transaction boundary are discarded with bounded cleanup.
-/// Failures contain no source diagnostics.
-/// Before I/O, the adapter validates encoded-resource bounds and lossless
-/// timestamp representation independently of the request's raw-input limits.
-/// Database-dependent representation checks can reject the transaction atomically
-/// after earlier statements have run.
+/// One absolute deadline covers the entire save, including preparation, resource
+/// acquisition, waits and confirmation. No automatic retry. Receipts require
+/// confirmed persistence, including confirmation observed late. Failed or
+/// interrupted finalization conservatively reports unknown completion. Dropping
+/// the future may leave an unknown save outcome; the caller must account for this.
+/// Cleanup is separately bounded so abandoned work cannot indefinitely retain
+/// shared resources. Failures contain no source diagnostics.
+/// Adapters bound internal resource use independently of the raw-input limits.
+/// Unsupported representations fail without partial saves or silent data loss.
 pub trait LearnerProgressImportWriter {
     fn save_group<'a>(
         &'a self,
@@ -363,19 +464,24 @@ mod tests {
     }
     #[test]
     fn lookup_limits_include_identity_bytes() {
+        let collection = collection();
+        let provider = collection.provider.as_str();
+        let key = collection.key.as_str();
+        let ids = ["x".repeat(MAX_REQUEST_INPUT_BYTES - provider.len() - key.len())];
+        assert!(validate_subject_lookup(provider, key, &ids).is_ok());
         assert!(
-            validate_subject_lookup(&collection(), &["lesson:alpha/7".into(), "0".into()]).is_ok()
+            validate_subject_lookup(provider, key, &["lesson:alpha/7".into(), "0".into()]).is_ok()
         );
         assert!(
-            validate_subject_lookup(&collection(), &vec!["x".into(); MAX_SUBJECT_LOOKUP_IDS + 1])
+            validate_subject_lookup(provider, key, &vec!["x".into(); MAX_SUBJECT_LOOKUP_IDS + 1])
                 .is_err()
         );
         assert!(
-            validate_subject_lookup(&collection(), &["x".repeat(MAX_REQUEST_INPUT_BYTES)]).is_err()
+            validate_subject_lookup(provider, key, &["x".repeat(MAX_REQUEST_INPUT_BYTES)]).is_err()
         );
-        let mut oversized = collection();
-        oversized.key = "x".repeat(MAX_REQUEST_INPUT_BYTES);
-        assert!(validate_subject_lookup(&oversized, &[]).is_err());
+        let oversized = "x".repeat(MAX_REQUEST_INPUT_BYTES);
+        assert!(validate_subject_lookup(&oversized, key, &[]).is_err());
+        assert!(validate_subject_lookup(provider, &oversized, &[]).is_err());
     }
     #[test]
     fn source_record_validates_opaque_json_and_raw_bytes() {

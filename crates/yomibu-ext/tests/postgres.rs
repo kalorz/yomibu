@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use sqlx::postgres::{PgPoolOptions, PgQueryResult};
 use uuid::Uuid;
 use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
-use yomibu_core::ports::infrastructure::{
+use yomibu_core::ports::infrastructure::storage::{
     LearnerCollectionQuery, LearnerWriteError, LearnerWriter, StorageError,
 };
 use yomibu_ext::PostgresLearnerStorage;

@@ -9,7 +9,7 @@ use support::{
 };
 use yomibu_core::{
     domain::{CollectionId, LearnerId, LearnerProgressSourceId, MaterialKind},
-    ports::infrastructure::collection_import::{
+    ports::infrastructure::storage::{
         ImportWriteError, LearnerProgressImportWriter, LearnerProgressSourceIdentity,
         MAX_GROUP_RECORDS, MAX_REQUEST_INPUT_BYTES, PreparedProgress, PreparedSaveGroup,
         PreparedSubject, SharedCollection, SourceRecord, SubjectQuery, validate_subject_lookup,
@@ -83,9 +83,10 @@ fn shared_group(
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn lookup_is_grouped_read_only_and_collection_scoped() {
+    let collection = wanikani::collection();
     with_postgres(async |pool, control| {
         let storage = PostgresLearnerStorage::new(pool.clone());
-        assert!(storage.existing_subject_ids(&wanikani::collection(), &["2".into(), "10".into()], deadline()).await.unwrap().is_empty());
+        assert!(storage.existing_subject_ids(&collection.provider, &collection.key, &["2".into(), "10".into()], deadline()).await.unwrap().is_empty());
         sqlx::raw_sql(
             "INSERT INTO collections (provider,key,name) VALUES ('wanikani','subjects','WaniKani'), ('manual','other','Other');
           INSERT INTO subjects (collection_id, external_id) SELECT id, '2' FROM collections;
@@ -95,20 +96,21 @@ async fn lookup_is_grouped_read_only_and_collection_scoped() {
         .execute(control)
         .await
         .unwrap();
-        assert_eq!(storage.existing_subject_ids(&wanikani::collection(), &["10".into(), "2".into(), "2".into(), "3".into(), "99".into()], deadline()).await.unwrap(), ["10", "2"]);
+        assert_eq!(storage.existing_subject_ids(&collection.provider, &collection.key, &["10".into(), "2".into(), "2".into(), "3".into(), "99".into()], deadline()).await.unwrap(), ["10", "2"]);
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM collections").fetch_one(control).await.unwrap(), 2);
         let ids: Vec<String> = (1..=1000).map(|id| id.to_string()).collect();
-        assert_eq!(storage.existing_subject_ids(&wanikani::collection(), &ids, deadline()).await.unwrap(), ["10", "2"]);
+        assert_eq!(storage.existing_subject_ids(&collection.provider, &collection.key, &ids, deadline()).await.unwrap(), ["10", "2"]);
     })
     .await;
 }
 
 #[tokio::test]
 async fn lookup_checks_contract_limits_before_acquisition() {
+    let collection = wanikani::collection();
     let storage = closed_storage().await;
     assert!(
         storage
-            .existing_subject_ids(&wanikani::collection(), &[], deadline())
+            .existing_subject_ids(&collection.provider, &collection.key, &[], deadline())
             .await
             .unwrap()
             .is_empty()
@@ -117,7 +119,7 @@ async fn lookup_checks_contract_limits_before_acquisition() {
     // before attempting to acquire the closed pool.
     let ids = ["x".repeat(MAX_REQUEST_INPUT_BYTES)];
     let error = storage
-        .existing_subject_ids(&wanikani::collection(), &ids, deadline())
+        .existing_subject_ids(&collection.provider, &collection.key, &ids, deadline())
         .await
         .unwrap_err();
     assert!(error.to_string().contains("input limits"));
@@ -126,11 +128,12 @@ async fn lookup_checks_contract_limits_before_acquisition() {
 #[tokio::test]
 async fn lookup_encoding_rejection_precedes_acquisition() {
     let collection = shared_collection("source", "lessons");
-    let ids = ["x".repeat(MAX_REQUEST_INPUT_BYTES - collection.input_bytes())];
-    validate_subject_lookup(&collection, &ids).unwrap();
+    let ids =
+        ["x".repeat(MAX_REQUEST_INPUT_BYTES - collection.provider.len() - collection.key.len())];
+    validate_subject_lookup(&collection.provider, &collection.key, &ids).unwrap();
     let error = closed_storage()
         .await
-        .existing_subject_ids(&collection, &ids, deadline())
+        .existing_subject_ids(&collection.provider, &collection.key, &ids, deadline())
         .await
         .unwrap_err();
     assert!(error.to_string().contains("encoded argument limit"));
@@ -168,10 +171,16 @@ async fn reference_resolution_encoding_is_bounded_before_acquisition() {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn lookup_obeys_deadline() {
+    let collection = wanikani::collection();
     with_postgres(async |pool, control| {
         let storage = PostgresLearnerStorage::new(pool.clone());
         let error = storage
-            .existing_subject_ids(&wanikani::collection(), &["1".into()], Instant::now())
+            .existing_subject_ids(
+                &collection.provider,
+                &collection.key,
+                &["1".into()],
+                Instant::now(),
+            )
             .await
             .unwrap_err();
         assert!(error.to_string().contains("deadline"));
@@ -186,10 +195,12 @@ async fn lookup_obeys_deadline() {
     .await;
 }
 async fn assert_lookup_deadline(storage: &PostgresLearnerStorage) {
+    let collection = wanikani::collection();
     let error = tokio::time::timeout(
         Duration::from_secs(1),
         storage.existing_subject_ids(
-            &wanikani::collection(),
+            &collection.provider,
+            &collection.key,
             &["1".into()],
             Instant::now() + Duration::from_millis(50),
         ),
@@ -297,7 +308,7 @@ async fn opaque_external_id_round_trips_and_reuses_the_stored_subject() {
             .bind(first.collection_id.0).fetch_one(control).await.unwrap();
         assert_eq!(row.1, id);
         assert_eq!(serde_json::from_str::<serde_json::Value>(&row.2).unwrap(), serde_json::json!(["opaque",{"content":"lesson"}]));
-        assert_eq!(storage.existing_subject_ids(&collection, &[id.into()], deadline()).await.unwrap(), [id]);
+        assert_eq!(storage.existing_subject_ids(&collection.provider, &collection.key, &[id.into()], deadline()).await.unwrap(), [id]);
         assert_eq!(storage.save_group(&shared_group(collection, id, 20, false), deadline()).await.unwrap(), first);
         let references: Vec<(uuid::Uuid, String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as("SELECT p.subject_id,s.external_id,p.recorded_at FROM learner_progress p JOIN subjects s ON s.id=p.subject_id WHERE p.learner_progress_source_id=$1")
             .bind(first.learner_progress_source_id.0).fetch_all(control).await.unwrap();
@@ -326,10 +337,10 @@ async fn identical_external_ids_are_isolated_by_supplied_collection() {
         storage.save_group(&shared_group(collections[1].clone(), "only-beta", 20, true), deadline()).await.unwrap();
         let requested = [id.into(), "only-beta".into()];
         for index in [0, 2] {
-            assert_eq!(storage.existing_subject_ids(&collections[index], &requested, deadline()).await.unwrap(), [id]);
+            assert_eq!(storage.existing_subject_ids(&collections[index].provider, &collections[index].key, &requested, deadline()).await.unwrap(), [id]);
         }
-        assert_eq!(storage.existing_subject_ids(&collections[1], &requested, deadline()).await.unwrap(), [id, "only-beta"]);
-        assert!(storage.existing_subject_ids(&shared_collection("absent", "alpha"), &requested, deadline()).await.unwrap().is_empty());
+        assert_eq!(storage.existing_subject_ids(&collections[1].provider, &collections[1].key, &requested, deadline()).await.unwrap(), [id, "only-beta"]);
+        assert!(storage.existing_subject_ids("absent", "alpha", &requested, deadline()).await.unwrap().is_empty());
 
         let mut changed = shared_group(collections[0].clone(), id, 30, true).subjects()[0].clone();
         changed.kind = Some(MaterialKind::Grammar);
@@ -379,12 +390,18 @@ async fn subjects_are_shared_progress_and_access_are_independent() {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn reuse_subjects_and_resolve_a_concurrent_insert() {
+    let collection = wanikani::collection();
     with_postgres(async |pool, control| {
         seed(control).await;
         let storage = PostgresLearnerStorage::new(pool.clone());
         assert!(
             storage
-                .existing_subject_ids(&wanikani::collection(), &["1".into()], deadline())
+                .existing_subject_ids(
+                    &collection.provider,
+                    &collection.key,
+                    &["1".into()],
+                    deadline()
+                )
                 .await
                 .unwrap()
                 .is_empty()
@@ -849,13 +866,14 @@ async fn supported_timestamp_endpoints_round_trip_without_loss() {
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn unknown_subject_freshness_initializes_without_changing_identity() {
+    let collection = wanikani::collection();
     with_postgres(async |pool, control| {
         seed(control).await;
         let storage = PostgresLearnerStorage::new(pool.clone());
         let original = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 50)]), deadline()).await.unwrap();
         sqlx::query("UPDATE subjects SET source_updated_at=NULL").execute(control).await.unwrap();
         let before: (uuid::Uuid, String) = sqlx::query_as("SELECT id,to_jsonb(s)::text FROM subjects s").fetch_one(control).await.unwrap();
-        assert_eq!(storage.existing_subject_ids(&wanikani::collection(), &["1".into()], deadline()).await.unwrap(), vec!["1"]);
+        assert_eq!(storage.existing_subject_ids(&collection.provider, &collection.key, &["1".into()], deadline()).await.unwrap(), vec!["1"]);
         let mut incoming = subject(1, 30);
         incoming.kind = None;
         let expected_payload: serde_json::Value = serde_json::from_str(incoming.source.payload().get()).unwrap();

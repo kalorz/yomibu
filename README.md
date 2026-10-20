@@ -60,7 +60,7 @@ For both commands, startup and the requested storage operation each have a five-
 limit; connection acquisition and server statements are also limited to five seconds.
 Pool shutdown and runtime shutdown each wait at most one second. These are cooperative
 I/O bounds, not hard real-time limits; see the
-[storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs).
+[storage contract](crates/yomibu-core/src/ports/infrastructure/storage/mod.rs).
 SQLx can retry refused connections within the startup bound.
 
 ## Create a learner
@@ -169,7 +169,7 @@ checks the real command's output and exit behavior. Failed runs can leave test
 schemas behind; use only a disposable database. Missing prerequisites fail the
 explicit test run rather than substituting another backend.
 
-The [shared collection import contracts](crates/yomibu-core/src/ports/infrastructure/collection_import.rs)
+The [shared collection import contracts](crates/yomibu-core/src/ports/infrastructure/storage/mod.rs)
 accept supplied collection/progress-source identities, opaque subject IDs and both
 material kinds. [WaniKani preparation](crates/yomibu-ext/src/wanikani.rs) owns its
 provider-specific validation and type mapping. The contracts cover finite atomic
@@ -181,7 +181,7 @@ and conservative commit-failure reporting. Lost acknowledgements and late
 commit-response delivery are not simulated by this suite.
 
 See the [application operations](crates/yomibu-app/src/application/mod.rs),
-[storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs), and
+[storage contract](crates/yomibu-core/src/ports/infrastructure/storage/mod.rs), and
 [PostgreSQL adapters](crates/yomibu-ext/src/postgres.rs) for read/write guarantees,
 deadline handling, and pool configuration responsibilities.
 

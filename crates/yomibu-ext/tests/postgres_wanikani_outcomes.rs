@@ -9,7 +9,7 @@ use support::{
 };
 use yomibu_core::{
     domain::LearnerProgressSourceId,
-    ports::infrastructure::collection_import::{ImportWriteError, LearnerProgressImportWriter},
+    ports::infrastructure::storage::{ImportWriteError, LearnerProgressImportWriter},
 };
 use yomibu_ext::PostgresLearnerStorage;
 fn deadline() -> Instant {

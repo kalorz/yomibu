@@ -1,7 +1,7 @@
 //! Preparation of supplied WaniKani records; no HTTP reading or import orchestration.
 use yomibu_core::{
     domain::{LearnerId, MaterialKind},
-    ports::infrastructure::collection_import::{
+    ports::infrastructure::storage::{
         LearnerProgressSourceIdentity, PreparedProgress, PreparedSaveGroup, PreparedSubject,
         SharedCollection, SourceRecord,
     },

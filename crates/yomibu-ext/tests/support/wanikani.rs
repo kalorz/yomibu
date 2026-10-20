@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use yomibu_core::domain::LearnerId;
-use yomibu_core::ports::infrastructure::collection_import::{
+use yomibu_core::ports::infrastructure::storage::{
     PreparedProgress, PreparedSaveGroup, PreparedSubject, SourceRecord,
 };
 

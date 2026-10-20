@@ -9,7 +9,7 @@ use sqlx::{
     postgres::{PgDatabaseError, PgSeverity},
 };
 use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
-use yomibu_core::ports::infrastructure::{
+use yomibu_core::ports::infrastructure::storage::{
     LearnerCollectionQuery, LearnerWriteError, LearnerWriter, StorageError,
 };
 
@@ -211,7 +211,7 @@ fn failure_reason(error: sqlx::Error) -> String {
 mod tests {
     use super::{is_statement_rejection, storage_error};
     use sqlx::postgres::PgSeverity;
-    use yomibu_core::ports::infrastructure::StorageError;
+    use yomibu_core::ports::infrastructure::storage::StorageError;
 
     #[test]
     fn only_statement_rejections_establish_that_no_learner_was_created() {

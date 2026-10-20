@@ -5,7 +5,7 @@ use std::{
     future::Future,
     time::{Duration, Instant},
 };
-use yomibu_core::ports::infrastructure::collection_import::ImportWriteError;
+use yomibu_core::ports::infrastructure::storage::ImportWriteError;
 
 pub(super) fn deadline_error() -> ImportWriteError {
     ImportWriteError::NotSaved("storage deadline exceeded".into())
@@ -26,6 +26,8 @@ pub(super) async fn until<T>(
 /// Runs `body` in one explicit READ COMMITTED transaction on a pooled connection.
 /// Only a confirmed commit or an acknowledged rollback returns the connection to
 /// the pool; interrupted or uncertain cleanup closes it.
+/// Receipts require a confirmed COMMIT, including confirmation observed late.
+/// Commit errors/timeouts conservatively report unknown completion, including rejections.
 pub(super) async fn transact<T>(
     pool: &PgPool,
     deadline: Instant,

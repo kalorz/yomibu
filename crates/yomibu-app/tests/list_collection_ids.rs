@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 use yomibu_app::application::ListCollectionIds;
 use yomibu_core::domain::{CollectionId, LearnerId};
-use yomibu_core::ports::infrastructure::{LearnerCollectionQuery, StorageError};
+use yomibu_core::ports::infrastructure::storage::{LearnerCollectionQuery, StorageError};
 
 const LEARNER_ID: LearnerId = LearnerId(Uuid::from_u128(1));
 

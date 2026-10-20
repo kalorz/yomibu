@@ -7,13 +7,10 @@ use sqlx::{Postgres, QueryBuilder, Transaction};
 use std::{collections::HashMap, future::Future, pin::Pin, time::Instant};
 use yomibu_core::{
     domain::{CollectionId, LearnerProgressSourceId, MaterialKind},
-    ports::infrastructure::{
-        StorageError,
-        collection_import::{
-            CompletionReceipt, ImportWriteError, LearnerProgressImportWriter, PreparedProgress,
-            PreparedSaveGroup, PreparedSubject, SaveReceipt, SharedCollection, SourceRecord,
-            SubjectQuery, validate_subject_lookup,
-        },
+    ports::infrastructure::storage::{
+        CompletionReceipt, ImportWriteError, LearnerProgressImportWriter, PreparedProgress,
+        PreparedSaveGroup, PreparedSubject, SaveReceipt, SourceRecord, StorageError, SubjectQuery,
+        validate_subject_lookup,
     },
 };
 
@@ -82,18 +79,17 @@ fn lookup_failure(error: Option<sqlx::Error>) -> StorageError {
 impl SubjectQuery for PostgresLearnerStorage {
     fn existing_subject_ids<'a>(
         &'a self,
-        collection: &'a SharedCollection,
+        provider: &'a str,
+        key: &'a str,
         ids: &'a [String],
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, StorageError>> + 'a>> {
         Box::pin(async move {
             expired(deadline, lookup_deadline)?;
-            validate_subject_lookup(collection, ids)?;
+            validate_subject_lookup(provider, key, ids)?;
             // The contract bounds raw bytes; this adapter also bounds array and
             // parameter encoding before SQLx allocates argument buffers.
-            if collection.provider.len() + collection.key.len() + array_bytes(ids)
-                > MAX_ENCODED_BYTES
-            {
+            if provider.len() + key.len() + array_bytes(ids) > MAX_ENCODED_BYTES {
                 return Err(StorageError(
                     "subject lookup exceeds encoded argument limit".into(),
                 ));
@@ -111,8 +107,8 @@ impl SubjectQuery for PostgresLearnerStorage {
                  WHERE c.provider=$1 AND c.key=$2 AND c.owner_learner_id IS NULL
                  AND s.external_id = ANY($3)",
             )
-            .bind(&collection.provider)
-            .bind(&collection.key)
+            .bind(provider)
+            .bind(key)
             .bind(ids)
             .fetch_all(&mut *lease.connection);
             let rows = bounded(deadline, query, lookup_failure).await?;
@@ -232,6 +228,8 @@ fn chunks<'a, T>(
     })
 }
 
+/// Bounds encoded arguments and rejects lossy timestamps before acquiring a connection.
+/// Other PostgreSQL representation failures roll back the whole group.
 impl LearnerProgressImportWriter for PostgresLearnerStorage {
     fn save_group<'a>(
         &'a self,
