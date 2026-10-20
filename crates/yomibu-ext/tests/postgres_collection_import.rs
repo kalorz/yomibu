@@ -8,7 +8,7 @@ use support::{
     with_postgres,
 };
 use yomibu_core::{
-    domain::{LearnerId, MaterialKind},
+    domain::{CollectionId, LearnerId, LearnerProgressSourceId, MaterialKind},
     ports::infrastructure::storage::{
         ImportWriteError, LearnerProgressImportWriter, LearnerProgressSourceIdentity,
         MAX_GROUP_RECORDS, MAX_REQUEST_INPUT_BYTES, PreparedProgress, PreparedSaveGroup,
@@ -358,7 +358,11 @@ async fn identical_external_ids_are_isolated_by_supplied_collection() {
         let before = snapshot(control).await;
         let missing = shared_group(collections[0].clone(), "only-beta", 40, false);
         assert!(matches!(storage.save_group(&missing, deadline()).await, Err(ImportWriteError::NotSaved(_))));
+        assert!(matches!(storage.record_import_completion(receipts[0].collection_id, receipts[1].learner_progress_source_id, at(50), deadline()).await, Err(ImportWriteError::NotSaved(_))));
         assert_eq!(snapshot(control).await, before);
+        storage.record_import_completion(receipts[0].collection_id, receipts[0].learner_progress_source_id, at(50), deadline()).await.unwrap();
+        let completed: Vec<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM learner_progress_sources WHERE last_import_completed_at IS NOT NULL").fetch_all(control).await.unwrap();
+        assert_eq!(completed, [receipts[0].learner_progress_source_id.0]);
     }).await;
 }
 
@@ -682,6 +686,117 @@ async fn equal_and_older_account_and_subject_payloads_do_not_replace() {
 }
 
 #[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn ordinary_saves_and_explicit_account_only_completion() {
+    with_postgres(async |pool, control| {
+        seed(control).await;
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let saved = storage.save_group(&group(1, "a", 10, vec![], vec![]), deadline()).await.unwrap();
+        let source = saved.learner_progress_source_id;
+        assert!(sqlx::query_scalar::<_, bool>("SELECT last_import_completed_at IS NULL FROM learner_progress_sources").fetch_one(control).await.unwrap());
+        let payload: String = sqlx::query_scalar("SELECT source_data::text FROM learner_progress_sources").fetch_one(control).await.unwrap();
+        for time in [30, 20, 30, 40] {
+            let receipt = storage.record_import_completion(saved.collection_id, source, at(time), deadline()).await.unwrap();
+            assert_eq!(receipt.learner_progress_source_id, source);
+            assert_eq!(receipt.last_import_completed_at, at(time.max(30)));
+            assert_eq!(sqlx::query_scalar::<_, String>("SELECT source_data::text FROM learner_progress_sources").fetch_one(control).await.unwrap(), payload);
+        }
+        storage.save_group(&group(1, "a", 50, vec![subject(1, 50)], vec![progress(1, 50, 60)]), deadline()).await.unwrap();
+        assert_eq!(sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>("SELECT last_import_completed_at FROM learner_progress_sources").fetch_one(control).await.unwrap(), at(40));
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND column_name='last_import_started_at'").fetch_one(control).await.unwrap(), 0);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn completion_rejects_unknown_mismatched_and_out_of_scope_sources() {
+    with_postgres(async |pool, control| {
+        seed(control).await;
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let saved = storage.save_group(&group(1, "a", 10, vec![], vec![]), deadline()).await.unwrap();
+        let private: uuid::Uuid = sqlx::query_scalar("INSERT INTO collections(provider,key,name,owner_learner_id) VALUES('manual','private','Private',$1) RETURNING id").bind(uuid::Uuid::from_u128(1)).fetch_one(control).await.unwrap();
+        let private_source: uuid::Uuid = sqlx::query_scalar("INSERT INTO learner_progress_sources(learner_id,collection_id,external_account_id) VALUES($1,$2,'external') RETURNING id").bind(uuid::Uuid::from_u128(1)).bind(private).fetch_one(control).await.unwrap();
+        let manual_source: uuid::Uuid = sqlx::query_scalar("INSERT INTO learner_progress_sources(learner_id,collection_id) VALUES($1,$2) RETURNING id").bind(uuid::Uuid::from_u128(1)).bind(saved.collection_id.0).fetch_one(control).await.unwrap();
+        let before = snapshot(control).await;
+        for (collection, source) in [(private, private_source), (saved.collection_id.0, manual_source), (private, saved.learner_progress_source_id.0), (saved.collection_id.0, uuid::Uuid::nil())] {
+            assert!(matches!(storage.record_import_completion(CollectionId(collection), LearnerProgressSourceId(source), at(20), deadline()).await, Err(ImportWriteError::NotSaved(_))));
+            assert_eq!(snapshot(control).await, before);
+        }
+    }).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn overlapping_completions_do_not_regress() {
+    with_postgres(async |pool, control| {
+        seed(control).await;
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let saved = storage
+            .save_group(&group(1, "a", 10, vec![], vec![]), deadline())
+            .await
+            .unwrap();
+        let source = saved.learner_progress_source_id;
+        let other = another_session(pool).await;
+        let observer = another_session(pool).await;
+        let second = PostgresLearnerStorage::new(other.clone());
+        // Both completion calls must select their own isolation, independently of
+        // the pool's session default. Otherwise one overlapping update gets 40001.
+        for connection in [pool, &other] {
+            sqlx::query("SET default_transaction_isolation='repeatable read'")
+                .execute(connection)
+                .await
+                .unwrap();
+        }
+        let pids = [backend_pid(pool).await, backend_pid(&other).await];
+        let mut lock = control.begin().await.unwrap();
+        sqlx::query("SELECT id FROM learner_progress_sources FOR UPDATE")
+            .execute(&mut *lock)
+            .await
+            .unwrap();
+        let release = async {
+            blocked(&observer, &pids).await;
+            lock.commit().await.unwrap();
+        };
+        let (new, old, ()) = tokio::join!(
+            storage.record_import_completion(saved.collection_id, source, at(40), deadline()),
+            second.record_import_completion(saved.collection_id, source, at(20), deadline()),
+            release
+        );
+        assert_eq!(new.unwrap().last_import_completed_at, at(40));
+        assert!(old.unwrap().last_import_completed_at >= at(20));
+        assert_eq!(
+            sqlx::query_scalar::<_, chrono::DateTime<chrono::Utc>>(
+                "SELECT last_import_completed_at FROM learner_progress_sources"
+            )
+            .fetch_one(control)
+            .await
+            .unwrap(),
+            at(40)
+        );
+        other.close().await;
+        observer.close().await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn completion_representation_rejection_precedes_acquisition() {
+    let error = closed_storage()
+        .await
+        .record_import_completion(
+            CollectionId(uuid::Uuid::nil()),
+            LearnerProgressSourceId(uuid::Uuid::nil()),
+            at(0) + chrono::Duration::nanoseconds(1),
+            deadline(),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ImportWriteError::NotSaved(_)));
+    assert!(error.to_string().contains("timestamp"));
+}
+
+#[tokio::test]
 async fn every_timestamp_field_is_validated_before_acquisition() {
     let storage = closed_storage().await;
     let submicro = at(10) + chrono::Duration::nanoseconds(1);
@@ -743,6 +858,7 @@ async fn supported_timestamp_endpoints_round_trip_without_loss() {
             assert_eq!(storage.save_group(&input, deadline()).await.unwrap(), receipt);
             let stored: chrono::DateTime<chrono::Utc> = sqlx::query_scalar("SELECT (source_data->>'source_updated_at')::timestamptz FROM learner_progress_sources WHERE id=$1").bind(receipt.learner_progress_source_id.0).fetch_one(control).await.unwrap();
             assert_eq!(stored, time);
+            assert_eq!(storage.record_import_completion(receipt.collection_id, receipt.learner_progress_source_id, time, deadline()).await.unwrap().last_import_completed_at, time);
         }
     }).await;
 }

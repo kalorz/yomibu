@@ -60,7 +60,7 @@ For both commands, startup and the requested storage operation each have a five-
 limit; connection acquisition and server statements are also limited to five seconds.
 Pool shutdown and runtime shutdown each wait at most one second. These are cooperative
 I/O bounds, not hard real-time limits; see the
-[storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs).
+[storage contract](crates/yomibu-core/src/ports/infrastructure/storage/mod.rs).
 SQLx can retry refused connections within the startup bound.
 
 ## Create a learner
@@ -147,7 +147,8 @@ The PostgreSQL adapter contract and CLI wiring tests are explicitly ignored by
 that default command; CI runs them separately against PostgreSQL with pgvector. For a local run,
 supply a disposable PostgreSQL 18+ database with the `vector` extension
 installed in `public`, no application tables in `public`, and a test role permitted
-to create/drop schemas and terminate its own connections. With Compose running,
+to create/drop schemas, terminate its own connections, and set `deadlock_timeout`
+for the controlled deadlock test. With Compose running,
 create a separate test database once:
 
 ```sh
@@ -168,8 +169,19 @@ checks the real command's output and exit behavior. Failed runs can leave test
 schemas behind; use only a disposable database. Missing prerequisites fail the
 explicit test run rather than substituting another backend.
 
+The [shared collection import contracts](crates/yomibu-core/src/ports/infrastructure/storage/mod.rs)
+accept supplied collection/progress-source identities, opaque subject IDs and both
+material kinds. [WaniKani preparation](crates/yomibu-ext/src/wanikani.rs) owns its
+provider-specific validation and type mapping. The contracts cover finite atomic
+groups and explicit successful-sync completion from
+[#109](https://github.com/kalorz/yomibu/issues/109). This storage slice has no HTTP
+reader, application import operation or CLI import command. Its PostgreSQL tests
+include controlled overlap, cancellation, deadlock rollback without retry,
+and conservative commit-failure reporting. Lost acknowledgements and late
+commit-response delivery are not simulated by this suite.
+
 See the [application operations](crates/yomibu-app/src/application/mod.rs),
-[storage contract](crates/yomibu-core/src/ports/infrastructure/mod.rs), and
+[storage contract](crates/yomibu-core/src/ports/infrastructure/storage/mod.rs), and
 [PostgreSQL adapters](crates/yomibu-ext/src/postgres.rs) for read/write guarantees,
 deadline handling, and pool configuration responsibilities.
 

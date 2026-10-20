@@ -1,11 +1,16 @@
 #[path = "support/wanikani.rs"]
 mod fixtures;
 mod support;
-use fixtures::{group, progress, seed, subject};
+use fixtures::{at, group, progress, seed, subject};
 use sqlx::PgPool;
 use std::time::{Duration, Instant};
-use support::{another_session, backend_pid, blocked, lock_table, recover, with_postgres};
-use yomibu_core::ports::infrastructure::storage::{ImportWriteError, LearnerProgressImportWriter};
+use support::{
+    another_session, backend_pid, blocked, lock_table, recover, snapshot, with_postgres,
+};
+use yomibu_core::{
+    domain::LearnerProgressSourceId,
+    ports::infrastructure::storage::{ImportWriteError, LearnerProgressImportWriter},
+};
 use yomibu_ext::PostgresLearnerStorage;
 fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(8)
@@ -204,6 +209,31 @@ async fn actual_deadlock_rolls_back_without_retry() {
 
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
+async fn completion_failure_preserves_prior_groups_and_completion() {
+    with_postgres(async |pool, control| {
+        seed(control).await;
+        let storage = PostgresLearnerStorage::new(pool.clone());
+        let saved = storage.save_group(&group(1, "a", 10, vec![subject(1, 10)], vec![progress(1, 10, 20)]), deadline()).await.unwrap();
+        let source = saved.learner_progress_source_id;
+        storage.record_import_completion(saved.collection_id, source, at(20), deadline()).await.unwrap();
+        let before = snapshot(control).await;
+        let mut lock = control.begin().await.unwrap();
+        sqlx::query("SELECT id FROM learner_progress_sources FOR UPDATE").execute(&mut *lock).await.unwrap();
+        assert!(matches!(storage.record_import_completion(saved.collection_id, source, at(30), Instant::now() + Duration::from_millis(50)).await, Err(ImportWriteError::NotSaved(_))));
+        lock.rollback().await.unwrap();
+        recover(pool).await;
+        assert_eq!(snapshot(control).await, before);
+        sqlx::raw_sql("CREATE FUNCTION reject_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private completion error' USING ERRCODE='23514'; END $$; CREATE CONSTRAINT TRIGGER reject_completion AFTER UPDATE ON learner_progress_sources DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_completion();").execute(control).await.unwrap();
+        let error = storage.record_import_completion(saved.collection_id, source, at(30), deadline()).await.unwrap_err();
+        assert!(matches!(error, ImportWriteError::CompletionUnknown(_)));
+        assert!(!error.to_string().contains("private"));
+        assert_eq!(snapshot(control).await, before);
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL 18+ with vector and YOMIBU_TEST_DATABASE_URL"]
 async fn acknowledged_rollbacks_reuse_the_connection() {
     with_postgres(async |pool, control| {
         seed(control).await;
@@ -217,6 +247,30 @@ async fn acknowledged_rollbacks_reuse_the_connection() {
         ));
         empty(control).await;
         assert_eq!(backend_pid(pool).await, pid);
+        let receipt = storage
+            .save_group(&group(1, "a", 10, vec![], vec![]), deadline())
+            .await
+            .unwrap();
+        assert!(matches!(
+            storage
+                .record_import_completion(
+                    receipt.collection_id,
+                    LearnerProgressSourceId(uuid::Uuid::nil()),
+                    at(20),
+                    deadline()
+                )
+                .await,
+            Err(ImportWriteError::NotSaved(_))
+        ));
+        assert_eq!(backend_pid(pool).await, pid);
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT last_import_completed_at IS NULL FROM learner_progress_sources"
+            )
+            .fetch_one(control)
+            .await
+            .unwrap()
+        );
     })
     .await;
 }

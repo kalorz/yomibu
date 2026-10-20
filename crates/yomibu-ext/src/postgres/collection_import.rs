@@ -8,8 +8,8 @@ use std::{collections::HashMap, future::Future, pin::Pin, time::Instant};
 use yomibu_core::{
     domain::{CollectionId, LearnerProgressSourceId, MaterialKind},
     ports::infrastructure::storage::{
-        ImportWriteError, LearnerProgressImportWriter, PreparedProgress, PreparedSaveGroup,
-        PreparedSubject, SaveReceipt, SourceRecord, StorageError, SubjectQuery,
+        CompletionReceipt, ImportWriteError, LearnerProgressImportWriter, PreparedProgress,
+        PreparedSaveGroup, PreparedSubject, SaveReceipt, SourceRecord, StorageError, SubjectQuery,
         validate_subject_lookup,
     },
 };
@@ -245,6 +245,22 @@ impl LearnerProgressImportWriter for PostgresLearnerStorage {
             .await
         })
     }
+    fn record_import_completion(
+        &self,
+        collection: CollectionId,
+        source: LearnerProgressSourceId,
+        completed_at: DateTime<Utc>,
+        deadline: Instant,
+    ) -> Pin<Box<dyn Future<Output = Result<CompletionReceipt, ImportWriteError>> + '_>> {
+        Box::pin(async move {
+            expired(deadline, deadline_error)?;
+            timestamp(completed_at)?;
+            transact(&self.pool, deadline, async |tx| {
+                complete(tx, collection, source, completed_at, deadline).await
+            })
+            .await
+        })
+    }
 }
 
 async fn persist(
@@ -390,6 +406,38 @@ async fn persist(
         until(deadline, sql.build().execute(&mut **tx)).await?;
     }
     Ok(receipt)
+}
+
+async fn complete(
+    tx: &mut Transaction<'_, Postgres>,
+    collection: CollectionId,
+    source: LearnerProgressSourceId,
+    completed_at: DateTime<Utc>,
+    deadline: Instant,
+) -> Result<CompletionReceipt, ImportWriteError> {
+    let stored = until(
+        deadline,
+        sqlx::query_scalar(
+            "UPDATE learner_progress_sources AS s
+             SET last_import_completed_at=GREATEST(s.last_import_completed_at,$3)
+             FROM collections c
+             WHERE s.id=$1 AND s.collection_id=$2 AND c.id=s.collection_id
+                 AND c.owner_learner_id IS NULL AND s.external_account_id IS NOT NULL
+             RETURNING s.last_import_completed_at",
+        )
+        .bind(source.0)
+        .bind(collection.0)
+        .bind(completed_at)
+        .fetch_optional(&mut **tx),
+    )
+    .await?
+    .ok_or_else(|| {
+        invalid("external completion source does not exist in supplied shared collection")
+    })?;
+    Ok(CompletionReceipt {
+        learner_progress_source_id: source,
+        last_import_completed_at: stored,
+    })
 }
 
 #[cfg(test)]
