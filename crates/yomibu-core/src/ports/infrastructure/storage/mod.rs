@@ -3,7 +3,7 @@
 use crate::domain::{CollectionId, LearnerId, LearnerName, MaterialKind};
 use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
-use std::{future::Future, pin::Pin, time::Instant};
+use std::{collections::HashSet, future::Future, pin::Pin, time::Instant};
 
 /// A storage port's provider-independent failure description.
 /// Adapters must supply a presentable message without credentials or raw
@@ -106,6 +106,11 @@ pub trait LearnerWriter {
     ) -> Pin<Box<dyn Future<Output = Result<LearnerId, LearnerWriteError>> + '_>>;
 }
 
+/// Per-group record limit, independently for subjects and learner progress.
+pub const MAX_GROUP_RECORDS: usize = 1_000;
+/// Maximum combined raw UTF-8 bytes in one lookup or save-group request.
+/// Lookups count provider, key and IDs; saves also count names, stages and payloads.
+pub const MAX_REQUEST_INPUT_BYTES: usize = 8 * 1024 * 1024;
 /// Maximum raw JSON byte length of one source payload.
 pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 
@@ -186,4 +191,89 @@ pub struct PreparedProgress {
     pub first_passed_at: Option<DateTime<Utc>>,
     pub observed_at: DateTime<Utc>,
     pub source: SourceRecord,
+}
+
+/// One finite storage request, not an API page or proof of complete traversal.
+/// Construction validates duplicate identities and storage-input limits without I/O.
+/// External IDs are exact opaque text; this contract performs no normalization.
+/// The caller bounds upstream preparation; the adapter separately enforces its
+/// representation and resource limits. References may resolve to stored subjects.
+#[derive(Debug, Clone)]
+pub struct PreparedSaveGroup {
+    collection: SharedCollection,
+    learner_progress_source: LearnerProgressSourceIdentity,
+    account: SourceRecord,
+    subjects: Vec<PreparedSubject>,
+    progress: Vec<PreparedProgress>,
+}
+impl PreparedSaveGroup {
+    pub fn new(
+        collection: SharedCollection,
+        learner_progress_source: LearnerProgressSourceIdentity,
+        account: SourceRecord,
+        subjects: Vec<PreparedSubject>,
+        progress: Vec<PreparedProgress>,
+    ) -> Result<Self, InvalidSaveGroup> {
+        if subjects.len() > MAX_GROUP_RECORDS || progress.len() > MAX_GROUP_RECORDS {
+            return Err(InvalidSaveGroup("save group exceeds record limit"));
+        }
+        let mut subject_ids = HashSet::new();
+        let mut progress_ids = HashSet::new();
+        if subjects.iter().any(|s| !subject_ids.insert(&s.external_id))
+            || progress
+                .iter()
+                .any(|p| !progress_ids.insert(&p.subject_external_id))
+        {
+            return Err(InvalidSaveGroup("duplicate subject/progress identity"));
+        }
+        let group = Self {
+            collection,
+            learner_progress_source,
+            account,
+            subjects,
+            progress,
+        };
+        let size = group
+            .input_sizes()
+            .try_fold(0usize, |total, size| total.checked_add(size));
+        if size.is_none_or(|n| n > MAX_REQUEST_INPUT_BYTES) {
+            return Err(InvalidSaveGroup("save group exceeds byte limit"));
+        }
+        Ok(group)
+    }
+    fn input_sizes(&self) -> impl Iterator<Item = usize> + '_ {
+        [
+            self.collection.input_bytes(),
+            self.learner_progress_source.external_account_id.len(),
+            self.account.payload.get().len(),
+        ]
+        .into_iter()
+        .chain(
+            self.subjects
+                .iter()
+                .flat_map(|s| [s.external_id.len(), s.source.payload.get().len()]),
+        )
+        .chain(self.progress.iter().flat_map(|p| {
+            [
+                p.subject_external_id.len(),
+                p.source.payload.get().len(),
+                p.progress_stage.as_ref().map_or(0, String::len),
+            ]
+        }))
+    }
+    pub fn collection(&self) -> &SharedCollection {
+        &self.collection
+    }
+    pub fn learner_progress_source(&self) -> &LearnerProgressSourceIdentity {
+        &self.learner_progress_source
+    }
+    pub fn account(&self) -> &SourceRecord {
+        &self.account
+    }
+    pub fn subjects(&self) -> &[PreparedSubject] {
+        &self.subjects
+    }
+    pub fn progress(&self) -> &[PreparedProgress] {
+        &self.progress
+    }
 }
