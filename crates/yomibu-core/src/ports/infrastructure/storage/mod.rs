@@ -1,6 +1,9 @@
-use std::{future::Future, pin::Pin, time::Instant};
+//! Storage contracts for learners, collections, subjects and learner progress.
 
-use crate::domain::{CollectionId, LearnerId, LearnerName};
+use crate::domain::{CollectionId, LearnerId, LearnerName, MaterialKind};
+use chrono::{DateTime, Utc};
+use serde_json::value::RawValue;
+use std::{future::Future, pin::Pin, time::Instant};
 
 /// A storage port's provider-independent failure description.
 /// Adapters must supply a presentable message without credentials or raw
@@ -101,4 +104,86 @@ pub trait LearnerWriter {
         name: LearnerName,
         deadline: Instant,
     ) -> Pin<Box<dyn Future<Output = Result<LearnerId, LearnerWriteError>> + '_>>;
+}
+
+/// Maximum raw JSON byte length of one source payload.
+pub const MAX_SOURCE_BYTES: usize = 1024 * 1024;
+
+/// Shared collection to create or reuse, identified by opaque provider/key values.
+/// The name is used only on creation; this operation does not refresh collection metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedCollection {
+    pub provider: String,
+    pub key: String,
+    pub name: String,
+}
+impl SharedCollection {
+    /// Raw UTF-8 bytes counted toward the request input limits.
+    pub fn input_bytes(&self) -> usize {
+        self.provider.len() + self.key.len() + self.name.len()
+    }
+}
+
+/// External progress-source identity within the group's supplied collection.
+/// The existing learner and opaque external account ID distinguish independent sources.
+/// Manual sources without an external account are outside this import operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LearnerProgressSourceIdentity {
+    pub learner_id: LearnerId,
+    pub external_account_id: String,
+}
+
+/// A rejected storage request. Messages never contain supplied payloads.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct InvalidSaveGroup(&'static str);
+
+/// Opaque source content and its own upstream update time, supplied after
+/// translation. This storage-contract value does not prescribe a database JSON
+/// envelope or timestamp representation. The payload must not contain credentials.
+#[derive(Debug, Clone)]
+pub struct SourceRecord {
+    updated_at: DateTime<Utc>,
+    payload: Box<RawValue>,
+}
+impl SourceRecord {
+    pub fn new(updated_at: DateTime<Utc>, raw_json: &str) -> Result<Self, InvalidSaveGroup> {
+        if raw_json.len() > MAX_SOURCE_BYTES {
+            return Err(InvalidSaveGroup("source payload exceeds byte limit"));
+        }
+        let payload: Box<RawValue> = serde_json::from_str(raw_json)
+            .map_err(|_| InvalidSaveGroup("source payload must be valid JSON"))?;
+        Ok(Self {
+            updated_at,
+            payload,
+        })
+    }
+    pub fn updated_at(&self) -> DateTime<Utc> {
+        self.updated_at
+    }
+    pub fn payload(&self) -> &RawValue {
+        &self.payload
+    }
+}
+
+/// A supplied subject with an opaque collection-local external ID.
+/// Both material kinds and unresolved/out-of-model kinds (`None`) are supported.
+#[derive(Debug, Clone)]
+pub struct PreparedSubject {
+    pub external_id: String,
+    pub kind: Option<MaterialKind>,
+    pub source: SourceRecord,
+}
+
+/// Supplied learner progress, including its observation time independently of
+/// source freshness. Provider writes do not accept a manual mastery declaration.
+#[derive(Debug, Clone)]
+pub struct PreparedProgress {
+    pub subject_external_id: String,
+    pub progress_stage: Option<String>,
+    pub is_hidden: bool,
+    pub learning_started_at: Option<DateTime<Utc>>,
+    pub first_passed_at: Option<DateTime<Utc>>,
+    pub observed_at: DateTime<Utc>,
+    pub source: SourceRecord,
 }
