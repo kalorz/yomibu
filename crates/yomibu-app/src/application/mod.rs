@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
-use yomibu_core::ports::infrastructure::{
+use yomibu_core::ports::infrastructure::storage::{
     LearnerCollectionQuery, LearnerWriteError, LearnerWriter, StorageError,
 };
 
@@ -137,7 +137,7 @@ mod tests {
 
     use super::{CreateLearnerError, complete_creation, complete_lookup};
     use yomibu_core::domain::LearnerId;
-    use yomibu_core::ports::infrastructure::{LearnerWriteError, StorageError};
+    use yomibu_core::ports::infrastructure::storage::{LearnerWriteError, StorageError};
 
     #[test]
     fn late_creation_retains_confirmed_uuid() {

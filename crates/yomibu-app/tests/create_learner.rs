@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 use yomibu_app::application::{CreateLearner, CreateLearnerError, prepare_learner_name};
 use yomibu_core::domain::{LearnerId, LearnerName};
-use yomibu_core::ports::infrastructure::{LearnerWriteError, LearnerWriter};
+use yomibu_core::ports::infrastructure::storage::{LearnerWriteError, LearnerWriter};
 
 const ID: LearnerId = LearnerId(Uuid::from_u128(7));
 

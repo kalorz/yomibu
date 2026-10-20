@@ -103,7 +103,7 @@ Paths below are relative to `crates/`:
 | Location | Ownership |
 | --- | --- |
 | `yomibu-core/src/domain/` | Domain values and pure decisions, such as eligibility and assessment aggregation. |
-| `yomibu-core/src/ports/infrastructure/` | Outbound service contracts: storage queries/writes, secrets and cache. Storage queries remain infrastructure even when called `select`. |
+| `yomibu-core/src/ports/infrastructure/` | Outbound service contracts: storage queries/writes in `storage/`, secrets and cache. Storage queries remain infrastructure even when called `select`. |
 | `yomibu-core/src/ports/capabilities/` | Outbound contracts for replaceable operations, such as selection, importing, embedding and assessment, including operations whose implementations are pure. |
 | `yomibu-app/src/application/` | Inbound APIs, shared normalization through core rules, operation composition, execution limits and failure handling. |
 | `yomibu-ext/src/` | Implementations grouped by provider or component; SDK clients, SQL, file formats, provider options and error translation. |
