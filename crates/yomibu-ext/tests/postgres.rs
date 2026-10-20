@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgQueryResult};
-use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
+use sqlx::PgPool;
+use sqlx::postgres::{PgPoolOptions, PgQueryResult};
 use uuid::Uuid;
 use yomibu_core::domain::{CollectionId, LearnerId, LearnerName};
 use yomibu_core::ports::infrastructure::storage::{
@@ -9,16 +9,8 @@ use yomibu_core::ports::infrastructure::storage::{
 };
 use yomibu_ext::PostgresLearnerStorage;
 
-const SCHEMA: &str = include_str!("../../../docs/plan/schema.postgresql.sql");
-
-async fn connect(options: PgConnectOptions) -> PgPool {
-    PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(5))
-        .connect_with(options)
-        .await
-        .expect("could not connect to the PostgreSQL test database")
-}
+mod support;
+use support::{backend_pid, blocked, connect, lock_table, with_postgres};
 
 async fn lookup(
     storage: &dyn LearnerCollectionQuery,
@@ -30,25 +22,6 @@ async fn lookup(
             Instant::now() + Duration::from_secs(5),
         )
         .await
-}
-
-async fn backend_pid(pool: &PgPool) -> i32 {
-    sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(pool)
-        .await
-        .unwrap()
-}
-
-/// Blocks other sessions' access to `table` until the returned transaction ends.
-async fn lock_table(control_pool: &PgPool, table: &str) -> Transaction<'static, Postgres> {
-    let mut lock = control_pool.begin().await.unwrap();
-    sqlx::query(AssertSqlSafe(format!(
-        "LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"
-    )))
-    .execute(&mut *lock)
-    .await
-    .unwrap();
-    lock
 }
 
 async fn check_query_contract(pool: &PgPool, control_pool: &PgPool) {
@@ -111,7 +84,7 @@ async fn check_query_contract(pool: &PgPool, control_pool: &PgPool) {
     assert_eq!(lookup(&storage, 1).await.unwrap().len(), 2);
 
     // Client deadline is shorter than the session's 3s statement timeout.
-    let lock = lock_table(control_pool, "learner_progress_sources").await;
+    let lock = lock_table(control_pool, "learner_progress_sources", "ACCESS EXCLUSIVE").await;
     assert_deadline(&storage).await;
     // The abandoned statement is still blocked. It must not retain the sole slot.
     tokio::time::timeout(
@@ -131,7 +104,7 @@ async fn check_query_contract(pool: &PgPool, control_pool: &PgPool) {
         .await
         .unwrap();
     drop(connection);
-    let lock = lock_table(control_pool, "learner_progress_sources").await;
+    let lock = lock_table(control_pool, "learner_progress_sources", "ACCESS EXCLUSIVE").await;
     assert_eq!(
         lookup(&storage, 1).await,
         Err(StorageError(
@@ -372,64 +345,6 @@ async fn postgres_write_cancellation_releases_connection() {
     .await;
 }
 
-async fn with_postgres(check: impl AsyncFnOnce(&PgPool, &PgPool)) {
-    tokio::time::timeout(Duration::from_secs(30), run_postgres_contract(check))
-        .await
-        .expect("PostgreSQL setup, contract checks or shutdown exceeded the watchdog timeout");
-}
-
-async fn run_postgres_contract(check: impl AsyncFnOnce(&PgPool, &PgPool)) {
-    let url = std::env::var("YOMIBU_TEST_DATABASE_URL")
-        .expect("set YOMIBU_TEST_DATABASE_URL to a disposable PostgreSQL 18+ database with vector installed");
-    let options: PgConnectOptions = url
-        .parse()
-        .expect("invalid test database connection options");
-    let options = options.options([("statement_timeout", "3s")]);
-    let admin = connect(options.clone()).await;
-    let version: String = sqlx::query_scalar("SHOW server_version_num")
-        .fetch_one(&admin)
-        .await
-        .unwrap();
-    assert!(
-        version.parse::<u32>().unwrap() >= 180000,
-        "retained schema requires PostgreSQL 18+"
-    );
-    let vector: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_extension WHERE extname = 'vector')")
-            .fetch_one(&admin)
-            .await
-            .unwrap();
-    assert!(
-        vector,
-        "install the vector extension in the disposable database before running this test"
-    );
-
-    // PostgreSQL 18 supplies a unique suffix; only hex digits enter the identifier.
-    let suffix: Uuid = sqlx::query_scalar("SELECT uuidv7()")
-        .fetch_one(&admin)
-        .await
-        .unwrap();
-    let schema = format!("yomibu_query_{}", suffix.simple());
-    sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(&admin)
-        .await
-        .unwrap();
-    let options = options.options([("search_path", format!("{schema},public"))]);
-    // Keep setup and inspection separate from the adapter pool so tests can hold
-    // locks or interrupt its session through an independent database connection.
-    let control_pool = connect(options.clone()).await;
-    sqlx::raw_sql(SCHEMA).execute(&control_pool).await.unwrap();
-    let pool = connect(options).await;
-    check(&pool, &control_pool).await;
-    pool.close().await;
-    control_pool.close().await;
-    sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&admin)
-        .await
-        .unwrap();
-    admin.close().await;
-}
-
 async fn create(
     storage: &dyn LearnerWriter,
     name: &str,
@@ -516,7 +431,7 @@ async fn check_write_contract(pool: &PgPool, control_pool: &PgPool) {
     drop(held);
     assert_eq!(learner_count(control_pool, "not dispatched").await, 0);
 
-    let lock = lock_table(control_pool, "learners").await;
+    let lock = lock_table(control_pool, "learners", "ACCESS EXCLUSIVE").await;
     let error = tokio::time::timeout(
         Duration::from_secs(1),
         create(&storage, "timeout", Duration::from_millis(100)),
@@ -543,11 +458,12 @@ async fn check_interrupted_write(pool: &PgPool, control_pool: &PgPool, cancel: b
     // while control_pool holds the table lock.
     let observer_pool = connect(control_pool.connect_options().as_ref().clone()).await;
     let backend = backend_pid(pool).await;
-    let lock = lock_table(control_pool, "learners").await;
+    let lock = lock_table(control_pool, "learners", "ACCESS EXCLUSIVE").await;
     let mut write = Box::pin(create(&storage, "interrupted", budget));
+    let pids = [backend];
     tokio::select! {
         result = &mut write => panic!("locked write completed early: {result:?}"),
-        () = wait_for_blocked_write(&observer_pool, backend) => {}
+        () = blocked(&observer_pool, &pids) => {}
     }
     if cancel {
         drop(write);
@@ -566,15 +482,4 @@ async fn check_interrupted_write(pool: &PgPool, control_pool: &PgPool, cancel: b
     assert_ne!(replacement, backend);
     lock.rollback().await.unwrap();
     observer_pool.close().await;
-}
-
-async fn wait_for_blocked_write(observer_pool: &PgPool, backend: i32) {
-    tokio::time::timeout(Duration::from_secs(1), async {
-        loop {
-            let blocked: bool = sqlx::query_scalar("SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = $1 AND state = 'active' AND wait_event_type = 'Lock')")
-                .bind(backend).fetch_one(observer_pool).await.unwrap();
-            if blocked { break; }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }).await.expect("write must reach PostgreSQL before interruption");
 }
