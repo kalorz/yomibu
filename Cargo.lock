@@ -1646,7 +1646,9 @@ dependencies = [
 name = "yomibu-ext"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "sqlx",
+ "thiserror",
  "tokio",
  "uuid",
  "yomibu-core",

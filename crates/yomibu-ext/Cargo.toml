@@ -10,6 +10,8 @@ yomibu-core = { path = "../yomibu-core" }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "uuid", "tls-rustls"] }
 tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }
