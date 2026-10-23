@@ -36,7 +36,7 @@ Do not silently ignore a required similarity constraint.
 
 ## Selection flow
 
-Following the [selector composition](../../ARCHITECTURE.md#illustrative-selector-composition):
+Following the [boundaries](../../ARCHITECTURE.md#boundaries):
 
 ```text
 application -> selector capability

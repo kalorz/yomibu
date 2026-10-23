@@ -17,9 +17,9 @@ component_kinds = ["external-crate"]
 packages = ["yomibu-core", "yomibu-app"]
 
 [selectors.reviewed_libraries]
-# Include the owners of serde/thiserror reexports resolved by semantic analysis.
-# UUID value representation is allowed; domain Clippy guards ambient UUID APIs.
-external_crates = ["serde", "serde_core", "chrono", "thiserror", "thiserror_impl", "uuid"]
+# Libraries core and app may use. Add one in the PR that first needs it, with a
+# sentence on why; include the crates that own any reexports it resolves to.
+external_crates = ["uuid"]
 
 [[rule]]
 id = "domain-boundary"

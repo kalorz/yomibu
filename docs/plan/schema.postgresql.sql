@@ -1,4 +1,5 @@
--- Planned PostgreSQL 18+ schema, not a runtime migration. Requires pgvector.
+-- Yomibu's data overview and bootstrap schema for PostgreSQL 18+ with pgvector.
+-- Compose and CI apply it to a fresh database; it is recreated, never migrated.
 -- Independent IDs default to UUIDv7; callers may supply IDs created elsewhere.
 -- Content validation and private-collection access policies belong to the application.
 -- VECTOR is dimensionless here because embedding profiles can use different dimensions.
@@ -146,9 +147,6 @@ CREATE TABLE entries (
         ON DELETE RESTRICT
 );
 
-CREATE INDEX entries_subject
-    ON entries(subject_id, kind);
-
 -- Accepted same-kind correspondences only; the application checks that the target
 -- belongs to a reference collection. Shared matches are reused across learners;
 -- learner progress stays on the original subject.
@@ -185,7 +183,6 @@ CREATE TABLE vocabulary_details (
     parts_of_speech TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
 
     is_primary_reading_in_source BOOLEAN,
-    has_direct_object_evidence BOOLEAN,
 
     FOREIGN KEY (entry_id, kind)
         REFERENCES entries(id, kind)
