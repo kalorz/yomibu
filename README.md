@@ -65,6 +65,7 @@ with the commands in [CI](.github/workflows/ci.yml), then run from the repositor
 python3 -B tools/check_architecture.py
 python3 -B tools/check_domain.py
 ast-grep scan --rule tools/provider_placement.yml .
+python3 -B tools/check_pr.py main HEAD   # size report for the current branch
 ```
 
 [ARCHITECTURE.md](ARCHITECTURE.md#verification) lists what each check enforces.
