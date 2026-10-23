@@ -6,7 +6,7 @@ no generic command dispatcher is needed. No implementation is included.
 
 ## Boundaries
 
-Follow the [architecture rules](../../AGENTS.md#dependencies-and-composition).
+Follow the [architecture rules](../../ARCHITECTURE.md#boundaries).
 The application coordinates jobs and invokes the shared story workflow. Core owns
 job rules and storage contracts; extensions implement storage. Each executable
 constructs dependencies. Command data describes work; job state describes execution.

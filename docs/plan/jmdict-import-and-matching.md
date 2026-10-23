@@ -179,7 +179,7 @@ adds the same shared content.
 
 ## Implementation boundaries and open choices
 
-Follow the [architecture guide](../../AGENTS.md#architecture).
+Follow the [architecture guide](../../ARCHITECTURE.md).
 
 Before implementing the relevant slice, settle:
 

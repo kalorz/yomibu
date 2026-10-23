@@ -1,10 +1,8 @@
-# Partial guards, not effect analysis. Review new libraries/APIs for ambient effects.
-# Enable these restrictions in domain only (see domain/mod.rs and Cargo.toml).
+# Ambient-effect guards for core and app, switched on by `forbid` in their lib.rs.
+# Partial by design: review new libraries and APIs for effects these lists miss.
 disallowed-methods = [
-    "std::time::Instant::now",
-    "std::time::Instant::elapsed",
-    "std::time::SystemTime::now",
-    "std::time::SystemTime::elapsed",
+    "std::time::Instant::now", "std::time::Instant::elapsed",
+    "std::time::SystemTime::now", "std::time::SystemTime::elapsed",
     "std::env::var", "std::env::var_os", "std::env::vars", "std::env::vars_os",
     "std::env::set_var", "std::env::remove_var", "std::env::args", "std::env::args_os",
     "std::env::current_dir", "std::env::set_current_dir", "std::env::current_exe",
@@ -25,7 +23,7 @@ disallowed-methods = [
     "std::io::stdin", "std::io::stdout", "std::io::stderr", "std::io::pipe",
     "std::process::exit", "std::process::abort",
     "std::net::ToSocketAddrs::to_socket_addrs",
-    # These APIs only exist when dependencies enable UUID generation features.
+    # These exist only when a dependency enables UUID generation features.
     { path = "uuid::Uuid::now_v1", allow-invalid = true },
     { path = "uuid::Uuid::new_v4", allow-invalid = true },
     { path = "uuid::Uuid::now_v6", allow-invalid = true },

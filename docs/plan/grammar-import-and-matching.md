@@ -133,7 +133,7 @@ a supported checking rule. A formation string is descriptive notation, not a par
 or proof that generated text uses the construction correctly. Learner declarations,
 dictionary matching and automated assessment remain separate evidence.
 
-Follow the [architecture guide](../../AGENTS.md#architecture). Generation consumes
+Follow the [architecture guide](../../ARCHITECTURE.md). Generation consumes
 prepared knowledge without implicitly importing or rematching grammar.
 
 ## First implementation slice and open choices

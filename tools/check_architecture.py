@@ -8,18 +8,19 @@ import subprocess
 import sys
 
 
-REQUIRED_CRATES = {"yomibu-core", "yomibu-app", "yomibu-ext", "yomibu-cli"}
+REQUIRED_CRATES = {"yomibu-core", "yomibu-app", "yomibu-adapters", "yomibu-compose", "yomibu-cli"}
 DEPENDENCIES = {
     "yomibu-core": set(),
     "yomibu-app": {"yomibu-core"},
-    "yomibu-ext": {"yomibu-core"},
-    "yomibu-cli": {"yomibu-core", "yomibu-app", "yomibu-ext"},
-    "yomibu-web": {"yomibu-core", "yomibu-app", "yomibu-ext"},
-    "yomibu-mcp": {"yomibu-core", "yomibu-app", "yomibu-ext"},
+    "yomibu-adapters": {"yomibu-core"},
+    "yomibu-compose": {"yomibu-core", "yomibu-app", "yomibu-adapters"},
+    "yomibu-cli": {"yomibu-core", "yomibu-app", "yomibu-compose"},
+    "yomibu-web": {"yomibu-core", "yomibu-app", "yomibu-compose"},
+    "yomibu-mcp": {"yomibu-core", "yomibu-app", "yomibu-compose"},
 }
 # Application integration tests may use real extension implementations.
 # This is not permission for a production or build dependency on extensions.
-REVIEWED_DEV_DEPENDENCIES = {("yomibu-app", "yomibu-ext")}
+REVIEWED_DEV_DEPENDENCIES = {("yomibu-app", "yomibu-adapters")}
 
 
 def violations(metadata):

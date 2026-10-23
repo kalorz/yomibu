@@ -1,602 +1,150 @@
 # Architecture
 
-This document defines Yomibu's enduring architectural rules. Existing code is not
-proof of compliance. Examples illustrate the rules; they are not exhaustive designs
-or commitments to exact APIs. [Verification](#verification) distinguishes implemented
-checks from rules still requiring enforcement or review.
+These are Yomibu's standing rules. Existing code is not proof of compliance, and
+examples add no requirements. [AGENTS.md](AGENTS.md) says how work is done,
+[GLOSSARY.md](GLOSSARY.md) what terms mean, and [README.md](README.md) how to run things.
 
-[Design references](#design-references) distinguish the retained SQL requirement from
-proposals. Product behavior comes from approved requirements and interface contracts.
-Architectural decisions can [evolve explicitly](#changing-architecture).
+## Design
 
-Use [AGENTS.md](AGENTS.md) for agent workflow and delivery requirements,
-[GLOSSARY.md](GLOSSARY.md) for agreed domain meanings, and
-[README.md](README.md#developing) for tool usage and configuration.
+Two practices govern the design:
 
-| When you need to… | Guidance |
+| Practice | Meaning here |
 | --- | --- |
-| Place a responsibility or crate dependency | [Boundaries](#boundaries) and [provider independence](#provider-independence) |
-| Define an interface | [Architectural rules](#architectural-rules), [port roles and labels](#port-roles-and-labels), and [port contracts](#port-contracts) |
-| Compose an operation and handle its limits or failures | [Composition and request execution](#composition-and-request-execution) |
-| Change a schema or define storage guarantees | [Schema changes](#schema-changes), [storage contracts](#storage-contracts), [atomicity and write outcomes](#atomicity-and-write-outcomes), and [ingestion boundaries](#ingestion-boundaries) |
-| Choose names, visibility or libraries | [Domain language](#domain-language), [naming](#naming), [visibility](#visibility), and [dependency reuse](#dependency-reuse) |
-| Verify a change | [Verification requirements and coverage](#verification), [behavioral verification](#behavioral-verification), [local architecture checks](README.md#architecture-checks), and [tests and database prerequisites](README.md#tests) |
-| Revisit a decision or interpret a plan | [Changing architecture](#changing-architecture) and [design references](#design-references) |
+| Hexagonal architecture | Every external interaction goes through a port trait owned by core, implemented in the adapters crate and called from app. Dependencies point inward. |
+| Functional core, imperative shell | Domain decisions are pure functions of explicit inputs. Effects, time, randomness and configuration live in app, adapters, compose and the driving crate. |
 
-## Design practices
-
-Hexagonal architecture and functional core/imperative shell govern the design.
-Supporting practices apply as described here; examples do not add mandatory features.
-
-| Practice | What we adopt | Yomibu example |
-| --- | --- | --- |
-| Hexagonal architecture | Explicit ports and adapters with dependencies toward inner contracts. | Application calls a generator port; the provider SDK stays in its adapter. |
-| Functional core, imperative shell | Deterministic domain decisions from explicit inputs; effects outside domain. | Core calculates eligibility from supplied learner progress. |
-| Strategic DDD | Shared language within model boundaries and explicit translation between models. See [selected concepts](#selected-ddd-concepts). | Collection, subject and entry keep their meanings across operations using the same model. |
-| Tactical DDD | Model identity, values and consistency rules where needed. See [selected concepts](#selected-ddd-concepts). | Distinct subject and entry IDs prevent accidental substitution. |
-| SOLID | Cohesive responsibilities, consumer-sized interfaces, behavioral substitutability and dependency inversion. | A selector receives only the query and embedding interfaces it needs. |
-| Clean Architecture | Domain rules and use cases stay independent of delivery and external technologies; no extra layers are implied. | CLI, web and MCP invoke the same application operations. |
-| Clean Code | Clear names and control flow; extra wrappers need a concrete purpose. | A readable assessment operation need not become a generic pipeline. |
-| OOP | Encapsulation and polymorphism through Rust types and traits where useful. | A validated value can encapsulate constraints; eligibility can remain a pure function. |
-| Design by Contract | Explicit preconditions, guarantees and failures, verified at relevant boundaries. | Every storage adapter honors its query's scope, ordering and atomicity guarantees. |
-| Model valid states with types | Types distinguish meaningful states; external facts still need runtime checks. | An unresolved selection request differs from a resolved storage query. |
-| CQRS (Command Query Responsibility Segregation) | Separate read/change contracts where consumers or guarantees differ. See [storage](#storage-and-cqrs). | Narrow query and import interfaces can share one PostgreSQL adapter. |
-
-### Selected DDD concepts
-
-These guide modeling decisions, not a checklist of constructs to create everywhere.
-
-A domain model represents concepts, relationships and rules for part of the problem;
-it can span many types and functions. Yomibu's domain model includes collections,
-subjects, entries and progress rules. A Rails ActiveRecord class or a PostgreSQL table
-is not the whole domain model. Request types and database schemas are representations;
-mapping a row to a struct does not itself establish a DDD bounded context. Separate
-representations where meanings or responsibilities differ; share values where they match.
-
-| Area / concept | Rule and illustrative application |
-| --- | --- |
-| Strategic: Ubiquitous Language | Use the agreed glossary within each model context; follow the [domain language rules](#domain-language) and [vocabulary agreement workflow](AGENTS.md#terminology). |
-| Strategic: Bounded Contexts | Identify where a model and its language apply. Crates, phases and tables do not automatically define contexts. Document a meaning that legitimately differs by context. |
-| Strategic: relationships between domain models | Define relationships and translations between models in different bounded contexts, including external domain models. Translate WaniKani assignments into learner progress while preserving their meaning; Yomibu applies its own eligibility rules. Provider structures must not dictate the domain model. |
-| Tactical: Entities and Value Objects | Use identity for entities and meaningful equality/validation for values. Subjects have identity; subject IDs and entry IDs are different value types. |
-| Tactical: Aggregates | Choose consistency boundaries from business invariants. Atomic entry/detail publication informs the decision; a foreign-key graph alone does not define an aggregate. |
-| Tactical: Domain Services | Use pure domain functions for rules with no natural entity owner, such as eligibility calculations across supplied learner progress. |
-| Tactical: Repositories | Use aggregate persistence contracts where needed. Read/query ports may return projections without reconstructing aggregates. |
+Two practices support them. Model valid states with types: parse input once at the
+boundary into a type that cannot hold the invalid case, usually a Rust newtype ("parse,
+don't validate"). Design by contract, in its light form: a port's guarantees live in
+its types and in contract tests that every adapter passes; a doc comment adds a line
+or two only for what those cannot say. SOLID, Clean Architecture, Clean Code and
+tactical DDD follow from these four; do not add traits, layers or wrappers to
+demonstrate them. Bounded contexts and CQRS have [triggers](#triggers).
 
 ### Domain language
 
-Use [GLOSSARY.md](GLOSSARY.md) consistently in code, tests, documentation and
-explanations to the user within the same model context. Document legitimate differences
-between model contexts and resolve conflicts explicitly. Older wording in preserved
-plans is not permission to introduce alternative names. Follow the
-[vocabulary agreement workflow](AGENTS.md#terminology) before adopting new terms or
-changing meanings.
-
-Qualify external domain terms with their provider or system when ambiguity is possible.
-A namespace counts as qualification. Translate external concepts into Yomibu's agreed
-terminology at the integration boundary. For example, use **WaniKani assignment** in
-prose, `wanikani::Assignment` or `WaniKaniAssignment` in integration code, and
-**learner progress** after translation. Avoid redundant prefixes inside clear provider
-namespaces. Preserve original API field names and captured payloads.
+Use [glossary](GLOSSARY.md) terms within Yomibu's model. Qualify external terms with
+their provider, as in **WaniKani assignment** or `wanikani::Assignment`, and translate
+them into Yomibu terms at the adapter, which is the anti-corruption layer: provider
+structures never shape the domain model. Preserve original field names in captured payloads.
+Agree new or changed terms with the user first, following [AGENTS.md](AGENTS.md#terminology).
 
 ## Boundaries
 
-Permitted production dependencies between workspace crates:
-
 ```text
-yomibu-app -> yomibu-core
-yomibu-ext -> yomibu-core
-yomibu-cli -> yomibu-app + yomibu-ext (+ yomibu-core)
+yomibu-app      -> yomibu-core
+yomibu-adapters -> yomibu-core
+yomibu-compose  -> yomibu-core + yomibu-app + yomibu-adapters
+yomibu-cli      -> yomibu-compose + yomibu-app + yomibu-core
 ```
 
-The four workspace crates shown above must remain present. Future `yomibu-web` and
-`yomibu-mcp` are optional driving peers with the CLI's position. New workspace crates require
-explicit role classification. Retain these boundaries; create directories for actual
-responsibilities. A workflow phase does not automatically require a domain module.
-Purity alone does not place a helper in domain; it must express
-domain meaning. Pure library dependencies are allowed. Review integration-test
-dependencies separately; they must not leak into production dependencies or public APIs.
-Reviewed app-to-ext integration-test dependencies are permitted only as dev-dependencies.
-
-Paths below are relative to `crates/`:
-
-| Location | Ownership |
+| Location | Owns |
 | --- | --- |
-| `yomibu-core/src/domain/` | Domain values and pure decisions, such as eligibility and assessment aggregation. |
-| `yomibu-core/src/ports/infrastructure/` | Outbound service contracts: storage queries/writes, secrets and cache. Storage queries remain infrastructure even when called `select`. |
-| `yomibu-core/src/ports/capabilities/` | Outbound contracts for replaceable operations, such as selection, importing, embedding and assessment, including operations whose implementations are pure. |
-| `yomibu-app/src/application/` | Inbound APIs, shared normalization through core rules, operation composition, execution limits and failure handling. |
-| `yomibu-ext/src/` | Implementations grouped by provider or component; SDK clients, SQL, file formats, provider options and error translation. |
-| Driving crates | Translate supported inputs into application requests, invoke operations and present results. Composition roots configure and connect implementations. |
+| `crates/yomibu-core/src/domain/` | Domain values and pure decisions, one module per concept. |
+| `crates/yomibu-core/src/ports/infrastructure/` | Outbound traits for storing, retrieving and transmitting: storage, cache, files. |
+| `crates/yomibu-core/src/ports/capabilities/` | Outbound traits for replaceable behaviour that computes, decides or generates (the strategy pattern): selection, generation, assessment. |
+| `crates/yomibu-app/src/` | Operations: validate input through core rules, run steps that call ports and components, apply core decisions, combine outcomes. |
+| `crates/yomibu-adapters/src/<provider>/` | Port implementations grouped by provider or backend: SQL, SDK clients, file formats, error translation. |
+| `crates/yomibu-compose/src/` | The composition root shared by driving crates. Builds infrastructure once from startup configuration, and components per composition from the default TOML or a request's own. Holds the component registries. |
+| `crates/yomibu-cli/src/` | Argument parsing and output. Help and error messages guide the user to the next step: the CLI is its own documentation, and README names only how to start. A future web or MCP crate takes the same position. |
 
-### Provider independence
+Placement rules:
 
-Core and application contracts, including port inputs, constructors and validation,
-express Yomibu concepts and operation guarantees. Provider-specific ID formats,
-type mappings and restrictions belong in integrations; backend representations belong
-in storage adapters. Source identities and captured payloads may cross as opaque data.
-For example, WaniKani's numeric IDs and lack of grammar subjects must not narrow a
-shared subject-storage contract. A deliberately vocabulary-only operation may still
-exclude grammar because of its agreed purpose.
+- Infrastructure or capability is a property of the port: storing, retrieving or
+  transmitting is infrastructure; computing, deciding or generating is a capability.
+  One adapter type may implement ports of both roles.
+- A domain decision with one pure implementation is a function in core, not a port. Make
+  a capability port when the behaviour needs an external service, or when the
+  composition must be able to choose between implementations. A pure component
+  implementing a capability lives in adapters like any other.
+- Components receive their dependencies, ports and shared provider clients, from the
+  composition root and never construct them.
+- A component is a named implementation of one capability with a typed options struct.
+  It exposes a name and a one-line description for listing, nothing more. A type that
+  implements two capability traits is a component in each of them, listed separately in
+  the composition. Grouping by provider is directory layout in adapters, not a unit in
+  the composition.
+- A composition is, per capability, the ordered list of components an operation uses;
+  leaving a component out of the list is the only way to disable it. Options come from
+  configuration, never from derived CLI flags or environment variables. Provider
+  credentials and endpoints are startup configuration; a request chooses among
+  configured providers.
+- Operations run their steps in a fixed order. The composition decides which components
+  fill each capability and in what order within it; it does not reorder steps. Steps are
+  code, never configuration interpreted by a generic engine.
+- Core and app contracts expose Yomibu types only: no SDK, database or framework types,
+  and no provider-specific identifiers or restrictions, even under neutral names.
+- Port modules contain only traits and the value and error types they exchange, never
+  functions. Each layer enforces its own contract; when app and an adapter check the
+  same condition, they are keeping different promises, not duplicating knowledge.
+- Keep visibility as narrow as the current consumer needs.
 
-Apply the [ownership review](AGENTS.md#ownership-review) when changing inner contracts
-or validation.
-
-### Port roles and labels
-
-Direction is relative to the application/domain boundary: inbound/driving ports
-are called by driving adapters; outbound/driven ports are called by application or
-capability implementations. Returning results does not reverse those roles.
-Infrastructure/capability is a second classification, only for outbound ports.
-It describes responsibility, not lifetime: a shared embedder remains a capability;
-a storage transaction may be per-request.
-
-Label contract declarations in Rustdoc, alongside their behavior guarantees:
-
-```text
-Inbound application method or trait: Port: inbound / driving.
-Outbound capability trait:          Port: outbound / driven. Role: capability.
-Outbound infrastructure trait:      Port: outbound / driven. Role: infrastructure.
-```
-
-Use these labels with module placement. Label contracts rather than whole implementation
-types: one type may implement several ports. Inbound APIs may be public application
-methods; a trait is justified when substitution or another concrete need requires it.
-Do not add empty marker traits just for classification. Add macro/attribute metadata
-only if checks need information existing declarations cannot reliably provide;
-labels alone do not enforce architecture.
-
-Outbound ports use infrastructure and capabilities; there is no `ports/resources`
-category. Shared SDK clients are adapter details. Shared embedding behavior is a
-capability; stored dictionary access fits infrastructure. Even future model/GPU
-resource management would normally be infrastructure. Sharing alone does not justify
-a new category; propose a distinct responsibility through an architecture decision.
-
-## Architectural rules
+## Rules
 
 | Area | Obligation |
 | --- | --- |
-| Dependencies | Follow the graph. Core/app public contracts expose no SDK clients/responses, database connections/rows or transport-framework types. |
-| Functional core | Domain decisions are deterministic for the same explicit inputs. Domain must not depend on ports/adapters, perform I/O or obtain ambient time, randomness or environment values. Supply observations and seeds explicitly. |
-| Ports | Required infrastructure services and replaceable capabilities have interfaces from their first implementation, even with one adapter or a pure implementation. Interfaces describe behavioral boundaries; settings are ordinarily typed data. Port modules define contracts and their value and error types. Application and adapter execution policy stays in its owning layer; value types may enforce their own invariants. |
-| Application | Execute operations through supplied ports and apply core decisions. External data/service access stays behind ports; runtime scheduling may live in the shell. |
-| Adapters | Translate external representations and honor contracts. Optimizations preserve semantics; expected failures are results, not panics. |
-| Simplicity | Every extra abstraction serves a required boundary, behavior or invariant. A single implementation does not weaken that justification. |
+| Dependencies | Follow the graph. App may use adapters only as a dev-dependency for integration tests. |
+| Functional core | Domain is deterministic for the same inputs: no I/O, clock, randomness, environment or ports. Pass observations in. |
+| Ports | Every required I/O and every replaceable capability has a port from its first implementation. Interfaces describe behaviour; settings are typed data. |
+| Application | Operations are app's only public surface; CLI, web and MCP call the same ones. An operation receives its ports and components at construction and inputs per call. Each step is an operation in its own right with its own inputs, exposed to driving crates when a ticket needs it alone; the composing operation calls that same operation, never a copy. Expected failures are results, never panics. Partial results must never look like success. |
+| Adapters | Translate external representations and failures into the port's contract. No silent fallback to another provider. Never expose credentials or raw provider messages. |
+| Storage | Choose contracts by consumer need, not by backend structure. Every storage backend, PostgreSQL, in-memory or file, implements the same ports and passes the same contract tests. Integrity one backend enforces, such as foreign keys, does not extend across backends; mixing them for related data is a decision, not a default. PostgreSQL schema changes update the bootstrap file and recreate the database; no migrations until the user changes this policy. |
+| Simplicity | The clearest design that meets the required boundaries and behaviour: explicit names, obvious control flow, the fewest concepts. Add nothing for a need that does not exist yet; every abstraction serves a boundary, behaviour or invariant that exists now. Keep one definition of each piece of knowledge; similar-looking code is not the same knowledge, and shared code is extracted on the third occurrence, not the second. |
 
-A domain object invoking a generator or even a pure selector port violates the
-boundary: invoke capabilities outside domain, then pass returned data to pure
-functions. Indirect calls and effectful callbacks cannot bypass this rule; local
-mutation is allowed. Opaque captured provider payloads can be data, but domain
-decisions must not interpret SDK representations. Core owns policy; application
-coordinates enforcement, including where schema comments say "application".
+## Triggers
 
-A private topic-extraction helper needs no trait. Different model settings do not
-require different generation ports; retrieving secrets is service behavior requiring
-a port. Concrete provider settings belong with their extension's configuration.
+These are not day-one requirements. Each becomes required when its trigger occurs.
+Propose it then, naming the trigger, and wait for the user's decision.
 
-### Simplicity
-
-| Principle | Interpretation |
+| Deferred guarantee | Trigger |
 | --- | --- |
-| KISS | Choose the clearest design satisfying required boundaries and behavior. |
-| DRY | Do not repeat knowledge: maintain one authoritative definition of each rule or decision. Similar code need not represent the same knowledge, including the same check performed by different layers for different obligations. |
-| YAGNI | Defer unrequested behavior and machinery, never agreed architectural obligations. |
+| Deadlines, cancellation and I/O bounds on ports | The first operation inside a long-lived process such as web or MCP, or one that calls a network service repeatedly. |
+| Distinguishing confirmed, rejected and uncertain write completion | The first write whose accidental duplicate harms the user. |
+| Retry policy | The first provider whose failures are transient by contract. A write with uncertain completion is never retried automatically. |
+| Operation-wide failure policy, continue or fail fast | The first operation with an optional capability. |
+| Separate read and write contracts (CQRS) | The first case where readers and writers need different guarantees or shapes. |
+| A second bounded context | A glossary term that needs two definitions. It becomes a second module tree with translation at the seam, not a new crate. |
+| Splitting adapters into crates | A second binary needing a different adapter subset, or a dependency too heavy for every build. Try Cargo features first. |
+| Secret storage such as the macOS keychain | The first credential you do not want in the configuration file. Compose reads it; operations never see credentials. |
+| A second CI platform | The first platform-specific code. |
+| A component that nests other components | A real case the ordered list per capability cannot express. |
 
-Required ports, dependency boundaries, domain purity and contract verification are
-current requirements. Never defer them for one adapter or fewer lines/types. Build
-requested behavior within those boundaries; a hypothetical provider or generic plugin
-loader is not automatically needed. Propose a rule change instead of bypassing a
-boundary in the name of simplicity.
+## Naming and dependencies
 
-Retained experimental code follows the same rules from its first feature slice.
-An architectural exception requires explicit agreement on its scope and exit condition;
-"experimental" or "temporary" alone is not an exemption.
-
-Implementation economy evaluates cooperating types and layers together. Required
-boundaries, meaningful invariants, and prevention of concrete misuse justify abstractions
-from their first use. Prefer existing representations when they already serve the
-responsibility clearly. Compare alternatives when complexity is non-obvious; choose based
-on clarity, correctness, and maintenance cost—not type or line count alone. Preserve agreed
-behavioral and architectural guarantees. Routine implementation choices require no
-additional approval.
-
-A rule may have equivalent pure and SQL representations. Verify their shared meaning
-through contract tests rather than forcing inefficient data loading to reuse code.
-
-#### Visibility
-
-Keep visibility as narrow as required. Public APIs must serve a current consumer
-or an approved contract. Do not expose modules or items merely to silence
-visibility or unused-code warnings.
-
-#### Naming
-
-Names should distinguish entities from identifiers (`learner_id`), single values from
-lists (`collection_ids`), and resources by role (`observer_pool`). Short names are fine
-when context makes their meaning unambiguous; avoid redundant qualifiers.
-
-Name operations for their current inputs and results. For example, `list-collection-ids`
-makes a UUID-only result explicit. Do not choose broader names for hypothetical future
-behavior. Keep CLI names, parser keys, help and examples consistent, using the idiomatic
-spelling in each context, such as `--learner-id` and `learner_id`.
-
-#### Dependency reuse
-
-Evaluate established libraries for standard representations as well as general-purpose
-functionality. Prefer the standard library and adopted dependencies when they fit the
-required meaning; propose another library when it offers a clearer representation or
-lower total maintenance burden. Evaluate new libraries/tools against required behavior,
-maintenance, testing, licensing, relevant security advisories and integration/dependency
-cost. Dependency count or popularity alone does not establish suitability or security.
-Briefly explain consequential choices in the change description, including any gap
-requiring custom code. Ordinary tasks reuse those decisions; do not repeat tool
-research each session.
-
-Keep custom code for Yomibu-specific rules, small straightforward helpers and concrete
-unmet requirements. For example, reuse serialization, HTTP and SQL libraries while
-owning learning policies. Infrastructure and replaceable capabilities still require
-ports; a pure utility library does not automatically need a forwarding interface.
-For architecture enforcement, let adopted tools own parsing and dependency analysis;
-keep custom checks limited to documented gaps and test Yomibu's rules, not the tool's
-general implementation.
-
-## Composition and request execution
-
-Composition roots select available implementations and resolve configuration/secrets.
-For example, they can construct OpenAI and Anthropic clients together; application
-selects supplied capability identities per request, including both for parallel work.
-Identity lookup is allowed; constructing SDK clients or branching on provider response
-fields in app is not. Construction can be startup, scoped or deferred through supplied
-interfaces without introducing provider dependencies into app.
-
-Capabilities may compose injected outbound ports without constructing their providers.
-One extension/type can implement several ports and share clients or pools. Keep request
-state separate. Provider-independent execution enforcement belongs in app; provider
-protocol handling belongs in ext.
-
-Application owns operation-wide budgets, deadlines, cancellation and failure handling.
-A slice with only contracts, application forwarding and test-supplied implementations
-need not introduce deadline/cancellation parameters or execution-policy machinery.
-Before adding an I/O adapter, define and enforce the applicable bounded-I/O and
-request-limit contract. Required ports and domain purity apply from the start.
-
-Nested operations, capability calls and retries share the parent's execution limits;
-enforce them before dispatch. Do not hide calls behind private SDK clients or reset
-limits when invoking a sub-operation. Propagate deadlines/cancellation and bound I/O.
-Do not automatically retry uncertain external completion. Keep credentials out of
-application requests, reports and captured execution artifacts.
-
-### Failure handling
-
-By default, continue independent work when useful results can still satisfy the
-operation's contract, including explicitly permitted partial results. Each application
-operation defines required outcomes, which capability roles may be skipped and how
-execution continues after an error. Optionality belongs to a role in that operation,
-not to an adapter such as Sudachi globally. Never weaken required constraints or treat
-an omitted required check as a pass.
-
-Application owns this policy across CLI, web and MCP. Driving adapters convey the
-requested policy and present outcomes; they do not decide which guarantees to drop.
-Validate configuration and dependencies relevant to the requested operation. Missing
-unused integrations must not block it. An unavailable dependency makes its requested
-capability unavailable with an explicit reason; fail early when an essential missing
-capability makes the operation impossible.
-
-Illustrative outcomes under the default policy:
-
-| Situation | Outcome |
-| --- | --- |
-| Optional Sudachi analysis is unavailable or fails. | Skip that analysis, continue useful work and report the omission. |
-| Sudachi is required for an eligibility assessment. | Do not report that assessment as passed; retain other outputs only as the operation permits. |
-| Sentence analysis requires Sudachi and does not use an AI model. | Missing AI configuration is irrelevant; missing Sudachi fails this operation. |
-| One of several generation runs fails. | Keep successful results if completion requirements permit, and report the failed run. |
-| Generation has no usable generator. | Fail before starting work that cannot produce the requested result. |
-
-Structured outcomes report completed, unavailable, skipped and failed work, reasons,
-and whether required guarantees were established. Warnings accompany that information;
-partial results must remain distinguishable from complete success.
-
-An optional fail-fast policy (illustrative CLI option: `--fail-fast`) stops on the first
-unavailable requested capability or execution error, including an otherwise optional
-capability. A valid negative assessment is a business result, not an execution error.
-For parallel work, stop scheduling and cancel running operations where possible;
-already completed external calls cannot be undone. Both policies retain the shared
-execution limits and uncertain-completion rules above.
-
-### Application operations and input
-
-Expose an inbound operation when callers need to request it independently. Each has
-explicit inputs, preconditions and results; phases and helpers do not automatically
-become services. Here, a service is an in-process application responsibility, not an
-additional deployed process.
-
-Application services receive their required ports at construction. Execution receives
-per-call inputs and applicable execution limits.
-
-Illustrative entry points include assessing an existing story, deconstructing a
-sentence, synchronizing data and generating a story. A standalone assessment entry
-point and generation workflow reuse the same assessment operation. They obtain needed
-context explicitly instead of assuming hidden earlier phases.
-
-For an explicitly requested `story --sync` option, the CLI conveys that intent to the
-application, which composes the same synchronization operation exposed by `sync`
-before generation. It does not invoke another CLI command or duplicate synchronization
-logic. This is an explicit prerequisite, not an implicit import inside selection.
-Standalone and composed calls preserve the operation's guarantees; nested calls use
-the parent's execution limits. No generic workflow engine is required.
-
-Driving adapters translate supported input forms into application inputs. Application
-APIs are independent of those forms. CLI flags, JSON or other formats are delivery
-choices; parsing and input precedence belong there. Shared semantic defaults belong
-in application/core so equivalent requests behave consistently.
-
-When input needs pure normalization and validation before execution, expose application
-preparation independently of service construction. Use `prepare_*` when producing
-normalized, validated input; use `validate_*` for checks without transformation. Core
-owns domain rules; application preparation applies them and reports application errors.
-
-Perform preparation before the effects that require valid input. Execution should
-accept existing validated values where they enforce its preconditions. Checks requiring
-external state remain part of execution through ports.
-
-Preparation is conditional: do not add empty preparation functions, per-property
-functions or parameter wrappers solely for uniformity.
-
-### Illustrative selector composition
-
-This example demonstrates ownership, not a complete workflow or fixed API:
-
-```text
-driving adapter -> application -> selector
-selector -> injected embedder -> query vector
-selector -> injected repository(resolved query data) -> selected material
-selector -> application -> next requested operation
-```
-
-The application coordinates the overall operation. The selector resolves evidence
-through supplied ports. The repository receives query data, never an embedder or
-effectful callback; it may use SQL joins, filters, ranking and limits efficiently.
-Pure domain decisions remain in core. Detailed selection and assessment behavior
-belongs in approved requirements and interface contracts, not this illustration.
-
-### Ingestion boundaries
-
-Source adapters own external protocols and translation. The application owns
-consumption, grouping, backpressure and operation-wide limits. Storage receives finite
-prepared values, never a source reader or effectful callback. Do not hold a save
-transaction while waiting for source I/O. Provider pages do not determine atomicity.
-
-For incremental processing, bound records and bytes across decoded responses,
-in-flight work, prepared groups and driver buffers; bounding a queue alone does not
-bound memory. Reuse values and interfaces where their semantics match, including
-coverage: partial input cannot claim the guarantees of a complete traversal.
-
-## Storage and CQRS
-
-### Schema changes
-
-Until the user explicitly changes this policy, update the retained bootstrap schema
-and recreate the database when its schema changes. Preserving existing data across
-schema versions is not required. Do not add migration frameworks, upgrade scripts,
-schema compatibility layers or migration tests. Verify the current schema and its
-behavior against freshly initialized PostgreSQL databases.
-
-This policy applies across tickets and supersedes earlier ticket or plan requirements
-for data-preserving schema upgrades. Normal data integrity and persistence guarantees
-still apply within the current schema. Database recreation is an explicit setup
-operation, not automatic application startup behavior.
-
-### Storage contracts
-
-Choose contracts by consumer needs, query semantics and required atomic invariants,
-not one per table or foreign-key-connected group. Narrow query and write interfaces
-may share one PostgreSQL adapter, pool, canonical schema and existing foreign keys.
-Queries can return projections and perform joins without reconstructing aggregates.
-
-Reads do not change business state. Commands may read and return results; preserve
-required read/write transactions, including atomic entry/detail publication under
-the retained schema. CQRS requires no separate databases, event sourcing, messaging
-or asynchronous synchronization. Repository reads are I/O and remain outside domain.
-
-Separate interfaces do not promise arbitrary backend combinations. PostgreSQL cannot
-satisfy a required subject FK when the subject exists only in CSV. Importing real
-subject records into PostgreSQL can satisfy it; fake parents, weakened required FKs
-and adapter-specific schema variants cannot. With file-based progress and SQL subjects,
-PostgreSQL cannot enforce references in those files. Application checks must address
-missing/deleted subjects and concurrency; a lookup alone is not equivalent to an FK.
-
-Keep records together where database-enforced integrity is required. Support mixed
-storage only where the agreed contracts can be met; do not silently weaken guarantees.
-Repository groupings remain design decisions.
-
-### Atomicity and write outcomes
-
-Specify the atomic unit, whether partial saves are permitted, and what establishes
-whole-operation completion. Internal statement chunking must preserve the declared
-atomic unit. A unit's commit alone does not establish completion of a larger operation;
-the application owns continuation policy and combines outcomes across units.
-
-Distinguish confirmed no save, confirmed save and uncertain completion at the atomic
-unit. Cancellation, timeout or connection loss after commit may have been sent does
-not prove rollback. Preserve confirmed saves through later deadline, cleanup or
-presentation failures. Earlier commits or an uncertain write rule out an overall
-"nothing saved" result. Retry policy belongs to the operation contract; never hide
-retries of writes with uncertain completion.
-
-Storage execution limits cover acquisition, locks, statements and commit. Bound
-cleanup so abandoned operations cannot indefinitely retain a scarce connection.
-
-## Port contracts
-
-Document required scope, inputs, outputs, ordering, limits, supported operations,
-failures, atomicity and relevant concurrency/deadline/budget behavior beside interfaces.
-Specify which layer validates each output invariant and how violations are reported;
-enforce it there. Crossing a port does not automatically require callers to repeat
-validation. Additional application checks must serve an explicitly agreed responsibility.
-Implementing a trait does not prove its results valid. Distinguish malformed responses
-from valid results reporting failed assessment. Unavailable evidence or uncertain
-completion must not become empty success.
-Adapters translate external failures into contract failures; no silent provider fallback.
-
-Replacing a provider under an existing contract must not require provider-specific
-application logic. New behavior can justify changing a contract through an explicit
-decision, following the architecture change rules below.
+Name things for what they are now: `learner_id` is an identifier, `collection_ids` a
+list, `list_collection_ids` an operation that returns only IDs. Use the idiomatic
+spelling in each context. CLI commands are `yomibu <noun> <verb>` with singular nouns,
+as in `yomibu collection list`; the verb is required, except that `yomibu story` alone
+runs the main operation. Reuse established libraries for standard representations and
+protocols; write Yomibu's own rules by hand. Each new dependency gets a sentence in the PR.
 
 ## Verification
 
-Use the [README architecture checks](README.md#architecture-checks) for local commands
-and prerequisites, and [CI](.github/workflows/ci.yml) for the full completion checks.
-The coverage below distinguishes automated checks from obligations requiring tests
-or review. There are no baselined violations.
+Automated checks, run by [CI](.github/workflows/ci.yml) and locally per the
+[README](README.md#architecture-checks):
 
-Test architectural restrictions with representative allowed and forbidden examples.
-Enable the dependencies or features needed for the forbidden behavior to compile,
-and verify rejection by the intended rule, not an unrelated compiler error. Reuse
-existing verification tooling.
-
-### Coverage and remaining review
-
-| Obligation | Coverage and next action |
+| Check | Enforces |
 | --- | --- |
-| Workspace and domain dependency direction | [Dependency checks](#dependency-checks), subject to their configuration limits. |
-| Core/app independence from SDKs, database libraries and delivery frameworks | [Bylaw](#dependency-checks) rejects unapproved libraries in declared and actual dependencies. Pure libraries may be reviewed and added; allowing a library does not establish purity of every API. |
-| Domain avoids ambient effects | [Scoped Clippy restrictions](#effect-and-visibility-checks) reject configured API uses, including aliases and function pointers. Review unlisted APIs, callbacks, indirect effects and nondeterminism. |
-| Public contracts expose domain/application representations | [Bylaw](#dependency-checks) checks library dependencies; the [provider-placement rule](#provider-placement) catches configured names. Behavioral tests and [ownership review](AGENTS.md#ownership-review) check meaning and restrictions that both tools miss. |
-| Application uses supplied ports and applies operation-wide policy | [Scoped Clippy checks](#effect-and-visibility-checks) reject selected direct I/O APIs. Application tests cover supplied storage calls and required failure propagation. Verify the actual call path, required/optional failures and shared limits at the owning operation. Application timing remains permitted. |
-| Adapters satisfy behavioral contracts | PostgreSQL collection queries and learner writes have [real-backend contract tests](crates/yomibu-ext/tests/postgres.rs), including write disconnection and cancellation checks, run by CI; see [README tests](README.md#tests) for local invocation and prerequisites. Dependency analysis cannot establish ordering, atomicity or failure semantics. |
-| Required ports, role labels, glossary meanings and justified abstractions | Review required. A trait or documentation label alone cannot establish the correct boundary or meaning. Do not add marker machinery or generic lint rules for subjective judgments. |
+| `tools/check_architecture.py` | The crate graph, including renamed, optional and platform dependencies. |
+| Bylaw through `tools/check_domain.py` | Domain depends only on domain and reviewed libraries; core and app use only inner crates and the reviewed library list in `bylaw.toml`. |
+| Clippy disallow list in `clippy.toml`, switched on by `forbid` in core and app | Core and app have no ambient time, randomness, environment, filesystem, network or process access. |
+| `tools/provider_placement.yml` with ast-grep | No provider names in core or app identifiers. |
+| `cargo machete`, `unreachable_pub`, warnings as errors | No unused dependencies or unreachable public items. |
 
-### Dependency checks
-
-The [crate dependency checker](tools/check_architecture.py) enforces the
-[workspace boundaries](#boundaries) for declared dependencies, including renamed,
-optional, build and platform-specific edges. It also rejects missing required crates,
-unclassified workspace crates and app-to-ext edges outside dev-dependencies.
-The [checker tests](tools/test_architecture.py) use isolated Cargo workspaces to prove
-rejection of forbidden edges and acceptance of allowed ones.
-
-Domain and core/app dependency rules are configured in [bylaw.toml](bylaw.toml).
-Bylaw analyzes core/app libraries with all features on each CI host.
-Domain may depend on domain modules and reviewed external libraries; other core
-modules are forbidden. Core/app declared and actual dependencies are restricted to
-the inner crates and the reviewed library list; the manifest check separately enforces
-direction between inner crates. The list includes `serde_core` and `thiserror_impl`,
-owners of resolved reexports, not new provider dependencies. Library-list changes need
-review against the boundaries; never automatically copy dependencies from manifests.
-Test-only dependencies are outside this library rule. Analysis resolves aliases,
-reexports and macro expansions in active configurations. Inactive `cfg` branches
-are not checked. When adding target- or feature-dependent code, include the relevant
-configurations in architecture verification; all-features alone does not cover every
-feature combination. Unit-test-only code also requires appropriate verification.
-The manifest check above covers all declared platform dependencies between workspace crates.
-
-The [dependency runner](tools/check_domain.py) delegates analysis to Bylaw and rejects
-incomplete reports or missing/weakened rules. It applies one namespace correction
-for the pinned analyzer: ignore root prefixes (`crate`, `super`, `self`)
-recorded for grouped imports, while still rejecting items owned by the crate root. The
-[contract tests](tools/test_domain.py) check these responsibilities and a few
-allowed/forbidden examples against the real analyzer; they do not recreate its parser
-suite. Keep the namespace correction only until the analyzer handles those imports
-correctly; then run Bylaw directly while retaining equivalent verification.
-
-### Provider placement
-
-The [provider-placement rule](tools/provider_placement.yml) uses ast-grep, verified by
-[real-CLI tests](tools/test_provider_placement.py). It rejects known provider words in
-snake_case/CamelCase identifiers and standalone identity literals in core/app source.
-Comments, doc attributes, opaque JSON and integration tests remain usable. Only
-same-file outer `#[cfg(test)]` ancestry is exempt; inner/compound cfg and out-of-line
-test modules are not. Extend the name list when adding an integration.
-The rule does not expand macros, decode escaped identities or recognize restrictions
-under neutral names. Behavioral tests and [ownership review](AGENTS.md#ownership-review)
-remain required; renaming does not establish provider independence.
-
-### Effect and visibility checks
-
-Clippy's [core configuration](crates/yomibu-core/clippy.toml) restricts selected ambient
-APIs inside [domain](crates/yomibu-core/src/domain/mod.rs). The separate
-[application configuration](crates/yomibu-app/clippy.toml) restricts selected direct
-filesystem, network, environment and process APIs while permitting application timing.
-Domain and application enable their restrictions with `forbid`, including printing.
-The core `uuid` dependency requests no generation features. Domain Clippy restrictions
-reject selected UUID APIs that obtain randomness or time even if another dependency
-enables those features.
-Cargo lint defaults leave integration fixtures usable. The
-[lint tests](tools/test_domain_clippy.py) exercise allowed and forbidden examples.
-
-Each crate enables `unreachable_pub`: it flags `pub` items that cannot be reached
-from outside the crate, not unnecessary APIs that are publicly reachable.
-CI treats compiler/Clippy warnings as errors, including existing unused-code and
-redundancy checks, plus opt-in `redundant_clone` and `unused_async` checks. The latter
-does not require removing async capability signatures; trait implementations have a
-separate lint that is not enabled. These checks catch specific patterns, not unnecessary
-public APIs or excessive architectural machinery. Review remains required. Do not
-enable entire pedantic/restriction groups or size quotas to stand in for that judgment;
-use narrow, explained lint exceptions when a required contract justifies them.
-
-These guards are not proof of functional purity. Clippy does not detect every I/O API,
-indirect effect or source of nondeterminism. Review new APIs and libraries, including
-randomness sources; extend the restrictions when adopting them. Adopted tools own
-parsing and resolution; keep custom code limited to demonstrated gaps.
-
-### Behavioral verification
-
-Test each responsibility where it is owned:
-
-| Scope | Evidence |
-| --- | --- |
-| Domain | Business rules and their edge cases, using explicit inputs. |
-| Application | Workflow decisions, required/optional failure handling and shared limits across nested/parallel calls. Exercise invalid capability output and uncertain completion through port implementations outside production crates. |
-| Adapter | Translation and actual backend/provider guarantees. Verify the port's contract cases against each implementation; mocks alone cannot prove SQL guarantees. A shared test harness is not required for a single adapter. |
-| Driving adapter | Parsing, input precedence, invocation, output and exit status. Substitute application behavior where needed; a narrow inbound interface can justify that isolation. |
-
-Keep unrelated contract scenarios independently runnable and reported, so an early
-failure does not hide other results. Keep assertions for one scenario together;
-this does not require one assertion per test. Share setup where useful without
-introducing a generic test framework.
-
-Each test must fail if the specific rule it claims to verify is broken. Isolate that
-rule in the setup: for example, another foreign key must not mask the deletion rule
-under test. Each assertion should detect a plausible regression; remove assertions
-that only repeat an already-established guarantee.
-
-Keep detailed rule edge cases at their owning layer. For example, CLI tests inject
-an application rejection to test its presentation instead of rerunning eligibility
-cases through the CLI. Reusing an input is justified when assertions cover different
-obligations. Retain a few integration/end-to-end tests for wiring; test public behavior,
-not incidental private layout. SQL contract tests verify equivalent policy, ordering
-and transactions. A composed selector and optimized SQL queries are permitted designs.
-
-Cover failure handling and execution policies relevant to the operation's responsibilities.
-For workflows with optional or composed work, verify continuation, fail-fast, dependency
-failures and shared limits as applicable. A single required storage query needs
-success/failure coverage, without introducing additional policy machinery.
-CLI tests check policy forwarding, warnings and result presentation using supplied
-application outcomes, without repeating the application's failure matrix.
-
-Review glossary use, interface cohesion and invariant ownership. Report unavailable
-prerequisites without substituting backends. Never silently suppress failures or
-broaden allowlists to accommodate a violation.
+Review still decides whether a port is justified, a name matches the glossary and an
+abstraction serves a current need. Test each responsibility where it is owned: domain
+rules with explicit inputs, operations with test-supplied ports, adapters against the
+real backend, and the CLI for parsing and output with substituted operations. When a
+prerequisite such as the database is missing, fail the check; never substitute a backend.
 
 ## Changing architecture
 
-Architectural decisions may evolve through explicit user approval, including approval
-already given in the task. Propose the reason, affected guarantees and consequences
-before changing agreed boundaries or contract guarantees. Until approved, current rules
-remain binding. Update affected guidance, contracts and checks together; an improvement
-claim does not authorize an agent's own exception. Routine implementation choices within
-the rules need no further approval or new document.
+Only the user changes a rule, and this guide and the checks are updated together. An
+improvement claim is not an exception. Within the rules, signatures, async mechanics,
+drivers and internal wiring are the agent's choices.
 
 ## Design references
 
-The [SQL schema](docs/plan/schema.postgresql.sql) is a retained requirement.
-Preserving any plan does not approve its proposals. Use approved requirements and
-settled decisions when interpreting all files in `docs/plan/`, including those not
-named below.
-
-The [request example](docs/plan/story-generation-request.yml) explores a possible
-structure; it neither specifies CLI input formats nor finalizes product behavior.
-[Durability](docs/plan/durable-execution.md) and [replay](docs/plan/replay.md) remain
-exploratory proposals, not binding contracts. Adopt their details only by explicit
-decision. The plans record design history; existing-code references do not require
-retaining that implementation.
+The [SQL schema](docs/plan/schema.postgresql.sql) is a retained requirement. The other
+files in `docs/plan/` are proposals and history; adopt their details only by explicit
+decision.
