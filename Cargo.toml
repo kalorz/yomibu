@@ -18,8 +18,8 @@ publish = false
 unreachable_pub = "warn"
 unsafe_code = "forbid"
 
-# The disallow lists in clippy.toml are switched on by `forbid` in core and app.
-# Everywhere else, including test targets, they stay off.
+# The disallow lists in clippy.toml are switched on by `forbid` in core and app,
+# which covers their unit tests too. Other crates and integration tests keep them off.
 [workspace.lints.clippy]
 disallowed_methods = "allow"
 disallowed_types = "allow"
