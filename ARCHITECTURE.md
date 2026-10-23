@@ -127,7 +127,7 @@ Automated checks, run by [CI](.github/workflows/ci.yml) and locally per the
 | --- | --- |
 | `tools/check_architecture.py` | The crate graph, including renamed, optional and platform dependencies. |
 | Bylaw through `tools/check_domain.py` | Domain depends only on domain and reviewed libraries; core and app use only inner crates and the reviewed library list in `bylaw.toml`. |
-| Clippy disallow lists in `crates/*/clippy.toml` | Domain has no ambient time, randomness, environment or I/O; app has no direct filesystem, network, environment or process access. |
+| Clippy disallow list in `clippy.toml`, switched on by `forbid` in core and app | Core and app have no ambient time, randomness, environment, filesystem, network or process access. |
 | `tools/provider_placement.yml` with ast-grep | No provider names in core or app identifiers. |
 | `cargo machete`, `unreachable_pub`, warnings as errors | No unused dependencies or unreachable public items. |
 
