@@ -130,6 +130,7 @@ Automated checks, run by [CI](.github/workflows/ci.yml) and locally per the
 | Clippy disallow list in `clippy.toml`, switched on by `forbid` in core and app | Core and app have no ambient time, randomness, environment, filesystem, network or process access. |
 | `tools/provider_placement.yml` with ast-grep | No provider names in core or app identifiers. |
 | `cargo machete`, `unreachable_pub`, warnings as errors | No unused dependencies or unreachable public items. |
+| `tools/check_pr.py` on pull requests | Reports lines, public items and guide words changed, warns above a soft limit, and fails when AGENTS.md or ARCHITECTURE.md change together with crate code. |
 
 Review still decides whether a port is justified, a name matches the glossary and an
 abstraction serves a current need. Test each responsibility where it is owned: domain

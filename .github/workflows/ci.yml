@@ -46,6 +46,11 @@ jobs:
         run: rustup show active-toolchain
       - name: Verify committed lockfile
         run: git ls-files --error-unmatch Cargo.lock
+      - name: Report size and keep guides in their own PR
+        if: github.event_name == 'pull_request'
+        run: |
+          set -o pipefail
+          python3 -B tools/check_pr.py "${{ github.event.pull_request.base.sha }}" HEAD | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Check formatting
         run: cargo fmt --check
       - name: Check provider placement
