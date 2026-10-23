@@ -2,7 +2,8 @@
 
 Yomibu is being built to create Japanese reading material matched to what a learner
 already knows. The project restarted on 2026-10-23 and is being rebuilt one behaviour
-at a time; there are no runnable commands yet.
+at a time. Build with `cargo build --locked`, then run `./target/debug/yomibu --help`;
+the CLI lists its commands as they arrive.
 
 Guides: [ARCHITECTURE.md](ARCHITECTURE.md) for the rules, [AGENTS.md](AGENTS.md) for
 how work is done, and [GLOSSARY.md](GLOSSARY.md) for domain terms.
@@ -30,7 +31,7 @@ docker compose down                                      # stop, keep data
 
 ## Developing
 
-Build with `cargo build --locked` and run tests with `cargo test --locked --all`.
+Run tests with `cargo test --locked --all`.
 [CI](.github/workflows/ci.yml) defines the complete checks and runs them on Linux.
 
 ### Tests

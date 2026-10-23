@@ -1,0 +1,26 @@
+[workspace]
+members = [
+    "crates/yomibu-core",
+    "crates/yomibu-app",
+    "crates/yomibu-adapters",
+    "crates/yomibu-compose",
+    "crates/yomibu-cli",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+
+[workspace.lints.rust]
+unreachable_pub = "warn"
+unsafe_code = "forbid"
+
+# The disallow lists in clippy.toml are switched on by `forbid` in core and app.
+# Everywhere else, including test targets, they stay off.
+[workspace.lints.clippy]
+disallowed_methods = "allow"
+disallowed_types = "allow"
+disallowed_macros = "allow"
