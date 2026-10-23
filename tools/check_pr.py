@@ -7,7 +7,9 @@ import sys
 
 GUIDES = {"AGENTS.md", "ARCHITECTURE.md"}
 PROSE = GUIDES | {"GLOSSARY.md", "README.md"}
-PUBLIC_ITEM = re.compile(r"^\+\s*pub(\([^)]*\))?\s+(fn|struct|enum|trait|type|mod|const|static)\b")
+PUBLIC_ITEM = re.compile(
+    r"^\+\s*pub(\([^)]*\))?\s+(?:(?:const|async|unsafe)\s+)*(fn|struct|enum|trait|type|mod|const|static)\b"
+)
 # Soft limits: a warning asks for a sentence of justification in the PR, nothing more.
 SOFT_LIMITS = {"Rust lines changed": 400, "Guide words added": 300}
 
@@ -21,17 +23,18 @@ def added_lines(diff):
 
 
 def main(base, head):
+    # --no-renames makes a renamed guide or crate file count as a delete and an add.
     span = f"{base}...{head}"
     changed = {}
-    for line in git("diff", "--numstat", span).splitlines():
+    for line in git("diff", "--no-renames", "--numstat", span).splitlines():
         added, deleted, path = line.split("\t")
         changed[path] = sum(int(n) for n in (added, deleted) if n != "-")
     rust = {path: lines for path, lines in changed.items() if path.endswith(".rs")}
     tests = sum(lines for path, lines in rust.items() if "/tests/" in path)
-    public = sum(1 for line in git("diff", "--unified=0", span, "--", "*.rs").splitlines()
+    public = sum(1 for line in git("diff", "--no-renames", "--unified=0", span, "--", "*.rs").splitlines()
                  if PUBLIC_ITEM.match(line))
     words = sum(len(line.split()) for line in
-                added_lines(git("diff", "--unified=0", span, "--", *sorted(PROSE))))
+                added_lines(git("diff", "--no-renames", "--unified=0", span, "--", *sorted(PROSE))))
     measures = {
         "Files changed": len(changed),
         "Rust lines changed": sum(rust.values()),
