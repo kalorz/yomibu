@@ -6,3 +6,5 @@
     clippy::print_stdout,
     clippy::print_stderr
 )]
+
+pub mod write_story;
