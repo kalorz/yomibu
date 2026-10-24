@@ -86,7 +86,7 @@ Placement rules:
 | Dependencies | Follow the graph. App may use adapters only as a dev-dependency for integration tests. |
 | Functional core | Domain is deterministic for the same inputs: no I/O, clock, randomness, environment or ports. Pass observations in. |
 | Ports | Every required I/O and every replaceable capability has a port from its first implementation. Interfaces describe behaviour; settings are typed data. |
-| Application | Operations are app's only public surface; CLI, web and MCP call the same ones. An operation receives its ports and components at construction and inputs per call. Each step is an operation in its own right with its own inputs, exposed to driving crates when a ticket needs it alone; the composing operation calls that same operation, never a copy. Expected failures are results, never panics. Partial results must never look like success. |
+| Application | Operations are app's only public surface; CLI, web and MCP call the same ones. An operation receives its ports and components at construction and inputs per call. A promoted step ([trigger](#triggers)) is called by the composing operation, never copied. Expected failures are results, never panics. Partial results must never look like success. |
 | Adapters | Translate external representations and failures into the port's contract. No silent fallback to another provider. Never expose credentials or raw provider messages. |
 | Storage | Choose contracts by consumer need, not by backend structure. Every storage backend, PostgreSQL, in-memory or file, implements the same ports and passes the same contract tests. Integrity one backend enforces, such as foreign keys, does not extend across backends; mixing them for related data is a decision, not a default. PostgreSQL schema changes update the bootstrap file and recreate the database; no migrations until the user changes this policy. |
 | Simplicity | The clearest design that meets the required boundaries and behaviour: explicit names, obvious control flow, the fewest concepts. Add nothing for a need that does not exist yet; every abstraction serves a boundary, behaviour or invariant that exists now. Keep one definition of each piece of knowledge; similar-looking code is not the same knowledge, and shared code is extracted on the third occurrence, not the second. |
@@ -108,6 +108,7 @@ Propose it then, naming the trigger, and wait for the user's decision.
 | Secret storage such as the macOS keychain | The first credential you do not want in the configuration file. Compose reads it; operations never see credentials. |
 | A second CI platform | The first platform-specific code. |
 | A component that nests other components | A real case the ordered list per capability cannot express. |
+| A step as its own operation | A driving crate needs the step alone, or a second operation would repeat it. |
 
 ## Naming and dependencies
 
