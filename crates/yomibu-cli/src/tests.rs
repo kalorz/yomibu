@@ -1,8 +1,39 @@
+use std::ffi::OsString;
 use std::io::{self, ErrorKind, Write};
+use std::path::PathBuf;
 
 use yomibu_core::domain::candidate::Candidate;
 
-use super::print_story;
+use super::{default_configuration_path, print_story};
+
+fn os(value: &str) -> Option<OsString> {
+    Some(OsString::from(value))
+}
+
+#[test]
+fn default_configuration_lives_under_xdg_config_home_when_set() {
+    assert_eq!(
+        default_configuration_path(os("/xdg"), os("/home/me")),
+        Some(PathBuf::from("/xdg/yomibu/yomibu.toml"))
+    );
+}
+
+#[test]
+fn default_configuration_falls_back_to_dot_config_in_the_home_directory() {
+    let expected = Some(PathBuf::from("/home/me/.config/yomibu/yomibu.toml"));
+
+    assert_eq!(default_configuration_path(None, os("/home/me")), expected);
+    assert_eq!(default_configuration_path(os(""), os("/home/me")), expected);
+    assert_eq!(
+        default_configuration_path(os("relative/xdg"), os("/home/me")),
+        expected
+    );
+}
+
+#[test]
+fn default_configuration_is_unknown_without_a_home_directory() {
+    assert_eq!(default_configuration_path(None, None), None);
+}
 
 /// A writer whose reader has gone away, as when `head` closes the pipe.
 struct ClosedPipe;

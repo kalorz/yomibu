@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use yomibu_compose::{BuildError, CompositionRoot, Configuration};
 
 /// `story` comes first: TOML keys outside any table must precede the first table header.
@@ -11,13 +13,27 @@ fn parse(text: &str) -> Configuration {
     text.parse().expect("valid configuration")
 }
 
+/// Where relative paths resolve when the configuration has no file of its own.
+fn working_directory() -> &'static Path {
+    Path::new(".")
+}
+
+/// A fresh directory for one test's files.
+fn directory(name: &str) -> PathBuf {
+    let directory =
+        std::env::temp_dir().join(format!("yomibu-compose-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&directory).expect("directory created");
+    directory
+}
+
 #[test]
 fn builds_and_runs_write_story_from_a_configuration() {
     let words =
         std::env::temp_dir().join(format!("yomibu-{}-compose-words.txt", std::process::id()));
     std::fs::write(&words, "猫\n犬\n").expect("words file written");
     let configuration = parse(&configuration(ECHO, &words.display().to_string()));
-    let root = CompositionRoot::new(&configuration.infrastructure).expect("root built");
+    let root = CompositionRoot::new(&configuration.infrastructure, working_directory())
+        .expect("root built");
 
     let write_story = root
         .build_write_story(&configuration.story)
@@ -25,6 +41,22 @@ fn builds_and_runs_write_story_from_a_configuration() {
     let candidate = write_story.run().expect("story written");
 
     assert_eq!(candidate.text, "猫\n犬");
+}
+
+#[test]
+fn resolves_a_relative_words_path_against_the_configuration_directory() {
+    let directory = directory("relative-words");
+    std::fs::write(directory.join("words.txt"), "猫\n").expect("words file written");
+    let configuration = parse(&configuration(ECHO, "words.txt"));
+
+    let root = CompositionRoot::new(&configuration.infrastructure, &directory).expect("root built");
+    let candidate = root
+        .build_write_story(&configuration.story)
+        .expect("operation built")
+        .run()
+        .expect("story written from the configuration's directory");
+
+    assert_eq!(candidate.text, "猫");
 }
 
 #[test]
@@ -51,7 +83,8 @@ fn rejects_unknown_keys() {
 fn rejects_an_unknown_inventory_backend() {
     let configuration = parse(&configuration(ECHO, "words.txt").replace("text_file", "parchment"));
 
-    let Err(error) = CompositionRoot::new(&configuration.infrastructure) else {
+    let Err(error) = CompositionRoot::new(&configuration.infrastructure, working_directory())
+    else {
         panic!("unknown backend fails");
     };
 
@@ -65,7 +98,8 @@ fn rejects_an_unknown_inventory_backend() {
 #[test]
 fn rejects_an_unknown_generator() {
     let configuration = parse(&configuration(&ECHO.replace("echo", "oracle"), "words.txt"));
-    let root = CompositionRoot::new(&configuration.infrastructure).expect("root built");
+    let root = CompositionRoot::new(&configuration.infrastructure, working_directory())
+        .expect("root built");
 
     let Err(error) = root.build_write_story(&configuration.story) else {
         panic!("unknown generator fails");
@@ -94,7 +128,8 @@ fn each_table_reads_only_its_own_name_key() {
 fn rejects_options_the_component_does_not_take() {
     let story = format!("{ECHO}volume = 11\n");
     let configuration = parse(&configuration(&story, "words.txt"));
-    let root = CompositionRoot::new(&configuration.infrastructure).expect("root built");
+    let root = CompositionRoot::new(&configuration.infrastructure, working_directory())
+        .expect("root built");
 
     let Err(error) = root.build_write_story(&configuration.story) else {
         panic!("unknown option fails");
@@ -107,7 +142,7 @@ fn rejects_options_the_component_does_not_take() {
 fn requires_exactly_one_generator() {
     let none = parse(&configuration("story = {}\n", "words.txt"));
     let two = parse(&configuration(&format!("{ECHO}\n{ECHO}"), "words.txt"));
-    let root = CompositionRoot::new(&none.infrastructure).expect("root built");
+    let root = CompositionRoot::new(&none.infrastructure, working_directory()).expect("root built");
 
     let Err(none_error) = root.build_write_story(&none.story) else {
         panic!("no generator fails");

@@ -1,8 +1,8 @@
-# Example configuration for `yomibu story`. Copy and edit; `yomibu story --help` explains it.
+# Default configuration for `yomibu story`; `yomibu story --help` explains it.
 
 [infrastructure.inventory]   # built once per process
 backend = "text_file"
-path = "words.txt"
+path = "words.txt"           # one word per line, relative to this file
 
 [[story.generator]]          # story composition: components per capability, in order
 component = "echo"

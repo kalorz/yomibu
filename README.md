@@ -3,7 +3,9 @@
 Yomibu is being built to create Japanese reading material matched to what a learner
 already knows. The project restarted on 2026-10-23 and is being rebuilt one behaviour
 at a time. Build with `cargo build --locked`, then run `./target/debug/yomibu --help`;
-the CLI lists its commands as they arrive.
+the CLI lists its commands as they arrive. `yomibu story` reads
+`~/.config/yomibu/yomibu.toml`; start from [yomibu.default.toml](yomibu.default.toml) and
+point `path` at a file of words, one per line.
 
 Guides: [ARCHITECTURE.md](ARCHITECTURE.md) for the rules, [AGENTS.md](AGENTS.md) for
 how work is done, and [GLOSSARY.md](GLOSSARY.md) for domain terms.
