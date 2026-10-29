@@ -1,8 +1,6 @@
-# Default configuration for `yomibu story`; `yomibu story --help` explains it.
-
-[infrastructure.inventory]   # built once per process
+[infrastructure.inventory]   # where the words come from
 backend = "text_file"
 path = "words.txt"           # one word per line, relative to this file
 
-[[story.generator]]          # story composition: components per capability, in order
+[[story.generator]]          # which generator writes the story
 component = "echo"

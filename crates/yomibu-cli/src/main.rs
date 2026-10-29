@@ -1,7 +1,8 @@
 //! Command-line entry point. Commands arrive with their tickets; `yomibu --help` lists them.
 use std::error::Error;
 use std::ffi::OsString;
-use std::fs;
+use std::fmt;
+use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -10,6 +11,10 @@ use clap::{Arg, ArgMatches, Command, value_parser};
 use yomibu_app::write_story::WriteStory;
 use yomibu_compose::{CompositionRoot, Configuration, KNOWN_GENERATORS, KNOWN_INVENTORY_BACKENDS};
 use yomibu_core::domain::candidate::Candidate;
+
+/// The configuration the first run writes, kept at the repository root.
+const DEFAULT_CONFIGURATION: &str = include_str!("../../../yomibu.default.toml");
+const WORDS_FILE: &str = "words.txt";
 
 fn cli() -> Command {
     Command::new("yomibu")
@@ -35,14 +40,10 @@ fn cli() -> Command {
 
 fn configuration_help() -> String {
     format!(
-        "TOML file with two sections:\n\n\
-         [infrastructure.inventory]   # where the words come from\n\
-         backend = \"text_file\"\n\
-         path = \"words.txt\"         # one word per line, relative to this file\n\n\
-         [[story.generator]]          # which generator writes the story\n\
-         component = \"echo\"\n\n\
+        "TOML file with two sections:\n\n{DEFAULT_CONFIGURATION}\n\
          Known inventory backends: {}. Known generators: {}.\n\n\
-         Defaults to $XDG_CONFIG_HOME/yomibu/yomibu.toml, or ~/.config/yomibu/yomibu.toml.",
+         Defaults to $XDG_CONFIG_HOME/yomibu/yomibu.toml, or ~/.config/yomibu/yomibu.toml. \
+         The first run creates it, with an empty {WORDS_FILE} beside it.",
         KNOWN_INVENTORY_BACKENDS.join(", "),
         KNOWN_GENERATORS.join(", ")
     )
@@ -64,21 +65,44 @@ fn main() -> ExitCode {
 }
 
 fn story(arguments: &ArgMatches) -> Result<(), String> {
-    let path = configuration_path(arguments)?;
+    let location = configuration_location(arguments)?;
+    if let ConfigurationLocation::Default(path) = &location
+        && !path.exists()
+    {
+        let set_up =
+            set_up(path).map_err(|error| format!("cannot set up {}: {error}", path.display()))?;
+        return Err(set_up.to_string());
+    }
+    let path = location.path();
     let write_story =
-        write_story_from_file(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        write_story_from_file(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let candidate = write_story.run().map_err(|error| error.to_string())?;
     print_story(&candidate, &mut io::stdout().lock())
 }
 
-fn configuration_path(arguments: &ArgMatches) -> Result<PathBuf, String> {
+/// Where `yomibu story` looks for its configuration. Only the default is set up when missing.
+enum ConfigurationLocation {
+    Default(PathBuf),
+    Given(PathBuf),
+}
+
+impl ConfigurationLocation {
+    fn path(&self) -> &Path {
+        match self {
+            ConfigurationLocation::Default(path) | ConfigurationLocation::Given(path) => path,
+        }
+    }
+}
+
+fn configuration_location(arguments: &ArgMatches) -> Result<ConfigurationLocation, String> {
     if let Some(path) = arguments.get_one::<PathBuf>("configuration") {
-        return Ok(path.clone());
+        return Ok(ConfigurationLocation::Given(path.clone()));
     }
     default_configuration_path(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
     )
+    .map(ConfigurationLocation::Default)
     .ok_or_else(|| {
         "cannot find the configuration directory: set HOME or XDG_CONFIG_HOME, \
              or pass --configuration"
@@ -98,6 +122,48 @@ fn default_configuration_path(
         None => PathBuf::from(home?).join(".config"),
     };
     Some(base.join("yomibu").join("yomibu.toml"))
+}
+
+/// The files the first run created, for the message that says where they are.
+struct SetUp {
+    configuration: PathBuf,
+    words: PathBuf,
+}
+
+impl fmt::Display for SetUp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "created {} and {}\nadd words to {WORDS_FILE}, one per line, then run `yomibu story` again",
+            self.configuration.display(),
+            self.words.display()
+        )
+    }
+}
+
+/// Writes the default configuration and an empty words file beside it.
+fn set_up(configuration: &Path) -> io::Result<SetUp> {
+    let directory = configuration.parent().unwrap_or(Path::new("."));
+    fs::create_dir_all(directory)?;
+    create_private(configuration, DEFAULT_CONFIGURATION)?;
+    let words = directory.join(WORDS_FILE);
+    create_private(&words, "")?;
+    Ok(SetUp {
+        configuration: configuration.to_path_buf(),
+        words,
+    })
+}
+
+/// Creates a file readable by its owner only, and never replaces one that exists.
+fn create_private(path: &Path, contents: &str) -> io::Result<()> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)?.write_all(contents.as_bytes())
 }
 
 /// Every failure here is about the configuration file, so the caller names it once.
