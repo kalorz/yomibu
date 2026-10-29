@@ -2,7 +2,7 @@
 
 use std::error::Error;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -111,12 +111,18 @@ pub struct CompositionRoot {
 }
 
 impl CompositionRoot {
-    pub fn new(infrastructure: &Infrastructure) -> Result<CompositionRoot, BuildError> {
+    /// Relative paths in the configuration resolve against `configuration_directory`.
+    pub fn new(
+        infrastructure: &Infrastructure,
+        configuration_directory: &Path,
+    ) -> Result<CompositionRoot, BuildError> {
         let table = &infrastructure.inventory;
         let inventory_source: Arc<dyn InventorySource> = match table.backend.as_str() {
             TEXT_FILE => {
                 let options: TextFileOptions = typed_options(&table.backend, &table.options)?;
-                Arc::new(TextFileInventory::new(options.path))
+                Arc::new(TextFileInventory::new(
+                    configuration_directory.join(options.path),
+                ))
             }
             _ => {
                 return Err(BuildError::Unknown {
