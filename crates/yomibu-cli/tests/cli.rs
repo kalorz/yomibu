@@ -42,14 +42,13 @@ fn yomibu_directory(config_home: &Path) -> PathBuf {
     config_home.join("yomibu")
 }
 
-/// A home holding the default configuration and a words file with two words.
+/// A home whose first run has happened and whose words file holds two words.
 fn configured_home(name: &str) -> PathBuf {
     let config_home = directory(name);
-    let yomibu_directory = yomibu_directory(&config_home);
-    std::fs::create_dir_all(&yomibu_directory).expect("directory created");
-    std::fs::copy(DEFAULT_CONFIGURATION, yomibu_directory.join("yomibu.toml"))
-        .expect("configuration copied");
-    std::fs::write(yomibu_directory.join("words.txt"), "猫\n犬\n").expect("words written");
+    let output = yomibu(&config_home, &["story"]);
+    assert!(!output.status.success(), "the first run only sets up");
+    std::fs::write(yomibu_directory(&config_home).join("words.txt"), "猫\n犬\n")
+        .expect("words written");
     config_home
 }
 
@@ -77,6 +76,7 @@ fn story_help_explains_the_configuration_file() {
     assert!(help.contains("--configuration"));
     assert!(help.contains("~/.config/yomibu/yomibu.toml"));
     assert!(help.contains("XDG_CONFIG_HOME"));
+    assert!(help.contains("first run"));
     assert!(help.contains("[infrastructure.inventory]"));
     assert!(help.contains("[[story.generator]]"));
     assert!(help.contains("text_file"));
@@ -105,9 +105,11 @@ fn story_reads_the_words_file_from_the_configuration_directory() {
 }
 
 #[test]
-fn story_names_the_configuration_file_in_a_configuration_error() {
-    let config_home = configured_home("invalid-configuration");
-    let configuration = yomibu_directory(&config_home).join("yomibu.toml");
+fn an_existing_configuration_is_never_rewritten_and_gets_no_words_file() {
+    let config_home = directory("existing-configuration");
+    let yomibu_directory = yomibu_directory(&config_home);
+    std::fs::create_dir_all(&yomibu_directory).expect("directory created");
+    let configuration = yomibu_directory.join("yomibu.toml");
     std::fs::write(&configuration, "this is not toml\n").expect("configuration written");
 
     let output = yomibu(&config_home, &["story"]);
@@ -123,44 +125,83 @@ fn story_names_the_configuration_file_in_a_configuration_error() {
         "{message}"
     );
     assert!(!message.ends_with("\n\n"), "{message:?}");
+    assert_eq!(
+        std::fs::read_to_string(&configuration).expect("configuration still there"),
+        "this is not toml\n"
+    );
+    assert!(!yomibu_directory.join("words.txt").exists());
 }
 
 #[test]
-fn story_names_a_missing_default_configuration() {
-    let config_home = directory("missing-default");
-    let configuration = yomibu_directory(&config_home).join("yomibu.toml");
+fn first_run_creates_the_configuration_and_an_empty_words_file_and_says_where() {
+    let config_home = directory("first-run");
+    let yomibu_directory = yomibu_directory(&config_home);
+    let configuration = yomibu_directory.join("yomibu.toml");
+    let words = yomibu_directory.join("words.txt");
 
     let output = yomibu(&config_home, &["story"]);
 
     assert!(!output.status.success());
     assert!(stdout(&output).is_empty());
-    let message = stderr(&output);
-    assert!(
-        message.contains(&configuration.display().to_string()),
-        "{message}"
+    assert_eq!(
+        stderr(&output),
+        format!(
+            "error: created {} and {}\nadd words to words.txt, one per line, then run `yomibu story` again\n",
+            configuration.display(),
+            words.display()
+        )
     );
-    assert!(message.contains("cannot read configuration"), "{message}");
+    assert_eq!(
+        std::fs::read_to_string(&configuration).expect("configuration created"),
+        std::fs::read_to_string(DEFAULT_CONFIGURATION).expect("default configuration read")
+    );
+    assert_eq!(
+        std::fs::read_to_string(&words).expect("words file created"),
+        ""
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn first_run_makes_the_created_files_readable_by_their_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let config_home = directory("private-files");
+    yomibu(&config_home, &["story"]);
+
+    for name in ["yomibu.toml", "words.txt"] {
+        let mode = std::fs::metadata(yomibu_directory(&config_home).join(name))
+            .expect("file created")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600, "{name} has mode {mode:o}");
+    }
 }
 
 #[test]
 fn story_prints_the_candidate_from_a_named_configuration() {
+    let config_home = directory("named-home");
     let working_directory = directory("named");
     std::fs::copy(DEFAULT_CONFIGURATION, working_directory.join("custom.toml"))
         .expect("configuration copied");
     std::fs::write(working_directory.join("words.txt"), "猫\n").expect("words written");
 
     let output = yomibu_in(
-        &directory("named-home"),
+        &config_home,
         &working_directory,
         &["story", "--configuration", "custom.toml"],
     );
 
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(stdout(&output), "猫\n");
+    assert!(
+        !yomibu_directory(&config_home).exists(),
+        "a named configuration triggers no setup"
+    );
 }
 
 #[test]
-fn story_names_a_named_configuration_it_cannot_read() {
+fn a_missing_named_configuration_is_an_error_and_is_not_created() {
     let working_directory = directory("missing-named");
     let path = working_directory.join("nonexistent.toml");
 
@@ -174,6 +215,7 @@ fn story_names_a_named_configuration_it_cannot_read() {
     let message = stderr(&output);
     assert!(message.contains(&path.display().to_string()), "{message}");
     assert!(message.contains("cannot read configuration"), "{message}");
+    assert!(!path.exists());
 }
 
 #[test]

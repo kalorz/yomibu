@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use yomibu_core::domain::candidate::Candidate;
 
-use super::{default_configuration_path, print_story};
+use super::{SetUp, default_configuration_path, print_story};
 
 fn os(value: &str) -> Option<OsString> {
     Some(OsString::from(value))
@@ -33,6 +33,20 @@ fn default_configuration_falls_back_to_dot_config_in_the_home_directory() {
 #[test]
 fn default_configuration_is_unknown_without_a_home_directory() {
     assert_eq!(default_configuration_path(None, None), None);
+}
+
+#[test]
+fn set_up_message_names_both_files_and_the_next_step() {
+    let set_up = SetUp {
+        configuration: PathBuf::from("/xdg/yomibu/yomibu.toml"),
+        words: PathBuf::from("/xdg/yomibu/words.txt"),
+    };
+
+    assert_eq!(
+        set_up.to_string(),
+        "created /xdg/yomibu/yomibu.toml and /xdg/yomibu/words.txt\n\
+         add words to words.txt, one per line, then run `yomibu story` again"
+    );
 }
 
 /// A writer whose reader has gone away, as when `head` closes the pipe.
